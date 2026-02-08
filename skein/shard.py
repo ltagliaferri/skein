@@ -109,9 +109,7 @@ def _get_shard_metadata(worktree_name: str) -> Optional[Dict[str, Any]]:
     """Get shard metadata from SQLite database."""
     conn = _get_db_connection()
     try:
-        cursor = conn.execute(
-            "SELECT * FROM shards WHERE worktree_name = ?", (worktree_name,)
-        )
+        cursor = conn.execute("SELECT * FROM shards WHERE worktree_name = ?", (worktree_name,))
         row = cursor.fetchone()
         if row:
             return dict(row)
@@ -129,23 +127,17 @@ def _update_shard_status(worktree_name: str, status: str, **kwargs) -> None:
 
         if "merged_at" in kwargs:
             updates.append("merged_at = ?")
-            values.append(
-                kwargs["merged_at"].isoformat() if kwargs["merged_at"] else None
-            )
+            values.append(kwargs["merged_at"].isoformat() if kwargs["merged_at"] else None)
         if "tendered_at" in kwargs:
             updates.append("tendered_at = ?")
-            values.append(
-                kwargs["tendered_at"].isoformat() if kwargs["tendered_at"] else None
-            )
+            values.append(kwargs["tendered_at"].isoformat() if kwargs["tendered_at"] else None)
         if "confidence" in kwargs:
             updates.append("confidence = ?")
             values.append(kwargs["confidence"])
 
         values.append(worktree_name)
 
-        conn.execute(
-            f"UPDATE shards SET {', '.join(updates)} WHERE worktree_name = ?", values
-        )
+        conn.execute(f"UPDATE shards SET {', '.join(updates)} WHERE worktree_name = ?", values)
         conn.commit()
     finally:
         conn.close()
@@ -243,9 +235,7 @@ def _find_project_root() -> Path:
         if (project_path / ".git").exists():
             return project_path
         # If SKEIN_PROJECT is set but invalid, raise an error
-        raise ShardError(
-            f"SKEIN_PROJECT env var points to non-git directory: {env_project}"
-        )
+        raise ShardError(f"SKEIN_PROJECT env var points to non-git directory: {env_project}")
 
     # Fall back to cwd-based detection
     current = Path.cwd()  # Start from current working directory
@@ -355,9 +345,7 @@ def _get_git_version() -> Tuple[int, ...]:
     try:
         import subprocess
 
-        result = subprocess.run(
-            ["git", "--version"], capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(["git", "--version"], capture_output=True, text=True, check=True)
         # Output format: "git version 2.38.1" or "git version 2.38.1.windows.1"
         version_str = result.stdout.strip()
         # Extract version number after "git version "
@@ -428,9 +416,7 @@ def _get_next_sequence(name: str, date: str) -> int:
 
     pattern_prefix = f"{name}-{date}-"
     existing = [
-        d.name
-        for d in worktrees_dir.iterdir()
-        if d.is_dir() and d.name.startswith(pattern_prefix)
+        d.name for d in worktrees_dir.iterdir() if d.is_dir() and d.name.startswith(pattern_prefix)
     ]
 
     if not existing:
@@ -606,8 +592,7 @@ def _is_path_inside_worktree(path: Path, worktree_path: Path) -> bool:
         resolved_path = path.resolve()
         resolved_worktree = worktree_path.resolve()
         resolved_inside = (
-            resolved_path == resolved_worktree
-            or resolved_worktree in resolved_path.parents
+            resolved_path == resolved_worktree or resolved_worktree in resolved_path.parents
         )
 
         # Block if EITHER check indicates we're inside
@@ -666,8 +651,7 @@ def cleanup_shard(
         worktree_path.resolve().relative_to(worktrees_dir.resolve())
     except ValueError:
         raise ShardError(
-            f"Invalid worktree path: {worktree_path}\n"
-            f"Worktree must be inside: {worktrees_dir}"
+            f"Invalid worktree path: {worktree_path}\n" f"Worktree must be inside: {worktrees_dir}"
         )
 
     if not worktree_path.exists():
@@ -722,9 +706,7 @@ def cleanup_shard(
             # Don't raise error if branch deletion fails (branch might not exist)
             import sys
 
-            print(
-                f"Warning: Could not delete branch {branch_name}: {e}", file=sys.stderr
-            )
+            print(f"Warning: Could not delete branch {branch_name}: {e}", file=sys.stderr)
 
     # Prune stale worktree references
     try:
@@ -1222,9 +1204,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
             try:
                 if result["master_commits_ahead"] > 0:
                     # Get file stats for changes on master
-                    name_status = repo.git.diff(
-                        "--name-status", f"{base_commit}..master"
-                    )
+                    name_status = repo.git.diff("--name-status", f"{base_commit}..master")
                     notable = []
                     for line in name_status.strip().split("\n")[:10]:  # Limit to 10
                         if line:
@@ -1244,9 +1224,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
             # Get work diff stat (agent's actual changes from base)
             try:
                 work_stat = repo.git.diff("--stat", f"{base_commit}..{branch}")
-                result["work_diff_stat"] = (
-                    work_stat.strip() if work_stat.strip() else None
-                )
+                result["work_diff_stat"] = work_stat.strip() if work_stat.strip() else None
             except:
                 pass
 
@@ -1760,9 +1738,7 @@ def is_nested_shard(worktree_name: str) -> bool:
                 try:
                     # created_at could be string or datetime
                     if isinstance(created_at, str):
-                        created_ts = dt.fromisoformat(
-                            created_at.replace("Z", "+00:00")
-                        ).timestamp()
+                        created_ts = dt.fromisoformat(created_at.replace("Z", "+00:00")).timestamp()
                     else:
                         created_ts = created_at.timestamp()
                 except (ValueError, AttributeError):
@@ -1783,9 +1759,7 @@ def is_nested_shard(worktree_name: str) -> bool:
     return False
 
 
-def graft_shard(
-    worktree_name: str, project_root: Optional[str] = None
-) -> Dict[str, Any]:
+def graft_shard(worktree_name: str, project_root: Optional[str] = None) -> Dict[str, Any]:
     """
     Create a graft worktree to resolve conflicts.
 
@@ -1856,9 +1830,7 @@ def graft_shard(
 
     # Create worktree from current master
     try:
-        repo.git.worktree(
-            "add", str(graft_worktree_path), "-b", graft_branch_name, "master"
-        )
+        repo.git.worktree("add", str(graft_worktree_path), "-b", graft_branch_name, "master")
     except Exception as e:
         raise ShardError(f"Failed to create graft worktree: {e}")
 

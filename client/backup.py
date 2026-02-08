@@ -28,9 +28,7 @@ class BackupManager:
             backup_dir: Path to store backups (default: ~/.skein/backups)
         """
         self.data_dir = Path(data_dir)
-        self.backup_dir = (
-            Path(backup_dir) if backup_dir else Path.home() / ".skein" / "backups"
-        )
+        self.backup_dir = Path(backup_dir) if backup_dir else Path.home() / ".skein" / "backups"
 
         # Ensure backup directories exist
         self.full_backup_dir = self.backup_dir / "full"
@@ -105,9 +103,7 @@ class BackupManager:
         }
 
         # Remove .tar.gz and add .json for metadata file
-        metadata_path = self.full_backup_dir / (
-            backup_name.replace(".tar.gz", "") + ".json"
-        )
+        metadata_path = self.full_backup_dir / (backup_name.replace(".tar.gz", "") + ".json")
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2, default=str)
 
@@ -140,9 +136,7 @@ class BackupManager:
                     metadata["type"] = "full"
                     # Check if actual backup file exists
                     # metadata_file is name.json, backup is name.tar.gz
-                    backup_file = metadata_file.parent / (
-                        metadata_file.stem + ".tar.gz"
-                    )
+                    backup_file = metadata_file.parent / (metadata_file.stem + ".tar.gz")
                     metadata["exists"] = backup_file.exists()
                     backups.append(metadata)
                 except Exception:
@@ -351,9 +345,7 @@ class BackupManager:
             cutoff = datetime.now(timezone.utc).timestamp() - (older_than_days * 86400)
             for backup in backups:
                 try:
-                    backup_time = datetime.fromisoformat(
-                        backup["timestamp"].replace("Z", "+00:00")
-                    )
+                    backup_time = datetime.fromisoformat(backup["timestamp"].replace("Z", "+00:00"))
                     if backup_time.timestamp() < cutoff:
                         to_remove.append(backup)
                     else:
@@ -388,9 +380,7 @@ class BackupManager:
         return {
             "success": len(errors) == 0,
             "dry_run": dry_run,
-            "would_remove" if dry_run else "removed": [
-                b["backup_name"] for b in to_remove
-            ],
+            "would_remove" if dry_run else "removed": [b["backup_name"] for b in to_remove],
             "keeping": [b["backup_name"] for b in to_keep],
             "errors": errors if errors else None,
         }

@@ -80,9 +80,7 @@ class TestSackStorage:
         assert yield_data is not None
         assert yield_data["duration_seconds"] == 120
         assert yield_data["tokens_used"] == 5000
-        assert (
-            yield_data["shard_path"] == "/home/user/projects/repo/worktrees/shard-abc"
-        )
+        assert yield_data["shard_path"] == "/home/user/projects/repo/worktrees/shard-abc"
         assert yield_data["tender_id"] == "tender-20251206-xyz1"
 
     def test_get_chain_yields_ordering(self, test_db):

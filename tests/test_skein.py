@@ -140,9 +140,7 @@ async def test_skein_workflow():
 
         # Test 6a: Search folios with query
         print("\n6️⃣a Searching folios with query...")
-        async with session.get(
-            f"{BASE_URL}/folios/search", params={"q": "database"}
-        ) as resp:
+        async with session.get(f"{BASE_URL}/folios/search", params={"q": "database"}) as resp:
             if resp.status == 200:
                 results = await resp.json()
                 print(f"✅ Found {len(results)} result(s) for 'database'")
@@ -237,55 +235,41 @@ async def test_skein_workflow():
 
         # Test 9: Thread search - by type
         print("\n9️⃣ Thread search - by type...")
-        async with session.get(
-            f"{BASE_URL}/threads", params={"type": "message"}
-        ) as resp:
+        async with session.get(f"{BASE_URL}/threads", params={"type": "message"}) as resp:
             if resp.status == 200:
                 threads = await resp.json()
                 print(f"✅ Found {len(threads)} message thread(s)")
-                assert all(t["type"] == "message" for t in threads), (
-                    "Type filter failed"
-                )
+                assert all(t["type"] == "message" for t in threads), "Type filter failed"
             else:
                 print(f"❌ Failed to search threads by type: {await resp.text()}")
 
         # Test 9a: Thread search - by weaver
         print("\n9️⃣a Thread search - by weaver...")
-        async with session.get(
-            f"{BASE_URL}/threads", params={"weaver": "test-agent-001"}
-        ) as resp:
+        async with session.get(f"{BASE_URL}/threads", params={"weaver": "test-agent-001"}) as resp:
             if resp.status == 200:
                 threads = await resp.json()
                 print(f"✅ Found {len(threads)} thread(s) created by test-agent-001")
                 assert all(
-                    t.get("weaver") == "test-agent-001"
-                    for t in threads
-                    if t.get("weaver")
+                    t.get("weaver") == "test-agent-001" for t in threads if t.get("weaver")
                 ), "Weaver filter failed"
             else:
                 print(f"❌ Failed to search threads by weaver: {await resp.text()}")
 
         # Test 9b: Thread search - content search
         print("\n9️⃣b Thread search - content search...")
-        async with session.get(
-            f"{BASE_URL}/threads", params={"search": "Brief"}
-        ) as resp:
+        async with session.get(f"{BASE_URL}/threads", params={"search": "Brief"}) as resp:
             if resp.status == 200:
                 threads = await resp.json()
                 print(f"✅ Found {len(threads)} thread(s) containing 'Brief'")
                 for thread in threads:
                     if thread.get("content"):
-                        assert "brief" in thread["content"].lower(), (
-                            "Content search failed"
-                        )
+                        assert "brief" in thread["content"].lower(), "Content search failed"
             else:
                 print(f"❌ Failed to search threads by content: {await resp.text()}")
 
         # Test 9c: Thread search - time filter
         print("\n9️⃣c Thread search - time filter...")
-        async with session.get(
-            f"{BASE_URL}/threads", params={"since": "1hour"}
-        ) as resp:
+        async with session.get(f"{BASE_URL}/threads", params={"since": "1hour"}) as resp:
             if resp.status == 200:
                 threads = await resp.json()
                 print(f"✅ Found {len(threads)} thread(s) from last hour")
@@ -323,9 +307,7 @@ async def test_unified_search():
                 print(f"✅ Search completed in {data.get('execution_time_ms')}ms")
                 print(f"   Total results: {data.get('total', 0)}")
                 print(f"   Resources searched: {', '.join(data.get('resources', []))}")
-                assert "folios" in data.get("results", {}), (
-                    "Default should search folios"
-                )
+                assert "folios" in data.get("results", {}), "Default should search folios"
             else:
                 print(f"❌ Failed basic search: {await resp.text()}")
                 return
@@ -343,9 +325,7 @@ async def test_unified_search():
                 for resource_type, resource_data in results.items():
                     total = resource_data.get("total", 0)
                     items_count = len(resource_data.get("items", []))
-                    print(
-                        f"   • {resource_type}: {total} total, {items_count} returned"
-                    )
+                    print(f"   • {resource_type}: {total} total, {items_count} returned")
             else:
                 print(f"❌ Failed multi-resource search: {await resp.text()}")
 
@@ -447,18 +427,14 @@ async def test_unified_search():
                 ) as resp2:
                     if resp2.status == 200:
                         data2 = await resp2.json()
-                        page2 = (
-                            data2.get("results", {}).get("folios", {}).get("items", [])
-                        )
+                        page2 = data2.get("results", {}).get("folios", {}).get("items", [])
                         print(f"   Page 2: {len(page2)} items (offset=5)")
             else:
                 print(f"❌ Failed pagination test: {await resp.text()}")
 
         # Test 9: Time filters
         print("\n9️⃣ Testing time filters...")
-        async with session.get(
-            f"{BASE_URL}/search", params={"q": "", "since": "1hour"}
-        ) as resp:
+        async with session.get(f"{BASE_URL}/search", params={"q": "", "since": "1hour"}) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 folios = data.get("results", {}).get("folios", {}).get("items", [])
@@ -476,9 +452,7 @@ async def test_unified_search():
                 folios = data.get("results", {}).get("folios", {}).get("items", [])
                 print(f"✅ Found {len(folios)} open briefs (empty query)")
                 for folio in folios:
-                    assert folio.get("type") == "brief", (
-                        "Type filter failed with empty query"
-                    )
+                    assert folio.get("type") == "brief", "Type filter failed with empty query"
             else:
                 print(f"❌ Failed empty query test: {await resp.text()}")
 

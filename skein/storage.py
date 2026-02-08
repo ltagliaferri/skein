@@ -93,7 +93,8 @@ class LogDatabase:
     def _init_db(self):
         """Initialize database schema."""
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     stream_id TEXT NOT NULL,
@@ -103,27 +104,35 @@ class LogDatabase:
                     message TEXT NOT NULL,
                     metadata JSON
                 )
-            """)
+            """
+            )
 
             # Create indexes
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_stream_time
                 ON logs(stream_id, timestamp DESC)
-            """)
+            """
+            )
 
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_stream_level
                 ON logs(stream_id, level)
-            """)
+            """
+            )
 
             # Full-text search
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE VIRTUAL TABLE IF NOT EXISTS logs_fts
                 USING fts5(message, content=logs)
-            """)
+            """
+            )
 
             # Screenshots table
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS screenshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     screenshot_id TEXT UNIQUE NOT NULL,
@@ -135,16 +144,20 @@ class LogDatabase:
                     file_size INTEGER,
                     metadata JSON
                 )
-            """)
+            """
+            )
 
             # Create indexes for screenshots
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_screenshots_strand
                 ON screenshots(strand_id, timestamp DESC)
-            """)
+            """
+            )
 
             # Sacks table - stores yields from chain participants
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS sacks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     sack_id TEXT UNIQUE NOT NULL,
@@ -168,23 +181,30 @@ class LogDatabase:
                     -- Catchall for future fields
                     metadata JSON
                 )
-            """)
+            """
+            )
 
             # Create indexes for sacks
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_sacks_chain
                 ON sacks(chain_id, timestamp)
-            """)
+            """
+            )
 
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_sacks_agent
                 ON sacks(agent_id)
-            """)
+            """
+            )
 
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_sacks_status
                 ON sacks(status)
-            """)
+            """
+            )
 
             conn.commit()
 
@@ -275,7 +295,8 @@ class LogDatabase:
     def get_streams(self) -> List[Dict[str, Any]]:
         """Get list of all log streams."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     stream_id,
                     COUNT(*) as line_count,
@@ -284,7 +305,8 @@ class LogDatabase:
                 FROM logs
                 GROUP BY stream_id
                 ORDER BY last_log DESC
-            """)
+            """
+            )
 
             return [dict(row) for row in cursor.fetchall()]
 
@@ -506,9 +528,7 @@ class LogDatabase:
 
             return results
 
-    def get_previous_yield(
-        self, chain_id: str, before_task_id: str
-    ) -> Optional[Dict[str, Any]]:
+    def get_previous_yield(self, chain_id: str, before_task_id: str) -> Optional[Dict[str, Any]]:
         """
         Get the most recent yield in a chain before a specific task.
 
@@ -830,10 +850,7 @@ class JSONStore:
                 if thread.thread_id in thread_map:
                     continue
                 # Include if from_id or to_id is a thread we care about
-                if (
-                    thread.from_id in involved_thread_ids
-                    or thread.to_id in involved_thread_ids
-                ):
+                if thread.from_id in involved_thread_ids or thread.to_id in involved_thread_ids:
                     thread_map[thread.thread_id] = thread
                     involved_thread_ids.add(thread.thread_id)
                     found_new = True

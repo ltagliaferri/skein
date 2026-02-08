@@ -71,9 +71,7 @@ def get_global_config() -> Dict[str, Any]:
         return {"server_url": "http://localhost:8001"}
 
 
-def get_agent_id(
-    ctx_agent: Optional[str] = None, base_url: Optional[str] = None
-) -> Optional[str]:
+def get_agent_id(ctx_agent: Optional[str] = None, base_url: Optional[str] = None) -> Optional[str]:
     """
     Get agent ID from sources in priority order:
     1. --agent flag (explicit override)
@@ -217,12 +215,8 @@ def make_title_from_content(content: str, max_length: int = 100) -> str:
 
 
 @click.group()
-@click.option(
-    "--agent", envvar="SKEIN_AGENT_ID", help="Agent ID (or set SKEIN_AGENT_ID)"
-)
-@click.option(
-    "--url", envvar="SKEIN_URL", help="SKEIN server URL (default: localhost:8001)"
-)
+@click.option("--agent", envvar="SKEIN_AGENT_ID", help="Agent ID (or set SKEIN_AGENT_ID)")
+@click.option("--url", envvar="SKEIN_URL", help="SKEIN server URL (default: localhost:8001)")
 @click.pass_context
 def cli(ctx, agent, url):
     """SKEIN CLI - Agent collaboration system.
@@ -331,9 +325,7 @@ def setup_claude():
 
     if not template_path.exists():
         # Fallback: try relative to this file (project root)
-        template_path = (
-            Path(__file__).parent.parent / "skein" / "templates" / "CLAUDE.md"
-        )
+        template_path = Path(__file__).parent.parent / "skein" / "templates" / "CLAUDE.md"
 
     if not template_path.exists():
         raise click.ClickException(f"Template not found at {template_path}")
@@ -455,9 +447,7 @@ def health(ctx, output_json):
 
     # Check git repo
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-dir"], capture_output=True, timeout=5
-        )
+        result = subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True, timeout=5)
         checks["git"] = result.returncode == 0
     except Exception:
         checks["git"] = False
@@ -562,9 +552,7 @@ def logs(ctx, stream_id, level, since, search, tail, list_streams, output_json):
     if tail:
         params["limit"] = tail
 
-    log_lines = make_request(
-        "GET", f"/logs/{stream_id}", base_url, agent_id, params=params
-    )
+    log_lines = make_request("GET", f"/logs/{stream_id}", base_url, agent_id, params=params)
 
     if output_json:
         click.echo(json.dumps(log_lines, indent=2))
@@ -579,9 +567,7 @@ def logs(ctx, stream_id, level, since, search, tail, list_streams, output_json):
                 click.echo(f"[{timestamp}] {level_str}: {message}")
 
             if len(log_lines) > 50:
-                click.echo(
-                    f"\n... and {len(log_lines) - 50} more lines (use --json to see all)"
-                )
+                click.echo(f"\n... and {len(log_lines) - 50} more lines (use --json to see all)")
 
 
 @cli.command("log")
@@ -644,15 +630,11 @@ def log_cmd(
 
     # Filter by agent
     if agent:
-        folios_list = [
-            f for f in folios_list if agent.lower() in f.get("created_by", "").lower()
-        ]
+        folios_list = [f for f in folios_list if agent.lower() in f.get("created_by", "").lower()]
 
     # Filter by grep
     if grep:
-        folios_list = [
-            f for f in folios_list if grep.lower() in f.get("content", "").lower()
-        ]
+        folios_list = [f for f in folios_list if grep.lower() in f.get("content", "").lower()]
 
     # Filter by since/until
     if since or until:
@@ -684,8 +666,7 @@ def log_cmd(
                 folios_list = [
                     f
                     for f in folios_list
-                    if datetime.fromisoformat(f["created_at"].replace("Z", "+00:00"))
-                    >= since_dt
+                    if datetime.fromisoformat(f["created_at"].replace("Z", "+00:00")) >= since_dt
                 ]
 
         if until:
@@ -694,8 +675,7 @@ def log_cmd(
                 folios_list = [
                     f
                     for f in folios_list
-                    if datetime.fromisoformat(f["created_at"].replace("Z", "+00:00"))
-                    <= until_dt
+                    if datetime.fromisoformat(f["created_at"].replace("Z", "+00:00")) <= until_dt
                 ]
 
     # Follow thread connections
@@ -1155,9 +1135,7 @@ def ignite(ctx, brief_id):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to ignite work"
-        )
+        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to ignite work")
 
     # Get the brief
     brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
@@ -1187,9 +1165,7 @@ def ignite(ctx, brief_id):
     click.echo(f"\n{'=' * 60}")
 
     # Show threaded issues
-    threads_data = make_request(
-        "GET", "/threads", base_url, agent_id, params={"from_id": brief_id}
-    )
+    threads_data = make_request("GET", "/threads", base_url, agent_id, params={"from_id": brief_id})
 
     if threads_data:
         click.echo(f"\nThreaded work ({len(threads_data)} item(s)):")
@@ -1239,9 +1215,7 @@ def resume(ctx, brief_id):
 )
 @click.option("--status", help="Filter by status (open, closed, investigating)")
 @click.option("--assigned", help="Filter by assignee")
-@click.option(
-    "--since", help="Only items after this time (e.g., '1hour', '2days', ISO timestamp)"
-)
+@click.option("--since", help="Only items after this time (e.g., '1hour', '2days', ISO timestamp)")
 @click.option("--sort", help="Sort by: created (default), created_asc, relevance")
 @click.option("--limit", type=int, default=50, help="Max results (default: 50)")
 @click.option("--all", "show_all", is_flag=True, help="Include archived folios")
@@ -1365,9 +1339,7 @@ def find(
             by_type[folio_type].append(f)
 
         for folio_type in sorted(by_type.keys()):
-            click.echo(
-                f"\n  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):"
-            )
+            click.echo(f"\n  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):")
             for f in by_type[folio_type]:
                 status_str = f"[{f.get('status', 'open')}]"
                 # Format created_at date
@@ -1377,9 +1349,7 @@ def find(
                         dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
                         date_str = dt.strftime("%Y-%m-%d")
                     except (ValueError, AttributeError):
-                        date_str = (
-                            created_at[:10] if len(created_at) >= 10 else created_at
-                        )
+                        date_str = created_at[:10] if len(created_at) >= 10 else created_at
                 else:
                     date_str = ""
 
@@ -1427,9 +1397,7 @@ def find(
 )
 @click.option("--status", help="Filter by status (open, closed)")
 @click.option("--sort", help="Sort by: created (default), created_asc, relevance")
-@click.option(
-    "--limit", type=int, help="Limit results per resource type (default: 50, max: 500)"
-)
+@click.option("--limit", type=int, help="Limit results per resource type (default: 50, max: 500)")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def search(
@@ -1525,9 +1493,7 @@ def search(
                         by_site[site_id].append(r)
 
                     len(by_site)
-                    click.echo(
-                        f"📑 Folios ({folios_total} total, showing {len(folios)}):\n"
-                    )
+                    click.echo(f"📑 Folios ({folios_total} total, showing {len(folios)}):\n")
 
                     for site_id in sorted(by_site.keys()):
                         site_results = by_site[site_id]
@@ -1541,9 +1507,7 @@ def search(
                             click.echo(f"       ID: {r['folio_id']}")
 
                         if len(site_results) > 10:
-                            click.echo(
-                                f"       ... and {len(site_results) - 10} more in this site"
-                            )
+                            click.echo(f"       ... and {len(site_results) - 10} more in this site")
 
                         click.echo()
 
@@ -1554,13 +1518,9 @@ def search(
                 threads_total = threads_data.get("total", 0)
 
                 if threads:
-                    click.echo(
-                        f"🧵 Threads ({threads_total} total, showing {len(threads)}):\n"
-                    )
+                    click.echo(f"🧵 Threads ({threads_total} total, showing {len(threads)}):\n")
                     for t in threads[:20]:  # Show first 20 threads
-                        click.echo(
-                            f"  {t['type']}: {t.get('content', 'No content')[:80]}"
-                        )
+                        click.echo(f"  {t['type']}: {t.get('content', 'No content')[:80]}")
                         click.echo(f"    {t['from_id']} → {t['to_id']}")
                         click.echo(f"    ID: {t['thread_id']}\n")
 
@@ -1574,9 +1534,7 @@ def search(
                 agents_total = agents_data.get("total", 0)
 
                 if agents:
-                    click.echo(
-                        f"👤 Agents ({agents_total} total, showing {len(agents)}):\n"
-                    )
+                    click.echo(f"👤 Agents ({agents_total} total, showing {len(agents)}):\n")
                     for a in agents[:20]:  # Show first 20 agents
                         status_icon = "✓" if a.get("status") == "active" else "○"
                         caps = (
@@ -1584,9 +1542,7 @@ def search(
                             if a.get("capabilities")
                             else "none"
                         )
-                        click.echo(
-                            f"  {status_icon} {a['agent_id']}: {a.get('name', 'No name')}"
-                        )
+                        click.echo(f"  {status_icon} {a['agent_id']}: {a.get('name', 'No name')}")
                         click.echo(
                             f"    Type: {a.get('agent_type', 'unknown')} | Capabilities: {caps}\n"
                         )
@@ -1601,9 +1557,7 @@ def search(
                 sites_total = sites_data.get("total", 0)
 
                 if sites_list:
-                    click.echo(
-                        f"📍 Sites ({sites_total} total, showing {len(sites_list)}):\n"
-                    )
+                    click.echo(f"📍 Sites ({sites_total} total, showing {len(sites_list)}):\n")
                     for s in sites_list[:20]:  # Show first 20 sites
                         status_icon = "✓" if s.get("status") == "active" else "○"
                         click.echo(f"  {status_icon} {s['site_id']}")
@@ -1637,9 +1591,7 @@ def status(ctx, output_json):
 
     # Get project config
     project_config = get_project_config()
-    project_name = (
-        project_config.get("project_id", "unknown") if project_config else "unknown"
-    )
+    project_name = project_config.get("project_id", "unknown") if project_config else "unknown"
 
     # Get all folios for counts
     try:
@@ -1649,25 +1601,13 @@ def status(ctx, output_json):
 
     # Count open issues and frictions
     open_issues = len(
-        [
-            f
-            for f in all_folios
-            if f.get("type") == "issue" and f.get("status", "open") == "open"
-        ]
+        [f for f in all_folios if f.get("type") == "issue" and f.get("status", "open") == "open"]
     )
     open_frictions = len(
-        [
-            f
-            for f in all_folios
-            if f.get("type") == "friction" and f.get("status", "open") == "open"
-        ]
+        [f for f in all_folios if f.get("type") == "friction" and f.get("status", "open") == "open"]
     )
     pending_briefs = len(
-        [
-            f
-            for f in all_folios
-            if f.get("type") == "brief" and f.get("status", "open") == "open"
-        ]
+        [f for f in all_folios if f.get("type") == "brief" and f.get("status", "open") == "open"]
     )
 
     # Count folios closed today via status threads
@@ -2198,13 +2138,9 @@ def folio(ctx, folio_id, no_pager, output_json):
     site = folio_data.get("site") or ""
     site_str = f" ({site})" if site else ""
 
-    output_lines.append(
-        f"{yellow}folio {ftype}-{fid.split('-', 1)[-1]}{site_str}{reset}"
-    )
+    output_lines.append(f"{yellow}folio {ftype}-{fid.split('-', 1)[-1]}{site_str}{reset}")
     output_lines.append(f"Agent: {folio_data.get('created_by', 'unknown')}")
-    output_lines.append(
-        f"Date:  {folio_data.get('created_at', '')[:19].replace('T', ' ')}"
-    )
+    output_lines.append(f"Date:  {folio_data.get('created_at', '')[:19].replace('T', ' ')}")
     if folio_data.get("status"):
         output_lines.append(f"Status: {folio_data.get('status')}")
     output_lines.append("")
@@ -2262,9 +2198,7 @@ def show(ctx, folio_id, no_pager, output_json):
     default="epub",
     help="Export format (default: epub)",
 )
-@click.option(
-    "--output", "-o", help="Output file path (default: ./<folio_id>.<format>)"
-)
+@click.option("--output", "-o", help="Output file path (default: ./<folio_id>.<format>)")
 @click.pass_context
 def export(ctx, folio_id, output_format, output):
     """Export a folio to various formats (epub, markdown, json).
@@ -2331,9 +2265,7 @@ def export(ctx, folio_id, output_format, output):
 
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
             # mimetype (must be first and uncompressed)
-            zf.writestr(
-                "mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED
-            )
+            zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
 
             # container.xml
             container_xml = """<?xml version="1.0" encoding="UTF-8"?>
@@ -2367,9 +2299,7 @@ li { margin-bottom: 0.3em; }
             zf.writestr("OEBPS/styles.css", css_content)
 
             # Content XHTML with metadata
-            escaped_title = (
-                title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            )
+            escaped_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             content_xhtml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -2562,13 +2492,9 @@ def _build_table(rows):
         return text
 
     html = ["<table>"]
-    html.append(
-        "<tr>" + "".join(f"<th>{format_inline(c)}</th>" for c in rows[0]) + "</tr>"
-    )
+    html.append("<tr>" + "".join(f"<th>{format_inline(c)}</th>" for c in rows[0]) + "</tr>")
     for row in rows[1:]:
-        html.append(
-            "<tr>" + "".join(f"<td>{format_inline(c)}</td>" for c in row) + "</tr>"
-        )
+        html.append("<tr>" + "".join(f"<td>{format_inline(c)}</td>" for c in row) + "</tr>")
     html.append("</table>")
     return "\n".join(html)
 
@@ -2606,9 +2532,7 @@ def edit(ctx, folio_id, title, content, status, output_json):
     if status is not None:
         update_data["status"] = status
 
-    result = make_request(
-        "PATCH", f"/folios/{folio_id}", base_url, agent_id, json=update_data
-    )
+    result = make_request("PATCH", f"/folios/{folio_id}", base_url, agent_id, json=update_data)
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))
@@ -2650,9 +2574,7 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
     if note:
         move_data["note"] = note
 
-    result = make_request(
-        "POST", f"/folios/{folio_id}/move", base_url, agent_id, json=move_data
-    )
+    result = make_request("POST", f"/folios/{folio_id}/move", base_url, agent_id, json=move_data)
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))
@@ -2677,18 +2599,14 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
     type=int,
     help="Limit number of folios shown (default: 20 for agents, unlimited for TTY)",
 )
-@click.option(
-    "--all", "show_all", is_flag=True, help="Show all folios (override default limit)"
-)
+@click.option("--all", "show_all", is_flag=True, help="Show all folios (override default limit)")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def folios(ctx, site_id, type, status, limit, show_all, output_json):
     """List all folios in a site. (Deprecated: use 'find --site SITE_ID')"""
     # Validate site_id is not empty
     if not site_id or site_id.strip() == "":
-        raise click.ClickException(
-            "site_id cannot be empty. Usage: skein folios SITE_ID"
-        )
+        raise click.ClickException("site_id cannot be empty. Usage: skein folios SITE_ID")
 
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
@@ -2754,9 +2672,7 @@ def folios(ctx, site_id, type, status, limit, show_all, output_json):
                 threads_by_resource = {}
 
             for folio_type in sorted(by_type.keys()):
-                click.echo(
-                    f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):"
-                )
+                click.echo(f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):")
                 for f in by_type[folio_type]:
                     status_str = f"[{f['status']}]" if f.get("status") else ""
                     click.echo(f"    {f['folio_id']} {status_str}")
@@ -2801,9 +2717,7 @@ def folios(ctx, site_id, type, status, limit, show_all, output_json):
             # Show truncation hint if limited
             if showing_count < total_count:
                 remaining = total_count - showing_count
-                click.echo(
-                    f"({remaining} more folios, use --all or -n {total_count} to see all)"
-                )
+                click.echo(f"({remaining} more folios, use --all or -n {total_count} to see all)")
 
 
 @cli.command(hidden=True)
@@ -2842,9 +2756,7 @@ def survey(ctx, site_ids, type, status, output_json):
             if status:
                 params["status"] = status
 
-            folios_list = make_request(
-                "GET", "/folios", base_url, agent_id, params=params
-            )
+            folios_list = make_request("GET", "/folios", base_url, agent_id, params=params)
             all_results[site_id] = folios_list
             total_folios += len(folios_list)
         except Exception as e:
@@ -2890,9 +2802,7 @@ def survey(ctx, site_ids, type, status, output_json):
                 by_type[folio_type].append(f)
 
             for folio_type in sorted(by_type.keys()):
-                click.echo(
-                    f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):"
-                )
+                click.echo(f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):")
                 for f in by_type[folio_type]:
                     status_str = f"[{f['status']}]" if f.get("status") else ""
                     # Format created_at date
@@ -2900,21 +2810,15 @@ def survey(ctx, site_ids, type, status, output_json):
                     if created_at:
                         # Parse ISO format and display as YYYY-MM-DD
                         try:
-                            dt = datetime.fromisoformat(
-                                created_at.replace("Z", "+00:00")
-                            )
+                            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
                             date_str = dt.strftime("%Y-%m-%d")
                         except (ValueError, AttributeError):
-                            date_str = (
-                                created_at[:10] if len(created_at) >= 10 else created_at
-                            )
+                            date_str = created_at[:10] if len(created_at) >= 10 else created_at
                     else:
                         date_str = ""
 
                     click.echo(f"    {f['folio_id']} {status_str} {date_str}")
-                    click.echo(
-                        f"      {f['title'][:80]}{'...' if len(f['title']) > 80 else ''}"
-                    )
+                    click.echo(f"      {f['title'][:80]}{'...' if len(f['title']) > 80 else ''}")
 
                     # Show content preview (first 100 chars, single line)
                     content = f.get("content", "")
@@ -3019,9 +2923,7 @@ def threads(
             params["search"] = search
         if since:
             params["since"] = since
-        threads_list = make_request(
-            "GET", "/threads", base_url, agent_id, params=params
-        )
+        threads_list = make_request("GET", "/threads", base_url, agent_id, params=params)
 
     if output_json:
         click.echo(json.dumps(threads_list, indent=2))
@@ -3040,9 +2942,7 @@ def threads(
 
 @cli.command("thread-tree")
 @click.argument("resource_id")
-@click.option(
-    "--depth", type=int, default=3, help="Maximum depth to traverse (default: 3)"
-)
+@click.option("--depth", type=int, default=3, help="Maximum depth to traverse (default: 3)")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def thread_tree(ctx, resource_id, depth, output_json):
@@ -3063,9 +2963,7 @@ def thread_tree(ctx, resource_id, depth, output_json):
         from_threads = make_request(
             "GET", "/threads", base_url, agent_id, params={"from_id": res_id}
         )
-        to_threads = make_request(
-            "GET", "/threads", base_url, agent_id, params={"to_id": res_id}
-        )
+        to_threads = make_request("GET", "/threads", base_url, agent_id, params={"to_id": res_id})
 
         # Combine and dedupe
         all_threads = from_threads + to_threads
@@ -3126,25 +3024,17 @@ def thread_tree(ctx, resource_id, depth, output_json):
             # Print threads
             thread_prefix = prefix + ("    " if is_last else "│   ")
             for i, thread in enumerate(node["threads"]):
-                is_last_thread = (i == len(node["threads"]) - 1) and not node[
-                    "children"
-                ]
+                is_last_thread = (i == len(node["threads"]) - 1) and not node["children"]
                 thread_connector = "└── " if is_last_thread else "├── "
 
                 direction = "→" if thread["from_id"] == node["id"] else "←"
-                other_id = (
-                    thread["to_id"]
-                    if thread["from_id"] == node["id"]
-                    else thread["from_id"]
-                )
+                other_id = thread["to_id"] if thread["from_id"] == node["id"] else thread["from_id"]
 
                 click.echo(
                     f"{thread_prefix}{thread_connector}[{thread['type'].upper()}] {direction} {other_id}"
                 )
                 if thread.get("content"):
-                    content_prefix = thread_prefix + (
-                        "    " if is_last_thread else "│   "
-                    )
+                    content_prefix = thread_prefix + ("    " if is_last_thread else "│   ")
                     click.echo(f'{content_prefix}  "{thread["content"]}"')
 
             # Print children
@@ -3168,9 +3058,7 @@ def inbox(ctx, unread, output_json):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to check inbox"
-        )
+        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to check inbox")
 
     params = {}
     if unread:
@@ -3265,9 +3153,7 @@ def reply(ctx, to_id, message):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to reply"
-        )
+        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to reply")
 
     data = {"from_id": agent_id, "to_id": to_id, "type": "reply", "content": message}
 
@@ -3307,9 +3193,7 @@ def tag(ctx, resource_id, tag_name):
 @click.argument("resource_id")
 @click.argument(
     "status_value",
-    type=click.Choice(
-        ["open", "closed", "investigating", "resolved", "blocked", "in-progress"]
-    ),
+    type=click.Choice(["open", "closed", "investigating", "resolved", "blocked", "in-progress"]),
 )
 @click.pass_context
 def update(ctx, resource_id, status_value):
@@ -3326,9 +3210,7 @@ def update(ctx, resource_id, status_value):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to set status"
-        )
+        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to set status")
 
     data = {
         "from_id": agent_id,
@@ -3360,9 +3242,7 @@ def close(ctx, resource_ids, link, note):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to close"
-        )
+        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to close")
 
     for resource_id in resource_ids:
         # Create status thread (closed)
@@ -3419,9 +3299,7 @@ def register(ctx, capabilities, name, agent_type, description):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to register"
-        )
+        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to register")
 
     caps_list = [c.strip() for c in capabilities.split(",")] if capabilities else []
 
@@ -3582,9 +3460,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
         try:
             # If it looks like a folio ID (mantle-YYYYMMDD-xxxx), use directly
             if mantle.startswith("mantle-"):
-                mantle_folio = make_request(
-                    "GET", f"/folios/{mantle}", base_url, agent_id
-                )
+                mantle_folio = make_request("GET", f"/folios/{mantle}", base_url, agent_id)
             else:
                 # Search for mantle by name using the /search endpoint
                 search_response = make_request(
@@ -3618,9 +3494,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
         except click.ClickException:
             raise
         except Exception as e:
-            raise click.ClickException(
-                f"Failed to load mantle folio '{mantle}': {str(e)}"
-            )
+            raise click.ClickException(f"Failed to load mantle folio '{mantle}': {str(e)}")
 
     # If message provided, add it
     if message:
@@ -3679,9 +3553,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
                 "message": message,
             },
         }
-        make_request(
-            "POST", "/roster/register", base_url, suggested_name, json=register_data
-        )
+        make_request("POST", "/roster/register", base_url, suggested_name, json=register_data)
     except Exception as e:
         # Log but don't fail - registration is not critical
         click.echo(f"Note: Could not register on roster: {e}", err=True)
@@ -3732,9 +3604,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
             "TOKEN_TERMINOLOGY.md",
         ]
 
-        has_testing = any(
-            any(td in s for s in suggested_reading) for td in testing_docs
-        )
+        has_testing = any(any(td in s for s in suggested_reading) for td in testing_docs)
         has_system = any(any(sd in s for s in suggested_reading) for sd in system_docs)
 
         if has_testing:
@@ -3873,9 +3743,7 @@ def _torch_start(ctx):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to torch"
-        )
+        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to torch")
 
     # Get roster info
     try:
@@ -3891,9 +3759,7 @@ def _torch_start(ctx):
         # Get all folios by this agent
         all_folios = make_request("GET", "/folios", base_url, agent_id)
         agent_folios = [
-            f
-            for f in all_folios
-            if f.get("author") == agent_id or f.get("weaver") == agent_id
+            f for f in all_folios if f.get("author") == agent_id or f.get("weaver") == agent_id
         ]
 
         # Count by type
@@ -3941,9 +3807,7 @@ def _torch_start(ctx):
         # Get assignment threads pointing to this agent
         all_threads = make_request("GET", "/threads", base_url, agent_id)
         assignment_threads = [
-            t
-            for t in all_threads
-            if t.get("type") == "assignment" and t.get("to_id") == agent_id
+            t for t in all_threads if t.get("type") == "assignment" and t.get("to_id") == agent_id
         ]
         assigned_folio_ids = [t.get("from_id") for t in assignment_threads]
 
@@ -3965,27 +3829,21 @@ def _torch_start(ctx):
             )
 
             # Filter to only those assigned to this agent
-            open_issues = [
-                i for i in open_issues_all if i.get("folio_id") in assigned_folio_ids
-            ]
+            open_issues = [i for i in open_issues_all if i.get("folio_id") in assigned_folio_ids]
             open_frictions = [
                 f for f in open_frictions_all if f.get("folio_id") in assigned_folio_ids
             ]
 
         # Check if agent was ignited from a brief and if it's still open
         try:
-            roster_entry = make_request(
-                "GET", f"/roster/{agent_id}", base_url, agent_id
-            )
+            roster_entry = make_request("GET", f"/roster/{agent_id}", base_url, agent_id)
             ignited_from = roster_entry.get("metadata", {}).get("ignited_from")
             if ignited_from and ignited_from.startswith("brief-"):
                 # Get brief status
                 all_briefs = make_request(
                     "GET", "/folios", base_url, agent_id, params={"type": "brief"}
                 )
-                brief = next(
-                    (b for b in all_briefs if b.get("folio_id") == ignited_from), None
-                )
+                brief = next((b for b in all_briefs if b.get("folio_id") == ignited_from), None)
                 if brief and brief.get("status") == "open":
                     ignited_from_brief = brief
                     brief_is_open = True
@@ -4027,24 +3885,16 @@ def _torch_start(ctx):
 
     click.echo("Before completing retirement, consider:")
     click.echo()
-    click.echo(
-        "  • Is there incomplete work? File brief(s) if someone should continue."
-    )
-    click.echo(
-        "  • Did you have larger ideas or patterns worth sharing? File notion(s)."
-    )
+    click.echo("  • Is there incomplete work? File brief(s) if someone should continue.")
+    click.echo("  • Did you have larger ideas or patterns worth sharing? File notion(s).")
     click.echo("  • Did you encounter friction or blockers? File friction(s).")
     click.echo("  • Do you know of completed work that should be closed? Close it.")
     click.echo()
     click.echo("Examples:")
     click.echo("  skein close issue-20251112-757o --link summary-20251112-5lut")
-    click.echo(
-        '  skein close friction-20251109-1lfe --note "Fixed by refactoring imports"'
-    )
+    click.echo('  skein close friction-20251109-1lfe --note "Fixed by refactoring imports"')
     click.echo()
-    click.echo(
-        "Note: Writing to SKEIN is optional but encouraged. Don't post just to post."
-    )
+    click.echo("Note: Writing to SKEIN is optional but encouraged. Don't post just to post.")
     click.echo()
     click.echo("When done:")
     click.echo()
@@ -4060,9 +3910,7 @@ def _torch_start(ctx):
     type=click.Choice(["complete", "partial", "blocked"]),
     help="Yield status for chain (auto-detected from SKEIN_CHAIN_ID)",
 )
-@click.option(
-    "--yield-outcome", "yield_outcome", help="What was accomplished (for yield)"
-)
+@click.option("--yield-outcome", "yield_outcome", help="What was accomplished (for yield)")
 @click.option("--yield-notes", "yield_notes", help="Notes for next agent in chain")
 @click.pass_context
 def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
@@ -4126,9 +3974,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
 
         # Show artifacts filed during session
         artifact_ids = [f.get("folio_id") for f in agent_folios if f.get("folio_id")]
-        tender_ids = [
-            f.get("folio_id") for f in agent_folios if f.get("type") == "tender"
-        ]
+        tender_ids = [f.get("folio_id") for f in agent_folios if f.get("type") == "tender"]
 
         if artifact_ids:
             click.echo("Artifacts filed this session:")
@@ -4184,9 +4030,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
 
         # Store the yield
         try:
-            result = make_request(
-                "POST", "/yields", base_url, agent_id, json=yield_data
-            )
+            result = make_request("POST", "/yields", base_url, agent_id, json=yield_data)
             sack_id = result.get("sack_id")
             click.echo(f"✓ Yield stored: {sack_id}")
             click.echo()
@@ -4200,9 +4044,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
     if summary:
         # Find a site to post to (use most recent site they posted to)
         try:
-            recent_sites = list(
-                set([f.get("site_id") for f in agent_folios if f.get("site_id")])
-            )
+            recent_sites = list(set([f.get("site_id") for f in agent_folios if f.get("site_id")]))
             if recent_sites:
                 site_id = recent_sites[-1]
                 summary_data = {
@@ -4210,9 +4052,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
                     "content": summary,
                     "metadata": {"retirement_summary": True},
                 }
-                result = make_request(
-                    "POST", "/summary", base_url, agent_id, json=summary_data
-                )
+                result = make_request("POST", "/summary", base_url, agent_id, json=summary_data)
                 summary_id = result.get("folio_id")
         except Exception:
             pass
@@ -4228,9 +4068,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
                 "yield_stored": yield_stored,
             },
         }
-        make_request(
-            "PATCH", f"/roster/{agent_id}", base_url, agent_id, json=update_data
-        )
+        make_request("PATCH", f"/roster/{agent_id}", base_url, agent_id, json=update_data)
     except Exception as e:
         # Log but don't fail - agent can still complete even if status update fails
         click.echo(f"Warning: Could not update roster status: {e}", err=True)
@@ -4259,9 +4097,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
 
 @cli.command()
 @click.argument("agent_id")
-@click.option(
-    "--capabilities", multiple=True, help="Agent capabilities (can specify multiple)"
-)
+@click.option("--capabilities", multiple=True, help="Agent capabilities (can specify multiple)")
 @click.option("--name", help="Human-readable name")
 @click.option(
     "--type",
@@ -4310,9 +4146,7 @@ def identify(ctx, agent_id, capabilities, name, agent_type, description, eval):
             reg_data["description"] = description
 
         try:
-            reg_result = make_request(
-                "POST", "/roster/register", base_url, agent_id, json=reg_data
-            )
+            reg_result = make_request("POST", "/roster/register", base_url, agent_id, json=reg_data)
             if reg_result.get("success"):
                 if name:
                     click.echo(f"✓ Registered as: {name}")
@@ -4334,9 +4168,7 @@ def identify(ctx, agent_id, capabilities, name, agent_type, description, eval):
 @click.option("--all", "show_all", is_flag=True, help="Show all stats")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def stats(
-    ctx, target, orphaned, by_weaver, by_type, by_status, by_site, show_all, output_json
-):
+def stats(ctx, target, orphaned, by_weaver, by_type, by_status, by_site, show_all, output_json):
     """Observability and debugging analytics.
 
     Examples:
@@ -4352,18 +4184,12 @@ def stats(
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if target == "threads":
-        analyze_threads(
-            base_url, agent_id, orphaned, by_weaver, by_type, show_all, output_json
-        )
+        analyze_threads(base_url, agent_id, orphaned, by_weaver, by_type, show_all, output_json)
     elif target == "folios":
-        analyze_folios(
-            base_url, agent_id, by_type, by_status, by_site, show_all, output_json
-        )
+        analyze_folios(base_url, agent_id, by_type, by_status, by_site, show_all, output_json)
 
 
-def analyze_threads(
-    base_url, agent_id, orphaned, by_weaver, by_type, show_all, output_json
-):
+def analyze_threads(base_url, agent_id, orphaned, by_weaver, by_type, show_all, output_json):
     """Analyze thread statistics."""
     from .analytics import (
         find_orphaned_threads,
@@ -4425,9 +4251,7 @@ def analyze_threads(
         print_type_distribution(threads)
 
 
-def analyze_folios(
-    base_url, agent_id, by_type, by_status, by_site, show_all, output_json
-):
+def analyze_folios(base_url, agent_id, by_type, by_status, by_site, show_all, output_json):
     """Analyze folio statistics."""
     from .analytics import get_folio_stats, print_folio_stats
 
@@ -4479,9 +4303,7 @@ def whoami(ctx):
 
 
 @cli.command()
-@click.argument(
-    "topic", type=click.Choice(["quickstart", "guide", "threads", "implementation"])
-)
+@click.argument("topic", type=click.Choice(["quickstart", "guide", "threads", "implementation"]))
 @click.pass_context
 def info(ctx, topic):
     """Display SKEIN documentation.
@@ -4549,9 +4371,7 @@ def backup_create(ctx, tag):
 
     manager = get_backup_manager_for_project()
     if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+        raise click.ClickException("Not in a SKEIN project. Run from a directory with .skein/")
 
     try:
         result = manager.create_full_backup(tag=tag)
@@ -4582,9 +4402,7 @@ def backup_list(ctx, backup_type, output_json):
 
     manager = get_backup_manager_for_project()
     if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+        raise click.ClickException("Not in a SKEIN project. Run from a directory with .skein/")
 
     backups = manager.list_backups(backup_type=backup_type or "all")
 
@@ -4625,9 +4443,7 @@ def backup_verify(ctx, backup_id):
 
     manager = get_backup_manager_for_project()
     if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+        raise click.ClickException("Not in a SKEIN project. Run from a directory with .skein/")
 
     result = manager.verify_backup(backup_id)
 
@@ -4643,12 +4459,8 @@ def backup_verify(ctx, backup_id):
 
 @backup.command("cleanup")
 @click.option("--keep-last", type=int, help="Keep only the N most recent backups")
-@click.option(
-    "--older-than", "older_than_days", type=int, help="Remove backups older than N days"
-)
-@click.option(
-    "--dry-run", is_flag=True, help="Show what would be removed without removing"
-)
+@click.option("--older-than", "older_than_days", type=int, help="Remove backups older than N days")
+@click.option("--dry-run", is_flag=True, help="Show what would be removed without removing")
 @click.pass_context
 def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
     """Remove old backups based on retention policy.
@@ -4662,9 +4474,7 @@ def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
 
     manager = get_backup_manager_for_project()
     if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+        raise click.ClickException("Not in a SKEIN project. Run from a directory with .skein/")
 
     if not keep_last and not older_than_days:
         raise click.ClickException("Must specify --keep-last or --older-than")
@@ -4696,9 +4506,7 @@ def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
 
 
 @backup.command("enable")
-@click.option(
-    "--keep-last", type=int, default=30, help="Number of backups to keep (default: 30)"
-)
+@click.option("--keep-last", type=int, default=30, help="Number of backups to keep (default: 30)")
 @click.pass_context
 def backup_enable(ctx, keep_last):
     """Enable automated daily backups via systemd timer.
@@ -4765,12 +4573,8 @@ def backup_enable(ctx, keep_last):
     # Reload and enable
     try:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-        subprocess.run(
-            ["systemctl", "--user", "enable", "skein-backup.timer"], check=True
-        )
-        subprocess.run(
-            ["systemctl", "--user", "start", "skein-backup.timer"], check=True
-        )
+        subprocess.run(["systemctl", "--user", "enable", "skein-backup.timer"], check=True)
+        subprocess.run(["systemctl", "--user", "start", "skein-backup.timer"], check=True)
         click.echo("\n✓ Backup timer enabled and started")
         click.echo(f"  Project: {project_path}")
         click.echo(f"  Retention: keep last {keep_last} backups")
@@ -4794,12 +4598,8 @@ def backup_disable(ctx):
     import subprocess
 
     try:
-        subprocess.run(
-            ["systemctl", "--user", "stop", "skein-backup.timer"], check=True
-        )
-        subprocess.run(
-            ["systemctl", "--user", "disable", "skein-backup.timer"], check=True
-        )
+        subprocess.run(["systemctl", "--user", "stop", "skein-backup.timer"], check=True)
+        subprocess.run(["systemctl", "--user", "disable", "skein-backup.timer"], check=True)
         click.echo("✓ Backup timer disabled")
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"Failed to disable timer: {e}")
@@ -4860,12 +4660,8 @@ def backup_status(ctx):
 
 @cli.command("restore")
 @click.argument("backup_id")
-@click.option(
-    "--dry-run", is_flag=True, help="Show what would be restored without making changes"
-)
-@click.option(
-    "--confirm", is_flag=True, help="Confirm restore (required for actual restore)"
-)
+@click.option("--dry-run", is_flag=True, help="Show what would be restored without making changes")
+@click.option("--confirm", is_flag=True, help="Confirm restore (required for actual restore)")
 @click.pass_context
 def restore(ctx, backup_id, dry_run, confirm):
     """Restore SKEIN data from a backup.
@@ -4881,9 +4677,7 @@ def restore(ctx, backup_id, dry_run, confirm):
 
     manager = get_backup_manager_for_project()
     if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+        raise click.ClickException("Not in a SKEIN project. Run from a directory with .skein/")
 
     # Handle 'latest' as special case
     if backup_id == "latest":
@@ -4919,9 +4713,7 @@ def restore(ctx, backup_id, dry_run, confirm):
     else:
         click.echo(f"✗ Restore failed: {result.get('error')}")
         if result.get("pre_restore_backup"):
-            click.echo(
-                f"  Pre-restore backup available: {result['pre_restore_backup']}"
-            )
+            click.echo(f"  Pre-restore backup available: {result['pre_restore_backup']}")
 
 
 # ============================================================================
@@ -5016,9 +4808,7 @@ def shard_spawn(ctx, spawn_agent, brief, description):
         }
 
         try:
-            thread_result = make_request(
-                "POST", "/threads", base_url, agent_id, json=thread_data
-            )
+            thread_result = make_request("POST", "/threads", base_url, agent_id, json=thread_data)
             shard_info["thread_id"] = thread_result.get("thread_id")
         except Exception as e:
             # Don't fail spawn if thread creation fails
@@ -5143,9 +4933,7 @@ def shard_show(ctx, worktree_name):
                 click.echo(f"Tip: {tip_sha} {tip_msg}")
                 if tip_in_master:
                     if commits_behind > 0:
-                        click.echo(
-                            f"     (in master, {commits_behind} commits behind HEAD)"
-                        )
+                        click.echo(f"     (in master, {commits_behind} commits behind HEAD)")
                     else:
                         click.echo("     (in master)")
                 click.echo()
@@ -5234,9 +5022,7 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
                 # Show master activity if there's drift
                 master_ahead = drift_info.get("master_commits_ahead", 0)
                 if master_ahead > 0:
-                    click.echo(
-                        f"Note: Master has {master_ahead} new commits since your base."
-                    )
+                    click.echo(f"Note: Master has {master_ahead} new commits since your base.")
                     notable = drift_info.get("master_notable_changes", [])
                     if notable:
                         click.echo("Notable changes on master:")
@@ -5244,18 +5030,12 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
                             click.echo(f"  - {change}")
                     click.echo()
 
-                diff_output = shard_worktree.get_shard_work_diff(
-                    worktree_name, stat_only=show_stat
-                )
+                diff_output = shard_worktree.get_shard_work_diff(worktree_name, stat_only=show_stat)
             else:
                 # No metadata - fall back to regular diff
                 click.echo(f"=== DIFF: {worktree_name} ===\n")
-                click.echo(
-                    "(No base commit metadata - showing diff from current master)\n"
-                )
-                diff_output = shard_worktree.get_shard_diff(
-                    worktree_name, stat_only=show_stat
-                )
+                click.echo("(No base commit metadata - showing diff from current master)\n")
+                diff_output = shard_worktree.get_shard_diff(worktree_name, stat_only=show_stat)
 
             if diff_output:
                 click.echo(diff_output)
@@ -5270,12 +5050,8 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
 
 @shard.command("cleanup")
 @click.argument("worktree_name")
-@click.option(
-    "--keep-branch", is_flag=True, help="Keep git branch after removing worktree"
-)
-@click.option(
-    "--chain", is_flag=True, help="Remove entire graft chain (original + all grafts)"
-)
+@click.option("--keep-branch", is_flag=True, help="Keep git branch after removing worktree")
+@click.option("--chain", is_flag=True, help="Remove entire graft chain (original + all grafts)")
 @click.option(
     "--caller-cwd",
     "explicit_caller_cwd",
@@ -5320,9 +5096,7 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
                 click.echo(f"Found chain ({len(result['removed'])} worktrees):")
                 for wt in reversed(result["removed"]):  # Show original first
                     wt == result.get("chain_root", "")
-                    label = (
-                        "(original)" if not shard_worktree.is_graft(wt) else "(graft)"
-                    )
+                    label = "(original)" if not shard_worktree.is_graft(wt) else "(graft)"
                     click.echo(f"  {wt} {label}")
                 click.echo()
 
@@ -5570,9 +5344,7 @@ def _post_merge_tender(ctx, base_url, agent_id, worktree_name, shard_info, metad
         summary_text = metadata.get("last_commit_message", "Merged")
         files_list = metadata.get("files_modified", [])
         commits = metadata.get("commits", 0)
-        branch_name = metadata.get(
-            "branch_name", shard_info.get("branch_name", "unknown")
-        )
+        branch_name = metadata.get("branch_name", shard_info.get("branch_name", "unknown"))
     else:
         summary_text = "Merged"
         files_list = []
@@ -5601,9 +5373,9 @@ def _post_merge_tender(ctx, base_url, agent_id, worktree_name, shard_info, metad
     folio_data = {
         "type": "tender",
         "site_id": site,
-        "title": make_title_from_content(summary_text)
-        if summary_text
-        else f"Merged: {worktree_name}",
+        "title": (
+            make_title_from_content(summary_text) if summary_text else f"Merged: {worktree_name}"
+        ),
         "content": content,
         "metadata": {
             "worktree_name": worktree_name,
@@ -5887,9 +5659,7 @@ def shard_review(ctx, stale_days, output_json):
 
 @shard.command("tender")
 @click.argument("worktree_name")
-@click.option(
-    "--site", help="Site to post tender folio (default: derived from project)"
-)
+@click.option("--site", help="Site to post tender folio (default: derived from project)")
 @click.option("--reviewer", help="Agent ID to review this SHARD (default: prime)")
 @click.option("--summary", help="Brief summary of changes")
 @click.option(
@@ -5979,9 +5749,11 @@ def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence
     folio_data = {
         "type": "tender",
         "site_id": site,
-        "title": make_title_from_content(summary_text)
-        if summary_text
-        else f"Shard tender: {worktree_name}",
+        "title": (
+            make_title_from_content(summary_text)
+            if summary_text
+            else f"Shard tender: {worktree_name}"
+        ),
         "content": content,
         "metadata": {
             "worktree_name": worktree_name,
@@ -6224,9 +5996,7 @@ def shard_triage(ctx, output_json):
             click.echo("  skein shard review <name>    # View details")
             click.echo("  skein shard diff <name>      # View work diff")
             click.echo("  skein shard merge <name>     # Merge to master")
-            click.echo(
-                "  skein shard graft <name>     # Create graft to resolve conflicts"
-            )
+            click.echo("  skein shard graft <name>     # Create graft to resolve conflicts")
 
     except shard_worktree.ShardError as e:
         raise click.ClickException(str(e))
@@ -6376,9 +6146,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                 click.echo("Your Work (clean, ready to integrate):")
 
             if base_commit:
-                click.echo(
-                    f"  Base: {base_commit}" + (f" ({base_date})" if base_date else "")
-                )
+                click.echo(f"  Base: {base_commit}" + (f" ({base_date})" if base_date else ""))
             click.echo(f"  Commits: {commits}")
 
             # Show work diff stat (agent's actual changes)
@@ -6461,9 +6229,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                     if tender_info.get("confidence")
                     else "unrated"
                 )
-                click.echo(
-                    f"Tender: {tender_info['folio_id']} (confidence: {conf_str})"
-                )
+                click.echo(f"Tender: {tender_info['folio_id']} (confidence: {conf_str})")
                 if tender_info.get("summary"):
                     click.echo(f"  {tender_info['summary']}")
                 click.echo()
@@ -6499,9 +6265,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                             if flag.get("line")
                             else flag.get("file", "?")
                         )
-                        click.echo(
-                            f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}"
-                        )
+                        click.echo(f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}")
                     if len(flags) > 10:
                         click.echo(f"  ... and {len(flags) - 10} more")
 
@@ -6511,9 +6275,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                     click.echo()
                     click.echo(f"Signals ({len(signals)}):")
                     for signal in signals[:5]:
-                        click.echo(
-                            f"  [{signal.get('check', '?')}] {signal.get('message', '')}"
-                        )
+                        click.echo(f"  [{signal.get('check', '?')}] {signal.get('message', '')}")
                     if len(signals) > 5:
                         click.echo(f"  ... and {len(signals) - 5} more")
 
@@ -6529,9 +6291,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                             if smell.get("line")
                             else smell.get("file", "?")
                         )
-                        click.echo(
-                            f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}"
-                        )
+                        click.echo(f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}")
                     if len(smells) > 5:
                         click.echo(f"  ... and {len(smells) - 5} more")
 
@@ -6776,9 +6536,7 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
                     f"No rites defined. Create {project_root / '.skein' / 'rites.yaml'}"
                 )
             available = ", ".join(rites_dict.keys())
-            raise click.ClickException(
-                f"Unknown rite: {rite_name}\nAvailable: {available}"
-            )
+            raise click.ClickException(f"Unknown rite: {rite_name}\nAvailable: {available}")
 
         rite_config = rites_dict[rite_name]
 
@@ -6790,9 +6548,7 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
         if success:
             click.echo(f"✓ Rite '{rite_name}' completed in shard {worktree_name}")
         else:
-            raise click.ClickException(
-                f"Rite '{rite_name}' failed in shard {worktree_name}"
-            )
+            raise click.ClickException(f"Rite '{rite_name}' failed in shard {worktree_name}")
 
     except shard_worktree.ShardError as e:
         raise click.ClickException(str(e))
@@ -6804,15 +6560,9 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
 
 # Web UI Command
 @cli.command()
-@click.option(
-    "--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)"
-)
-@click.option(
-    "--port", "-p", default=8003, type=int, help="Port to listen on (default: 8003)"
-)
-@click.option(
-    "--open", "open_browser", is_flag=True, help="Open browser after starting"
-)
+@click.option("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
+@click.option("--port", "-p", default=8003, type=int, help="Port to listen on (default: 8003)")
+@click.option("--open", "open_browser", is_flag=True, help="Open browser after starting")
 def web(host, port, open_browser):
     """Launch the SKEIN web UI.
 
@@ -6876,9 +6626,7 @@ def ui_shortcut(ctx, host, port, open_browser):
 @click.pass_context
 def shards_shortcut(ctx, active, filter_agent, output_json):
     """Shortcut for 'skein shard list'."""
-    ctx.invoke(
-        shard_list, active=active, filter_agent=filter_agent, output_json=output_json
-    )
+    ctx.invoke(shard_list, active=active, filter_agent=filter_agent, output_json=output_json)
 
 
 # =============================================================================
@@ -6949,18 +6697,14 @@ def run_rite_commands(
             click.echo(f"[{i}/{len(commands)}] {cmd}")
 
         try:
-            result = subprocess.run(
-                cmd, shell=True, cwd=cwd, capture_output=not verbose, text=True
-            )
+            result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=not verbose, text=True)
 
             if result.returncode != 0:
                 if not verbose and result.stderr:
                     click.echo(result.stderr, err=True)
                 if not verbose and result.stdout:
                     click.echo(result.stdout)
-                click.echo(
-                    f"✗ Command failed (exit {result.returncode}): {cmd}", err=True
-                )
+                click.echo(f"✗ Command failed (exit {result.returncode}): {cmd}", err=True)
                 return False
 
         except Exception as e:
@@ -7004,9 +6748,7 @@ def rite_cmd(ctx, rite_name, verbose):
     # Run the rite
     project_root = find_project_root()
     if not project_root:
-        raise click.ClickException(
-            "Not in a SKEIN project (no .skein/ directory found)"
-        )
+        raise click.ClickException("Not in a SKEIN project (no .skein/ directory found)")
 
     config = load_rites_config(project_root)
     rites_dict = config.get("rites", {})
@@ -7040,9 +6782,7 @@ def rites_list(ctx):
     """
     project_root = find_project_root()
     if not project_root:
-        raise click.ClickException(
-            "Not in a SKEIN project (no .skein/ directory found)"
-        )
+        raise click.ClickException("Not in a SKEIN project (no .skein/ directory found)")
 
     config = load_rites_config(project_root)
     rites_dict = config.get("rites", {})
@@ -7050,7 +6790,8 @@ def rites_list(ctx):
     if not rites_dict:
         click.echo("No rites defined.")
         click.echo(f"\nCreate {project_root / '.skein' / 'rites.yaml'} with:")
-        click.echo("""
+        click.echo(
+            """
 rites:
   test:
     description: "Run test suite"
@@ -7060,7 +6801,8 @@ rites:
     description: "Check code style"
     commands:
       - ruff check .
-""")
+"""
+        )
         return
 
     click.echo(f"Available rites ({len(rites_dict)}):\n")

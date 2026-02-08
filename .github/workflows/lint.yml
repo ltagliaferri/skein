@@ -29,22 +29,15 @@ jobs:
       - name: Install linting dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install black flake8 isort mypy types-requests
+          pip install ruff mypy types-requests
 
-      - name: Check formatting with black
+      - name: Check formatting with ruff
         run: |
-          black --check --diff skein/ client/ tests/ skein_server.py
+          ruff format --check --diff .
 
-      - name: Check import sorting with isort
+      - name: Lint with ruff
         run: |
-          isort --check-only --diff skein/ client/ tests/ skein_server.py
-
-      - name: Lint with flake8
-        run: |
-          # Stop the build if there are Python syntax errors or undefined names
-          flake8 skein/ client/ tests/ skein_server.py --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Exit-zero treats all errors as warnings. Line length is handled by black
-          flake8 skein/ client/ tests/ skein_server.py --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
+          ruff check .
 
       - name: Type check with mypy
         run: |

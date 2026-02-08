@@ -5755,11 +5755,11 @@ def shard_triage(ctx, output_json):
         raise click.ClickException(f"Failed to triage SHARDs: {e}")
 
 
-@shard.command("review")
+@shard.command("inspect")
 @click.argument("worktree_name")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def shard_review(ctx, worktree_name, output_json):
+def shard_inspect(ctx, worktree_name, output_json):
     """
     Deep review of a single SHARD for merge decision.
 
@@ -5771,7 +5771,7 @@ def shard_review(ctx, worktree_name, output_json):
     - Tender summary and confidence
 
     Example:
-        skein shard review my-shard-001
+        skein shard inspect my-shard-001
     """
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)

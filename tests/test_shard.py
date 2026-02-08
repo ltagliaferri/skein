@@ -23,7 +23,7 @@ import pytest
 
 # Import hypothesis for property-based testing
 try:
-    from hypothesis import given, settings, strategies as st, assume, HealthCheck
+    from hypothesis import given, settings, strategies as st, HealthCheck
 
     HYPOTHESIS_AVAILABLE = True
 except ImportError:
@@ -50,6 +50,15 @@ from skein.shard import (
     _get_next_sequence,
     _get_git_version,
     MAX_SEQUENCE_NUMBER,
+    get_shard_drift_info,
+    get_shard_work_diff,
+    graft_shard,
+    cleanup_graft_chain,
+    get_graft_chain,
+    get_graft_chain_root,
+    get_graft_depth,
+    is_graft,
+    _get_shard_metadata,
 )
 
 
@@ -164,7 +173,7 @@ def spawned_shard(shard_env: Path):
     # Cleanup - ignore errors since test may have already cleaned up
     try:
         cleanup_shard(info["worktree_name"])
-    except:
+    except Exception:
         pass
 
 
@@ -1863,18 +1872,6 @@ class TestStaleShardCategorization:
 # DRIFT DETECTION TESTS
 # =============================================================================
 
-# Import the new drift detection functions
-from skein.shard import (
-    get_shard_drift_info,
-    get_shard_work_diff,
-    graft_shard,
-    cleanup_graft_chain,
-    get_graft_chain,
-    get_graft_chain_root,
-    get_graft_depth,
-    is_graft,
-    _get_shard_metadata,
-)
 
 
 class TestDriftDetection:

@@ -270,7 +270,7 @@ def _find_project_root() -> Path:
                         main_repo = Path(gitdir_path).parent.parent.parent
                         if (main_repo / ".git").is_dir():
                             return main_repo
-                except:
+                except Exception:
                     pass
         current = current.parent
 
@@ -998,7 +998,7 @@ def get_shard_git_info(worktree_name: str) -> Dict:
         try:
             count = repo.git.rev_list("--count", f"{base_ref}..{branch}")
             result["commits_ahead"] = int(count)
-        except:
+        except Exception:
             pass
 
         # Working tree status (check for uncommitted changes)
@@ -1042,7 +1042,7 @@ def get_shard_git_info(worktree_name: str) -> Dict:
                     sha = parts[0]
                     msg = parts[1] if len(parts) > 1 else ""
                     result["commit_log"].append((sha, msg))
-        except:
+        except Exception:
             pass
 
         # Diffstat (files changed between base_ref and branch - agent's actual work)
@@ -1050,7 +1050,7 @@ def get_shard_git_info(worktree_name: str) -> Dict:
             if result["commits_ahead"] > 0:
                 diffstat = repo.git.diff("--stat", f"{base_ref}..{branch}")
                 result["diffstat"] = diffstat.strip()
-        except:
+        except Exception:
             pass
 
         # Uncommitted changes in worktree
@@ -1115,7 +1115,7 @@ def get_tender_metadata(worktree_name: str) -> Optional[Dict]:
             # Count commits on SHARD branch since base
             commit_count = repo.git.rev_list("--count", f"{base_ref}..{branch}")
             metadata["commits"] = int(commit_count)
-        except:
+        except Exception:
             metadata["commits"] = 0
 
         # Get list of modified files (agent's actual work from base_ref)
@@ -1126,14 +1126,14 @@ def get_tender_metadata(worktree_name: str) -> Optional[Dict]:
                 metadata["files_modified"] = changed_files.strip().split("\n")
             else:
                 metadata["files_modified"] = []
-        except:
+        except Exception:
             metadata["files_modified"] = []
 
         # Get last commit message
         try:
             last_commit = repo.git.log("-1", "--pretty=%B", branch)
             metadata["last_commit_message"] = last_commit.strip()
-        except:
+        except Exception:
             metadata["last_commit_message"] = ""
 
     except Exception as e:
@@ -1207,7 +1207,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
             try:
                 base_date = repo.git.log("-1", "--format=%ci", base_commit)
                 result["base_commit_date"] = base_date.strip()
-            except:
+            except Exception:
                 pass
 
             # Count commits on master since base
@@ -1215,7 +1215,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
                 count = repo.git.rev_list("--count", f"{base_commit}..master")
                 result["master_commits_ahead"] = int(count)
                 result["is_stale"] = int(count) > 0
-            except:
+            except Exception:
                 pass
 
             # Get notable changes on master since base
@@ -1238,7 +1238,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
                                 elif status.startswith("R"):
                                     notable.append(f"renamed: {file_path}")
                     result["master_notable_changes"] = notable
-            except:
+            except Exception:
                 pass
 
             # Get work diff stat (agent's actual changes from base)
@@ -1247,7 +1247,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
                 result["work_diff_stat"] = (
                     work_stat.strip() if work_stat.strip() else None
                 )
-            except:
+            except Exception:
                 pass
 
         # Get integration diff stat (what would merge with current master)
@@ -1256,7 +1256,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
             result["integration_diff_stat"] = (
                 integration_stat.strip() if integration_stat.strip() else None
             )
-        except:
+        except Exception:
             pass
 
         # Test for conflicts using merge-tree
@@ -1504,7 +1504,7 @@ def merge_shard(
         except ShardError as e:
             # Git version too old - include error message
             conflict_files = [f"(git version check failed: {e})"]
-        except:
+        except Exception:
             conflict_files = ["(unable to determine conflicting files)"]
 
         error_msg = (
@@ -1905,7 +1905,7 @@ def graft_shard(
         try:
             repo.git.worktree("remove", "--force", str(graft_worktree_path))
             repo.git.branch("-D", graft_branch_name)
-        except:
+        except Exception:
             pass
         raise ShardError(f"Failed to apply commits: {e}")
 

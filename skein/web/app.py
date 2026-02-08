@@ -57,7 +57,7 @@ def get_project_id() -> str:
                         project_id = config.get("project_id")
                         if project_id:
                             break
-                except:
+                except Exception:
                     pass
             cwd = cwd.parent
     return project_id or "default"

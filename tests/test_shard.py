@@ -1873,7 +1873,6 @@ class TestStaleShardCategorization:
 # =============================================================================
 
 
-
 class TestDriftDetection:
     """
     Invariant: Drift detection accurately tracks master evolution relative to shard base.

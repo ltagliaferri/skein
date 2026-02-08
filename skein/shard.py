@@ -684,7 +684,7 @@ def cleanup_shard(
     repo = _get_repo()
     try:
         repo.git.worktree("remove", str(worktree_path))
-    except Exception as e:
+    except Exception:
         # Try force removal if regular removal fails
         try:
             repo.git.worktree("remove", "--force", str(worktree_path))
@@ -1858,7 +1858,7 @@ def graft_shard(
                         for line in status.split("\n"):
                             if line.startswith("UU ") or line.startswith("AA "):
                                 conflict_files.append(line[3:])
-                    except:
+                    except Exception:
                         pass
                     break
                 else:

@@ -239,7 +239,7 @@ def create_app() -> FastAPI:
         cross_refs = []
         # Match patterns like brief-20251208-0jt9, issue-20251207-akrj, etc.
         folio_id_pattern = r'\b(brief|issue|friction|finding|notion|summary|tender|plan|playbook|mantle|writ)-\d{8}-[a-z0-9]{4}\b'
-        mentioned_ids = re.findall(folio_id_pattern, folio.content, re.IGNORECASE) if folio.content else []
+        re.findall(folio_id_pattern, folio.content, re.IGNORECASE) if folio.content else []
         # Get full matches
         full_matches = re.findall(r'\b(?:brief|issue|friction|finding|notion|summary|tender|plan|playbook|mantle|writ)-\d{8}-[a-z0-9]{4}\b', folio.content, re.IGNORECASE) if folio.content else []
         for ref_id in set(full_matches):

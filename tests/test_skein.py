@@ -2,7 +2,6 @@
 
 import asyncio
 import aiohttp
-import json
 import pytest
 
 BASE_URL = "http://localhost:8001/skein"
@@ -280,7 +279,7 @@ async def test_skein_workflow():
         async with session.get(f"{BASE_URL}/activity") as resp:
             if resp.status == 200:
                 activity = await resp.json()
-                print(f"✅ Activity feed retrieved:")
+                print("✅ Activity feed retrieved:")
                 print(f"   • {len(activity['new_folios'])} new folios")
                 print(f"   • {len(activity['active_agents'])} active agents")
             else:
@@ -474,10 +473,10 @@ async def test_unified_search():
         ) as resp:
             if resp.status == 400:
                 error = await resp.json()
-                print(f"✅ Correctly rejected invalid resource type")
+                print("✅ Correctly rejected invalid resource type")
                 print(f"   Error: {error.get('detail', 'No detail')}")
             else:
-                print(f"❌ Should have rejected invalid resource type")
+                print("❌ Should have rejected invalid resource type")
 
     print("\n✨ Unified search API test complete!")
 

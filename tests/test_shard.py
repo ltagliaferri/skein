@@ -15,7 +15,6 @@ import os
 import subprocess
 import tempfile
 import threading
-import time
 from pathlib import Path
 from typing import Generator
 from unittest.mock import patch
@@ -44,15 +43,12 @@ from skein.shard import (
     get_tender_metadata,
     detect_shard_environment,
     set_project_root,
-    get_project_root,
     get_worktrees_dir,
     validate_shard_name,
     _is_path_inside_worktree,
     _get_next_sequence,
     _get_git_version,
     MAX_SEQUENCE_NUMBER,
-    _PROJECT_ROOT,
-    _WORKTREES_DIR,
 )
 
 
@@ -175,11 +171,11 @@ class TestSpawnCleanupRoundtrip:
     def test_spawn_then_cleanup_leaves_no_trace(self, shard_env: Path):
         """WHY: Core safety property - after cleanup, repo should be pristine."""
         # Record initial state
-        initial_branches = subprocess.run(
+        subprocess.run(
             ["git", "branch", "--list"],
             cwd=shard_env, capture_output=True, text=True
         ).stdout
-        initial_worktrees = subprocess.run(
+        subprocess.run(
             ["git", "worktree", "list"],
             cwd=shard_env, capture_output=True, text=True
         ).stdout
@@ -368,7 +364,7 @@ class TestListShardsAccuracy:
             for info in spawned:
                 try:
                     cleanup_shard(info["worktree_name"])
-                except:
+                except Exception:
                     pass
 
     def test_list_shards_excludes_cleaned_up(self, shard_env: Path):
@@ -386,7 +382,7 @@ class TestListShardsAccuracy:
         """WHY: Orphaned git metadata should not create phantom list entries."""
         info = spawn_shard("phantom-test")
         worktree_path = Path(info["worktree_path"])
-        worktree_name = info["worktree_name"]
+        info["worktree_name"]
 
         # Simulate corruption: delete directory but not git metadata
         # (shouldn't happen normally, but test resilience)
@@ -403,7 +399,7 @@ class TestListShardsAccuracy:
 
         # List should not include phantom
         shards = list_shards()
-        names = [s["worktree_name"] for s in shards]
+        [s["worktree_name"] for s in shards]
         # Either it's not there, or if git still tracks it, we accept that
         # (git's behavior varies by version)
 
@@ -430,7 +426,7 @@ class TestDuplicateSpawnPrevention:
             for info in [info1, info2]:
                 try:
                     cleanup_shard(info["worktree_name"])
-                except:
+                except Exception:
                     pass
 
     def test_spawn_fails_if_worktree_path_exists(self, shard_env: Path):
@@ -542,7 +538,7 @@ class TestNameValidation:
         except ShardError as e:
             # Acceptable to reject very long names
             assert "name" in str(e).lower() or "path" in str(e).lower()
-        except Exception as e:
+        except Exception:
             # Git might reject it - that's also acceptable
             pass
 
@@ -554,7 +550,7 @@ class TestNameValidation:
         except ShardError:
             # Acceptable to reject unicode
             pass
-        except Exception as e:
+        except Exception:
             # Git/OS might reject it
             pass
 
@@ -999,7 +995,7 @@ class TestConcurrentOperations:
         for info in results:
             try:
                 cleanup_shard(info["worktree_name"])
-            except:
+            except Exception:
                 pass
 
 
@@ -1015,7 +1011,6 @@ class TestIsPathInsideWorktree:
 
     def test_fails_closed_on_resolve_error(self, tmp_path: Path):
         """WHY: On path resolution errors, should assume inside (fail closed)."""
-        from unittest.mock import patch
 
         worktree = tmp_path / "worktree"
         worktree.mkdir()
@@ -1127,7 +1122,7 @@ if HYPOTHESIS_AVAILABLE:
                 for info in spawned:
                     try:
                         cleanup_shard(info["worktree_name"])
-                    except:
+                    except Exception:
                         pass
 
         @given(agent_id=valid_agent_id)
@@ -1689,11 +1684,11 @@ class TestBugFixRegressions:
         The fix changed from 'only block conflict' to 'require clean'.
         """
         info = spawn_shard("merge-status-test")
-        worktree_path = Path(info["worktree_path"])
+        Path(info["worktree_path"])
 
         try:
             # Fresh shard with no commits has clean status - can merge (nothing to do)
-            result = merge_shard(info["worktree_name"])
+            merge_shard(info["worktree_name"])
             # This actually succeeds because there's nothing to merge
             # and cleanup happens (worktree is removed)
 
@@ -1743,7 +1738,6 @@ class TestSymlinkSafety:
         worktree_path = Path(info["worktree_path"])
 
         # Create symlink inside worktree pointing to temp outside location
-        import tempfile
         with tempfile.TemporaryDirectory() as outside:
             outside_path = Path(outside)
             symlink = worktree_path / "escape"
@@ -1784,7 +1778,7 @@ class TestStaleShardCategorization:
 
             # Find our shard
             stale_names = [s["worktree_name"] for s in queue["stale"]]
-            ready_names = [s["worktree_name"] for s in queue["ready"]]
+            [s["worktree_name"] for s in queue["ready"]]
 
             # Should be in stale because age >= 0 and no commits
             assert info["worktree_name"] in stale_names
@@ -1808,8 +1802,6 @@ from skein.shard import (
     get_graft_depth,
     is_graft,
     _get_shard_metadata,
-    _record_shard_metadata,
-    _update_shard_status,
 )
 
 
@@ -2246,7 +2238,7 @@ class TestGraftOfGraft:
 
             # First graft
             graft1_result = graft_shard(info["worktree_name"])
-            graft1_path = Path(graft1_result["graft_worktree_path"])
+            Path(graft1_result["graft_worktree_path"])
 
             # Master evolves again
             (shard_env / "evolution2.py").write_text("evolution 2")
@@ -2260,7 +2252,7 @@ class TestGraftOfGraft:
             graft2_result = graft_shard(graft1_result["graft_worktree_name"])
 
             assert graft2_result["chain_depth"] == 2
-            assert f"-graft-graft" in graft2_result["graft_worktree_name"]
+            assert "-graft-graft" in graft2_result["graft_worktree_name"]
 
             # All work should be in final graft
             graft2_path = Path(graft2_result["graft_worktree_path"])

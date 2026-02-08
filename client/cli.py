@@ -17,7 +17,7 @@ import click
 import requests
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Set
+from typing import Optional, Dict, Any, Set
 
 # Import name generator from skein package
 try:
@@ -54,7 +54,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
     try:
         with open(config_file) as f:
             return json.load(f)
-    except:
+    except Exception:
         return None
 
 
@@ -67,7 +67,7 @@ def get_global_config() -> Dict[str, Any]:
     try:
         with open(config_file) as f:
             return json.load(f)
-    except:
+    except Exception:
         return {"server_url": "http://localhost:8001"}
 
 
@@ -162,7 +162,7 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
                 agent_data = roster_resp.json()
                 if agent_data.get("status") == "orienting":
                     click.echo(f"Note: You're still orienting. Run 'skein --agent {agent_id} ready' when done.", err=True)
-        except:
+        except Exception:
             pass  # Not critical
 
     try:
@@ -174,7 +174,7 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
             try:
                 error = e.response.json()
                 raise click.ClickException(f"API error: {error.get('detail', str(e))}")
-            except:
+            except Exception:
                 raise click.ClickException(f"API error: {e.response.text or str(e)}")
         raise click.ClickException(f"Connection error: {str(e)}")
 
@@ -290,8 +290,8 @@ def init(project, name):
         json.dump(projects_data, f, indent=2)
 
     click.echo(f"✓ Initialized SKEIN project '{project}' in {project_root}")
-    click.echo(f"✓ Created .skein/ directory")
-    click.echo(f"✓ Registered in ~/.skein/projects.json")
+    click.echo("✓ Created .skein/ directory")
+    click.echo("✓ Registered in ~/.skein/projects.json")
     click.echo(f"\nProject data: {data_dir}")
     click.echo(f"Server URL: {project_config['server_url']}")
 
@@ -381,7 +381,7 @@ def projects(verbose):
         current_config = get_project_config()
         if current_config:
             current_project_id = current_config.get("project_id")
-    except:
+    except Exception:
         pass
 
     click.echo(f"Found {len(all_projects)} project(s):\n")
@@ -409,10 +409,10 @@ def projects(verbose):
             click.echo(f"      {path}")
 
     if not verbose and current_project_id:
-        click.echo(f"\n  * = current project")
+        click.echo("\n  * = current project")
 
     if not verbose:
-        click.echo(f"\nUse 'skein projects -v' for detailed information")
+        click.echo("\nUse 'skein projects -v' for detailed information")
 
 
 # ============================================================================
@@ -608,7 +608,7 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
                 if fid not in threads_by_folio:
                     threads_by_folio[fid] = []
                 threads_by_folio[fid].append(thread)
-    except:
+    except Exception:
         threads_by_folio = {}
 
     # Filter by agent
@@ -640,7 +640,7 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
             # Try ISO format
             try:
                 return datetime.fromisoformat(time_str.replace('Z', '+00:00'))
-            except:
+            except Exception:
                 return None
 
         if since:
@@ -735,7 +735,7 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
         try:
             proc = subprocess.Popen(['less', '-R'], stdin=subprocess.PIPE)
             proc.communicate(input=output_text.encode())
-        except:
+        except Exception:
             # Fallback if less not available
             click.echo(output_text)
     else:
@@ -770,7 +770,7 @@ def site_create(ctx, site_id, purpose, tags):
         "metadata": {"tags": tag_list}
     }
 
-    result = make_request("POST", "/sites", base_url, agent_id, json=data)
+    make_request("POST", "/sites", base_url, agent_id, json=data)
     click.echo(f"Created site: {site_id}")
 
 
@@ -812,7 +812,7 @@ def site_close(ctx, site_id, note):
     if note:
         data["metadata"] = {"closure_note": note}
 
-    result = make_request("PATCH", f"/sites/{site_id}", base_url, agent_id, json=data)
+    make_request("PATCH", f"/sites/{site_id}", base_url, agent_id, json=data)
     click.echo(f"Closed site: {site_id}")
     if note:
         click.echo(f"Note: {note}")
@@ -828,7 +828,7 @@ def site_reopen(ctx, site_id):
 
     data = {"status": "active"}
 
-    result = make_request("PATCH", f"/sites/{site_id}", base_url, agent_id, json=data)
+    make_request("PATCH", f"/sites/{site_id}", base_url, agent_id, json=data)
     click.echo(f"Reopened site: {site_id}")
 
 
@@ -921,7 +921,7 @@ def issues(ctx, site_id, assigned_to, status, output_json):
                     if thread['to_id'] not in threads_by_resource:
                         threads_by_resource[thread['to_id']] = []
                     threads_by_resource[thread['to_id']].append(thread)
-            except:
+            except Exception:
                 # Fall back to no threads if batch fetch fails
                 threads_by_resource = {}
 
@@ -955,7 +955,7 @@ def issues(ctx, site_id, assigned_to, status, output_json):
                         breadcrumb_parts.append(f"Tags: {', '.join(tags)}")
 
                     click.echo(f"    {' | '.join(breadcrumb_parts)}")
-                except:
+                except Exception:
                     # Fall back to simple display if thread processing fails
                     click.echo(f"    Site: {i['site_id']} | Status: {i['status']}")
 
@@ -1006,7 +1006,7 @@ def brief_get(ctx, brief_id, output_json):
         if brief_data.get("target_agent"):
             click.echo(f"Target: {brief_data['target_agent']}")
         click.echo(f"\nTitle: {brief_data['title']}")
-        click.echo(f"\nContent:")
+        click.echo("\nContent:")
         click.echo(brief_data['content'])
 
         if brief_data.get("references"):
@@ -1077,7 +1077,7 @@ def playbook_get(ctx, playbook_id, output_json):
         click.echo(f"Created: {playbook_data['created_at']}")
         click.echo(f"From: {playbook_data['created_by']}")
         click.echo(f"\nTitle: {playbook_data['title']}")
-        click.echo(f"\nContent:")
+        click.echo("\nContent:")
         click.echo(playbook_data['content'])
 
 
@@ -1116,7 +1116,7 @@ def ignite(ctx, brief_id):
         "type": "succession",
         "content": f"Resuming work from {brief_id}"
     }
-    thread_result = make_request("POST", "/threads", base_url, agent_id, json=succession_data)
+    make_request("POST", "/threads", base_url, agent_id, json=succession_data)
 
     # Display brief
     click.echo(f"{'='*60}")
@@ -1142,11 +1142,11 @@ def ignite(ctx, brief_id):
     click.echo("  Previous agents who skipped this produced incorrect work.")
     click.echo(f"\n{'='*60}")
     click.echo("Next steps:")
-    click.echo(f"  1. Read required docs listed in CLAUDE.md")
-    click.echo(f"  2. Review the brief above")
+    click.echo("  1. Read required docs listed in CLAUDE.md")
+    click.echo("  2. Review the brief above")
     click.echo(f"  3. Check site: skein --agent {agent_id} issues {site_id}")
     click.echo(f"  4. Check recent activity: skein --agent {agent_id} activity")
-    click.echo(f"  5. Continue work from 'Remaining' section")
+    click.echo("  5. Continue work from 'Remaining' section")
     click.echo(f"{'='*60}")
 
 
@@ -1389,7 +1389,7 @@ def search(ctx, query, resources, type, site, sites, all_sites, status, sort, li
             elif sites:
                 click.echo(f"  (searched in sites matching: {', '.join(sites)})")
             else:
-                click.echo(f"  (searched across all sites)")
+                click.echo("  (searched across all sites)")
         else:
             click.echo(f"Found {total} result(s):\n")
 
@@ -1408,7 +1408,7 @@ def search(ctx, query, resources, type, site, sites, all_sites, status, sort, li
                             by_site[site_id] = []
                         by_site[site_id].append(r)
 
-                    sites_count = len(by_site)
+                    len(by_site)
                     click.echo(f"📑 Folios ({folios_total} total, showing {len(folios)}):\n")
 
                     for site_id in sorted(by_site.keys()):
@@ -1494,7 +1494,7 @@ def status(ctx, output_json):
         resp = requests.get(f"{base_url}/health", timeout=2)
         health = resp.json()
         server_status = "healthy" if health.get("status") == "healthy" else "unhealthy"
-    except:
+    except Exception:
         server_status = "unreachable"
 
     # Get project config
@@ -1504,7 +1504,7 @@ def status(ctx, output_json):
     # Get all folios for counts
     try:
         all_folios = make_request("GET", "/folios", base_url, agent_id)
-    except:
+    except Exception:
         all_folios = []
 
     # Count open issues and frictions
@@ -1531,7 +1531,7 @@ def status(ctx, output_json):
                     closed_issues_today += 1
                 elif folio_type == 'friction':
                     closed_frictions_today += 1
-    except:
+    except Exception:
         pass
 
     # Get folios from last hour and count by type
@@ -1546,7 +1546,7 @@ def status(ctx, output_json):
             if created >= one_hour_ago:
                 recent_folios.append(f)
                 recent_agents.add(f.get('created_by', 'unknown'))
-        except:
+        except Exception:
             pass
 
     # Count by type for last hour
@@ -1617,7 +1617,7 @@ def activity(ctx, since, output_json):
     if output_json:
         click.echo(json.dumps(activity_data, indent=2))
     else:
-        click.echo(f"Recent activity:\n")
+        click.echo("Recent activity:\n")
         click.echo(f"New folios: {len(activity_data.get('new_folios', []))}")
         click.echo(f"Active agents: {len(activity_data.get('active_agents', []))}")
 
@@ -1945,7 +1945,7 @@ def writ(ctx, site_id, decision, thread_id):
         }
         make_request("POST", "/threads", base_url, agent_id, json=status_data)
         click.echo(f"  Linked to tender: {thread_id}")
-        click.echo(f"  Tender status: responded")
+        click.echo("  Tender status: responded")
 
 
 @cli.command()
@@ -2028,7 +2028,7 @@ def folio(ctx, folio_id, no_pager, output_json):
             for t in related_threads:
                 other_id = t['to_id'] if t['from_id'] == fid else t['from_id']
                 output_lines.append(f"      → {other_id}")
-    except:
+    except Exception:
         pass
 
     # Output with pager for TTY
@@ -2038,7 +2038,7 @@ def folio(ctx, folio_id, no_pager, output_json):
         try:
             proc = subprocess.Popen(['less', '-R'], stdin=subprocess.PIPE)
             proc.communicate(input=output_text.encode())
-        except:
+        except Exception:
             click.echo(output_text)
     else:
         click.echo(output_text)
@@ -2444,7 +2444,7 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
         return
 
     if result.get("success"):
-        moved_folio = result.get("folio", {})
+        result.get("folio", {})
         click.echo(f"Moved {folio_id} to {dest_site_id}")
         if note:
             click.echo(f"  Note: {note}")
@@ -2523,7 +2523,7 @@ def folios(ctx, site_id, type, status, limit, show_all, output_json):
                     if thread['to_id'] not in threads_by_resource:
                         threads_by_resource[thread['to_id']] = []
                     threads_by_resource[thread['to_id']].append(thread)
-            except:
+            except Exception:
                 # Fall back to no threads if batch fetch fails
                 threads_by_resource = {}
 
@@ -2559,7 +2559,7 @@ def folios(ctx, site_id, type, status, limit, show_all, output_json):
 
                         if breadcrumb_parts:
                             click.echo(f"      {' | '.join(breadcrumb_parts)}")
-                    except:
+                    except Exception:
                         # Silently skip if thread processing fails
                         pass
 
@@ -2639,7 +2639,7 @@ def survey(ctx, site_ids, type, status, output_json):
                 continue
 
             if not folios:
-                click.echo(f"  No folios found\n")
+                click.echo("  No folios found\n")
                 continue
 
             click.echo(f"  Found {len(folios)} folio(s)\n")
@@ -3037,7 +3037,7 @@ def tag(ctx, resource_id, tag_name):
         "content": tag_name
     }
 
-    result = make_request("POST", "/threads", base_url, agent_id, json=data)
+    make_request("POST", "/threads", base_url, agent_id, json=data)
     click.echo(f"Tagged {resource_id} as '{tag_name}'")
 
 
@@ -3068,7 +3068,7 @@ def update(ctx, resource_id, status_value):
         "content": status_value
     }
 
-    result = make_request("POST", "/threads", base_url, agent_id, json=data)
+    make_request("POST", "/threads", base_url, agent_id, json=data)
     click.echo(f"Set status of {resource_id} to '{status_value}'")
 
 
@@ -3157,7 +3157,7 @@ def register(ctx, capabilities, name, agent_type, description):
     if description:
         data["description"] = description
 
-    result = make_request("POST", "/roster/register", base_url, agent_id, json=data)
+    make_request("POST", "/roster/register", base_url, agent_id, json=data)
     click.echo(f"Registered: {agent_id}")
     if name:
         click.echo(f"Name: {name}")
@@ -3201,7 +3201,7 @@ def _get_existing_agent_names(base_url: str, agent_id: str) -> Set[str]:
     try:
         agents = make_request("GET", "/roster", base_url, agent_id)
         return {a.get("name", "").lower() for a in agents if a.get("name")}
-    except:
+    except Exception:
         return set()
 
 
@@ -3569,7 +3569,7 @@ def _torch_start(ctx):
     try:
         roster_data = make_request("GET", f"/roster/{agent_id}", base_url, agent_id)
         name = roster_data.get("name", agent_id)
-    except:
+    except Exception:
         raise click.ClickException(f"Agent {agent_id} not found in roster. Must ignite before torching.")
 
     # Get agent's SKEIN activity
@@ -3588,7 +3588,7 @@ def _torch_start(ctx):
             "frictions": len([f for f in agent_folios if f.get("type") == "friction"]),
             "summaries": len([f for f in agent_folios if f.get("type") == "summary"])
         }
-    except:
+    except Exception:
         work_summary = {}
 
     # Update status to retiring (if server supports it)
@@ -3600,7 +3600,7 @@ def _torch_start(ctx):
             "status": "retiring"
         }
         make_request("POST", "/roster/register", base_url, agent_id, json=update_data)
-    except:
+    except Exception:
         pass  # Continue even if update fails (server might not support status)
 
     click.echo("="*60)
@@ -3653,9 +3653,9 @@ def _torch_start(ctx):
                 if brief and brief.get("status") == "open":
                     ignited_from_brief = brief
                     brief_is_open = True
-        except:
+        except Exception:
             pass
-    except:
+    except Exception:
         # Continue even if we can't fetch open work
         pass
 
@@ -3704,7 +3704,7 @@ def _torch_start(ctx):
     click.echo()
     click.echo("When done:")
     click.echo()
-    click.echo(f"  skein complete")
+    click.echo("  skein complete")
     click.echo()
 
 
@@ -3740,7 +3740,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
     try:
         roster_data = make_request("GET", f"/roster/{agent_id}", base_url, agent_id)
         name = roster_data.get("name", agent_id)
-    except:
+    except Exception:
         raise click.ClickException(f"Agent {agent_id} not found in roster")
 
     # Get final work summary
@@ -3759,7 +3759,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
             "summaries": len([f for f in agent_folios if f.get("type") == "summary"]),
             "tenders": len([f for f in agent_folios if f.get("type") == "tender"])
         }
-    except:
+    except Exception:
         final_work = {}
 
     # If in a chain, handle yield
@@ -3858,7 +3858,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
                 }
                 result = make_request("POST", "/summary", base_url, agent_id, json=summary_data)
                 summary_id = result.get("folio_id")
-        except:
+        except Exception:
             pass
 
     # Update status to retired
@@ -4125,7 +4125,6 @@ def info(ctx, topic):
         skein info guide
         skein info threads
     """
-    import os
     from pathlib import Path
 
     # Find docs directory
@@ -4260,12 +4259,12 @@ def backup_verify(ctx, backup_id):
     result = manager.verify_backup(backup_id)
 
     if result['valid']:
-        click.echo(f"✓ Backup is valid")
+        click.echo("✓ Backup is valid")
         click.echo(f"  Checksum: {result['checksum'][:16]}...")
         click.echo(f"  Files: {result['file_count']}")
         click.echo(f"  Size: {result['backup_size']:,} bytes")
     else:
-        click.echo(f"✗ Backup verification failed")
+        click.echo("✗ Backup verification failed")
         click.echo(f"  Error: {result.get('error', 'Unknown error')}")
 
 
@@ -4382,7 +4381,7 @@ def backup_enable(ctx, keep_last):
     service_path.write_text(service_content)
     timer_path.write_text(timer_content)
 
-    click.echo(f"Installed systemd files:")
+    click.echo("Installed systemd files:")
     click.echo(f"  {service_path}")
     click.echo(f"  {timer_path}")
 
@@ -4634,7 +4633,7 @@ def shard_spawn(ctx, spawn_agent, brief, description):
             click.echo(f"  Brief: {shard_info['brief_id']}")
         if shard_info.get('thread_id'):
             click.echo(f"  Thread: {shard_info['thread_id']}")
-        click.echo(f"\nTo work in this SHARD:")
+        click.echo("\nTo work in this SHARD:")
         click.echo(f"  cd {shard_info['worktree_path']}")
 
     except shard_worktree.ShardError as e:
@@ -4896,7 +4895,7 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
             if result["removed"]:
                 click.echo(f"Found chain ({len(result['removed'])} worktrees):")
                 for wt in reversed(result["removed"]):  # Show original first
-                    is_root = wt == result.get("chain_root", "")
+                    wt == result.get("chain_root", "")
                     label = "(original)" if not shard_worktree.is_graft(wt) else "(graft)"
                     click.echo(f"  {wt} {label}")
                 click.echo()
@@ -4927,7 +4926,7 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
                 root = shard_worktree.get_graft_chain_root(worktree_name)
                 remaining_chain = shard_worktree.get_graft_chain(root)
                 if remaining_chain:
-                    click.echo(f"\nNote: Original shard and/or other grafts may remain:")
+                    click.echo("\nNote: Original shard and/or other grafts may remain:")
                     for wt in remaining_chain:
                         click.echo(f"  - {wt}")
                     click.echo(f"\nTo remove all: skein shard cleanup {root} --chain")
@@ -4968,15 +4967,15 @@ def shard_graft(ctx, worktree_name):
     shard_worktree = get_shard_worktree_module()
 
     try:
-        click.echo(f"Creating graft worktree from current master...")
+        click.echo("Creating graft worktree from current master...")
         click.echo(f"Applying commits from {worktree_name}...")
         click.echo()
 
         result = shard_worktree.graft_shard(worktree_name)
 
         if result["success"]:
-            click.echo(f"✓ Applied cleanly (no conflicts)\n")
-            click.echo(f"Graft created at:")
+            click.echo("✓ Applied cleanly (no conflicts)\n")
+            click.echo("Graft created at:")
             click.echo(f"  {result['graft_worktree_path']}/\n")
             click.echo("Your work has been applied onto current master.")
             click.echo("Review and test, then merge:")
@@ -4985,7 +4984,7 @@ def shard_graft(ctx, worktree_name):
             click.echo(f"  skein shard merge {result['graft_worktree_name']}")
         else:
             click.echo(f"✗ Conflicts in: {', '.join(result['conflicts'])}\n")
-            click.echo(f"Graft created at:")
+            click.echo("Graft created at:")
             click.echo(f"  {result['graft_worktree_path']}/\n")
 
             # Show chain context if this is a multi-level graft
@@ -5082,13 +5081,13 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
                 root = shard_worktree.get_graft_chain_root(worktree_name)
                 chain = shard_worktree.get_graft_chain(root)
                 if chain:
-                    click.echo(f"\nCleanup worktree chain:")
+                    click.echo("\nCleanup worktree chain:")
                     click.echo(f"  → skein shard cleanup {root} --chain")
-                    click.echo(f"\nThis will remove:")
+                    click.echo("\nThis will remove:")
                     for wt in chain:
                         click.echo(f"  - worktrees/{wt}/")
             else:
-                click.echo(f"\nCleanup worktree:")
+                click.echo("\nCleanup worktree:")
                 click.echo(f"  → skein shard cleanup {worktree_name}")
         else:
             click.echo(f"✗ {result['message']}")
@@ -5100,10 +5099,10 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
                 click.echo("\nCommit your changes first, then retry merge.")
 
             if result.get("conflicts"):
-                click.echo(f"\n✗ Conflicts detected")
+                click.echo("\n✗ Conflicts detected")
                 for f in result["conflicts"]:
                     click.echo(f"  - {f}")
-                click.echo(f"\nCreate graft worktree to resolve:")
+                click.echo("\nCreate graft worktree to resolve:")
                 click.echo(f"  → skein shard graft {worktree_name}")
 
             raise SystemExit(1)
@@ -5221,7 +5220,7 @@ def shard_pause(ctx, worktree_name, reason):
 
     # Find the SHARD thread
     try:
-        threads = make_request("GET", f"/threads?limit=100", base_url, agent_id)
+        threads = make_request("GET", "/threads?limit=100", base_url, agent_id)
 
         shard_thread_id = None
         for thread in threads:
@@ -5277,7 +5276,7 @@ def shard_resume(ctx, worktree_name, message):
 
     # Find the SHARD thread
     try:
-        threads = make_request("GET", f"/threads?limit=100", base_url, agent_id)
+        threads = make_request("GET", "/threads?limit=100", base_url, agent_id)
 
         shard_thread_id = None
         for thread in threads:
@@ -5589,7 +5588,7 @@ def shard_triage(ctx, output_json):
                     try:
                         import json as json_module
                         metadata = json_module.loads(metadata)
-                    except:
+                    except Exception:
                         continue
                 wt_name = metadata.get("worktree_name")
                 if wt_name:
@@ -5599,7 +5598,7 @@ def shard_triage(ctx, output_json):
                         "status": metadata.get("status"),
                         "summary": folio.get("title", "")[:50]
                     }
-        except:
+        except Exception:
             pass  # Tender lookup is optional
 
         # Build triage data
@@ -5610,7 +5609,7 @@ def shard_triage(ctx, output_json):
             drift_info = shard_worktree.get_shard_drift_info(wt_name)
 
             commits = git_info.get("commits_ahead", 0)
-            merge = git_info.get("merge_status", "unknown")
+            git_info.get("merge_status", "unknown")
             uncommitted = git_info.get("uncommitted", [])
 
             # Get drift info
@@ -5796,7 +5795,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                     try:
                         import json as json_module
                         metadata = json_module.loads(metadata)
-                    except:
+                    except Exception:
                         continue
                 if metadata.get("worktree_name") == worktree_name:
                     tender_info = {
@@ -5806,7 +5805,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                         "summary": folio.get("title", ""),
                     }
                     break
-        except:
+        except Exception:
             pass
 
         # Get conflict info from drift_info
@@ -5932,7 +5931,7 @@ def shard_inspect(ctx, worktree_name, output_json):
 
                 # Show conflict status
                 if conflict_status == "conflict":
-                    click.echo(f"  ⚠ Integration test: Conflicts detected")
+                    click.echo("  ⚠ Integration test: Conflicts detected")
                     if conflict_files:
                         for f in conflict_files[:10]:
                             click.echo(f"    - {f}")
@@ -5940,15 +5939,15 @@ def shard_inspect(ctx, worktree_name, output_json):
                             click.echo(f"    ... and {len(conflict_files) - 10} more")
                 elif is_nested and not is_graft:
                     # Nested shard (spawned from another shard) - can't merge directly
-                    click.echo(f"  ✓ Integration test: No conflicts detected")
-                    click.echo(f"  ⚠ Nested shard: contains commits from parent shard")
-                    click.echo(f"    Must graft to isolate your changes before merging")
+                    click.echo("  ✓ Integration test: No conflicts detected")
+                    click.echo("  ⚠ Nested shard: contains commits from parent shard")
+                    click.echo("    Must graft to isolate your changes before merging")
                 else:
-                    click.echo(f"  ✓ Integration test: No conflicts detected")
+                    click.echo("  ✓ Integration test: No conflicts detected")
                     if commits > 0:
-                        click.echo(f"  ✓ Ready to merge onto current master")
+                        click.echo("  ✓ Ready to merge onto current master")
                     else:
-                        click.echo(f"  ℹ No code changes (research/verification only)")
+                        click.echo("  ℹ No code changes (research/verification only)")
                 click.echo()
             elif base_commit:
                 if is_nested and not is_graft:
@@ -6115,18 +6114,18 @@ def shard_stash(ctx, description, stash_agent):
             click.echo(f"  Path: {worktree_path}")
             click.echo(f"  Description: {description}")
             click.echo()
-            click.echo(f"Your current branch is now clean.")
+            click.echo("Your current branch is now clean.")
             click.echo(f"To continue work: cd {worktree_path}")
 
         except Exception as e:
             # If apply fails, restore the stash
             try:
                 repo.git.stash("pop")
-            except:
+            except Exception:
                 pass
             try:
                 shard_worktree.cleanup_shard(worktree_name, keep_branch=False)
-            except:
+            except Exception:
                 pass
             raise click.ClickException(f"Failed to apply stash to new shard: {e}")
 

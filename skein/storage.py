@@ -6,7 +6,6 @@ Multi-project support via ~/.skein/projects.json registry.
 import sqlite3
 import json
 import logging
-import os
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
@@ -242,7 +241,7 @@ class LogDatabase:
 
             if search:
                 # Use FTS for full-text search
-                query = f"""
+                query = """
                     SELECT logs.* FROM logs
                     JOIN logs_fts ON logs.rowid = logs_fts.rowid
                     WHERE stream_id = ? AND logs_fts MATCH ?

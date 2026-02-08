@@ -1,13 +1,11 @@
 """Tests for yield/sack storage functionality."""
 
-import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from skein.storage import LogDatabase
-from skein.models import YieldCreate, Yield
 
 
 @pytest.fixture

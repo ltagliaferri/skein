@@ -7,7 +7,6 @@ Provides backup and restore functionality for SKEIN data:
 - Restore with dry-run and confirmation
 """
 
-import os
 import json
 import tarfile
 import hashlib
@@ -144,7 +143,7 @@ class BackupManager:
                     backup_file = metadata_file.parent / (metadata_file.stem + '.tar.gz')
                     metadata['exists'] = backup_file.exists()
                     backups.append(metadata)
-                except Exception as e:
+                except Exception:
                     # Skip invalid metadata files
                     pass
 

@@ -11,7 +11,7 @@ from skein.storage import LogDatabase
 @pytest.fixture
 def test_db():
     """Create a temporary database for testing."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = Path(f.name)
 
     db = LogDatabase(db_path)
@@ -53,8 +53,11 @@ class TestSackStorage:
         # Retrieve and verify
         yield_data = test_db.get_yield("yield-20251206-art1")
         assert yield_data is not None
-        assert yield_data['artifacts'] == ["finding-20251206-abc1", "tender-20251206-def2"]
-        assert yield_data['notes'] == "Heads up: the fix is invasive"
+        assert yield_data["artifacts"] == [
+            "finding-20251206-abc1",
+            "tender-20251206-def2",
+        ]
+        assert yield_data["notes"] == "Heads up: the fix is invasive"
 
     def test_add_yield_with_enrichment(self, test_db):
         """Test adding a yield with Mill enrichment fields."""
@@ -75,10 +78,12 @@ class TestSackStorage:
         # Retrieve and verify
         yield_data = test_db.get_yield("yield-20251206-enr1")
         assert yield_data is not None
-        assert yield_data['duration_seconds'] == 120
-        assert yield_data['tokens_used'] == 5000
-        assert yield_data['shard_path'] == "/home/user/projects/repo/worktrees/shard-abc"
-        assert yield_data['tender_id'] == "tender-20251206-xyz1"
+        assert yield_data["duration_seconds"] == 120
+        assert yield_data["tokens_used"] == 5000
+        assert (
+            yield_data["shard_path"] == "/home/user/projects/repo/worktrees/shard-abc"
+        )
+        assert yield_data["tender_id"] == "tender-20251206-xyz1"
 
     def test_get_chain_yields_ordering(self, test_db):
         """Test getting yields in chain order."""
@@ -115,9 +120,9 @@ class TestSackStorage:
         yields = test_db.get_chain_yields("chain-ordering-test")
         assert len(yields) == 3
         # Note: ordering is by timestamp, so will be 3, 1, 2
-        assert yields[0]['sack_id'] == "yield-chain-3"
-        assert yields[1]['sack_id'] == "yield-chain-1"
-        assert yields[2]['sack_id'] == "yield-chain-2"
+        assert yields[0]["sack_id"] == "yield-chain-3"
+        assert yields[1]["sack_id"] == "yield-chain-1"
+        assert yields[2]["sack_id"] == "yield-chain-2"
 
     def test_get_yields_by_status(self, test_db):
         """Test filtering yields by status."""
@@ -146,11 +151,11 @@ class TestSackStorage:
 
         blocked = test_db.get_yields_by_status("blocked")
         assert len(blocked) == 2
-        assert all(y['status'] == 'blocked' for y in blocked)
+        assert all(y["status"] == "blocked" for y in blocked)
 
         complete = test_db.get_yields_by_status("complete")
         assert len(complete) == 1
-        assert complete[0]['status'] == 'complete'
+        assert complete[0]["status"] == "complete"
 
     def test_get_agent_yields(self, test_db):
         """Test getting yields by agent."""
@@ -181,7 +186,7 @@ class TestSackStorage:
 
         alice_yields = test_db.get_agent_yields("agent-alice")
         assert len(alice_yields) == 2
-        assert all(y['agent_id'] == 'agent-alice' for y in alice_yields)
+        assert all(y["agent_id"] == "agent-alice" for y in alice_yields)
 
     def test_get_previous_yield(self, test_db):
         """Test getting previous yield in a chain."""
@@ -218,13 +223,13 @@ class TestSackStorage:
         # Get previous yield before task_0003
         prev = test_db.get_previous_yield("chain-sequential", "task_0003")
         assert prev is not None
-        assert prev['task_id'] == "task_0002"
+        assert prev["task_id"] == "task_0002"
 
         # Get previous yield before task_0002
         prev = test_db.get_previous_yield("chain-sequential", "task_0002")
         assert prev is not None
-        assert prev['task_id'] == "task_0001"
-        assert prev['notes'] == "Context for second"
+        assert prev["task_id"] == "task_0001"
+        assert prev["notes"] == "Context for second"
 
         # Get previous yield before first task (should be None)
         prev = test_db.get_previous_yield("chain-sequential", "task_0001")

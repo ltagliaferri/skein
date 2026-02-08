@@ -35,6 +35,7 @@ class AgentInfo(BaseModel):
 
 # Site Models
 
+
 class SiteCreate(BaseModel):
     site_id: str
     purpose: str
@@ -57,7 +58,19 @@ class Site(BaseModel):
 
 # Folio Models
 
-FolioType = Literal["issue", "friction", "brief", "summary", "finding", "notion", "tender", "playbook", "mantle", "writ", "plan"]
+FolioType = Literal[
+    "issue",
+    "friction",
+    "brief",
+    "summary",
+    "finding",
+    "notion",
+    "tender",
+    "playbook",
+    "mantle",
+    "writ",
+    "plan",
+]
 
 
 class FolioCreate(BaseModel):
@@ -68,7 +81,9 @@ class FolioCreate(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     assigned_to: Optional[str] = None
     target_agent: Optional[str] = None  # For briefs
-    omlet: Optional[str] = None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    omlet: Optional[str] = (
+        None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    )
 
 
 class Folio(BaseModel):
@@ -82,7 +97,9 @@ class Folio(BaseModel):
     status: str = "open"
     assigned_to: Optional[str] = None
     target_agent: Optional[str] = None
-    omlet: Optional[str] = None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    omlet: Optional[str] = (
+        None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    )
     archived: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
     acknowledged_at: Optional[datetime] = None
@@ -91,6 +108,7 @@ class Folio(BaseModel):
 
 class FolioUpdate(BaseModel):
     """Model for updating a folio's mutable fields."""
+
     title: Optional[str] = None
     content: Optional[str] = None
     status: Optional[str] = None
@@ -100,12 +118,21 @@ class FolioUpdate(BaseModel):
 
 # Thread Models
 
-ThreadType = Literal["message", "mention", "reference", "assignment", "succession", "reply", "tag", "status"]
+ThreadType = Literal[
+    "message",
+    "mention",
+    "reference",
+    "assignment",
+    "succession",
+    "reply",
+    "tag",
+    "status",
+]
 
 
 class ThreadCreate(BaseModel):
     from_id: str  # Any resource ID (agent, folio, etc)
-    to_id: str    # Any resource ID
+    to_id: str  # Any resource ID
     type: ThreadType
     content: Optional[str] = None
     weaver: Optional[str] = None  # Agent who created this connection
@@ -123,6 +150,7 @@ class Thread(BaseModel):
 
 
 # Log Models
+
 
 class LogEntry(BaseModel):
     stream_id: str
@@ -149,6 +177,7 @@ class LogLine(BaseModel):
 
 # Screenshot Models
 
+
 class ScreenshotCreate(BaseModel):
     screenshot_data: str  # base64 PNG
     strand_id: str
@@ -169,8 +198,10 @@ class Screenshot(BaseModel):
 
 # Yield/Sack Models (chain data passing)
 
+
 class YieldCreate(BaseModel):
     """Data passed when an agent yields."""
+
     status: str  # complete, blocked, failed, etc.
     outcome: str = ""  # Summary of what was accomplished
     artifacts: List[str] = Field(default_factory=list)  # File paths, folio IDs, etc.
@@ -179,6 +210,7 @@ class YieldCreate(BaseModel):
 
 class Yield(BaseModel):
     """A yield stored in the chain's sack."""
+
     sack_id: str
     chain_id: str
     task_id: str

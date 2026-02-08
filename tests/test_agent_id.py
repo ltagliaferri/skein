@@ -39,7 +39,9 @@ class TestGetAgentId:
         This is the key test - 'unknown' is now a valid agent name, not a sentinel.
         """
         result = get_agent_id(ctx_agent="unknown")
-        assert result == "unknown", "Should return 'unknown' when explicitly passed as --agent"
+        assert result == "unknown", (
+            "Should return 'unknown' when explicitly passed as --agent"
+        )
 
     def test_returns_env_var_when_set(self):
         """When SKEIN_AGENT_ID env var is set, should return that value."""

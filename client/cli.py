@@ -34,7 +34,7 @@ def find_project_root() -> Optional[Path]:
     """
     current = Path.cwd()
     while current != current.parent:
-        skein_dir = current / '.skein'
+        skein_dir = current / ".skein"
         if skein_dir.exists() and skein_dir.is_dir():
             return current
         current = current.parent
@@ -47,7 +47,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
     if not project_root:
         return None
 
-    config_file = project_root / '.skein' / 'config.json'
+    config_file = project_root / ".skein" / "config.json"
     if not config_file.exists():
         return None
 
@@ -60,7 +60,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
 
 def get_global_config() -> Dict[str, Any]:
     """Get global SKEIN config from ~/.skein/config.json."""
-    config_file = Path.home() / '.skein' / 'config.json'
+    config_file = Path.home() / ".skein" / "config.json"
     if not config_file.exists():
         return {"server_url": "http://localhost:8001"}
 
@@ -71,7 +71,9 @@ def get_global_config() -> Dict[str, Any]:
         return {"server_url": "http://localhost:8001"}
 
 
-def get_agent_id(ctx_agent: Optional[str] = None, base_url: Optional[str] = None) -> Optional[str]:
+def get_agent_id(
+    ctx_agent: Optional[str] = None, base_url: Optional[str] = None
+) -> Optional[str]:
     """
     Get agent ID from sources in priority order:
     1. --agent flag (explicit override)
@@ -122,16 +124,16 @@ def validate_positional_args(*args, command_name: str):
     Raises ClickException with helpful error if name=value pattern detected.
     """
     for arg in args:
-        if isinstance(arg, str) and '=' in arg and not arg.startswith('-'):
+        if isinstance(arg, str) and "=" in arg and not arg.startswith("-"):
             # Check if it looks like name=value syntax
-            parts = arg.split('=', 1)
+            parts = arg.split("=", 1)
             if len(parts) == 2 and parts[0].isidentifier():
                 param_name = parts[0]
                 raise click.ClickException(
                     f"Incorrect syntax: '{arg}'\n\n"
                     f"It looks like you're using '{param_name}=\"...\"' syntax.\n"
                     f"The SKEIN CLI uses positional arguments, not named parameters.\n\n"
-                    f"Correct syntax: skein {command_name} SITE_ID \"description\"\n"
+                    f'Correct syntax: skein {command_name} SITE_ID "description"\n'
                     f"See: skein {command_name} --help"
                 )
 
@@ -161,7 +163,10 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
             if roster_resp.ok:
                 agent_data = roster_resp.json()
                 if agent_data.get("status") == "orienting":
-                    click.echo(f"Note: You're still orienting. Run 'skein --agent {agent_id} ready' when done.", err=True)
+                    click.echo(
+                        f"Note: You're still orienting. Run 'skein --agent {agent_id} ready' when done.",
+                        err=True,
+                    )
         except Exception:
             pass  # Not critical
 
@@ -189,31 +194,35 @@ def make_title_from_content(content: str, max_length: int = 100) -> str:
     title = content
 
     # Take first line/sentence as title candidate
-    title = title.split('\n')[0].strip()
+    title = title.split("\n")[0].strip()
 
     # Strip markdown cruft
-    title = re.sub(r'^#+\s*', '', title)  # Leading headers
-    title = re.sub(r'\*\*(.+?)\*\*', r'\1', title)  # Bold **text**
-    title = re.sub(r'__(.+?)__', r'\1', title)  # Bold __text__
-    title = re.sub(r'\*(.+?)\*', r'\1', title)  # Italic *text*
-    title = re.sub(r'_([^_]+)_', r'\1', title)  # Italic _text_
-    title = re.sub(r'`([^`]+)`', r'\1', title)  # Code `text`
-    title = re.sub(r'~~(.+?)~~', r'\1', title)  # Strikethrough
-    title = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', title)  # Links
+    title = re.sub(r"^#+\s*", "", title)  # Leading headers
+    title = re.sub(r"\*\*(.+?)\*\*", r"\1", title)  # Bold **text**
+    title = re.sub(r"__(.+?)__", r"\1", title)  # Bold __text__
+    title = re.sub(r"\*(.+?)\*", r"\1", title)  # Italic *text*
+    title = re.sub(r"_([^_]+)_", r"\1", title)  # Italic _text_
+    title = re.sub(r"`([^`]+)`", r"\1", title)  # Code `text`
+    title = re.sub(r"~~(.+?)~~", r"\1", title)  # Strikethrough
+    title = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", title)  # Links
 
     # Normalize whitespace
-    title = ' '.join(title.split())
+    title = " ".join(title.split())
 
     # Truncate with ellipsis if needed
     if len(title) > max_length:
-        title = title[:max_length - 3].rstrip() + "..."
+        title = title[: max_length - 3].rstrip() + "..."
 
     return title
 
 
 @click.group()
-@click.option("--agent", envvar="SKEIN_AGENT_ID", help="Agent ID (or set SKEIN_AGENT_ID)")
-@click.option("--url", envvar="SKEIN_URL", help="SKEIN server URL (default: localhost:8001)")
+@click.option(
+    "--agent", envvar="SKEIN_AGENT_ID", help="Agent ID (or set SKEIN_AGENT_ID)"
+)
+@click.option(
+    "--url", envvar="SKEIN_URL", help="SKEIN server URL (default: localhost:8001)"
+)
 @click.pass_context
 def cli(ctx, agent, url):
     """SKEIN CLI - Agent collaboration system.
@@ -230,6 +239,7 @@ def cli(ctx, agent, url):
 # Project Management Commands
 # ============================================================================
 
+
 @cli.command()
 @click.option("--project", required=True, help="Project ID (e.g., 'myproject')")
 @click.option("--name", help="Project display name")
@@ -241,7 +251,7 @@ def init(project, name):
     Registers project in ~/.skein/projects.json.
     """
     project_root = Path.cwd()
-    skein_dir = project_root / '.skein'
+    skein_dir = project_root / ".skein"
 
     # Check if already initialized
     if skein_dir.exists():
@@ -249,30 +259,30 @@ def init(project, name):
 
     # Create .skein directory structure
     skein_dir.mkdir()
-    data_dir = skein_dir / 'data'
+    data_dir = skein_dir / "data"
     data_dir.mkdir()
-    (data_dir / 'sites').mkdir()
-    (data_dir / 'roster').mkdir()
-    (data_dir / 'threads').mkdir()
-    (data_dir / 'screenshots').mkdir()
+    (data_dir / "sites").mkdir()
+    (data_dir / "roster").mkdir()
+    (data_dir / "threads").mkdir()
+    (data_dir / "screenshots").mkdir()
 
     # Create project config
     project_config = {
         "project_id": project,
         "name": name or project,
         "created_at": datetime.now().isoformat(),
-        "server_url": "http://localhost:8001"
+        "server_url": "http://localhost:8001",
     }
 
-    config_file = skein_dir / 'config.json'
-    with open(config_file, 'w') as f:
+    config_file = skein_dir / "config.json"
+    with open(config_file, "w") as f:
         json.dump(project_config, f, indent=2)
 
     # Register in global projects.json
-    global_dir = Path.home() / '.skein'
+    global_dir = Path.home() / ".skein"
     global_dir.mkdir(exist_ok=True)
 
-    projects_file = global_dir / 'projects.json'
+    projects_file = global_dir / "projects.json"
     if projects_file.exists():
         with open(projects_file) as f:
             projects_data = json.load(f)
@@ -283,10 +293,10 @@ def init(project, name):
         "path": str(project_root),
         "data_dir": str(data_dir),
         "name": name or project,
-        "registered_at": datetime.now().isoformat()
+        "registered_at": datetime.now().isoformat(),
     }
 
-    with open(projects_file, 'w') as f:
+    with open(projects_file, "w") as f:
         json.dump(projects_data, f, indent=2)
 
     click.echo(f"✓ Initialized SKEIN project '{project}' in {project_root}")
@@ -315,12 +325,15 @@ def setup_claude():
     """
     # Find the template in the package
     import skein
+
     package_dir = Path(skein.__file__).parent
     template_path = package_dir / "templates" / "CLAUDE.md"
 
     if not template_path.exists():
         # Fallback: try relative to this file (project root)
-        template_path = Path(__file__).parent.parent / "skein" / "templates" / "CLAUDE.md"
+        template_path = (
+            Path(__file__).parent.parent / "skein" / "templates" / "CLAUDE.md"
+        )
 
     if not template_path.exists():
         raise click.ClickException(f"Template not found at {template_path}")
@@ -334,12 +347,12 @@ def setup_claude():
 
     # Append or create
     if target_path.exists():
-        with open(target_path, 'a') as f:
+        with open(target_path, "a") as f:
             f.write("\n\n")
             f.write(template_content)
         click.echo(f"Appended SKEIN instructions to {target_path}")
     else:
-        with open(target_path, 'w') as f:
+        with open(target_path, "w") as f:
             f.write(template_content)
         click.echo(f"Created {target_path} with SKEIN instructions")
 
@@ -357,8 +370,8 @@ def projects(verbose):
         skein projects
         skein projects -v
     """
-    global_dir = Path.home() / '.skein'
-    projects_file = global_dir / 'projects.json'
+    global_dir = Path.home() / ".skein"
+    projects_file = global_dir / "projects.json"
 
     if not projects_file.exists():
         click.echo("No projects registered yet.")
@@ -419,6 +432,7 @@ def projects(verbose):
 # Health Check
 # ============================================================================
 
+
 @cli.command()
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
@@ -436,13 +450,13 @@ def health(ctx, output_json):
     - 1: One or more checks failed
     """
     import subprocess
+
     checks = {}
 
     # Check git repo
     try:
         result = subprocess.run(
-            ['git', 'rev-parse', '--git-dir'],
-            capture_output=True, timeout=5
+            ["git", "rev-parse", "--git-dir"], capture_output=True, timeout=5
         )
         checks["git"] = result.returncode == 0
     except Exception:
@@ -451,7 +465,7 @@ def health(ctx, output_json):
     # Check .skein/ directory
     project_root = find_project_root()
     if project_root:
-        skein_dir = project_root / '.skein'
+        skein_dir = project_root / ".skein"
         checks["initialized"] = skein_dir.exists()
     else:
         checks["initialized"] = False
@@ -460,6 +474,7 @@ def health(ctx, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     try:
         import urllib.request
+
         health_url = base_url.replace("/skein", "") + "/health"
         with urllib.request.urlopen(health_url, timeout=5) as response:
             data = json.loads(response.read().decode())
@@ -484,6 +499,7 @@ def health(ctx, output_json):
 # Logging Commands
 # ============================================================================
 
+
 @cli.command()
 @click.argument("stream_id")
 @click.argument("messages", nargs=-1, required=True)
@@ -496,11 +512,7 @@ def log(ctx, stream_id, messages, level):
 
     lines = [{"level": level, "message": msg, "metadata": {}} for msg in messages]
 
-    data = {
-        "stream_id": stream_id,
-        "source": agent_id,
-        "lines": lines
-    }
+    data = {"stream_id": stream_id, "source": agent_id, "lines": lines}
 
     result = make_request("POST", "/logs", base_url, agent_id, json=data)
     click.echo(f"Logged {result.get('count', len(lines))} line(s) to {stream_id}")
@@ -550,7 +562,9 @@ def logs(ctx, stream_id, level, since, search, tail, list_streams, output_json):
     if tail:
         params["limit"] = tail
 
-    log_lines = make_request("GET", f"/logs/{stream_id}", base_url, agent_id, params=params)
+    log_lines = make_request(
+        "GET", f"/logs/{stream_id}", base_url, agent_id, params=params
+    )
 
     if output_json:
         click.echo(json.dumps(log_lines, indent=2))
@@ -565,7 +579,9 @@ def logs(ctx, stream_id, level, since, search, tail, list_streams, output_json):
                 click.echo(f"[{timestamp}] {level_str}: {message}")
 
             if len(log_lines) > 50:
-                click.echo(f"\n... and {len(log_lines) - 50} more lines (use --json to see all)")
+                click.echo(
+                    f"\n... and {len(log_lines) - 50} more lines (use --json to see all)"
+                )
 
 
 @cli.command("log")
@@ -581,7 +597,20 @@ def logs(ctx, stream_id, level, since, search, tail, list_streams, output_json):
 @click.option("--no-pager", is_flag=True, help="Disable pager")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
-def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep, oneline, follow, no_pager, output_json):
+def log_cmd(
+    ctx,
+    max_count,
+    since,
+    until,
+    agent,
+    site_filter,
+    type_filter,
+    grep,
+    oneline,
+    follow,
+    no_pager,
+    output_json,
+):
     """Show folio history (git-style log)."""
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
@@ -597,14 +626,16 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
         params["type"] = type_filter
 
     # Fetch folios
-    folios_list = make_request("GET", "/folios", base_url, agent_id, params=params if params else None)
+    folios_list = make_request(
+        "GET", "/folios", base_url, agent_id, params=params if params else None
+    )
 
     # Fetch all threads for thread count
     try:
         all_threads = make_request("GET", "/threads", base_url, agent_id)
         threads_by_folio = {}
         for thread in all_threads:
-            for fid in [thread['from_id'], thread['to_id']]:
+            for fid in [thread["from_id"], thread["to_id"]]:
                 if fid not in threads_by_folio:
                     threads_by_folio[fid] = []
                 threads_by_folio[fid].append(thread)
@@ -613,11 +644,15 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
 
     # Filter by agent
     if agent:
-        folios_list = [f for f in folios_list if agent.lower() in f.get('created_by', '').lower()]
+        folios_list = [
+            f for f in folios_list if agent.lower() in f.get("created_by", "").lower()
+        ]
 
     # Filter by grep
     if grep:
-        folios_list = [f for f in folios_list if grep.lower() in f.get('content', '').lower()]
+        folios_list = [
+            f for f in folios_list if grep.lower() in f.get("content", "").lower()
+        ]
 
     # Filter by since/until
     if since or until:
@@ -626,32 +661,42 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
 
         def parse_time_filter(time_str):
             # Try relative format (1day, 2hours, etc.)
-            match = re.match(r'^(\d+)(hour|day|week|minute)s?$', time_str)
+            match = re.match(r"^(\d+)(hour|day|week|minute)s?$", time_str)
             if match:
                 num = int(match.group(1))
                 unit = match.group(2)
                 delta = {
-                    'minute': timedelta(minutes=num),
-                    'hour': timedelta(hours=num),
-                    'day': timedelta(days=num),
-                    'week': timedelta(weeks=num)
+                    "minute": timedelta(minutes=num),
+                    "hour": timedelta(hours=num),
+                    "day": timedelta(days=num),
+                    "week": timedelta(weeks=num),
                 }.get(unit, timedelta(days=num))
                 return datetime.now() - delta
             # Try ISO format
             try:
-                return datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+                return datetime.fromisoformat(time_str.replace("Z", "+00:00"))
             except Exception:
                 return None
 
         if since:
             since_dt = parse_time_filter(since)
             if since_dt:
-                folios_list = [f for f in folios_list if datetime.fromisoformat(f['created_at'].replace('Z', '+00:00')) >= since_dt]
+                folios_list = [
+                    f
+                    for f in folios_list
+                    if datetime.fromisoformat(f["created_at"].replace("Z", "+00:00"))
+                    >= since_dt
+                ]
 
         if until:
             until_dt = parse_time_filter(until)
             if until_dt:
-                folios_list = [f for f in folios_list if datetime.fromisoformat(f['created_at'].replace('Z', '+00:00')) <= until_dt]
+                folios_list = [
+                    f
+                    for f in folios_list
+                    if datetime.fromisoformat(f["created_at"].replace("Z", "+00:00"))
+                    <= until_dt
+                ]
 
     # Follow thread connections
     if follow:
@@ -661,14 +706,14 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
         while to_check:
             current = to_check.pop()
             for thread in threads_by_folio.get(current, []):
-                for fid in [thread['from_id'], thread['to_id']]:
+                for fid in [thread["from_id"], thread["to_id"]]:
                     if fid not in connected:
                         connected.add(fid)
                         to_check.append(fid)
-        folios_list = [f for f in folios_list if f.get('folio_id') in connected]
+        folios_list = [f for f in folios_list if f.get("folio_id") in connected]
 
     # Sort by date (newest first)
-    folios_list.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    folios_list.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
     # Apply limit (default 20 for non-TTY/agents)
     total_count = len(folios_list)
@@ -689,32 +734,36 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
     # Build output lines
     output_lines = []
     for f in folios_list:
-        folio_id = f.get('folio_id', 'unknown')
-        folio_type = f.get('type', 'folio')
-        site = f.get('site') or f.get('site_id') or ''
-        agent_name = f.get('created_by', 'unknown')
-        created_at = f.get('created_at', '')[:19].replace('T', ' ')
-        content = f.get('content', '')
-        status = f.get('status', 'open').upper()
+        folio_id = f.get("folio_id", "unknown")
+        folio_type = f.get("type", "folio")
+        site = f.get("site") or f.get("site_id") or ""
+        agent_name = f.get("created_by", "unknown")
+        created_at = f.get("created_at", "")[:19].replace("T", " ")
+        content = f.get("content", "")
+        status = f.get("status", "open").upper()
 
         # Get first line of content, truncated
-        first_line = content.split('\n')[0][:60]
-        if len(content.split('\n')[0]) > 60:
-            first_line += '...'
+        first_line = content.split("\n")[0][:60]
+        if len(content.split("\n")[0]) > 60:
+            first_line += "..."
 
         # Thread count
         thread_count = len(threads_by_folio.get(folio_id, []))
 
         # Colors (like git: yellow for id only)
-        yellow = '\033[33m'
-        reset = '\033[0m'
+        yellow = "\033[33m"
+        reset = "\033[0m"
 
         if oneline:
             site_str = f" ({site})" if site else ""
-            output_lines.append(f"{yellow}{folio_type}-{folio_id.split('-', 1)[-1]}{reset}{site_str} {agent_name} {first_line}")
+            output_lines.append(
+                f"{yellow}{folio_type}-{folio_id.split('-', 1)[-1]}{reset}{site_str} {agent_name} {first_line}"
+            )
         else:
             site_str = f" ({site})" if site else ""
-            output_lines.append(f"{yellow}folio {folio_type}-{folio_id.split('-', 1)[-1]}{site_str}{reset}")
+            output_lines.append(
+                f"{yellow}folio {folio_type}-{folio_id.split('-', 1)[-1]}{site_str}{reset}"
+            )
             output_lines.append(f"Agent: {agent_name}")
             output_lines.append(f"Date:  {created_at}")
             output_lines.append("")
@@ -726,14 +775,17 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
 
     # Add footer for agents if truncated
     if not is_tty and len(folios_list) < total_count:
-        output_lines.append(f"(Showing {len(folios_list)} of {total_count} folios. Use -n to see more)")
+        output_lines.append(
+            f"(Showing {len(folios_list)} of {total_count} folios. Use -n to see more)"
+        )
 
     # Output with pager for TTY, plain for agents
-    output_text = '\n'.join(output_lines)
+    output_text = "\n".join(output_lines)
     if is_tty and not no_pager:
         import subprocess
+
         try:
-            proc = subprocess.Popen(['less', '-R'], stdin=subprocess.PIPE)
+            proc = subprocess.Popen(["less", "-R"], stdin=subprocess.PIPE)
             proc.communicate(input=output_text.encode())
         except Exception:
             # Fallback if less not available
@@ -745,6 +797,7 @@ def log_cmd(ctx, max_count, since, until, agent, site_filter, type_filter, grep,
 # ============================================================================
 # Sites Commands
 # ============================================================================
+
 
 @cli.group()
 def site():
@@ -764,11 +817,7 @@ def site_create(ctx, site_id, purpose, tags):
 
     tag_list = [t.strip() for t in tags.split(",")] if tags else []
 
-    data = {
-        "site_id": site_id,
-        "purpose": purpose,
-        "metadata": {"tags": tag_list}
-    }
+    data = {"site_id": site_id, "purpose": purpose, "metadata": {"tags": tag_list}}
 
     make_request("POST", "/sites", base_url, agent_id, json=data)
     click.echo(f"Created site: {site_id}")
@@ -855,7 +904,9 @@ def sites(ctx, tag, output_json):
         else:
             click.echo(f"Found {len(sites_list)} site(s):\n")
             for s in sites_list:
-                status_indicator = "" if s.get('status', 'active') == 'active' else f" [{s['status']}]"
+                status_indicator = (
+                    "" if s.get("status", "active") == "active" else f" [{s['status']}]"
+                )
                 click.echo(f"  {s['site_id']}{status_indicator}")
                 click.echo(f"    {s['purpose']}")
                 click.echo()
@@ -864,6 +915,7 @@ def sites(ctx, tag, output_json):
 # ============================================================================
 # Issues Commands
 # ============================================================================
+
 
 @cli.command(hidden=True)
 @click.argument("site_id")
@@ -914,13 +966,13 @@ def issues(ctx, site_id, assigned_to, status, output_json):
                 threads_by_resource = {}
                 for thread in all_threads:
                     # Index by both from_id and to_id
-                    if thread['from_id'] not in threads_by_resource:
-                        threads_by_resource[thread['from_id']] = []
-                    threads_by_resource[thread['from_id']].append(thread)
+                    if thread["from_id"] not in threads_by_resource:
+                        threads_by_resource[thread["from_id"]] = []
+                    threads_by_resource[thread["from_id"]].append(thread)
 
-                    if thread['to_id'] not in threads_by_resource:
-                        threads_by_resource[thread['to_id']] = []
-                    threads_by_resource[thread['to_id']].append(thread)
+                    if thread["to_id"] not in threads_by_resource:
+                        threads_by_resource[thread["to_id"]] = []
+                    threads_by_resource[thread["to_id"]].append(thread)
             except Exception:
                 # Fall back to no threads if batch fetch fails
                 threads_by_resource = {}
@@ -931,19 +983,22 @@ def issues(ctx, site_id, assigned_to, status, output_json):
 
                 # Get threads from batch-fetched data
                 try:
-                    resource_threads = threads_by_resource.get(i['folio_id'], [])
+                    resource_threads = threads_by_resource.get(i["folio_id"], [])
 
                     # Dedupe threads (same thread appears in from_id and to_id indexes)
                     thread_ids = set()
                     unique_threads = []
                     for t in resource_threads:
-                        if t['thread_id'] not in thread_ids:
-                            thread_ids.add(t['thread_id'])
+                        if t["thread_id"] not in thread_ids:
+                            thread_ids.add(t["thread_id"])
                             unique_threads.append(t)
 
                     # Extract tags (self-referential threads with type tag)
-                    tags = [t['content'] for t in unique_threads
-                           if t['type'] == 'tag' and t['from_id'] == t['to_id']]
+                    tags = [
+                        t["content"]
+                        for t in unique_threads
+                        if t["type"] == "tag" and t["from_id"] == t["to_id"]
+                    ]
 
                     # Build breadcrumb
                     breadcrumb_parts = []
@@ -967,6 +1022,7 @@ def issues(ctx, site_id, assigned_to, status, output_json):
 # ============================================================================
 # Briefs (Handoffs) Commands
 # ============================================================================
+
 
 @cli.group()
 def brief():
@@ -1007,7 +1063,7 @@ def brief_get(ctx, brief_id, output_json):
             click.echo(f"Target: {brief_data['target_agent']}")
         click.echo(f"\nTitle: {brief_data['title']}")
         click.echo("\nContent:")
-        click.echo(brief_data['content'])
+        click.echo(brief_data["content"])
 
         if brief_data.get("references"):
             click.echo(f"\nReferences: {', '.join(brief_data['references'])}")
@@ -1026,6 +1082,7 @@ def brief_shortcut(ctx, brief_id, output_json):
 # ============================================================================
 # PLAYBOOK COMMANDS
 # ============================================================================
+
 
 @cli.group()
 def playbook():
@@ -1049,7 +1106,7 @@ def playbook_create(ctx, site_id, content, title):
         "site_id": site_id,
         "title": title or "Playbook",
         "content": content,
-        "metadata": {}
+        "metadata": {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1078,7 +1135,7 @@ def playbook_get(ctx, playbook_id, output_json):
         click.echo(f"From: {playbook_data['created_by']}")
         click.echo(f"\nTitle: {playbook_data['title']}")
         click.echo("\nContent:")
-        click.echo(playbook_data['content'])
+        click.echo(playbook_data["content"])
 
 
 @cli.command()
@@ -1098,7 +1155,9 @@ def ignite(ctx, brief_id):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to ignite work")
+        raise click.ClickException(
+            "Must set SKEIN_AGENT_ID or use --agent flag to ignite work"
+        )
 
     # Get the brief
     brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
@@ -1114,40 +1173,42 @@ def ignite(ctx, brief_id):
         "from_id": agent_id,
         "to_id": predecessor,
         "type": "succession",
-        "content": f"Resuming work from {brief_id}"
+        "content": f"Resuming work from {brief_id}",
     }
     make_request("POST", "/threads", base_url, agent_id, json=succession_data)
 
     # Display brief
-    click.echo(f"{'='*60}")
+    click.echo(f"{'=' * 60}")
     click.echo(f"RESUMING: {brief_id}")
     click.echo(f"Predecessor: {predecessor}")
     click.echo(f"Site: {site_id}")
-    click.echo(f"{'='*60}\n")
+    click.echo(f"{'=' * 60}\n")
     click.echo(brief_data.get("content", ""))
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
 
     # Show threaded issues
-    threads_data = make_request("GET", "/threads", base_url, agent_id, params={"from_id": brief_id})
+    threads_data = make_request(
+        "GET", "/threads", base_url, agent_id, params={"from_id": brief_id}
+    )
 
     if threads_data:
         click.echo(f"\nThreaded work ({len(threads_data)} item(s)):")
         for t in threads_data:
             click.echo(f"  [{t['type'].upper()}] -> {t['to_id']}")
 
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
     click.echo("⚠️  BEFORE STARTING - Read Required Docs:")
     click.echo("  See CLAUDE.md for required reading list.")
     click.echo("  Common docs: PROJECT_CONTEXT.md, ARCHITECTURE.md, PRINCIPLES.md")
     click.echo("  Previous agents who skipped this produced incorrect work.")
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
     click.echo("Next steps:")
     click.echo("  1. Read required docs listed in CLAUDE.md")
     click.echo("  2. Review the brief above")
     click.echo(f"  3. Check site: skein --agent {agent_id} issues {site_id}")
     click.echo(f"  4. Check recent activity: skein --agent {agent_id} activity")
     click.echo("  5. Continue work from 'Remaining' section")
-    click.echo(f"{'='*60}")
+    click.echo(f"{'=' * 60}")
 
 
 @cli.command(hidden=True)
@@ -1162,19 +1223,43 @@ def resume(ctx, brief_id):
 # Search & Discovery Commands
 # ============================================================================
 
+
 @cli.command()
 @click.argument("pattern", required=False, default="")
-@click.option("--site", "-s", multiple=True, help="Site pattern(s) to search - supports wildcards (e.g., 'opus-*')")
-@click.option("--type", "-t", help="Filter by folio type (issue, brief, friction, finding, summary, notion)")
+@click.option(
+    "--site",
+    "-s",
+    multiple=True,
+    help="Site pattern(s) to search - supports wildcards (e.g., 'opus-*')",
+)
+@click.option(
+    "--type",
+    "-t",
+    help="Filter by folio type (issue, brief, friction, finding, summary, notion)",
+)
 @click.option("--status", help="Filter by status (open, closed, investigating)")
 @click.option("--assigned", help="Filter by assignee")
-@click.option("--since", help="Only items after this time (e.g., '1hour', '2days', ISO timestamp)")
+@click.option(
+    "--since", help="Only items after this time (e.g., '1hour', '2days', ISO timestamp)"
+)
 @click.option("--sort", help="Sort by: created (default), created_asc, relevance")
 @click.option("--limit", type=int, default=50, help="Max results (default: 50)")
 @click.option("--all", "show_all", is_flag=True, help="Include archived folios")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def find(ctx, pattern, site, type, status, assigned, since, sort, limit, show_all, output_json):
+def find(
+    ctx,
+    pattern,
+    site,
+    type,
+    status,
+    assigned,
+    since,
+    sort,
+    limit,
+    show_all,
+    output_json,
+):
     """
     Find folios across SKEIN - unified search and discovery.
 
@@ -1267,42 +1352,48 @@ def find(ctx, pattern, site, type, status, assigned, since, sort, limit, show_al
     # Display grouped by site
     for site_id in sorted(by_site.keys()):
         site_folios = by_site[site_id]
-        click.echo(f"{'='*60}")
+        click.echo(f"{'=' * 60}")
         click.echo(f"Site: {site_id} ({len(site_folios)} folio(s))")
-        click.echo(f"{'='*60}")
+        click.echo(f"{'=' * 60}")
 
         # Group by type within site
         by_type = {}
         for f in site_folios:
-            folio_type = f['type']
+            folio_type = f["type"]
             if folio_type not in by_type:
                 by_type[folio_type] = []
             by_type[folio_type].append(f)
 
         for folio_type in sorted(by_type.keys()):
-            click.echo(f"\n  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):")
+            click.echo(
+                f"\n  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):"
+            )
             for f in by_type[folio_type]:
                 status_str = f"[{f.get('status', 'open')}]"
                 # Format created_at date
-                created_at = f.get('created_at', '')
+                created_at = f.get("created_at", "")
                 if created_at:
                     try:
-                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                        date_str = dt.strftime('%Y-%m-%d')
+                        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                        date_str = dt.strftime("%Y-%m-%d")
                     except (ValueError, AttributeError):
-                        date_str = created_at[:10] if len(created_at) >= 10 else created_at
+                        date_str = (
+                            created_at[:10] if len(created_at) >= 10 else created_at
+                        )
                 else:
                     date_str = ""
 
                 click.echo(f"    {f['folio_id']} {status_str} {date_str}")
-                click.echo(f"      {f.get('title', 'No title')[:80]}{'...' if len(f.get('title', '')) > 80 else ''}")
+                click.echo(
+                    f"      {f.get('title', 'No title')[:80]}{'...' if len(f.get('title', '')) > 80 else ''}"
+                )
 
                 # Show content preview
-                content = f.get('content', '')
+                content = f.get("content", "")
                 if content:
-                    preview = ' '.join(content.split())[:100]
+                    preview = " ".join(content.split())[:100]
                     if len(content) > 100:
-                        preview += '...'
+                        preview += "..."
                     click.echo(f"      {preview}")
 
         click.echo()
@@ -1318,17 +1409,42 @@ def find(ctx, pattern, site, type, status, assigned, since, sort, limit, show_al
 
 @cli.command(hidden=True)
 @click.argument("query")
-@click.option("--resources", help="Resource types to search (comma-separated: folios, threads, agents, sites). Default: folios")
+@click.option(
+    "--resources",
+    help="Resource types to search (comma-separated: folios, threads, agents, sites). Default: folios",
+)
 @click.option("--type", help="Filter by type (issue, brief, summary, etc.)")
 @click.option("--site", help="Filter by specific site (exact match)")
-@click.option("--sites", multiple=True, help="Filter by site pattern(s) - supports wildcards (can be used multiple times)")
-@click.option("--all-sites", is_flag=True, help="Search across all sites (default if no --site/--sites specified)")
+@click.option(
+    "--sites",
+    multiple=True,
+    help="Filter by site pattern(s) - supports wildcards (can be used multiple times)",
+)
+@click.option(
+    "--all-sites",
+    is_flag=True,
+    help="Search across all sites (default if no --site/--sites specified)",
+)
 @click.option("--status", help="Filter by status (open, closed)")
 @click.option("--sort", help="Sort by: created (default), created_asc, relevance")
-@click.option("--limit", type=int, help="Limit results per resource type (default: 50, max: 500)")
+@click.option(
+    "--limit", type=int, help="Limit results per resource type (default: 50, max: 500)"
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
-def search(ctx, query, resources, type, site, sites, all_sites, status, sort, limit, output_json):
+def search(
+    ctx,
+    query,
+    resources,
+    type,
+    site,
+    sites,
+    all_sites,
+    status,
+    sort,
+    limit,
+    output_json,
+):
     """
     Search for work across SKEIN. (Deprecated: use 'find PATTERN')
 
@@ -1409,7 +1525,9 @@ def search(ctx, query, resources, type, site, sites, all_sites, status, sort, li
                         by_site[site_id].append(r)
 
                     len(by_site)
-                    click.echo(f"📑 Folios ({folios_total} total, showing {len(folios)}):\n")
+                    click.echo(
+                        f"📑 Folios ({folios_total} total, showing {len(folios)}):\n"
+                    )
 
                     for site_id in sorted(by_site.keys()):
                         site_results = by_site[site_id]
@@ -1417,11 +1535,15 @@ def search(ctx, query, resources, type, site, sites, all_sites, status, sort, li
 
                         for r in site_results[:10]:  # Limit per site
                             status_icon = "✓" if r.get("status") == "closed" else "○"
-                            click.echo(f"    {status_icon} {r['type'].upper()}: {r.get('title', 'No title')[:60]}")
+                            click.echo(
+                                f"    {status_icon} {r['type'].upper()}: {r.get('title', 'No title')[:60]}"
+                            )
                             click.echo(f"       ID: {r['folio_id']}")
 
                         if len(site_results) > 10:
-                            click.echo(f"       ... and {len(site_results) - 10} more in this site")
+                            click.echo(
+                                f"       ... and {len(site_results) - 10} more in this site"
+                            )
 
                         click.echo()
 
@@ -1432,9 +1554,13 @@ def search(ctx, query, resources, type, site, sites, all_sites, status, sort, li
                 threads_total = threads_data.get("total", 0)
 
                 if threads:
-                    click.echo(f"🧵 Threads ({threads_total} total, showing {len(threads)}):\n")
+                    click.echo(
+                        f"🧵 Threads ({threads_total} total, showing {len(threads)}):\n"
+                    )
                     for t in threads[:20]:  # Show first 20 threads
-                        click.echo(f"  {t['type']}: {t.get('content', 'No content')[:80]}")
+                        click.echo(
+                            f"  {t['type']}: {t.get('content', 'No content')[:80]}"
+                        )
                         click.echo(f"    {t['from_id']} → {t['to_id']}")
                         click.echo(f"    ID: {t['thread_id']}\n")
 
@@ -1448,12 +1574,22 @@ def search(ctx, query, resources, type, site, sites, all_sites, status, sort, li
                 agents_total = agents_data.get("total", 0)
 
                 if agents:
-                    click.echo(f"👤 Agents ({agents_total} total, showing {len(agents)}):\n")
+                    click.echo(
+                        f"👤 Agents ({agents_total} total, showing {len(agents)}):\n"
+                    )
                     for a in agents[:20]:  # Show first 20 agents
                         status_icon = "✓" if a.get("status") == "active" else "○"
-                        caps = ", ".join(a.get("capabilities", [])) if a.get("capabilities") else "none"
-                        click.echo(f"  {status_icon} {a['agent_id']}: {a.get('name', 'No name')}")
-                        click.echo(f"    Type: {a.get('agent_type', 'unknown')} | Capabilities: {caps}\n")
+                        caps = (
+                            ", ".join(a.get("capabilities", []))
+                            if a.get("capabilities")
+                            else "none"
+                        )
+                        click.echo(
+                            f"  {status_icon} {a['agent_id']}: {a.get('name', 'No name')}"
+                        )
+                        click.echo(
+                            f"    Type: {a.get('agent_type', 'unknown')} | Capabilities: {caps}\n"
+                        )
 
                     if agents_total > 20:
                         click.echo(f"  ... and {agents_total - 20} more agents\n")
@@ -1465,7 +1601,9 @@ def search(ctx, query, resources, type, site, sites, all_sites, status, sort, li
                 sites_total = sites_data.get("total", 0)
 
                 if sites_list:
-                    click.echo(f"📍 Sites ({sites_total} total, showing {len(sites_list)}):\n")
+                    click.echo(
+                        f"📍 Sites ({sites_total} total, showing {len(sites_list)}):\n"
+                    )
                     for s in sites_list[:20]:  # Show first 20 sites
                         status_icon = "✓" if s.get("status") == "active" else "○"
                         click.echo(f"  {status_icon} {s['site_id']}")
@@ -1499,7 +1637,9 @@ def status(ctx, output_json):
 
     # Get project config
     project_config = get_project_config()
-    project_name = project_config.get("project_id", "unknown") if project_config else "unknown"
+    project_name = (
+        project_config.get("project_id", "unknown") if project_config else "unknown"
+    )
 
     # Get all folios for counts
     try:
@@ -1508,9 +1648,27 @@ def status(ctx, output_json):
         all_folios = []
 
     # Count open issues and frictions
-    open_issues = len([f for f in all_folios if f.get('type') == 'issue' and f.get('status', 'open') == 'open'])
-    open_frictions = len([f for f in all_folios if f.get('type') == 'friction' and f.get('status', 'open') == 'open'])
-    pending_briefs = len([f for f in all_folios if f.get('type') == 'brief' and f.get('status', 'open') == 'open'])
+    open_issues = len(
+        [
+            f
+            for f in all_folios
+            if f.get("type") == "issue" and f.get("status", "open") == "open"
+        ]
+    )
+    open_frictions = len(
+        [
+            f
+            for f in all_folios
+            if f.get("type") == "friction" and f.get("status", "open") == "open"
+        ]
+    )
+    pending_briefs = len(
+        [
+            f
+            for f in all_folios
+            if f.get("type") == "brief" and f.get("status", "open") == "open"
+        ]
+    )
 
     # Count folios closed today via status threads
     closed_issues_today = 0
@@ -1518,68 +1676,85 @@ def status(ctx, output_json):
     closed_today_total = 0
     try:
         # Get status threads with content "closed" from today
-        status_threads = make_request("GET", "/threads", base_url, agent_id,
-                                      params={"type": "status", "search": "closed", "since": "1day"})
+        status_threads = make_request(
+            "GET",
+            "/threads",
+            base_url,
+            agent_id,
+            params={"type": "status", "search": "closed", "since": "1day"},
+        )
         # Build lookup of folio types by ID
-        folio_types = {f.get('folio_id'): f.get('type') for f in all_folios}
+        folio_types = {f.get("folio_id"): f.get("type") for f in all_folios}
         for thread in status_threads:
-            if thread.get('content') == 'closed':
-                folio_id = thread.get('to_id')
+            if thread.get("content") == "closed":
+                folio_id = thread.get("to_id")
                 folio_type = folio_types.get(folio_id)
                 closed_today_total += 1
-                if folio_type == 'issue':
+                if folio_type == "issue":
                     closed_issues_today += 1
-                elif folio_type == 'friction':
+                elif folio_type == "friction":
                     closed_frictions_today += 1
     except Exception:
         pass
 
     # Get folios from last hour and count by type
     from datetime import datetime, timedelta
+
     one_hour_ago = datetime.now() - timedelta(hours=1)
 
     recent_folios = []
     recent_agents = set()
     for f in all_folios:
         try:
-            created = datetime.fromisoformat(f['created_at'].replace('Z', '+00:00').replace('+00:00', ''))
+            created = datetime.fromisoformat(
+                f["created_at"].replace("Z", "+00:00").replace("+00:00", "")
+            )
             if created >= one_hour_ago:
                 recent_folios.append(f)
-                recent_agents.add(f.get('created_by', 'unknown'))
+                recent_agents.add(f.get("created_by", "unknown"))
         except Exception:
             pass
 
     # Count by type for last hour
     type_counts = {}
     for f in recent_folios:
-        ftype = f.get('type', 'other')
+        ftype = f.get("type", "other")
         type_counts[ftype] = type_counts.get(ftype, 0) + 1
 
     if output_json:
-        click.echo(json.dumps({
-            "server": base_url,
-            "server_status": server_status,
-            "project": project_name,
-            "open_issues": open_issues,
-            "open_frictions": open_frictions,
-            "closed_issues_today": closed_issues_today,
-            "closed_frictions_today": closed_frictions_today,
-            "closed_today": closed_today_total,
-            "pending_briefs": pending_briefs,
-            "active_agents": len(recent_agents),
-            "last_hour": type_counts
-        }, indent=2))
+        click.echo(
+            json.dumps(
+                {
+                    "server": base_url,
+                    "server_status": server_status,
+                    "project": project_name,
+                    "open_issues": open_issues,
+                    "open_frictions": open_frictions,
+                    "closed_issues_today": closed_issues_today,
+                    "closed_frictions_today": closed_frictions_today,
+                    "closed_today": closed_today_total,
+                    "pending_briefs": pending_briefs,
+                    "active_agents": len(recent_agents),
+                    "last_hour": type_counts,
+                },
+                indent=2,
+            )
+        )
         return
 
     # Format output with colors and alignment
-    yellow = '\033[33m'
-    reset = '\033[0m'
+    yellow = "\033[33m"
+    reset = "\033[0m"
 
     click.echo(f"Server:  {base_url} ({server_status})")
     click.echo(f"Project: {project_name}")
     click.echo()
-    click.echo(f"Issues:     {yellow}{open_issues:>3}{reset} open / {closed_issues_today} closed today")
-    click.echo(f"Frictions:  {yellow}{open_frictions:>3}{reset} open / {closed_frictions_today} closed today")
+    click.echo(
+        f"Issues:     {yellow}{open_issues:>3}{reset} open / {closed_issues_today} closed today"
+    )
+    click.echo(
+        f"Frictions:  {yellow}{open_frictions:>3}{reset} open / {closed_frictions_today} closed today"
+    )
     click.echo(f"Briefs:     {yellow}{pending_briefs:>3}{reset} pending")
     click.echo(f"Closed today:   {yellow}{closed_today_total:>3}{reset}")
     click.echo()
@@ -1589,7 +1764,16 @@ def status(ctx, output_json):
     # Last hour summary
     if type_counts:
         # B=brief, I=issue, F=finding, R=friction, S=summary, T=tender, W=writ, P=playbook
-        type_abbrev = {'brief': 'B', 'issue': 'I', 'finding': 'F', 'friction': 'R', 'summary': 'S', 'tender': 'T', 'writ': 'W', 'playbook': 'P'}
+        type_abbrev = {
+            "brief": "B",
+            "issue": "I",
+            "finding": "F",
+            "friction": "R",
+            "summary": "S",
+            "tender": "T",
+            "writ": "W",
+            "playbook": "P",
+        }
         parts = []
         for ftype, count in sorted(type_counts.items()):
             abbrev = type_abbrev.get(ftype, ftype[0].upper())
@@ -1631,6 +1815,7 @@ def activity(ctx, since, output_json):
 # Post Commands (Unified posting interface)
 # ============================================================================
 
+
 @cli.group()
 def post():
     """Post folios (unified posting interface)."""
@@ -1659,7 +1844,7 @@ def post_issue(ctx, site_id, title, content, assign):
         "title": title,
         "content": content or title,
         "assigned_to": assign,
-        "metadata": {}
+        "metadata": {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1688,7 +1873,7 @@ def post_brief(ctx, site_id, content, title, target):
         "title": title,
         "content": content,
         "target_agent": target,
-        "metadata": {"questions_enabled": True}
+        "metadata": {"questions_enabled": True},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1718,7 +1903,7 @@ def post_friction(ctx, site_id, title, details):
         "site_id": site_id,
         "title": title,
         "content": details or title,
-        "metadata": {}
+        "metadata": {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1745,7 +1930,7 @@ def post_notion(ctx, site_id, title, details):
         "site_id": site_id,
         "title": title,
         "content": details or title,
-        "metadata": {}
+        "metadata": {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1772,7 +1957,7 @@ def post_finding(ctx, site_id, title, details):
         "site_id": site_id,
         "title": title,
         "content": details or title,
-        "metadata": {}
+        "metadata": {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1799,7 +1984,7 @@ def post_summary(ctx, site_id, title, details):
         "site_id": site_id,
         "title": title,
         "content": details or title,
-        "metadata": {}
+        "metadata": {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1809,6 +1994,7 @@ def post_summary(ctx, site_id, title, details):
 # ============================================================================
 # Frictions Commands
 # ============================================================================
+
 
 @cli.command(hidden=True)
 @click.argument("site_id")
@@ -1864,7 +2050,7 @@ def mantle(ctx, site_id, content, name):
         "site_id": site_id,
         "title": name or make_title_from_content(content),
         "content": content,
-        "metadata": {}
+        "metadata": {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1884,7 +2070,11 @@ def summary(ctx, site_id, title, details):
 @cli.command()
 @click.argument("site_id")
 @click.argument("decision")
-@click.option("--thread", "thread_id", help="Tender ID to respond to (updates tender status to 'responded')")
+@click.option(
+    "--thread",
+    "thread_id",
+    help="Tender ID to respond to (updates tender status to 'responded')",
+)
 @click.pass_context
 def writ(ctx, site_id, decision, thread_id):
     """Post a writ (human decision in response to a tender).
@@ -1906,7 +2096,9 @@ def writ(ctx, site_id, decision, thread_id):
         try:
             tender = make_request("GET", f"/folios/{thread_id}", base_url, agent_id)
             if tender.get("type") != "tender":
-                raise click.ClickException(f"{thread_id} is not a tender (type: {tender.get('type')})")
+                raise click.ClickException(
+                    f"{thread_id} is not a tender (type: {tender.get('type')})"
+                )
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 raise click.ClickException(f"Tender not found: {thread_id}")
@@ -1918,7 +2110,7 @@ def writ(ctx, site_id, decision, thread_id):
         "site_id": site_id,
         "title": make_title_from_content(decision),
         "content": decision,
-        "metadata": {"thread_id": thread_id} if thread_id else {}
+        "metadata": {"thread_id": thread_id} if thread_id else {},
     }
 
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
@@ -1932,7 +2124,7 @@ def writ(ctx, site_id, decision, thread_id):
             "from_id": writ_id,
             "to_id": thread_id,
             "type": "reply",
-            "content": decision
+            "content": decision,
         }
         make_request("POST", "/threads", base_url, agent_id, json=thread_data)
 
@@ -1941,7 +2133,7 @@ def writ(ctx, site_id, decision, thread_id):
             "from_id": thread_id,
             "to_id": thread_id,
             "type": "status",
-            "content": "responded"
+            "content": "responded",
         }
         make_request("POST", "/threads", base_url, agent_id, json=status_data)
         click.echo(f"  Linked to tender: {thread_id}")
@@ -1996,47 +2188,52 @@ def folio(ctx, folio_id, no_pager, output_json):
     is_tty = sys.stdout.isatty()
 
     # Colors
-    yellow = '\033[33m'
-    reset = '\033[0m'
+    yellow = "\033[33m"
+    reset = "\033[0m"
 
     # Build output
     output_lines = []
-    fid = folio_data.get('folio_id', 'unknown')
-    ftype = folio_data.get('type', 'folio')
-    site = folio_data.get('site') or ''
+    fid = folio_data.get("folio_id", "unknown")
+    ftype = folio_data.get("type", "folio")
+    site = folio_data.get("site") or ""
     site_str = f" ({site})" if site else ""
 
-    output_lines.append(f"{yellow}folio {ftype}-{fid.split('-', 1)[-1]}{site_str}{reset}")
+    output_lines.append(
+        f"{yellow}folio {ftype}-{fid.split('-', 1)[-1]}{site_str}{reset}"
+    )
     output_lines.append(f"Agent: {folio_data.get('created_by', 'unknown')}")
-    output_lines.append(f"Date:  {folio_data.get('created_at', '')[:19].replace('T', ' ')}")
-    if folio_data.get('status'):
+    output_lines.append(
+        f"Date:  {folio_data.get('created_at', '')[:19].replace('T', ' ')}"
+    )
+    if folio_data.get("status"):
         output_lines.append(f"Status: {folio_data.get('status')}")
     output_lines.append("")
 
     # Full content with indentation
-    content = folio_data.get('content', '')
-    for line in content.split('\n'):
+    content = folio_data.get("content", "")
+    for line in content.split("\n"):
         output_lines.append(f"    {line}")
 
     # Get thread connections
     try:
         all_threads = make_request("GET", "/threads", base_url, agent_id)
-        related_threads = [t for t in all_threads if fid in [t['from_id'], t['to_id']]]
+        related_threads = [t for t in all_threads if fid in [t["from_id"], t["to_id"]]]
         if related_threads:
             output_lines.append("")
             output_lines.append(f"    Threads ({len(related_threads)}):")
             for t in related_threads:
-                other_id = t['to_id'] if t['from_id'] == fid else t['from_id']
+                other_id = t["to_id"] if t["from_id"] == fid else t["from_id"]
                 output_lines.append(f"      → {other_id}")
     except Exception:
         pass
 
     # Output with pager for TTY
-    output_text = '\n'.join(output_lines)
+    output_text = "\n".join(output_lines)
     if is_tty and not no_pager:
         import subprocess
+
         try:
-            proc = subprocess.Popen(['less', '-R'], stdin=subprocess.PIPE)
+            proc = subprocess.Popen(["less", "-R"], stdin=subprocess.PIPE)
             proc.communicate(input=output_text.encode())
         except Exception:
             click.echo(output_text)
@@ -2057,8 +2254,17 @@ def show(ctx, folio_id, no_pager, output_json):
 
 @cli.command()
 @click.argument("folio_id")
-@click.option("--format", "-f", "output_format", type=click.Choice(["epub", "md", "markdown", "json"]), default="epub", help="Export format (default: epub)")
-@click.option("--output", "-o", help="Output file path (default: ./<folio_id>.<format>)")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["epub", "md", "markdown", "json"]),
+    default="epub",
+    help="Export format (default: epub)",
+)
+@click.option(
+    "--output", "-o", help="Output file path (default: ./<folio_id>.<format>)"
+)
 @click.pass_context
 def export(ctx, folio_id, output_format, output):
     """Export a folio to various formats (epub, markdown, json).
@@ -2125,19 +2331,21 @@ def export(ctx, folio_id, output_format, output):
 
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
             # mimetype (must be first and uncompressed)
-            zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+            zf.writestr(
+                "mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED
+            )
 
             # container.xml
-            container_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+            container_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
-</container>'''
+</container>"""
             zf.writestr("META-INF/container.xml", container_xml)
 
             # CSS
-            css_content = '''body {
+            css_content = """body {
     font-family: Georgia, serif;
     line-height: 1.6;
     margin: 2em;
@@ -2155,12 +2363,14 @@ th { background-color: #f4f4f4; font-weight: bold; }
 ul, ol { margin-left: 1.5em; }
 li { margin-bottom: 0.3em; }
 .metadata { color: #666; font-size: 0.9em; margin-bottom: 1em; }
-'''
+"""
             zf.writestr("OEBPS/styles.css", css_content)
 
             # Content XHTML with metadata
-            escaped_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            content_xhtml = f'''<?xml version="1.0" encoding="UTF-8"?>
+            escaped_title = (
+                title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            )
+            content_xhtml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -2172,17 +2382,17 @@ li { margin-bottom: 0.3em; }
 <div class="metadata">
 <p><strong>Type:</strong> {ftype} | <strong>ID:</strong> {folio_id}</p>
 <p><strong>Created:</strong> {created_at} | <strong>Author:</strong> {created_by}</p>
-{f'<p><strong>Status:</strong> {status}</p>' if status else ''}
+{f"<p><strong>Status:</strong> {status}</p>" if status else ""}
 </div>
 <hr/>
 {html_content}
 </body>
-</html>'''
+</html>"""
             zf.writestr("OEBPS/content.xhtml", content_xhtml)
 
             # content.opf
             now = dt.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-            content_opf = f'''<?xml version="1.0" encoding="UTF-8"?>
+            content_opf = f"""<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="BookId">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="BookId">{book_id}</dc:identifier>
@@ -2200,11 +2410,11 @@ li { margin-bottom: 0.3em; }
     <itemref idref="nav"/>
     <itemref idref="content"/>
   </spine>
-</package>'''
+</package>"""
             zf.writestr("OEBPS/content.opf", content_opf)
 
             # Navigation document
-            nav_xhtml = f'''<?xml version="1.0" encoding="UTF-8"?>
+            nav_xhtml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
@@ -2219,7 +2429,7 @@ li { margin-bottom: 0.3em; }
     </ol>
   </nav>
 </body>
-</html>'''
+</html>"""
             zf.writestr("OEBPS/nav.xhtml", nav_xhtml)
 
         click.echo(f"Exported to {output}")
@@ -2231,16 +2441,21 @@ def _content_to_epub_html(content, title):
     import re
 
     def escape_xml(text):
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
 
     def format_inline(text):
         text = escape_xml(text)
-        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
-        text = re.sub(r'(?<!\*)\*([^*]+?)\*(?!\*)', r'<em>\1</em>', text)
-        text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<em>\1</em>", text)
+        text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
         return text
 
-    lines = content.split('\n')
+    lines = content.split("\n")
     html_parts = []
     in_code_block = False
     in_list = False
@@ -2251,12 +2466,12 @@ def _content_to_epub_html(content, title):
         stripped = line.strip()
 
         # Code blocks
-        if stripped.startswith('```'):
+        if stripped.startswith("```"):
             if in_code_block:
-                html_parts.append('</code></pre>')
+                html_parts.append("</code></pre>")
                 in_code_block = False
             else:
-                html_parts.append('<pre><code>')
+                html_parts.append("<pre><code>")
                 in_code_block = True
             continue
 
@@ -2265,10 +2480,13 @@ def _content_to_epub_html(content, title):
             continue
 
         # Close list if not a list item
-        is_list_item = (stripped.startswith('- ') or stripped.startswith('* ') or
-                       (stripped and stripped[0].isdigit() and '. ' in stripped))
+        is_list_item = (
+            stripped.startswith("- ")
+            or stripped.startswith("* ")
+            or (stripped and stripped[0].isdigit() and ". " in stripped)
+        )
         if in_list and not is_list_item and stripped:
-            html_parts.append(f'</{list_type}>')
+            html_parts.append(f"</{list_type}>")
             in_list = False
             list_type = None
 
@@ -2280,74 +2498,79 @@ def _content_to_epub_html(content, title):
             continue
 
         # Headers
-        if line.startswith('### '):
-            html_parts.append(f'<h3>{escape_xml(line[4:])}</h3>')
+        if line.startswith("### "):
+            html_parts.append(f"<h3>{escape_xml(line[4:])}</h3>")
             continue
-        if line.startswith('## '):
-            html_parts.append(f'<h2>{escape_xml(line[3:])}</h2>')
+        if line.startswith("## "):
+            html_parts.append(f"<h2>{escape_xml(line[3:])}</h2>")
             continue
-        if line.startswith('# '):
-            html_parts.append(f'<h1>{escape_xml(line[2:])}</h1>')
+        if line.startswith("# "):
+            html_parts.append(f"<h1>{escape_xml(line[2:])}</h1>")
             continue
 
         # Tables
-        if '|' in line and stripped.startswith('|') and stripped.endswith('|'):
-            cells = [c.strip() for c in line.split('|')[1:-1]]
-            if '---' in line:
+        if "|" in line and stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in line.split("|")[1:-1]]
+            if "---" in line:
                 continue
             table_rows.append(cells)
             continue
 
         # Lists
-        if stripped.startswith('- ') or stripped.startswith('* '):
+        if stripped.startswith("- ") or stripped.startswith("* "):
             if not in_list:
-                html_parts.append('<ul>')
+                html_parts.append("<ul>")
                 in_list = True
-                list_type = 'ul'
-            html_parts.append(f'<li>{format_inline(stripped[2:])}</li>')
+                list_type = "ul"
+            html_parts.append(f"<li>{format_inline(stripped[2:])}</li>")
             continue
 
-        if stripped and stripped[0].isdigit() and '. ' in stripped:
+        if stripped and stripped[0].isdigit() and ". " in stripped:
             if not in_list:
-                html_parts.append('<ol>')
+                html_parts.append("<ol>")
                 in_list = True
-                list_type = 'ol'
-            item_content = stripped.split('. ', 1)[1] if '. ' in stripped else stripped
-            html_parts.append(f'<li>{format_inline(item_content)}</li>')
+                list_type = "ol"
+            item_content = stripped.split(". ", 1)[1] if ". " in stripped else stripped
+            html_parts.append(f"<li>{format_inline(item_content)}</li>")
             continue
 
         # Regular paragraph
         if stripped:
-            html_parts.append(f'<p>{format_inline(line)}</p>')
+            html_parts.append(f"<p>{format_inline(line)}</p>")
 
     # Close open elements
     if in_list:
-        html_parts.append(f'</{list_type}>')
+        html_parts.append(f"</{list_type}>")
     if table_rows:
         html_parts.append(_build_table(table_rows))
     if in_code_block:
-        html_parts.append('</code></pre>')
+        html_parts.append("</code></pre>")
 
-    return '\n'.join(html_parts)
+    return "\n".join(html_parts)
 
 
 def _build_table(rows):
     """Build HTML table from rows."""
     if not rows:
-        return ''
+        return ""
 
     def format_inline(text):
         import re
+
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
         return text
 
-    html = ['<table>']
-    html.append('<tr>' + ''.join(f'<th>{format_inline(c)}</th>' for c in rows[0]) + '</tr>')
+    html = ["<table>"]
+    html.append(
+        "<tr>" + "".join(f"<th>{format_inline(c)}</th>" for c in rows[0]) + "</tr>"
+    )
     for row in rows[1:]:
-        html.append('<tr>' + ''.join(f'<td>{format_inline(c)}</td>' for c in row) + '</tr>')
-    html.append('</table>')
-    return '\n'.join(html)
+        html.append(
+            "<tr>" + "".join(f"<td>{format_inline(c)}</td>" for c in row) + "</tr>"
+        )
+    html.append("</table>")
+    return "\n".join(html)
 
 
 @cli.command()
@@ -2384,11 +2607,7 @@ def edit(ctx, folio_id, title, content, status, output_json):
         update_data["status"] = status
 
     result = make_request(
-        "PATCH",
-        f"/folios/{folio_id}",
-        base_url,
-        agent_id,
-        json=update_data
+        "PATCH", f"/folios/{folio_id}", base_url, agent_id, json=update_data
     )
 
     if output_json:
@@ -2432,11 +2651,7 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
         move_data["note"] = note
 
     result = make_request(
-        "POST",
-        f"/folios/{folio_id}/move",
-        base_url,
-        agent_id,
-        json=move_data
+        "POST", f"/folios/{folio_id}/move", base_url, agent_id, json=move_data
     )
 
     if output_json:
@@ -2456,15 +2671,24 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
 @click.argument("site_id")
 @click.option("--type", help="Filter by folio type")
 @click.option("--status", help="Filter by status")
-@click.option("-n", "--limit", type=int, help="Limit number of folios shown (default: 20 for agents, unlimited for TTY)")
-@click.option("--all", "show_all", is_flag=True, help="Show all folios (override default limit)")
+@click.option(
+    "-n",
+    "--limit",
+    type=int,
+    help="Limit number of folios shown (default: 20 for agents, unlimited for TTY)",
+)
+@click.option(
+    "--all", "show_all", is_flag=True, help="Show all folios (override default limit)"
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def folios(ctx, site_id, type, status, limit, show_all, output_json):
     """List all folios in a site. (Deprecated: use 'find --site SITE_ID')"""
     # Validate site_id is not empty
     if not site_id or site_id.strip() == "":
-        raise click.ClickException("site_id cannot be empty. Usage: skein folios SITE_ID")
+        raise click.ClickException(
+            "site_id cannot be empty. Usage: skein folios SITE_ID"
+        )
 
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
@@ -2497,14 +2721,16 @@ def folios(ctx, site_id, type, status, limit, show_all, output_json):
             # Show count with truncation info if applicable
             showing_count = len(folios_list)
             if showing_count < total_count:
-                click.echo(f"Showing {showing_count} of {total_count} folio(s) in site {site_id}:\n")
+                click.echo(
+                    f"Showing {showing_count} of {total_count} folio(s) in site {site_id}:\n"
+                )
             else:
                 click.echo(f"Found {total_count} folio(s) in site {site_id}:\n")
 
             # Group by type for better readability
             by_type = {}
             for f in folios_list:
-                folio_type = f['type']
+                folio_type = f["type"]
                 if folio_type not in by_type:
                     by_type[folio_type] = []
                 by_type[folio_type].append(f)
@@ -2516,39 +2742,44 @@ def folios(ctx, site_id, type, status, limit, show_all, output_json):
                 threads_by_resource = {}
                 for thread in all_threads:
                     # Index by both from_id and to_id
-                    if thread['from_id'] not in threads_by_resource:
-                        threads_by_resource[thread['from_id']] = []
-                    threads_by_resource[thread['from_id']].append(thread)
+                    if thread["from_id"] not in threads_by_resource:
+                        threads_by_resource[thread["from_id"]] = []
+                    threads_by_resource[thread["from_id"]].append(thread)
 
-                    if thread['to_id'] not in threads_by_resource:
-                        threads_by_resource[thread['to_id']] = []
-                    threads_by_resource[thread['to_id']].append(thread)
+                    if thread["to_id"] not in threads_by_resource:
+                        threads_by_resource[thread["to_id"]] = []
+                    threads_by_resource[thread["to_id"]].append(thread)
             except Exception:
                 # Fall back to no threads if batch fetch fails
                 threads_by_resource = {}
 
             for folio_type in sorted(by_type.keys()):
-                click.echo(f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):")
+                click.echo(
+                    f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):"
+                )
                 for f in by_type[folio_type]:
-                    status_str = f"[{f['status']}]" if f.get('status') else ""
+                    status_str = f"[{f['status']}]" if f.get("status") else ""
                     click.echo(f"    {f['folio_id']} {status_str}")
                     click.echo(f"      {f['title']}")
 
                     # Get threads from batch-fetched data
                     try:
-                        resource_threads = threads_by_resource.get(f['folio_id'], [])
+                        resource_threads = threads_by_resource.get(f["folio_id"], [])
 
                         # Dedupe threads (same thread appears in from_id and to_id indexes)
                         thread_ids = set()
                         unique_threads = []
                         for t in resource_threads:
-                            if t['thread_id'] not in thread_ids:
-                                thread_ids.add(t['thread_id'])
+                            if t["thread_id"] not in thread_ids:
+                                thread_ids.add(t["thread_id"])
                                 unique_threads.append(t)
 
                         # Extract tags (self-referential threads with type tag)
-                        tags = [t['content'] for t in unique_threads
-                               if t['type'] == 'tag' and t['from_id'] == t['to_id']]
+                        tags = [
+                            t["content"]
+                            for t in unique_threads
+                            if t["type"] == "tag" and t["from_id"] == t["to_id"]
+                        ]
 
                         # Build breadcrumb
                         breadcrumb_parts = []
@@ -2563,14 +2794,16 @@ def folios(ctx, site_id, type, status, limit, show_all, output_json):
                         # Silently skip if thread processing fails
                         pass
 
-                    if f.get('assigned_to'):
+                    if f.get("assigned_to"):
                         click.echo(f"      Assigned: {f['assigned_to']}")
                 click.echo()
 
             # Show truncation hint if limited
             if showing_count < total_count:
                 remaining = total_count - showing_count
-                click.echo(f"({remaining} more folios, use --all or -n {total_count} to see all)")
+                click.echo(
+                    f"({remaining} more folios, use --all or -n {total_count} to see all)"
+                )
 
 
 @cli.command(hidden=True)
@@ -2592,7 +2825,9 @@ def survey(ctx, site_ids, type, status, output_json):
     # Validate all site_ids are non-empty
     for site_id in site_ids:
         if not site_id or site_id.strip() == "":
-            raise click.ClickException("site_id cannot be empty. Usage: skein survey SITE_ID [SITE_ID...]")
+            raise click.ClickException(
+                "site_id cannot be empty. Usage: skein survey SITE_ID [SITE_ID...]"
+            )
 
     all_results = {}
     total_folios = 0
@@ -2607,7 +2842,9 @@ def survey(ctx, site_ids, type, status, output_json):
             if status:
                 params["status"] = status
 
-            folios_list = make_request("GET", "/folios", base_url, agent_id, params=params)
+            folios_list = make_request(
+                "GET", "/folios", base_url, agent_id, params=params
+            )
             all_results[site_id] = folios_list
             total_folios += len(folios_list)
         except Exception as e:
@@ -2619,7 +2856,7 @@ def survey(ctx, site_ids, type, status, output_json):
         output = {
             "sites": all_results,
             "total_folios": total_folios,
-            "errors": [{"site_id": s, "error": e} for s, e in errors]
+            "errors": [{"site_id": s, "error": e} for s, e in errors],
         }
         click.echo(json.dumps(output, indent=2))
     else:
@@ -2629,9 +2866,9 @@ def survey(ctx, site_ids, type, status, output_json):
         for site_id in site_ids:
             folios = all_results[site_id]
 
-            click.echo(f"{'='*60}")
+            click.echo(f"{'=' * 60}")
             click.echo(f"Site: {site_id}")
-            click.echo(f"{'='*60}")
+            click.echo(f"{'=' * 60}")
 
             if site_id in [s for s, _ in errors]:
                 error_msg = next(e for s, e in errors if s == site_id)
@@ -2647,50 +2884,59 @@ def survey(ctx, site_ids, type, status, output_json):
             # Group by type
             by_type = {}
             for f in folios:
-                folio_type = f['type']
+                folio_type = f["type"]
                 if folio_type not in by_type:
                     by_type[folio_type] = []
                 by_type[folio_type].append(f)
 
             for folio_type in sorted(by_type.keys()):
-                click.echo(f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):")
+                click.echo(
+                    f"  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):"
+                )
                 for f in by_type[folio_type]:
-                    status_str = f"[{f['status']}]" if f.get('status') else ""
+                    status_str = f"[{f['status']}]" if f.get("status") else ""
                     # Format created_at date
-                    created_at = f.get('created_at', '')
+                    created_at = f.get("created_at", "")
                     if created_at:
                         # Parse ISO format and display as YYYY-MM-DD
                         try:
-                            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                            date_str = dt.strftime('%Y-%m-%d')
+                            dt = datetime.fromisoformat(
+                                created_at.replace("Z", "+00:00")
+                            )
+                            date_str = dt.strftime("%Y-%m-%d")
                         except (ValueError, AttributeError):
-                            date_str = created_at[:10] if len(created_at) >= 10 else created_at
+                            date_str = (
+                                created_at[:10] if len(created_at) >= 10 else created_at
+                            )
                     else:
                         date_str = ""
 
                     click.echo(f"    {f['folio_id']} {status_str} {date_str}")
-                    click.echo(f"      {f['title'][:80]}{'...' if len(f['title']) > 80 else ''}")
+                    click.echo(
+                        f"      {f['title'][:80]}{'...' if len(f['title']) > 80 else ''}"
+                    )
 
                     # Show content preview (first 100 chars, single line)
-                    content = f.get('content', '')
+                    content = f.get("content", "")
                     if content:
                         # Clean up content: replace newlines with spaces, truncate
-                        preview = ' '.join(content.split())[:100]
+                        preview = " ".join(content.split())[:100]
                         if len(content) > 100:
-                            preview += '...'
+                            preview += "..."
                         click.echo(f"      {preview}")
                 click.echo()
 
-        click.echo(f"{'='*60}")
+        click.echo(f"{'=' * 60}")
         click.echo(f"Total: {total_folios} folio(s) across {len(site_ids)} site(s)")
         if errors:
             click.echo(f"Errors: {len(errors)} site(s) failed")
-        click.echo(f"{'='*60}")
+        click.echo(f"{'=' * 60}")
 
 
 # ============================================================================
 # Signals & Roster Commands
 # ============================================================================
+
 
 @cli.command()
 @click.argument("to_id")
@@ -2701,12 +2947,7 @@ def message(ctx, to_id, message):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    data = {
-        "from_id": agent_id,
-        "to_id": to_id,
-        "type": "message",
-        "content": message
-    }
+    data = {"from_id": agent_id, "to_id": to_id, "type": "message", "content": message}
 
     result = make_request("POST", "/threads", base_url, agent_id, json=data)
     click.echo(f"Sent message: {result['thread_id']}")
@@ -2722,7 +2963,17 @@ def message(ctx, to_id, message):
 @click.option("--since", help="Time filter (e.g., '1hour', '2days', or ISO timestamp)")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
-def threads(ctx, resource_id, from_filter, to_filter, type_filter, weaver, search, since, output_json):
+def threads(
+    ctx,
+    resource_id,
+    from_filter,
+    to_filter,
+    type_filter,
+    weaver,
+    search,
+    since,
+    output_json,
+):
     """Get threads from/to a resource.
 
     Examples:
@@ -2740,8 +2991,12 @@ def threads(ctx, resource_id, from_filter, to_filter, type_filter, weaver, searc
     if resource_id:
         # If resource_id provided, show threads from OR to that resource
         # We'll make two requests and combine
-        from_threads = make_request("GET", "/threads", base_url, agent_id, params={"from_id": resource_id})
-        to_threads = make_request("GET", "/threads", base_url, agent_id, params={"to_id": resource_id})
+        from_threads = make_request(
+            "GET", "/threads", base_url, agent_id, params={"from_id": resource_id}
+        )
+        to_threads = make_request(
+            "GET", "/threads", base_url, agent_id, params={"to_id": resource_id}
+        )
         all_threads = from_threads + to_threads
         # Dedupe by thread_id
         seen = set()
@@ -2764,7 +3019,9 @@ def threads(ctx, resource_id, from_filter, to_filter, type_filter, weaver, searc
             params["search"] = search
         if since:
             params["since"] = since
-        threads_list = make_request("GET", "/threads", base_url, agent_id, params=params)
+        threads_list = make_request(
+            "GET", "/threads", base_url, agent_id, params=params
+        )
 
     if output_json:
         click.echo(json.dumps(threads_list, indent=2))
@@ -2783,7 +3040,9 @@ def threads(ctx, resource_id, from_filter, to_filter, type_filter, weaver, searc
 
 @cli.command("thread-tree")
 @click.argument("resource_id")
-@click.option("--depth", type=int, default=3, help="Maximum depth to traverse (default: 3)")
+@click.option(
+    "--depth", type=int, default=3, help="Maximum depth to traverse (default: 3)"
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def thread_tree(ctx, resource_id, depth, output_json):
@@ -2801,18 +3060,20 @@ def thread_tree(ctx, resource_id, depth, output_json):
 
     def get_threads_for_resource(res_id):
         """Get all threads from/to a resource."""
-        from_threads = make_request("GET", "/threads", base_url, agent_id,
-                                    params={"from_id": res_id})
-        to_threads = make_request("GET", "/threads", base_url, agent_id,
-                                  params={"to_id": res_id})
+        from_threads = make_request(
+            "GET", "/threads", base_url, agent_id, params={"from_id": res_id}
+        )
+        to_threads = make_request(
+            "GET", "/threads", base_url, agent_id, params={"to_id": res_id}
+        )
 
         # Combine and dedupe
         all_threads = from_threads + to_threads
         seen = set()
         unique = []
         for t in all_threads:
-            if t['thread_id'] not in seen:
-                seen.add(t['thread_id'])
+            if t["thread_id"] not in seen:
+                seen.add(t["thread_id"])
                 unique.append(t)
         return unique
 
@@ -2827,11 +3088,7 @@ def thread_tree(ctx, resource_id, depth, output_json):
         visited.add(res_id)
         threads = get_threads_for_resource(res_id)
 
-        node = {
-            "id": res_id,
-            "threads": [],
-            "children": []
-        }
+        node = {"id": res_id, "threads": [], "children": []}
 
         for thread in threads:
             thread_info = {
@@ -2839,7 +3096,7 @@ def thread_tree(ctx, resource_id, depth, output_json):
                 "type": thread["type"],
                 "from_id": thread["from_id"],
                 "to_id": thread["to_id"],
-                "content": thread.get("content", "")[:100]
+                "content": thread.get("content", "")[:100],
             }
             node["threads"].append(thread_info)
 
@@ -2856,6 +3113,7 @@ def thread_tree(ctx, resource_id, depth, output_json):
     if output_json:
         click.echo(json.dumps(tree, indent=2))
     else:
+
         def print_tree(node, prefix="", is_last=True):
             """Pretty print the tree."""
             if not node:
@@ -2868,20 +3126,30 @@ def thread_tree(ctx, resource_id, depth, output_json):
             # Print threads
             thread_prefix = prefix + ("    " if is_last else "│   ")
             for i, thread in enumerate(node["threads"]):
-                is_last_thread = (i == len(node["threads"]) - 1) and not node["children"]
+                is_last_thread = (i == len(node["threads"]) - 1) and not node[
+                    "children"
+                ]
                 thread_connector = "└── " if is_last_thread else "├── "
 
                 direction = "→" if thread["from_id"] == node["id"] else "←"
-                other_id = thread["to_id"] if thread["from_id"] == node["id"] else thread["from_id"]
+                other_id = (
+                    thread["to_id"]
+                    if thread["from_id"] == node["id"]
+                    else thread["from_id"]
+                )
 
-                click.echo(f"{thread_prefix}{thread_connector}[{thread['type'].upper()}] {direction} {other_id}")
+                click.echo(
+                    f"{thread_prefix}{thread_connector}[{thread['type'].upper()}] {direction} {other_id}"
+                )
                 if thread.get("content"):
-                    content_prefix = thread_prefix + ("    " if is_last_thread else "│   ")
-                    click.echo(f"{content_prefix}  \"{thread['content']}\"")
+                    content_prefix = thread_prefix + (
+                        "    " if is_last_thread else "│   "
+                    )
+                    click.echo(f'{content_prefix}  "{thread["content"]}"')
 
             # Print children
             for i, child in enumerate(node["children"]):
-                is_last_child = (i == len(node["children"]) - 1)
+                is_last_child = i == len(node["children"]) - 1
                 child_prefix = prefix + ("    " if is_last else "│   ")
                 print_tree(child, child_prefix, is_last_child)
 
@@ -2900,7 +3168,9 @@ def inbox(ctx, unread, output_json):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to check inbox")
+        raise click.ClickException(
+            "Must set SKEIN_AGENT_ID or use --agent flag to check inbox"
+        )
 
     params = {}
     if unread:
@@ -2968,12 +3238,7 @@ def thread(ctx, from_id, to_id, thread_type, content):
         if from_id is None:
             raise click.ClickException("Must set agent ID to use default FROM_ID")
 
-    data = {
-        "from_id": from_id,
-        "to_id": to_id,
-        "type": thread_type,
-        "content": content
-    }
+    data = {"from_id": from_id, "to_id": to_id, "type": thread_type, "content": content}
 
     result = make_request("POST", "/threads", base_url, agent_id, json=data)
     click.echo(f"Created thread: {result['thread_id']}")
@@ -3000,14 +3265,11 @@ def reply(ctx, to_id, message):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to reply")
+        raise click.ClickException(
+            "Must set SKEIN_AGENT_ID or use --agent flag to reply"
+        )
 
-    data = {
-        "from_id": agent_id,
-        "to_id": to_id,
-        "type": "reply",
-        "content": message
-    }
+    data = {"from_id": agent_id, "to_id": to_id, "type": "reply", "content": message}
 
     result = make_request("POST", "/threads", base_url, agent_id, json=data)
     click.echo(f"Posted reply: {result['thread_id']}")
@@ -3034,7 +3296,7 @@ def tag(ctx, resource_id, tag_name):
         "from_id": resource_id,
         "to_id": resource_id,
         "type": "tag",
-        "content": tag_name
+        "content": tag_name,
     }
 
     make_request("POST", "/threads", base_url, agent_id, json=data)
@@ -3043,7 +3305,12 @@ def tag(ctx, resource_id, tag_name):
 
 @cli.command()
 @click.argument("resource_id")
-@click.argument("status_value", type=click.Choice(["open", "closed", "investigating", "resolved", "blocked", "in-progress"]))
+@click.argument(
+    "status_value",
+    type=click.Choice(
+        ["open", "closed", "investigating", "resolved", "blocked", "in-progress"]
+    ),
+)
 @click.pass_context
 def update(ctx, resource_id, status_value):
     """Set status on a resource.
@@ -3059,13 +3326,15 @@ def update(ctx, resource_id, status_value):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to set status")
+        raise click.ClickException(
+            "Must set SKEIN_AGENT_ID or use --agent flag to set status"
+        )
 
     data = {
         "from_id": agent_id,
         "to_id": resource_id,
         "type": "status",
-        "content": status_value
+        "content": status_value,
     }
 
     make_request("POST", "/threads", base_url, agent_id, json=data)
@@ -3091,7 +3360,9 @@ def close(ctx, resource_ids, link, note):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to close")
+        raise click.ClickException(
+            "Must set SKEIN_AGENT_ID or use --agent flag to close"
+        )
 
     for resource_id in resource_ids:
         # Create status thread (closed)
@@ -3099,7 +3370,7 @@ def close(ctx, resource_ids, link, note):
             "from_id": resource_id,
             "to_id": resource_id,
             "type": "status",
-            "content": "closed"
+            "content": "closed",
         }
         make_request("POST", "/threads", base_url, agent_id, json=status_data)
         click.echo(f"Closed {resource_id}")
@@ -3110,7 +3381,7 @@ def close(ctx, resource_ids, link, note):
                 "from_id": agent_id,
                 "to_id": resource_id,
                 "type": "message",
-                "content": note
+                "content": note,
             }
             make_request("POST", "/threads", base_url, agent_id, json=note_data)
             click.echo(f"  Note: {note}")
@@ -3122,7 +3393,7 @@ def close(ctx, resource_ids, link, note):
                 "from_id": resource_id,
                 "to_id": link,
                 "type": "reference",
-                "content": ref_content
+                "content": ref_content,
             }
             make_request("POST", "/threads", base_url, agent_id, json=ref_data)
             click.echo(f"Linked to {link}: {ref_content}")
@@ -3130,8 +3401,16 @@ def close(ctx, resource_ids, link, note):
 
 @cli.command()
 @click.option("--capabilities", help="Comma-separated capabilities")
-@click.option("--name", help="Human-readable name (e.g., 'Front End Developer', 'Race Condition Fixer')")
-@click.option("--type", "agent_type", type=click.Choice(["claude-code", "patbot", "horizon", "human", "system"]), help="Agent type")
+@click.option(
+    "--name",
+    help="Human-readable name (e.g., 'Front End Developer', 'Race Condition Fixer')",
+)
+@click.option(
+    "--type",
+    "agent_type",
+    type=click.Choice(["claude-code", "patbot", "horizon", "human", "system"]),
+    help="Agent type",
+)
 @click.option("--description", help="Longer description of work and focus")
 @click.pass_context
 def register(ctx, capabilities, name, agent_type, description):
@@ -3140,15 +3419,13 @@ def register(ctx, capabilities, name, agent_type, description):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to register")
+        raise click.ClickException(
+            "Must set SKEIN_AGENT_ID or use --agent flag to register"
+        )
 
     caps_list = [c.strip() for c in capabilities.split(",")] if capabilities else []
 
-    data = {
-        "agent_id": agent_id,
-        "capabilities": caps_list,
-        "metadata": {}
-    }
+    data = {"agent_id": agent_id, "capabilities": caps_list, "metadata": {}}
 
     if name:
         data["name"] = name
@@ -3210,7 +3487,7 @@ def _generate_suggested_name(
     agent_id: str,
     mantle: Optional[str],
     mantle_data: Optional[dict],
-    brief_content: str = ""
+    brief_content: str = "",
 ) -> str:
     """
     Generate a memorable suggested name for the agent.
@@ -3283,7 +3560,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
         "mission": None,
         "brief_id": brief_id,
         "mantle_name": mantle,
-        "message": message
+        "message": message,
     }
 
     mission_parts = []
@@ -3293,7 +3570,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
     if brief_id:
         try:
             brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
-            brief_content = brief.get('content', '')
+            brief_content = brief.get("content", "")
             mission_parts.append(f"**From Brief ({brief_id}):**\n{brief_content}")
         except Exception as e:
             raise click.ClickException(f"Failed to load brief: {str(e)}")
@@ -3305,10 +3582,18 @@ def _ignite_start(ctx, brief_id, mantle, message):
         try:
             # If it looks like a folio ID (mantle-YYYYMMDD-xxxx), use directly
             if mantle.startswith("mantle-"):
-                mantle_folio = make_request("GET", f"/folios/{mantle}", base_url, agent_id)
+                mantle_folio = make_request(
+                    "GET", f"/folios/{mantle}", base_url, agent_id
+                )
             else:
                 # Search for mantle by name using the /search endpoint
-                search_response = make_request("GET", "/search", base_url, agent_id, params={"q": mantle, "type": "mantle"})
+                search_response = make_request(
+                    "GET",
+                    "/search",
+                    base_url,
+                    agent_id,
+                    params={"q": mantle, "type": "mantle"},
+                )
                 folios_data = search_response.get("results", {}).get("folios", {})
                 results = folios_data.get("items", [])
                 if not results:
@@ -3316,21 +3601,26 @@ def _ignite_start(ctx, brief_id, mantle, message):
                 # Prefer exact title match, otherwise take first result
                 mantle_folio = None
                 for r in results:
-                    if r.get('title', '').lower() == mantle.lower():
+                    if r.get("title", "").lower() == mantle.lower():
                         mantle_folio = r
                         break
                 if not mantle_folio:
                     mantle_folio = results[0]
                     if len(results) > 1:
-                        click.echo(f"Note: Multiple mantles match '{mantle}', using '{mantle_folio.get('title', mantle_folio.get('folio_id'))}'", err=True)
-            mantle_content = mantle_folio.get('content', '')
+                        click.echo(
+                            f"Note: Multiple mantles match '{mantle}', using '{mantle_folio.get('title', mantle_folio.get('folio_id'))}'",
+                            err=True,
+                        )
+            mantle_content = mantle_folio.get("content", "")
             mission_parts.append(f"**From Mantle ({mantle}):**\n{mantle_content}")
             # Store folio data for naming context
             mantle_data = {"content": mantle_content}
         except click.ClickException:
             raise
         except Exception as e:
-            raise click.ClickException(f"Failed to load mantle folio '{mantle}': {str(e)}")
+            raise click.ClickException(
+                f"Failed to load mantle folio '{mantle}': {str(e)}"
+            )
 
     # If message provided, add it
     if message:
@@ -3348,7 +3638,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
             "CLAUDE.md",
             "docs/PROJECT_CONTEXT.md",
             "docs/SKEIN_QUICK_START.md",
-            "docs/ARCHITECTURE.md"
+            "docs/ARCHITECTURE.md",
         ]
         # Conditional docs
         conditional_docs = [
@@ -3357,7 +3647,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
             "docs/TOOL_CREATION_GUIDE.md",
             "docs/AGENT_CREATION_GUIDE.md",
             "docs/SKEIN_AGENT_GUIDE.md",
-            "docs/TOKEN_TERMINOLOGY.md"
+            "docs/TOKEN_TERMINOLOGY.md",
         ]
 
         for doc in core_docs + conditional_docs:
@@ -3371,7 +3661,9 @@ def _ignite_start(ctx, brief_id, mantle, message):
     # Combine brief, mantle, and message content for naming context
     content_parts = [brief_content, mantle_content, message or ""]
     naming_context = "\n".join(p for p in content_parts if p)
-    suggested_name = _generate_suggested_name(base_url, agent_id, mantle, mantle_data, naming_context)
+    suggested_name = _generate_suggested_name(
+        base_url, agent_id, mantle, mantle_data, naming_context
+    )
     response["suggested_name"] = suggested_name
 
     # Register on roster as "orienting" with the generated name
@@ -3384,18 +3676,20 @@ def _ignite_start(ctx, brief_id, mantle, message):
                 "ignited_at": datetime.now().isoformat(),
                 "ignited_from": brief_id,
                 "mantle": mantle,
-                "message": message
-            }
+                "message": message,
+            },
         }
-        make_request("POST", "/roster/register", base_url, suggested_name, json=register_data)
+        make_request(
+            "POST", "/roster/register", base_url, suggested_name, json=register_data
+        )
     except Exception as e:
         # Log but don't fail - registration is not critical
         click.echo(f"Note: Could not register on roster: {e}", err=True)
 
     # Output results
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo("IGNITION - Orientation Phase")
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo()
 
     if response["mission"]:
@@ -3416,7 +3710,12 @@ def _ignite_start(ctx, brief_id, mantle, message):
     if suggested_reading:
         click.echo("REQUIRED Reading:")
         # Core docs
-        core_docs = ["CLAUDE.md", "PROJECT_CONTEXT.md", "SKEIN_QUICK_START.md", "ARCHITECTURE.md"]
+        core_docs = [
+            "CLAUDE.md",
+            "PROJECT_CONTEXT.md",
+            "SKEIN_QUICK_START.md",
+            "ARCHITECTURE.md",
+        ]
         for doc in core_docs:
             if any(doc in s for s in suggested_reading):
                 matching = [s for s in suggested_reading if doc in s][0]
@@ -3425,10 +3724,17 @@ def _ignite_start(ctx, brief_id, mantle, message):
 
         # Conditional docs
         testing_docs = ["TESTING_GUIDE.md"]
-        system_docs = ["HORIZON_EXAMPLE.md", "TOOL_CREATION_GUIDE.md", "AGENT_CREATION_GUIDE.md",
-                       "SKEIN_AGENT_GUIDE.md", "TOKEN_TERMINOLOGY.md"]
+        system_docs = [
+            "HORIZON_EXAMPLE.md",
+            "TOOL_CREATION_GUIDE.md",
+            "AGENT_CREATION_GUIDE.md",
+            "SKEIN_AGENT_GUIDE.md",
+            "TOKEN_TERMINOLOGY.md",
+        ]
 
-        has_testing = any(any(td in s for s in suggested_reading) for td in testing_docs)
+        has_testing = any(
+            any(td in s for s in suggested_reading) for td in testing_docs
+        )
         has_system = any(any(sd in s for s in suggested_reading) for sd in system_docs)
 
         if has_testing:
@@ -3447,7 +3753,9 @@ def _ignite_start(ctx, brief_id, mantle, message):
                     if doc == "SKEIN_AGENT_GUIDE.md":
                         click.echo(f"{prefix} {doc} (comprehensive SKEIN guide)")
                     elif doc == "TOKEN_TERMINOLOGY.md":
-                        click.echo(f"{prefix} {doc} (use Payload/Burn/Creep terms when discussing tokens to disambiguate in discussion of token use)")
+                        click.echo(
+                            f"{prefix} {doc} (use Payload/Burn/Creep terms when discussing tokens to disambiguate in discussion of token use)"
+                        )
                     else:
                         click.echo(f"{prefix} {doc}")
 
@@ -3455,7 +3763,9 @@ def _ignite_start(ctx, brief_id, mantle, message):
 
     click.echo(f"You are: {suggested_name}")
     click.echo()
-    click.echo("After reading, explore project files and the SKEIN for relevant information. After you've fully oriented, run:")
+    click.echo(
+        "After reading, explore project files and the SKEIN for relevant information. After you've fully oriented, run:"
+    )
     click.echo()
     click.echo(f"  skein --agent {suggested_name} ready")
     click.echo()
@@ -3477,7 +3787,9 @@ def ready(ctx):
     agent_id = ctx.obj.get("agent")
 
     if not agent_id:
-        raise click.ClickException("Must use --agent flag. Run 'skein ignite' first to get your assigned name.")
+        raise click.ClickException(
+            "Must use --agent flag. Run 'skein ignite' first to get your assigned name."
+        )
 
     # Verify agent was registered during ignite with "orienting" status
     try:
@@ -3511,9 +3823,7 @@ def ready(ctx):
         "agent_id": agent_id,
         "name": agent_id,
         "status": "active",
-        "metadata": {
-            "ready_at": datetime.now().isoformat()
-        }
+        "metadata": {"ready_at": datetime.now().isoformat()},
     }
 
     try:
@@ -3521,15 +3831,15 @@ def ready(ctx):
     except Exception as e:
         raise click.ClickException(f"Failed to activate: {str(e)}")
 
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo("READY")
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo()
     click.echo(f"You are: {agent_id}")
     click.echo()
     click.echo("Use this for all commands:")
-    click.echo(f"  skein --agent {agent_id} issue SITE \"description\"")
-    click.echo(f"  skein --agent {agent_id} finding SITE \"discovery\"")
+    click.echo(f'  skein --agent {agent_id} issue SITE "description"')
+    click.echo(f'  skein --agent {agent_id} finding SITE "discovery"')
     click.echo(f"  skein --agent {agent_id} torch")
     click.echo()
 
@@ -3563,20 +3873,28 @@ def _torch_start(ctx):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to torch")
+        raise click.ClickException(
+            "Must set SKEIN_AGENT_ID or use --agent flag to torch"
+        )
 
     # Get roster info
     try:
         roster_data = make_request("GET", f"/roster/{agent_id}", base_url, agent_id)
         name = roster_data.get("name", agent_id)
     except Exception:
-        raise click.ClickException(f"Agent {agent_id} not found in roster. Must ignite before torching.")
+        raise click.ClickException(
+            f"Agent {agent_id} not found in roster. Must ignite before torching."
+        )
 
     # Get agent's SKEIN activity
     try:
         # Get all folios by this agent
         all_folios = make_request("GET", "/folios", base_url, agent_id)
-        agent_folios = [f for f in all_folios if f.get("author") == agent_id or f.get("weaver") == agent_id]
+        agent_folios = [
+            f
+            for f in all_folios
+            if f.get("author") == agent_id or f.get("weaver") == agent_id
+        ]
 
         # Count by type
         work_summary = {
@@ -3586,7 +3904,7 @@ def _torch_start(ctx):
             "briefs": len([f for f in agent_folios if f.get("type") == "brief"]),
             "notions": len([f for f in agent_folios if f.get("type") == "notion"]),
             "frictions": len([f for f in agent_folios if f.get("type") == "friction"]),
-            "summaries": len([f for f in agent_folios if f.get("type") == "summary"])
+            "summaries": len([f for f in agent_folios if f.get("type") == "summary"]),
         }
     except Exception:
         work_summary = {}
@@ -3594,18 +3912,14 @@ def _torch_start(ctx):
     # Update status to retiring (if server supports it)
     try:
         # Try to update via re-registration with new status
-        update_data = {
-            "agent_id": agent_id,
-            "name": name,
-            "status": "retiring"
-        }
+        update_data = {"agent_id": agent_id, "name": name, "status": "retiring"}
         make_request("POST", "/roster/register", base_url, agent_id, json=update_data)
     except Exception:
         pass  # Continue even if update fails (server might not support status)
 
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo("TORCH - Retirement Phase")
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo()
     click.echo(f"Name: {name}")
     click.echo()
@@ -3626,30 +3940,52 @@ def _torch_start(ctx):
     try:
         # Get assignment threads pointing to this agent
         all_threads = make_request("GET", "/threads", base_url, agent_id)
-        assignment_threads = [t for t in all_threads
-                            if t.get("type") == "assignment" and t.get("to_id") == agent_id]
+        assignment_threads = [
+            t
+            for t in all_threads
+            if t.get("type") == "assignment" and t.get("to_id") == agent_id
+        ]
         assigned_folio_ids = [t.get("from_id") for t in assignment_threads]
 
         if assigned_folio_ids:
             # Get all open issues and frictions
-            open_issues_all = make_request("GET", "/folios", base_url, agent_id,
-                                          params={"type": "issue", "status": "open"})
-            open_frictions_all = make_request("GET", "/folios", base_url, agent_id,
-                                             params={"type": "friction", "status": "open"})
+            open_issues_all = make_request(
+                "GET",
+                "/folios",
+                base_url,
+                agent_id,
+                params={"type": "issue", "status": "open"},
+            )
+            open_frictions_all = make_request(
+                "GET",
+                "/folios",
+                base_url,
+                agent_id,
+                params={"type": "friction", "status": "open"},
+            )
 
             # Filter to only those assigned to this agent
-            open_issues = [i for i in open_issues_all if i.get("folio_id") in assigned_folio_ids]
-            open_frictions = [f for f in open_frictions_all if f.get("folio_id") in assigned_folio_ids]
+            open_issues = [
+                i for i in open_issues_all if i.get("folio_id") in assigned_folio_ids
+            ]
+            open_frictions = [
+                f for f in open_frictions_all if f.get("folio_id") in assigned_folio_ids
+            ]
 
         # Check if agent was ignited from a brief and if it's still open
         try:
-            roster_entry = make_request("GET", f"/roster/{agent_id}", base_url, agent_id)
+            roster_entry = make_request(
+                "GET", f"/roster/{agent_id}", base_url, agent_id
+            )
             ignited_from = roster_entry.get("metadata", {}).get("ignited_from")
             if ignited_from and ignited_from.startswith("brief-"):
                 # Get brief status
-                all_briefs = make_request("GET", "/folios", base_url, agent_id,
-                                         params={"type": "brief"})
-                brief = next((b for b in all_briefs if b.get("folio_id") == ignited_from), None)
+                all_briefs = make_request(
+                    "GET", "/folios", base_url, agent_id, params={"type": "brief"}
+                )
+                brief = next(
+                    (b for b in all_briefs if b.get("folio_id") == ignited_from), None
+                )
                 if brief and brief.get("status") == "open":
                     ignited_from_brief = brief
                     brief_is_open = True
@@ -3661,9 +3997,9 @@ def _torch_start(ctx):
 
     # Display open work if any exists
     if open_issues or open_frictions or brief_is_open:
-        click.echo("="*60)
+        click.echo("=" * 60)
         click.echo("YOUR OPEN WORK")
-        click.echo("="*60)
+        click.echo("=" * 60)
         click.echo()
 
         if open_issues:
@@ -3691,16 +4027,24 @@ def _torch_start(ctx):
 
     click.echo("Before completing retirement, consider:")
     click.echo()
-    click.echo("  • Is there incomplete work? File brief(s) if someone should continue.")
-    click.echo("  • Did you have larger ideas or patterns worth sharing? File notion(s).")
+    click.echo(
+        "  • Is there incomplete work? File brief(s) if someone should continue."
+    )
+    click.echo(
+        "  • Did you have larger ideas or patterns worth sharing? File notion(s)."
+    )
     click.echo("  • Did you encounter friction or blockers? File friction(s).")
     click.echo("  • Do you know of completed work that should be closed? Close it.")
     click.echo()
     click.echo("Examples:")
     click.echo("  skein close issue-20251112-757o --link summary-20251112-5lut")
-    click.echo("  skein close friction-20251109-1lfe --note \"Fixed by refactoring imports\"")
+    click.echo(
+        '  skein close friction-20251109-1lfe --note "Fixed by refactoring imports"'
+    )
     click.echo()
-    click.echo("Note: Writing to SKEIN is optional but encouraged. Don't post just to post.")
+    click.echo(
+        "Note: Writing to SKEIN is optional but encouraged. Don't post just to post."
+    )
     click.echo()
     click.echo("When done:")
     click.echo()
@@ -3710,9 +4054,15 @@ def _torch_start(ctx):
 
 @cli.command("complete")
 @click.option("--summary", help="Optional retirement summary")
-@click.option("--yield-status", "yield_status", type=click.Choice(["complete", "partial", "blocked"]),
-              help="Yield status for chain (auto-detected from SKEIN_CHAIN_ID)")
-@click.option("--yield-outcome", "yield_outcome", help="What was accomplished (for yield)")
+@click.option(
+    "--yield-status",
+    "yield_status",
+    type=click.Choice(["complete", "partial", "blocked"]),
+    help="Yield status for chain (auto-detected from SKEIN_CHAIN_ID)",
+)
+@click.option(
+    "--yield-outcome", "yield_outcome", help="What was accomplished (for yield)"
+)
 @click.option("--yield-notes", "yield_notes", help="Notes for next agent in chain")
 @click.pass_context
 def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
@@ -3757,7 +4107,7 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
             "notions": len([f for f in agent_folios if f.get("type") == "notion"]),
             "frictions": len([f for f in agent_folios if f.get("type") == "friction"]),
             "summaries": len([f for f in agent_folios if f.get("type") == "summary"]),
-            "tenders": len([f for f in agent_folios if f.get("type") == "tender"])
+            "tenders": len([f for f in agent_folios if f.get("type") == "tender"]),
         }
     except Exception:
         final_work = {}
@@ -3765,9 +4115,9 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
     # If in a chain, handle yield
     yield_stored = False
     if chain_id:
-        click.echo("="*60)
+        click.echo("=" * 60)
         click.echo("YIELD - Chain Data Package")
-        click.echo("="*60)
+        click.echo("=" * 60)
         click.echo()
         click.echo(f"Chain: {chain_id}")
         if task_id:
@@ -3776,7 +4126,9 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
 
         # Show artifacts filed during session
         artifact_ids = [f.get("folio_id") for f in agent_folios if f.get("folio_id")]
-        tender_ids = [f.get("folio_id") for f in agent_folios if f.get("type") == "tender"]
+        tender_ids = [
+            f.get("folio_id") for f in agent_folios if f.get("type") == "tender"
+        ]
 
         if artifact_ids:
             click.echo("Artifacts filed this session:")
@@ -3804,14 +4156,14 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
                 yield_status = click.prompt(
                     "Status",
                     type=click.Choice(["complete", "partial", "blocked"]),
-                    default="complete"
+                    default="complete",
                 )
 
         # Get outcome if not provided
         if not yield_outcome:
             yield_outcome = click.prompt(
                 "Outcome (what was accomplished)",
-                default=f"Completed task. Filed {len(artifact_ids)} artifact(s)."
+                default=f"Completed task. Filed {len(artifact_ids)} artifact(s).",
             )
 
         # Build yield package
@@ -3822,8 +4174,8 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
                 "status": yield_status,
                 "outcome": yield_outcome,
                 "artifacts": artifact_ids,
-                "notes": yield_notes
-            }
+                "notes": yield_notes,
+            },
         }
 
         # Add tender_id if we have one
@@ -3832,7 +4184,9 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
 
         # Store the yield
         try:
-            result = make_request("POST", "/yields", base_url, agent_id, json=yield_data)
+            result = make_request(
+                "POST", "/yields", base_url, agent_id, json=yield_data
+            )
             sack_id = result.get("sack_id")
             click.echo(f"✓ Yield stored: {sack_id}")
             click.echo()
@@ -3846,17 +4200,19 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
     if summary:
         # Find a site to post to (use most recent site they posted to)
         try:
-            recent_sites = list(set([f.get("site_id") for f in agent_folios if f.get("site_id")]))
+            recent_sites = list(
+                set([f.get("site_id") for f in agent_folios if f.get("site_id")])
+            )
             if recent_sites:
                 site_id = recent_sites[-1]
                 summary_data = {
                     "site": site_id,
                     "content": summary,
-                    "metadata": {
-                        "retirement_summary": True
-                    }
+                    "metadata": {"retirement_summary": True},
                 }
-                result = make_request("POST", "/summary", base_url, agent_id, json=summary_data)
+                result = make_request(
+                    "POST", "/summary", base_url, agent_id, json=summary_data
+                )
                 summary_id = result.get("folio_id")
         except Exception:
             pass
@@ -3869,17 +4225,19 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
                 "torched_at": datetime.now().isoformat(),
                 "work_summary": final_work,
                 "chain_id": chain_id,
-                "yield_stored": yield_stored
-            }
+                "yield_stored": yield_stored,
+            },
         }
-        make_request("PATCH", f"/roster/{agent_id}", base_url, agent_id, json=update_data)
+        make_request(
+            "PATCH", f"/roster/{agent_id}", base_url, agent_id, json=update_data
+        )
     except Exception as e:
         # Log but don't fail - agent can still complete even if status update fails
         click.echo(f"Warning: Could not update roster status: {e}", err=True)
 
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo("RETIRED")
-    click.echo("="*60)
+    click.echo("=" * 60)
     click.echo()
     click.echo(f"✓ Retired: {name}")
     click.echo()
@@ -3901,9 +4259,16 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
 
 @cli.command()
 @click.argument("agent_id")
-@click.option("--capabilities", multiple=True, help="Agent capabilities (can specify multiple)")
+@click.option(
+    "--capabilities", multiple=True, help="Agent capabilities (can specify multiple)"
+)
 @click.option("--name", help="Human-readable name")
-@click.option("--type", "agent_type", type=click.Choice(["claude-code", "patbot", "horizon", "human", "system"]), help="Agent type")
+@click.option(
+    "--type",
+    "agent_type",
+    type=click.Choice(["claude-code", "patbot", "horizon", "human", "system"]),
+    help="Agent type",
+)
 @click.option("--description", help="Longer description")
 @click.option("--eval", is_flag=True, help="Output eval-able export command")
 @click.pass_context
@@ -3935,7 +4300,7 @@ def identify(ctx, agent_id, capabilities, name, agent_type, description, eval):
         reg_data = {
             "agent_id": agent_id,
             "capabilities": list(capabilities) if capabilities else [],
-            "metadata": {}
+            "metadata": {},
         }
         if name:
             reg_data["name"] = name
@@ -3945,7 +4310,9 @@ def identify(ctx, agent_id, capabilities, name, agent_type, description, eval):
             reg_data["description"] = description
 
         try:
-            reg_result = make_request("POST", "/roster/register", base_url, agent_id, json=reg_data)
+            reg_result = make_request(
+                "POST", "/roster/register", base_url, agent_id, json=reg_data
+            )
             if reg_result.get("success"):
                 if name:
                     click.echo(f"✓ Registered as: {name}")
@@ -3967,7 +4334,9 @@ def identify(ctx, agent_id, capabilities, name, agent_type, description, eval):
 @click.option("--all", "show_all", is_flag=True, help="Show all stats")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def stats(ctx, target, orphaned, by_weaver, by_type, by_status, by_site, show_all, output_json):
+def stats(
+    ctx, target, orphaned, by_weaver, by_type, by_status, by_site, show_all, output_json
+):
     """Observability and debugging analytics.
 
     Examples:
@@ -3983,15 +4352,18 @@ def stats(ctx, target, orphaned, by_weaver, by_type, by_status, by_site, show_al
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     if target == "threads":
-        analyze_threads(base_url, agent_id, orphaned, by_weaver, by_type,
-                       show_all, output_json)
+        analyze_threads(
+            base_url, agent_id, orphaned, by_weaver, by_type, show_all, output_json
+        )
     elif target == "folios":
-        analyze_folios(base_url, agent_id, by_type, by_status, by_site,
-                      show_all, output_json)
+        analyze_folios(
+            base_url, agent_id, by_type, by_status, by_site, show_all, output_json
+        )
 
 
-def analyze_threads(base_url, agent_id, orphaned, by_weaver, by_type,
-                   show_all, output_json):
+def analyze_threads(
+    base_url, agent_id, orphaned, by_weaver, by_type, show_all, output_json
+):
     """Analyze thread statistics."""
     from .analytics import (
         find_orphaned_threads,
@@ -3999,7 +4371,7 @@ def analyze_threads(base_url, agent_id, orphaned, by_weaver, by_type,
         analyze_by_type as analyze_threads_by_type,
         print_orphaned_threads,
         print_weaver_stats,
-        print_type_distribution
+        print_type_distribution,
     )
 
     # If no options specified, show all by default
@@ -4053,13 +4425,11 @@ def analyze_threads(base_url, agent_id, orphaned, by_weaver, by_type,
         print_type_distribution(threads)
 
 
-def analyze_folios(base_url, agent_id, by_type, by_status, by_site,
-                   show_all, output_json):
+def analyze_folios(
+    base_url, agent_id, by_type, by_status, by_site, show_all, output_json
+):
     """Analyze folio statistics."""
-    from .analytics import (
-        get_folio_stats,
-        print_folio_stats
-    )
+    from .analytics import get_folio_stats, print_folio_stats
 
     # If no options specified, show all by default
     if not (by_type or by_status or by_site or show_all):
@@ -4077,13 +4447,13 @@ def analyze_folios(base_url, agent_id, by_type, by_status, by_site,
         stats = get_folio_stats(folios)
         # Filter based on options
         if not show_all:
-            filtered_stats = {'total': stats['total']}
+            filtered_stats = {"total": stats["total"]}
             if by_type:
-                filtered_stats['by_type'] = stats['by_type']
+                filtered_stats["by_type"] = stats["by_type"]
             if by_status:
-                filtered_stats['by_status'] = stats['by_status']
+                filtered_stats["by_status"] = stats["by_status"]
             if by_site:
-                filtered_stats['by_site'] = stats['by_site']
+                filtered_stats["by_site"] = stats["by_site"]
             stats = filtered_stats
         click.echo(json.dumps(stats, indent=2))
         return
@@ -4093,7 +4463,7 @@ def analyze_folios(base_url, agent_id, by_type, by_status, by_site,
         folios,
         by_type=by_type or show_all,
         by_status=by_status or show_all,
-        by_site=by_site or show_all
+        by_site=by_site or show_all,
     )
 
 
@@ -4109,7 +4479,9 @@ def whoami(ctx):
 
 
 @cli.command()
-@click.argument("topic", type=click.Choice(["quickstart", "guide", "threads", "implementation"]))
+@click.argument(
+    "topic", type=click.Choice(["quickstart", "guide", "threads", "implementation"])
+)
 @click.pass_context
 def info(ctx, topic):
     """Display SKEIN documentation.
@@ -4137,7 +4509,7 @@ def info(ctx, topic):
         "quickstart": docs_dir / "SKEIN_QUICK_START.md",
         "guide": docs_dir / "SKEIN_AGENT_GUIDE.md",
         "threads": docs_dir / "THREADS_PHILOSOPHY.md",
-        "implementation": docs_dir / "ARCHITECTURE.md"
+        "implementation": docs_dir / "ARCHITECTURE.md",
     }
 
     doc_file = doc_map.get(topic)
@@ -4147,7 +4519,7 @@ def info(ctx, topic):
         click.echo(f"Expected location: {doc_file}")
         return
 
-    with open(doc_file, 'r') as f:
+    with open(doc_file, "r") as f:
         content = f.read()
         click.echo(content)
 
@@ -4155,6 +4527,7 @@ def info(ctx, topic):
 # ============================================================================
 # BACKUP Commands - Backup and Recovery
 # ============================================================================
+
 
 @cli.group()
 def backup():
@@ -4186,7 +4559,7 @@ def backup_create(ctx, tag):
         click.echo(f"  Location: {result['backup_path']}")
         click.echo(f"  Checksum: {result['checksum'][:16]}...")
         click.echo(f"  Size: {result['backup_size']:,} bytes")
-        stats = result['source_stats']
+        stats = result["source_stats"]
         click.echo(f"  Files: {stats['total_files']}")
     except Exception as e:
         raise click.ClickException(f"Backup failed: {e}")
@@ -4213,7 +4586,7 @@ def backup_list(ctx, backup_type, output_json):
             "Not in a SKEIN project. Run from a directory with .skein/"
         )
 
-    backups = manager.list_backups(backup_type=backup_type or 'all')
+    backups = manager.list_backups(backup_type=backup_type or "all")
 
     if output_json:
         click.echo(json.dumps(backups, indent=2, default=str))
@@ -4225,11 +4598,11 @@ def backup_list(ctx, backup_type, output_json):
 
     click.echo(f"Found {len(backups)} backup(s):\n")
     for backup in backups:
-        name = backup.get('backup_name', 'unknown')
-        timestamp = backup.get('timestamp', 'unknown')
-        size = backup.get('backup_size', 0)
-        tag = backup.get('tag', '')
-        exists = "✓" if backup.get('exists', False) else "✗"
+        name = backup.get("backup_name", "unknown")
+        timestamp = backup.get("timestamp", "unknown")
+        size = backup.get("backup_size", 0)
+        tag = backup.get("tag", "")
+        exists = "✓" if backup.get("exists", False) else "✗"
 
         click.echo(f"{exists} {name}")
         click.echo(f"    Time: {timestamp}")
@@ -4258,7 +4631,7 @@ def backup_verify(ctx, backup_id):
 
     result = manager.verify_backup(backup_id)
 
-    if result['valid']:
+    if result["valid"]:
         click.echo("✓ Backup is valid")
         click.echo(f"  Checksum: {result['checksum'][:16]}...")
         click.echo(f"  Files: {result['file_count']}")
@@ -4270,8 +4643,12 @@ def backup_verify(ctx, backup_id):
 
 @backup.command("cleanup")
 @click.option("--keep-last", type=int, help="Keep only the N most recent backups")
-@click.option("--older-than", "older_than_days", type=int, help="Remove backups older than N days")
-@click.option("--dry-run", is_flag=True, help="Show what would be removed without removing")
+@click.option(
+    "--older-than", "older_than_days", type=int, help="Remove backups older than N days"
+)
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be removed without removing"
+)
 @click.pass_context
 def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
     """Remove old backups based on retention policy.
@@ -4293,13 +4670,11 @@ def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
         raise click.ClickException("Must specify --keep-last or --older-than")
 
     result = manager.cleanup_old_backups(
-        keep_last=keep_last,
-        older_than_days=older_than_days,
-        dry_run=dry_run
+        keep_last=keep_last, older_than_days=older_than_days, dry_run=dry_run
     )
 
     if dry_run:
-        removed = result.get('would_remove', [])
+        removed = result.get("would_remove", [])
         if removed:
             click.echo(f"Would remove {len(removed)} backup(s):")
             for name in removed:
@@ -4307,7 +4682,7 @@ def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
         else:
             click.echo("No backups would be removed.")
     else:
-        removed = result.get('removed', [])
+        removed = result.get("removed", [])
         if removed:
             click.echo(f"Removed {len(removed)} backup(s):")
             for name in removed:
@@ -4315,13 +4690,15 @@ def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
         else:
             click.echo("No backups removed.")
 
-    keeping = result.get('keeping', [])
+    keeping = result.get("keeping", [])
     if keeping:
         click.echo(f"\nKeeping {len(keeping)} backup(s)")
 
 
 @backup.command("enable")
-@click.option("--keep-last", type=int, default=30, help="Number of backups to keep (default: 30)")
+@click.option(
+    "--keep-last", type=int, default=30, help="Number of backups to keep (default: 30)"
+)
 @click.pass_context
 def backup_enable(ctx, keep_last):
     """Enable automated daily backups via systemd timer.
@@ -4340,7 +4717,7 @@ def backup_enable(ctx, keep_last):
     # Find project root
     current = Path.cwd()
     while current != current.parent:
-        if (current / '.skein').exists():
+        if (current / ".skein").exists():
             break
         current = current.parent
     else:
@@ -4348,8 +4725,8 @@ def backup_enable(ctx, keep_last):
 
     # Find template files (in skein package's systemd dir)
     skein_pkg = Path(__file__).parent.parent
-    service_template = skein_pkg / 'systemd' / 'skein-backup.service.template'
-    timer_template = skein_pkg / 'systemd' / 'skein-backup.timer.template'
+    service_template = skein_pkg / "systemd" / "skein-backup.service.template"
+    timer_template = skein_pkg / "systemd" / "skein-backup.timer.template"
 
     if not service_template.exists() or not timer_template.exists():
         raise click.ClickException(
@@ -4364,19 +4741,19 @@ def backup_enable(ctx, keep_last):
 
     # Read and substitute templates
     service_content = service_template.read_text()
-    service_content = service_content.replace('__PYTHON__', python_bin)
-    service_content = service_content.replace('__PYTHON_BIN_DIR__', python_bin_dir)
-    service_content = service_content.replace('__SKEIN_PROJECT__', project_path)
-    service_content = service_content.replace('__KEEP_LAST__', str(keep_last))
+    service_content = service_content.replace("__PYTHON__", python_bin)
+    service_content = service_content.replace("__PYTHON_BIN_DIR__", python_bin_dir)
+    service_content = service_content.replace("__SKEIN_PROJECT__", project_path)
+    service_content = service_content.replace("__KEEP_LAST__", str(keep_last))
 
     timer_content = timer_template.read_text()
 
     # Install to user systemd directory
-    systemd_dir = Path.home() / '.config' / 'systemd' / 'user'
+    systemd_dir = Path.home() / ".config" / "systemd" / "user"
     systemd_dir.mkdir(parents=True, exist_ok=True)
 
-    service_path = systemd_dir / 'skein-backup.service'
-    timer_path = systemd_dir / 'skein-backup.timer'
+    service_path = systemd_dir / "skein-backup.service"
+    timer_path = systemd_dir / "skein-backup.timer"
 
     service_path.write_text(service_content)
     timer_path.write_text(timer_content)
@@ -4387,9 +4764,13 @@ def backup_enable(ctx, keep_last):
 
     # Reload and enable
     try:
-        subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
-        subprocess.run(['systemctl', '--user', 'enable', 'skein-backup.timer'], check=True)
-        subprocess.run(['systemctl', '--user', 'start', 'skein-backup.timer'], check=True)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(
+            ["systemctl", "--user", "enable", "skein-backup.timer"], check=True
+        )
+        subprocess.run(
+            ["systemctl", "--user", "start", "skein-backup.timer"], check=True
+        )
         click.echo("\n✓ Backup timer enabled and started")
         click.echo(f"  Project: {project_path}")
         click.echo(f"  Retention: keep last {keep_last} backups")
@@ -4413,8 +4794,12 @@ def backup_disable(ctx):
     import subprocess
 
     try:
-        subprocess.run(['systemctl', '--user', 'stop', 'skein-backup.timer'], check=True)
-        subprocess.run(['systemctl', '--user', 'disable', 'skein-backup.timer'], check=True)
+        subprocess.run(
+            ["systemctl", "--user", "stop", "skein-backup.timer"], check=True
+        )
+        subprocess.run(
+            ["systemctl", "--user", "disable", "skein-backup.timer"], check=True
+        )
         click.echo("✓ Backup timer disabled")
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"Failed to disable timer: {e}")
@@ -4438,9 +4823,9 @@ def backup_status(ctx):
     try:
         # Check timer status
         result = subprocess.run(
-            ['systemctl', '--user', 'status', 'skein-backup.timer'],
+            ["systemctl", "--user", "status", "skein-backup.timer"],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         if result.returncode == 0:
@@ -4461,11 +4846,11 @@ def backup_status(ctx):
 
         # Show next scheduled run if timer is active
         list_result = subprocess.run(
-            ['systemctl', '--user', 'list-timers', 'skein-backup.timer'],
+            ["systemctl", "--user", "list-timers", "skein-backup.timer"],
             capture_output=True,
-            text=True
+            text=True,
         )
-        if list_result.returncode == 0 and 'skein-backup' in list_result.stdout:
+        if list_result.returncode == 0 and "skein-backup" in list_result.stdout:
             click.echo("\nSchedule:")
             click.echo(list_result.stdout)
 
@@ -4475,8 +4860,12 @@ def backup_status(ctx):
 
 @cli.command("restore")
 @click.argument("backup_id")
-@click.option("--dry-run", is_flag=True, help="Show what would be restored without making changes")
-@click.option("--confirm", is_flag=True, help="Confirm restore (required for actual restore)")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be restored without making changes"
+)
+@click.option(
+    "--confirm", is_flag=True, help="Confirm restore (required for actual restore)"
+)
 @click.pass_context
 def restore(ctx, backup_id, dry_run, confirm):
     """Restore SKEIN data from a backup.
@@ -4497,45 +4886,48 @@ def restore(ctx, backup_id, dry_run, confirm):
         )
 
     # Handle 'latest' as special case
-    if backup_id == 'latest':
+    if backup_id == "latest":
         backups = manager.list_backups()
         if not backups:
             raise click.ClickException("No backups found")
-        backup_id = backups[0]['backup_name'].replace('.tar.gz', '')
+        backup_id = backups[0]["backup_name"].replace(".tar.gz", "")
 
     result = manager.restore_backup(backup_id, dry_run=dry_run, confirm=confirm)
 
     if dry_run:
-        if result['success']:
-            info = result['would_restore']
+        if result["success"]:
+            info = result["would_restore"]
             click.echo("Would restore:")
             click.echo(f"  Files: {info['files']}")
             click.echo(f"  To: {info['to_directory']}")
-            stats = info.get('source_stats', {})
+            stats = info.get("source_stats", {})
             if stats:
                 click.echo(f"  Original size: {stats.get('total_size', 0):,} bytes")
             click.echo("\nSample files:")
-            for member in info.get('members', [])[:10]:
+            for member in info.get("members", [])[:10]:
                 click.echo(f"    {member}")
-            if len(info.get('members', [])) > 10:
+            if len(info.get("members", [])) > 10:
                 click.echo(f"    ... and {info['files'] - 10} more")
         else:
             click.echo(f"Error: {result.get('error')}")
-    elif result['success']:
+    elif result["success"]:
         click.echo(f"✓ Restored from: {result['restored_from']}")
         click.echo(f"  To: {result['restored_to']}")
         click.echo(f"  Files restored: {result['files_restored']}")
-        if result.get('pre_restore_backup'):
+        if result.get("pre_restore_backup"):
             click.echo(f"  Pre-restore backup: {result['pre_restore_backup']}")
     else:
         click.echo(f"✗ Restore failed: {result.get('error')}")
-        if result.get('pre_restore_backup'):
-            click.echo(f"  Pre-restore backup available: {result['pre_restore_backup']}")
+        if result.get("pre_restore_backup"):
+            click.echo(
+                f"  Pre-restore backup available: {result['pre_restore_backup']}"
+            )
 
 
 # ============================================================================
 # SHARD Commands - Git Worktree Management
 # ============================================================================
+
 
 def get_shard_worktree_module():
     """
@@ -4546,6 +4938,7 @@ def get_shard_worktree_module():
     """
     try:
         from skein import shard
+
         return shard
     except ImportError as e:
         raise click.ClickException(
@@ -4556,7 +4949,11 @@ def get_shard_worktree_module():
 
 
 @cli.group()
-@click.option("--project", "project_path", help="Path to project (default: SKEIN_PROJECT env or current directory)")
+@click.option(
+    "--project",
+    "project_path",
+    help="Path to project (default: SKEIN_PROJECT env or current directory)",
+)
 @click.pass_context
 def shard(ctx, project_path):
     """SHARD agent coordination - worktree management for parallel agent work."""
@@ -4593,33 +4990,35 @@ def shard_spawn(ctx, spawn_agent, brief, description):
     try:
         # Create worktree
         shard_info = shard_worktree.spawn_shard(
-            name=spawn_agent,
-            brief_id=brief,
-            description=description
+            name=spawn_agent, brief_id=brief, description=description
         )
 
         # Create SKEIN thread to track this SHARD
         # Use "tag" type with SHARD metadata in content
-        thread_content = json.dumps({
-            "tag": "shard",
-            "shard_id": shard_info["shard_id"],
-            "worktree_name": shard_info["worktree_name"],
-            "worktree_path": shard_info["worktree_path"],
-            "branch_name": shard_info["branch_name"],
-            "status": "spawned",
-            "description": description or ""
-        })
+        thread_content = json.dumps(
+            {
+                "tag": "shard",
+                "shard_id": shard_info["shard_id"],
+                "worktree_name": shard_info["worktree_name"],
+                "worktree_path": shard_info["worktree_path"],
+                "branch_name": shard_info["branch_name"],
+                "status": "spawned",
+                "description": description or "",
+            }
+        )
 
         # Thread from agent to brief (if provided) or agent to self
         thread_data = {
             "from_id": spawn_agent,
             "to_id": brief if brief else spawn_agent,
             "type": "tag",
-            "content": thread_content
+            "content": thread_content,
         }
 
         try:
-            thread_result = make_request("POST", "/threads", base_url, agent_id, json=thread_data)
+            thread_result = make_request(
+                "POST", "/threads", base_url, agent_id, json=thread_data
+            )
             shard_info["thread_id"] = thread_result.get("thread_id")
         except Exception as e:
             # Don't fail spawn if thread creation fails
@@ -4629,9 +5028,9 @@ def shard_spawn(ctx, spawn_agent, brief, description):
         click.echo(f"  Name: {shard_info['name']}")
         click.echo(f"  Branch: {shard_info['branch_name']}")
         click.echo(f"  Worktree: {shard_info['worktree_path']}")
-        if shard_info.get('brief_id'):
+        if shard_info.get("brief_id"):
             click.echo(f"  Brief: {shard_info['brief_id']}")
-        if shard_info.get('thread_id'):
+        if shard_info.get("thread_id"):
             click.echo(f"  Thread: {shard_info['thread_id']}")
         click.echo("\nTo work in this SHARD:")
         click.echo(f"  cd {shard_info['worktree_path']}")
@@ -4663,20 +5062,23 @@ def shard_list(ctx, active, filter_agent, output_json):
 
         # Filter by agent if requested
         if filter_agent:
-            shards = [s for s in shards if s['name'] == filter_agent]
+            shards = [s for s in shards if s["name"] == filter_agent]
 
         if output_json:
             import json
+
             click.echo(json.dumps(shards, indent=2))
         else:
             if not shards:
                 click.echo("No SHARDs found")
             else:
                 for shard_item in shards:
-                    click.echo(shard_item['worktree_name'])
+                    click.echo(shard_item["worktree_name"])
 
             click.echo()
-            click.echo("Tip: Use `skein shard triage` for actionable overview with status and tender info")
+            click.echo(
+                "Tip: Use `skein shard triage` for actionable overview with status and tender info"
+            )
             return
 
     except shard_worktree.ShardError as e:
@@ -4741,7 +5143,9 @@ def shard_show(ctx, worktree_name):
                 click.echo(f"Tip: {tip_sha} {tip_msg}")
                 if tip_in_master:
                     if commits_behind > 0:
-                        click.echo(f"     (in master, {commits_behind} commits behind HEAD)")
+                        click.echo(
+                            f"     (in master, {commits_behind} commits behind HEAD)"
+                        )
                     else:
                         click.echo("     (in master)")
                 click.echo()
@@ -4776,7 +5180,11 @@ def shard_show(ctx, worktree_name):
 @shard.command("diff")
 @click.argument("worktree_name")
 @click.option("--stat", "show_stat", is_flag=True, help="Show diffstat only")
-@click.option("--integration", is_flag=True, help="Show full integration diff with master (includes master evolution)")
+@click.option(
+    "--integration",
+    is_flag=True,
+    help="Show full integration diff with master (includes master evolution)",
+)
 @click.pass_context
 def shard_diff(ctx, worktree_name, show_stat, integration):
     """
@@ -4804,7 +5212,9 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
             # Show integration diff (what would merge into current master)
             click.echo(f"=== INTEGRATION DIFF: {worktree_name} ===\n")
             click.echo("Changes relative to current master:\n")
-            diff_output = shard_worktree.get_shard_diff(worktree_name, stat_only=show_stat, integration=True)
+            diff_output = shard_worktree.get_shard_diff(
+                worktree_name, stat_only=show_stat, integration=True
+            )
             if diff_output:
                 click.echo(diff_output)
             else:
@@ -4824,7 +5234,9 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
                 # Show master activity if there's drift
                 master_ahead = drift_info.get("master_commits_ahead", 0)
                 if master_ahead > 0:
-                    click.echo(f"Note: Master has {master_ahead} new commits since your base.")
+                    click.echo(
+                        f"Note: Master has {master_ahead} new commits since your base."
+                    )
                     notable = drift_info.get("master_notable_changes", [])
                     if notable:
                         click.echo("Notable changes on master:")
@@ -4832,12 +5244,18 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
                             click.echo(f"  - {change}")
                     click.echo()
 
-                diff_output = shard_worktree.get_shard_work_diff(worktree_name, stat_only=show_stat)
+                diff_output = shard_worktree.get_shard_work_diff(
+                    worktree_name, stat_only=show_stat
+                )
             else:
                 # No metadata - fall back to regular diff
                 click.echo(f"=== DIFF: {worktree_name} ===\n")
-                click.echo("(No base commit metadata - showing diff from current master)\n")
-                diff_output = shard_worktree.get_shard_diff(worktree_name, stat_only=show_stat)
+                click.echo(
+                    "(No base commit metadata - showing diff from current master)\n"
+                )
+                diff_output = shard_worktree.get_shard_diff(
+                    worktree_name, stat_only=show_stat
+                )
 
             if diff_output:
                 click.echo(diff_output)
@@ -4852,10 +5270,18 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
 
 @shard.command("cleanup")
 @click.argument("worktree_name")
-@click.option("--keep-branch", is_flag=True, help="Keep git branch after removing worktree")
-@click.option("--chain", is_flag=True, help="Remove entire graft chain (original + all grafts)")
-@click.option("--caller-cwd", "explicit_caller_cwd", default=None,
-              help="Original working directory of caller (for orchestration tools)")
+@click.option(
+    "--keep-branch", is_flag=True, help="Keep git branch after removing worktree"
+)
+@click.option(
+    "--chain", is_flag=True, help="Remove entire graft chain (original + all grafts)"
+)
+@click.option(
+    "--caller-cwd",
+    "explicit_caller_cwd",
+    default=None,
+    help="Original working directory of caller (for orchestration tools)",
+)
 @click.confirmation_option(prompt="Are you sure you want to cleanup this SHARD?")
 @click.pass_context
 def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
@@ -4885,9 +5311,7 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
         if chain:
             # Clean up entire graft chain
             result = shard_worktree.cleanup_graft_chain(
-                worktree_name,
-                keep_branch=keep_branch,
-                caller_cwd=caller_cwd
+                worktree_name, keep_branch=keep_branch, caller_cwd=caller_cwd
             )
 
             click.echo(f"Tracing worktree chain for: {worktree_name}\n")
@@ -4896,7 +5320,9 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
                 click.echo(f"Found chain ({len(result['removed'])} worktrees):")
                 for wt in reversed(result["removed"]):  # Show original first
                     wt == result.get("chain_root", "")
-                    label = "(original)" if not shard_worktree.is_graft(wt) else "(graft)"
+                    label = (
+                        "(original)" if not shard_worktree.is_graft(wt) else "(graft)"
+                    )
                     click.echo(f"  {wt} {label}")
                 click.echo()
 
@@ -4913,7 +5339,9 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
                 click.echo("\n  (Branches also deleted)")
         else:
             # Single worktree cleanup
-            shard_worktree.cleanup_shard(worktree_name, keep_branch=keep_branch, caller_cwd=caller_cwd)
+            shard_worktree.cleanup_shard(
+                worktree_name, keep_branch=keep_branch, caller_cwd=caller_cwd
+            )
 
             click.echo(f"✓ Cleaned up SHARD: {worktree_name}")
             if not keep_branch:
@@ -4990,13 +5418,15 @@ def shard_graft(ctx, worktree_name):
             # Show chain context if this is a multi-level graft
             depth = result.get("chain_depth", 0)
             if depth > 1:
-                chain = shard_worktree.get_graft_chain(shard_worktree.get_graft_chain_root(worktree_name))
+                chain = shard_worktree.get_graft_chain(
+                    shard_worktree.get_graft_chain_root(worktree_name)
+                )
                 click.echo("Chain: " + " → ".join(chain))
                 click.echo()
 
             click.echo("Resolve conflicts:")
             click.echo(f"  cd {result['graft_worktree_path']}")
-            for f in result['conflicts']:
+            for f in result["conflicts"]:
                 click.echo(f"  (edit {f} to resolve conflicts)")
             click.echo("  git add <resolved files>")
             click.echo("  git commit\n")
@@ -5011,8 +5441,12 @@ def shard_graft(ctx, worktree_name):
 
 @shard.command("merge")
 @click.argument("worktree_name")
-@click.option("--caller-cwd", "explicit_caller_cwd", default=None,
-              help="Original working directory of caller (for orchestration tools)")
+@click.option(
+    "--caller-cwd",
+    "explicit_caller_cwd",
+    default=None,
+    help="Original working directory of caller (for orchestration tools)",
+)
 @click.pass_context
 def shard_merge(ctx, worktree_name, explicit_caller_cwd):
     """
@@ -5062,7 +5496,9 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
         if result["success"]:
             # Show drift context in success message
             if master_ahead > 0:
-                click.echo(f"✓ Clean integration (applied onto current master, {master_ahead} commits ahead)")
+                click.echo(
+                    f"✓ Clean integration (applied onto current master, {master_ahead} commits ahead)"
+                )
             else:
                 click.echo("✓ Clean integration")
             click.echo()
@@ -5134,7 +5570,9 @@ def _post_merge_tender(ctx, base_url, agent_id, worktree_name, shard_info, metad
         summary_text = metadata.get("last_commit_message", "Merged")
         files_list = metadata.get("files_modified", [])
         commits = metadata.get("commits", 0)
-        branch_name = metadata.get("branch_name", shard_info.get("branch_name", "unknown"))
+        branch_name = metadata.get(
+            "branch_name", shard_info.get("branch_name", "unknown")
+        )
     else:
         summary_text = "Merged"
         files_list = []
@@ -5157,13 +5595,15 @@ def _post_merge_tender(ctx, base_url, agent_id, worktree_name, shard_info, metad
 - **Branch:** {branch_name}
 
 ### Files Modified
-{files_str if files_str else '  (none)'}
+{files_str if files_str else "  (none)"}
 """
 
     folio_data = {
         "type": "tender",
         "site_id": site,
-        "title": make_title_from_content(summary_text) if summary_text else f"Merged: {worktree_name}",
+        "title": make_title_from_content(summary_text)
+        if summary_text
+        else f"Merged: {worktree_name}",
         "content": content,
         "metadata": {
             "worktree_name": worktree_name,
@@ -5173,7 +5613,7 @@ def _post_merge_tender(ctx, base_url, agent_id, worktree_name, shard_info, metad
             "status": "complete",
             "merged": True,
             "name": shard_info.get("name"),
-        }
+        },
     }
 
     try:
@@ -5186,7 +5626,7 @@ def _post_merge_tender(ctx, base_url, agent_id, worktree_name, shard_info, metad
                 "from_id": tender_id,
                 "to_id": tender_id,
                 "type": "status",
-                "content": "closed"
+                "content": "closed",
             }
             make_request("POST", "/threads", base_url, agent_id, json=status_data)
 
@@ -5227,7 +5667,10 @@ def shard_pause(ctx, worktree_name, reason):
             if thread.get("type") == "tag":
                 try:
                     content = json.loads(thread.get("content", "{}"))
-                    if content.get("tag") == "shard" and content.get("worktree_name") == worktree_name:
+                    if (
+                        content.get("tag") == "shard"
+                        and content.get("worktree_name") == worktree_name
+                    ):
                         shard_thread_id = thread.get("thread_id")
                         break
                 except json.JSONDecodeError:
@@ -5235,11 +5678,14 @@ def shard_pause(ctx, worktree_name, reason):
 
         if shard_thread_id:
             # Reply to thread with pause status
-            reply_data = {
-                "thread_id": shard_thread_id,
-                "content": f"[PAUSED] {reason}"
-            }
-            make_request("POST", f"/threads/{shard_thread_id}/replies", base_url, agent_id, json=reply_data)
+            reply_data = {"thread_id": shard_thread_id, "content": f"[PAUSED] {reason}"}
+            make_request(
+                "POST",
+                f"/threads/{shard_thread_id}/replies",
+                base_url,
+                agent_id,
+                json=reply_data,
+            )
 
         click.echo(f"⏸  Paused SHARD: {worktree_name}")
         click.echo(f"  Reason: {reason}")
@@ -5283,7 +5729,10 @@ def shard_resume(ctx, worktree_name, message):
             if thread.get("type") == "tag":
                 try:
                     content = json.loads(thread.get("content", "{}"))
-                    if content.get("tag") == "shard" and content.get("worktree_name") == worktree_name:
+                    if (
+                        content.get("tag") == "shard"
+                        and content.get("worktree_name") == worktree_name
+                    ):
                         shard_thread_id = thread.get("thread_id")
                         break
                 except json.JSONDecodeError:
@@ -5292,11 +5741,14 @@ def shard_resume(ctx, worktree_name, message):
         if shard_thread_id:
             # Reply to thread with resume status
             resume_msg = f"[RESUMED] {message}" if message else "[RESUMED]"
-            reply_data = {
-                "thread_id": shard_thread_id,
-                "content": resume_msg
-            }
-            make_request("POST", f"/threads/{shard_thread_id}/replies", base_url, agent_id, json=reply_data)
+            reply_data = {"thread_id": shard_thread_id, "content": resume_msg}
+            make_request(
+                "POST",
+                f"/threads/{shard_thread_id}/replies",
+                base_url,
+                agent_id,
+                json=reply_data,
+            )
 
         click.echo(f"▶  Resumed SHARD: {worktree_name}")
         if message:
@@ -5311,7 +5763,12 @@ def shard_resume(ctx, worktree_name, message):
 
 
 @shard.command("review")
-@click.option("--stale-days", default=7, type=int, help="Days without commits to consider stale (default: 7)")
+@click.option(
+    "--stale-days",
+    default=7,
+    type=int,
+    help="Days without commits to consider stale (default: 7)",
+)
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
 def shard_review(ctx, stale_days, output_json):
@@ -5349,18 +5806,20 @@ def shard_review(ctx, stale_days, output_json):
         click.echo("SHARD Review Queue")
         click.echo("=" * 60)
         click.echo(f"Total: {total} shards")
-        click.echo(f"  Ready: {len(queue['ready'])}  |  Needs commit: {len(queue['needs_commit'])}  |  Conflicts: {len(queue['conflicts'])}  |  Stale: {len(queue['stale'])}")
+        click.echo(
+            f"  Ready: {len(queue['ready'])}  |  Needs commit: {len(queue['needs_commit'])}  |  Conflicts: {len(queue['conflicts'])}  |  Stale: {len(queue['stale'])}"
+        )
         click.echo()
 
         def format_shard_line(shard):
             """Format a single shard for display."""
-            name = shard['worktree_name']
-            commits = shard.get('commits_ahead', 0)
-            age = shard.get('age_days')
+            name = shard["worktree_name"]
+            commits = shard.get("commits_ahead", 0)
+            age = shard.get("age_days")
             age_str = f"{age}d" if age is not None else "?"
 
             # Extract project from worktree path if possible
-            path = shard.get('worktree_path', '')
+            path = shard.get("worktree_path", "")
             project = "?"
             if "/projects/" in path:
                 parts = path.split("/projects/")[1].split("/")
@@ -5368,24 +5827,25 @@ def shard_review(ctx, stale_days, output_json):
                     project = parts[0]
 
             # Diffstat summary (files changed)
-            diffstat = shard.get('diffstat', '')
+            diffstat = shard.get("diffstat", "")
             files_changed = 0
             insertions = 0
             deletions = 0
             if diffstat:
                 # Parse last line of diffstat: "N files changed, X insertions(+), Y deletions(-)"
-                lines = diffstat.strip().split('\n')
+                lines = diffstat.strip().split("\n")
                 if lines:
                     last_line = lines[-1]
-                    if 'changed' in last_line:
+                    if "changed" in last_line:
                         import re
-                        m = re.search(r'(\d+) files? changed', last_line)
+
+                        m = re.search(r"(\d+) files? changed", last_line)
                         if m:
                             files_changed = int(m.group(1))
-                        m = re.search(r'(\d+) insertions?', last_line)
+                        m = re.search(r"(\d+) insertions?", last_line)
                         if m:
                             insertions = int(m.group(1))
-                        m = re.search(r'(\d+) deletions?', last_line)
+                        m = re.search(r"(\d+) deletions?", last_line)
                         if m:
                             deletions = int(m.group(1))
 
@@ -5427,14 +5887,23 @@ def shard_review(ctx, stale_days, output_json):
 
 @shard.command("tender")
 @click.argument("worktree_name")
-@click.option("--site", help="Site to post tender folio (default: derived from project)")
+@click.option(
+    "--site", help="Site to post tender folio (default: derived from project)"
+)
 @click.option("--reviewer", help="Agent ID to review this SHARD (default: prime)")
 @click.option("--summary", help="Brief summary of changes")
-@click.option("--status", type=click.Choice(["complete", "incomplete", "abandoned"]), default="complete",
-              help="Work status: complete (default), incomplete, or abandoned")
-@click.option("--confidence", type=click.IntRange(1, 10),
-              help="Merge confidence 1-10: 10=safe/additive/isolated (auto-merge candidate), "
-                   "5=moderate risk (needs review), 1=hot mess/critical path (careful review needed)")
+@click.option(
+    "--status",
+    type=click.Choice(["complete", "incomplete", "abandoned"]),
+    default="complete",
+    help="Work status: complete (default), incomplete, or abandoned",
+)
+@click.option(
+    "--confidence",
+    type=click.IntRange(1, 10),
+    help="Merge confidence 1-10: 10=safe/additive/isolated (auto-merge candidate), "
+    "5=moderate risk (needs review), 1=hot mess/critical path (careful review needed)",
+)
 @click.pass_context
 def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence):
     """
@@ -5492,25 +5961,27 @@ def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence
     content = f"""## Tender: {worktree_name}
 
 **Status:** {status}
-**Confidence:** {confidence or 'unrated'}/10
+**Confidence:** {confidence or "unrated"}/10
 **Reviewer:** {reviewer}
 
 ### Summary
 {summary_text}
 
 ### Changes
-- **Commits:** {metadata.get('commits', 0)}
-- **Branch:** {metadata.get('branch_name', 'unknown')}
+- **Commits:** {metadata.get("commits", 0)}
+- **Branch:** {metadata.get("branch_name", "unknown")}
 
 ### Files Modified
-{files_str if files_str else '  (none)'}
+{files_str if files_str else "  (none)"}
 """
 
     # Create tender folio
     folio_data = {
         "type": "tender",
         "site_id": site,
-        "title": make_title_from_content(summary_text) if summary_text else f"Shard tender: {worktree_name}",
+        "title": make_title_from_content(summary_text)
+        if summary_text
+        else f"Shard tender: {worktree_name}",
         "content": content,
         "metadata": {
             "worktree_name": worktree_name,
@@ -5521,7 +5992,7 @@ def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence
             "confidence": confidence,
             "reviewer": reviewer,
             "name": metadata.get("name"),
-        }
+        },
     }
 
     try:
@@ -5581,12 +6052,15 @@ def shard_triage(ctx, output_json):
         # Fetch all tender folios to match against shards
         tender_map = {}  # worktree_name -> tender info
         try:
-            all_folios = make_request("GET", "/folios", base_url, agent_id, params={"type": "tender"})
+            all_folios = make_request(
+                "GET", "/folios", base_url, agent_id, params={"type": "tender"}
+            )
             for folio in all_folios:
                 metadata = folio.get("metadata", {})
                 if isinstance(metadata, str):
                     try:
                         import json as json_module
+
                         metadata = json_module.loads(metadata)
                     except Exception:
                         continue
@@ -5596,7 +6070,7 @@ def shard_triage(ctx, output_json):
                         "folio_id": folio.get("folio_id"),
                         "confidence": metadata.get("confidence"),
                         "status": metadata.get("status"),
-                        "summary": folio.get("title", "")[:50]
+                        "summary": folio.get("title", "")[:50],
                     }
         except Exception:
             pass  # Tender lookup is optional
@@ -5628,6 +6102,7 @@ def shard_triage(ctx, output_json):
             deletions = 0
             if diffstat:
                 import re
+
                 ins_match = re.search(r"(\d+) insertions?\(\+\)", diffstat)
                 del_match = re.search(r"(\d+) deletions?\(-\)", diffstat)
                 if ins_match:
@@ -5673,6 +6148,7 @@ def shard_triage(ctx, output_json):
 
         if output_json:
             import json as json_module
+
             click.echo(json_module.dumps(triage_data, indent=2))
         else:
             click.echo(f"SHARDS ({len(triage_data)} total):\n")
@@ -5726,10 +6202,12 @@ def shard_triage(ctx, output_json):
                 conflict_files_list = entry.get("conflict_files", [])
                 if status == "CONFLICT" and master_ahead == 0 and not is_graft:
                     # Conflict exists but not from drift or graft - explain why
-                    click.echo(f"       conflicts with master (files: {', '.join(conflict_files_list[:3])}{'...' if len(conflict_files_list) > 3 else ''})")
+                    click.echo(
+                        f"       conflicts with master (files: {', '.join(conflict_files_list[:3])}{'...' if len(conflict_files_list) > 3 else ''})"
+                    )
                 elif status == "CONFLICT" and conflict_files_list:
                     # Show which files conflict (for all CONFLICT cases with file info)
-                    files_str = ', '.join(conflict_files_list[:3])
+                    files_str = ", ".join(conflict_files_list[:3])
                     if len(conflict_files_list) > 3:
                         files_str += f" +{len(conflict_files_list) - 3} more"
                     click.echo(f"       conflicting files: {files_str}")
@@ -5746,7 +6224,9 @@ def shard_triage(ctx, output_json):
             click.echo("  skein shard review <name>    # View details")
             click.echo("  skein shard diff <name>      # View work diff")
             click.echo("  skein shard merge <name>     # Merge to master")
-            click.echo("  skein shard graft <name>     # Create graft to resolve conflicts")
+            click.echo(
+                "  skein shard graft <name>     # Create graft to resolve conflicts"
+            )
 
     except shard_worktree.ShardError as e:
         raise click.ClickException(str(e))
@@ -5788,12 +6268,15 @@ def shard_inspect(ctx, worktree_name, output_json):
         # Look up tender folio
         tender_info = None
         try:
-            all_folios = make_request("GET", "/folios", base_url, agent_id, params={"type": "tender"})
+            all_folios = make_request(
+                "GET", "/folios", base_url, agent_id, params={"type": "tender"}
+            )
             for folio in all_folios:
                 metadata = folio.get("metadata", {})
                 if isinstance(metadata, str):
                     try:
                         import json as json_module
+
                         metadata = json_module.loads(metadata)
                     except Exception:
                         continue
@@ -5838,8 +6321,10 @@ def shard_inspect(ctx, worktree_name, output_json):
         xgun_result = None
         import shutil
         import json as json_mod
+
         if shutil.which("xgun"):
             import subprocess
+
             worktree_path = shard_info["worktree_path"]
             try:
                 result = subprocess.run(
@@ -5847,11 +6332,15 @@ def shard_inspect(ctx, worktree_name, output_json):
                     capture_output=True,
                     text=True,
                     timeout=60,
-                    cwd=worktree_path
+                    cwd=worktree_path,
                 )
                 if result.returncode in (0, 1):  # 0=passed, 1=issues found
                     xgun_result = json_mod.loads(result.stdout)
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError, json_mod.JSONDecodeError):
+            except (
+                subprocess.TimeoutExpired,
+                subprocess.SubprocessError,
+                json_mod.JSONDecodeError,
+            ):
                 pass  # Silent degradation
 
         if xgun_result:
@@ -5859,6 +6348,7 @@ def shard_inspect(ctx, worktree_name, output_json):
 
         if output_json:
             import json as json_module
+
             click.echo(json_module.dumps(review_data, indent=2))
         else:
             click.echo(f"=== SHARD: {worktree_name} ===")
@@ -5886,7 +6376,9 @@ def shard_inspect(ctx, worktree_name, output_json):
                 click.echo("Your Work (clean, ready to integrate):")
 
             if base_commit:
-                click.echo(f"  Base: {base_commit}" + (f" ({base_date})" if base_date else ""))
+                click.echo(
+                    f"  Base: {base_commit}" + (f" ({base_date})" if base_date else "")
+                )
             click.echo(f"  Commits: {commits}")
 
             # Show work diff stat (agent's actual changes)
@@ -5964,8 +6456,14 @@ def shard_inspect(ctx, worktree_name, output_json):
 
             # Show tender info
             if tender_info:
-                conf_str = f"{tender_info['confidence']}/10" if tender_info.get('confidence') else "unrated"
-                click.echo(f"Tender: {tender_info['folio_id']} (confidence: {conf_str})")
+                conf_str = (
+                    f"{tender_info['confidence']}/10"
+                    if tender_info.get("confidence")
+                    else "unrated"
+                )
+                click.echo(
+                    f"Tender: {tender_info['folio_id']} (confidence: {conf_str})"
+                )
                 if tender_info.get("summary"):
                     click.echo(f"  {tender_info['summary']}")
                 click.echo()
@@ -5981,9 +6479,13 @@ def shard_inspect(ctx, worktree_name, output_json):
                 passed = summary.get("passed", True)
 
                 if passed:
-                    click.echo(f"✓ Quality: Passed ({signals_count} signals, {flags_count} flags, {smells_count} smells)")
+                    click.echo(
+                        f"✓ Quality: Passed ({signals_count} signals, {flags_count} flags, {smells_count} smells)"
+                    )
                 else:
-                    click.echo(f"✗ Quality: Issues detected ({signals_count} signals, {flags_count} flags, {smells_count} smells)")
+                    click.echo(
+                        f"✗ Quality: Issues detected ({signals_count} signals, {flags_count} flags, {smells_count} smells)"
+                    )
 
                 # Show flags (specific line issues)
                 qgun_data = xgun_result.get("qgun", {})
@@ -5992,8 +6494,14 @@ def shard_inspect(ctx, worktree_name, output_json):
                     click.echo()
                     click.echo(f"Flags ({len(flags)}):")
                     for flag in flags[:10]:
-                        loc = f"{flag.get('file', '?')}:{flag['line']}" if flag.get('line') else flag.get('file', '?')
-                        click.echo(f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}")
+                        loc = (
+                            f"{flag.get('file', '?')}:{flag['line']}"
+                            if flag.get("line")
+                            else flag.get("file", "?")
+                        )
+                        click.echo(
+                            f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}"
+                        )
                     if len(flags) > 10:
                         click.echo(f"  ... and {len(flags) - 10} more")
 
@@ -6003,7 +6511,9 @@ def shard_inspect(ctx, worktree_name, output_json):
                     click.echo()
                     click.echo(f"Signals ({len(signals)}):")
                     for signal in signals[:5]:
-                        click.echo(f"  [{signal.get('check', '?')}] {signal.get('message', '')}")
+                        click.echo(
+                            f"  [{signal.get('check', '?')}] {signal.get('message', '')}"
+                        )
                     if len(signals) > 5:
                         click.echo(f"  ... and {len(signals) - 5} more")
 
@@ -6014,8 +6524,14 @@ def shard_inspect(ctx, worktree_name, output_json):
                     click.echo()
                     click.echo(f"Smells ({len(smells)}):")
                     for smell in smells[:5]:
-                        loc = f"{smell.get('file', '?')}:{smell['line']}" if smell.get('line') else smell.get('file', '?')
-                        click.echo(f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}")
+                        loc = (
+                            f"{smell.get('file', '?')}:{smell['line']}"
+                            if smell.get("line")
+                            else smell.get("file", "?")
+                        )
+                        click.echo(
+                            f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}"
+                        )
                     if len(smells) > 5:
                         click.echo(f"  ... and {len(smells) - 5} more")
 
@@ -6075,6 +6591,7 @@ def shard_stash(ctx, description, stash_agent):
 
     try:
         from skein import shard as shard_module
+
         repo = shard_module._get_repo()
 
         # Check for uncommitted changes
@@ -6085,6 +6602,7 @@ def shard_stash(ctx, description, stash_agent):
         # Generate agent ID if not provided
         if not stash_agent:
             from datetime import datetime
+
             stash_agent = f"stash-{datetime.now().strftime('%m%d')}"
 
         # Create the shard
@@ -6098,11 +6616,12 @@ def shard_stash(ctx, description, stash_agent):
         try:
             # Apply stash in the new worktree using subprocess
             import subprocess
+
             result = subprocess.run(
                 ["git", "stash", "apply", "--index"],
                 cwd=worktree_path,
                 capture_output=True,
-                text=True
+                text=True,
             )
             if result.returncode != 0:
                 raise Exception(result.stderr)
@@ -6159,6 +6678,7 @@ def shard_apply(ctx, worktree_name, no_confirm):
             raise click.ClickException(f"SHARD not found: {worktree_name}")
 
         from skein import shard as shard_module
+
         repo = shard_module._get_repo()
         branch = shard_info["branch_name"]
 
@@ -6187,15 +6707,16 @@ def shard_apply(ctx, worktree_name, no_confirm):
         # Apply the diff using subprocess (git apply reads from stdin)
         try:
             import subprocess
+
             # Ensure trailing newline (git apply requires it)
-            if not diff.endswith('\n'):
-                diff += '\n'
+            if not diff.endswith("\n"):
+                diff += "\n"
             result = subprocess.run(
                 ["git", "apply"],
                 input=diff,
                 text=True,
                 capture_output=True,
-                cwd=shard_module.PROJECT_ROOT
+                cwd=shard_module.PROJECT_ROOT,
             )
             if result.returncode != 0:
                 raise Exception(result.stderr or "git apply failed")
@@ -6243,6 +6764,7 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
         # Load rites config from the MAIN project (not worktree)
         # Rites are project-level, shards just run them in their context
         from skein import shard as shard_module
+
         project_root = shard_module.PROJECT_ROOT
 
         config = load_rites_config(project_root)
@@ -6254,7 +6776,9 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
                     f"No rites defined. Create {project_root / '.skein' / 'rites.yaml'}"
                 )
             available = ", ".join(rites_dict.keys())
-            raise click.ClickException(f"Unknown rite: {rite_name}\nAvailable: {available}")
+            raise click.ClickException(
+                f"Unknown rite: {rite_name}\nAvailable: {available}"
+            )
 
         rite_config = rites_dict[rite_name]
 
@@ -6266,7 +6790,9 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
         if success:
             click.echo(f"✓ Rite '{rite_name}' completed in shard {worktree_name}")
         else:
-            raise click.ClickException(f"Rite '{rite_name}' failed in shard {worktree_name}")
+            raise click.ClickException(
+                f"Rite '{rite_name}' failed in shard {worktree_name}"
+            )
 
     except shard_worktree.ShardError as e:
         raise click.ClickException(str(e))
@@ -6278,9 +6804,15 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
 
 # Web UI Command
 @cli.command()
-@click.option("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
-@click.option("--port", "-p", default=8003, type=int, help="Port to listen on (default: 8003)")
-@click.option("--open", "open_browser", is_flag=True, help="Open browser after starting")
+@click.option(
+    "--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)"
+)
+@click.option(
+    "--port", "-p", default=8003, type=int, help="Port to listen on (default: 8003)"
+)
+@click.option(
+    "--open", "open_browser", is_flag=True, help="Open browser after starting"
+)
 def web(host, port, open_browser):
     """Launch the SKEIN web UI.
 
@@ -6298,12 +6830,15 @@ def web(host, port, open_browser):
 
     # Check if port is available before proceeding
     import socket
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.bind((host, port))
         sock.close()
     except OSError:
-        raise click.ClickException(f"Port {port} is already in use. Try a different port with --port")
+        raise click.ClickException(
+            f"Port {port} is already in use. Try a different port with --port"
+        )
 
     click.echo("=" * 60)
     click.echo("SKEIN Web UI")
@@ -6316,6 +6851,7 @@ def web(host, port, open_browser):
 
     if open_browser:
         import webbrowser
+
         webbrowser.open(f"http://{host}:{port}")
 
     run_server(host=host, port=port)
@@ -6340,12 +6876,15 @@ def ui_shortcut(ctx, host, port, open_browser):
 @click.pass_context
 def shards_shortcut(ctx, active, filter_agent, output_json):
     """Shortcut for 'skein shard list'."""
-    ctx.invoke(shard_list, active=active, filter_agent=filter_agent, output_json=output_json)
+    ctx.invoke(
+        shard_list, active=active, filter_agent=filter_agent, output_json=output_json
+    )
 
 
 # =============================================================================
 # RITES - Named project operations
 # =============================================================================
+
 
 def load_rites_config(project_root: Optional[Path] = None) -> Dict[str, Any]:
     """
@@ -6365,6 +6904,7 @@ def load_rites_config(project_root: Optional[Path] = None) -> Dict[str, Any]:
 
     try:
         import yaml
+
         with open(rites_file) as f:
             config = yaml.safe_load(f) or {}
         return config
@@ -6378,7 +6918,7 @@ def run_rite_commands(
     rite_name: str,
     rite_config: Dict[str, Any],
     working_dir: Optional[Path] = None,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> bool:
     """
     Execute a rite's commands.
@@ -6410,11 +6950,7 @@ def run_rite_commands(
 
         try:
             result = subprocess.run(
-                cmd,
-                shell=True,
-                cwd=cwd,
-                capture_output=not verbose,
-                text=True
+                cmd, shell=True, cwd=cwd, capture_output=not verbose, text=True
             )
 
             if result.returncode != 0:
@@ -6422,7 +6958,9 @@ def run_rite_commands(
                     click.echo(result.stderr, err=True)
                 if not verbose and result.stdout:
                     click.echo(result.stdout)
-                click.echo(f"✗ Command failed (exit {result.returncode}): {cmd}", err=True)
+                click.echo(
+                    f"✗ Command failed (exit {result.returncode}): {cmd}", err=True
+                )
                 return False
 
         except Exception as e:
@@ -6466,7 +7004,9 @@ def rite_cmd(ctx, rite_name, verbose):
     # Run the rite
     project_root = find_project_root()
     if not project_root:
-        raise click.ClickException("Not in a SKEIN project (no .skein/ directory found)")
+        raise click.ClickException(
+            "Not in a SKEIN project (no .skein/ directory found)"
+        )
 
     config = load_rites_config(project_root)
     rites_dict = config.get("rites", {})
@@ -6500,7 +7040,9 @@ def rites_list(ctx):
     """
     project_root = find_project_root()
     if not project_root:
-        raise click.ClickException("Not in a SKEIN project (no .skein/ directory found)")
+        raise click.ClickException(
+            "Not in a SKEIN project (no .skein/ directory found)"
+        )
 
     config = load_rites_config(project_root)
     rites_dict = config.get("rites", {})

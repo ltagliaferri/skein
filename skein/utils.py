@@ -18,7 +18,7 @@ def generate_folio_id(folio_type: str) -> str:
     Example: issue-20251106-a7b3
     """
     date_str = datetime.now().strftime("%Y%m%d")
-    random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+    random_suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"{folio_type}-{date_str}-{random_suffix}"
 
 
@@ -28,7 +28,7 @@ def generate_thread_id() -> str:
     Example: thread-20251107-p8q2
     """
     date_str = datetime.now().strftime("%Y%m%d")
-    random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+    random_suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"thread-{date_str}-{random_suffix}"
 
 
@@ -38,7 +38,7 @@ def generate_yield_id() -> str:
     Example: sack-20251210-x7m2
     """
     date_str = datetime.now().strftime("%Y%m%d")
-    random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+    random_suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"sack-{date_str}-{random_suffix}"
 
 
@@ -64,13 +64,13 @@ def parse_mentions(content: str) -> Set[str]:
 
     # Pattern matches @word-word-... allowing alphanumeric and hyphens
     # Case-insensitive matching
-    pattern = r'@([a-z0-9][a-z0-9\-]+)'
+    pattern = r"@([a-z0-9][a-z0-9\-]+)"
     matches = re.findall(pattern, content.lower())
 
     # Filter to valid resource ID patterns (must have at least one hyphen)
     valid_mentions = set()
     for match in matches:
-        if '-' in match:
+        if "-" in match:
             valid_mentions.add(match)
 
     return valid_mentions
@@ -257,18 +257,20 @@ def parse_relative_time(time_str: str) -> datetime:
         pass
 
     # Parse relative time
-    match = re.match(r'^(\d+)(day|hour|min|minute)s?$', time_str)
+    match = re.match(r"^(\d+)(day|hour|min|minute)s?$", time_str)
     if not match:
-        raise ValueError(f"Invalid time format: '{time_str}'. Use '1day', '2hours', '30min', or ISO format")
+        raise ValueError(
+            f"Invalid time format: '{time_str}'. Use '1day', '2hours', '30min', or ISO format"
+        )
 
     amount = int(match.group(1))
     unit = match.group(2)
 
-    if unit == 'day':
+    if unit == "day":
         delta = timedelta(days=amount)
-    elif unit == 'hour':
+    elif unit == "hour":
         delta = timedelta(hours=amount)
-    elif unit in ('min', 'minute'):
+    elif unit in ("min", "minute"):
         delta = timedelta(minutes=amount)
     else:
         raise ValueError(f"Unknown time unit: '{unit}'")
@@ -278,6 +280,7 @@ def parse_relative_time(time_str: str) -> datetime:
 
 
 # Agent Name Generation
+
 
 def generate_agent_name(
     existing_names: Optional[Set[str]] = None,
@@ -393,12 +396,14 @@ def _run_custom_generator(
         Generated name, or None if generator fails
     """
     try:
-        input_data = json.dumps({
-            "project": project or "",
-            "role": role or "",
-            "timestamp": datetime.now().isoformat(),
-            "brief_content": brief_content or "",
-        })
+        input_data = json.dumps(
+            {
+                "project": project or "",
+                "role": role or "",
+                "timestamp": datetime.now().isoformat(),
+                "brief_content": brief_content or "",
+            }
+        )
 
         result = subprocess.run(
             [generator_path],
@@ -444,7 +449,7 @@ def _generate_default_name(existing: Set[str]) -> str:
             return name
 
     # Fallback: add random suffix
-    random_suffix = ''.join(random.choices(string.ascii_lowercase, k=4))
+    random_suffix = "".join(random.choices(string.ascii_lowercase, k=4))
     return f"{adj}-{noun}-{time_suffix}-{random_suffix}"
 
 
@@ -469,5 +474,5 @@ def _ensure_unique(name: str, existing: Set[str]) -> str:
             return candidate
 
     # Fallback: random suffix
-    random_suffix = ''.join(random.choices(string.ascii_lowercase, k=4))
+    random_suffix = "".join(random.choices(string.ascii_lowercase, k=4))
     return f"{name}-{random_suffix}"

@@ -20,16 +20,14 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from skein.routes import router as skein_router
 
 # Context variable for request ID - accessible throughout the request lifecycle
-request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
+request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default=""
+)
 
 
 def get_config():
     """Load configuration from environment variables and config file."""
-    config = {
-        "host": "0.0.0.0",
-        "port": 8001,
-        "log_level": "info"
-    }
+    config = {"host": "0.0.0.0", "port": 8001, "log_level": "info"}
 
     # Try to load from config file
     config_file = Path(__file__).parent / "config" / "config.json"
@@ -87,8 +85,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -96,8 +93,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="SKEIN API",
     description="Structured Knowledge Exchange & Integration Nexus - Agent collaboration infrastructure",
-    version="0.2.0"
+    version="0.2.0",
 )
+
 
 # Global exception handler for unhandled errors
 @app.exception_handler(Exception)
@@ -106,11 +104,13 @@ async def global_exception_handler(request: Request, exc: Exception):
     Catch-all exception handler to prevent 500 errors from crashing requests.
     Logs full stack trace and returns structured error response with request ID.
     """
-    request_id = getattr(request.state, "request_id", None) or request_id_var.get() or "unknown"
+    request_id = (
+        getattr(request.state, "request_id", None) or request_id_var.get() or "unknown"
+    )
 
     logger.error(
         f"[{request_id}] Unhandled exception on {request.method} {request.url.path}: {type(exc).__name__}: {exc}",
-        exc_info=True
+        exc_info=True,
     )
 
     response = JSONResponse(
@@ -120,11 +120,12 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": str(exc),
             "type": type(exc).__name__,
             "path": request.url.path,
-            "request_id": request_id
-        }
+            "request_id": request_id,
+        },
     )
     response.headers["X-Request-ID"] = request_id
     return response
+
 
 # Request ID middleware - must be added before CORS so it runs first
 app.add_middleware(RequestIDMiddleware)
@@ -150,7 +151,7 @@ async def root():
         "name": "SKEIN API",
         "version": "0.2.0",
         "description": "Structured Knowledge Exchange & Integration Nexus",
-        "docs": "/docs"
+        "docs": "/docs",
     }
 
 
@@ -172,8 +173,5 @@ if __name__ == "__main__":
     logger.info("=" * 80)
 
     uvicorn.run(
-        app,
-        host=config["host"],
-        port=config["port"],
-        log_level=config["log_level"]
+        app, host=config["host"], port=config["port"], log_level=config["log_level"]
     )

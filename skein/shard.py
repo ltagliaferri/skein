@@ -22,6 +22,7 @@ except ImportError:
 
 class ShardError(Exception):
     """Base exception for SHARD operations."""
+
     pass
 
 
@@ -78,16 +79,27 @@ def _record_shard_metadata(
     spawned_by: Optional[str] = None,
     brief_id: Optional[str] = None,
     description: Optional[str] = None,
-    parent_worktree: Optional[str] = None
+    parent_worktree: Optional[str] = None,
 ) -> None:
     """Record shard metadata in SQLite database."""
     conn = _get_db_connection()
     try:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT OR REPLACE INTO shards
             (worktree_name, base_commit, created_at, spawned_by, brief_id, description, parent_worktree, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-        """, (worktree_name, base_commit, created_at.isoformat(), spawned_by, brief_id, description, parent_worktree))
+        """,
+            (
+                worktree_name,
+                base_commit,
+                created_at.isoformat(),
+                spawned_by,
+                brief_id,
+                description,
+                parent_worktree,
+            ),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -98,8 +110,7 @@ def _get_shard_metadata(worktree_name: str) -> Optional[Dict[str, Any]]:
     conn = _get_db_connection()
     try:
         cursor = conn.execute(
-            "SELECT * FROM shards WHERE worktree_name = ?",
-            (worktree_name,)
+            "SELECT * FROM shards WHERE worktree_name = ?", (worktree_name,)
         )
         row = cursor.fetchone()
         if row:
@@ -118,10 +129,14 @@ def _update_shard_status(worktree_name: str, status: str, **kwargs) -> None:
 
         if "merged_at" in kwargs:
             updates.append("merged_at = ?")
-            values.append(kwargs["merged_at"].isoformat() if kwargs["merged_at"] else None)
+            values.append(
+                kwargs["merged_at"].isoformat() if kwargs["merged_at"] else None
+            )
         if "tendered_at" in kwargs:
             updates.append("tendered_at = ?")
-            values.append(kwargs["tendered_at"].isoformat() if kwargs["tendered_at"] else None)
+            values.append(
+                kwargs["tendered_at"].isoformat() if kwargs["tendered_at"] else None
+            )
         if "confidence" in kwargs:
             updates.append("confidence = ?")
             values.append(kwargs["confidence"])
@@ -129,8 +144,7 @@ def _update_shard_status(worktree_name: str, status: str, **kwargs) -> None:
         values.append(worktree_name)
 
         conn.execute(
-            f"UPDATE shards SET {', '.join(updates)} WHERE worktree_name = ?",
-            values
+            f"UPDATE shards SET {', '.join(updates)} WHERE worktree_name = ?", values
         )
         conn.commit()
     finally:
@@ -145,15 +159,23 @@ def _update_shard_status(worktree_name: str, status: str, **kwargs) -> None:
 MAX_SHARD_NAME_LENGTH = 63
 
 # Pattern for valid shard names: alphanumeric start, alphanumeric/hyphen/underscore body
-VALID_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+VALID_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 
 # Reserved git names that cannot be used
-RESERVED_NAMES = frozenset({
-    'head', 'HEAD',
-    'master', 'main',
-    'refs', 'objects', 'hooks', 'info', 'logs',
-    'worktrees',  # Our own directory
-})
+RESERVED_NAMES = frozenset(
+    {
+        "head",
+        "HEAD",
+        "master",
+        "main",
+        "refs",
+        "objects",
+        "hooks",
+        "info",
+        "logs",
+        "worktrees",  # Our own directory
+    }
+)
 
 
 def validate_shard_name(name: str) -> Tuple[bool, Optional[str]]:
@@ -173,22 +195,25 @@ def validate_shard_name(name: str) -> Tuple[bool, Optional[str]]:
         return False, "name cannot be only whitespace"
 
     if len(name) > MAX_SHARD_NAME_LENGTH:
-        return False, f"name exceeds {MAX_SHARD_NAME_LENGTH} characters (got {len(name)})"
+        return (
+            False,
+            f"name exceeds {MAX_SHARD_NAME_LENGTH} characters (got {len(name)})",
+        )
 
     # Check for forbidden git patterns
-    if '..' in name:
+    if ".." in name:
         return False, "name cannot contain consecutive dots (..)"
 
-    if name.endswith('.lock'):
+    if name.endswith(".lock"):
         return False, "name cannot end with .lock"
 
-    if '@{' in name:
+    if "@{" in name:
         return False, "name cannot contain @{ (git reflog notation)"
 
-    if name.startswith('.'):
+    if name.startswith("."):
         return False, "name cannot start with a dot"
 
-    if name.startswith('-'):
+    if name.startswith("-"):
         return False, "name cannot start with a hyphen"
 
     # Check reserved names
@@ -239,7 +264,7 @@ def _find_project_root() -> Path:
                 try:
                     with open(git_path) as f:
                         gitdir_line = f.read().strip()
-                    if gitdir_line.startswith('gitdir: '):
+                    if gitdir_line.startswith("gitdir: "):
                         gitdir_path = gitdir_line[8:]  # Remove 'gitdir: ' prefix
                         # Extract main repo path: /.../repo/.git/worktrees/name -> /.../repo
                         main_repo = Path(gitdir_path).parent.parent.parent
@@ -254,6 +279,7 @@ def _find_project_root() -> Path:
         "Not in a git repository. Run 'skein shard' commands from within a git repo, "
         "or set SKEIN_PROJECT env var."
     )
+
 
 # Lazy-initialized project root. None means not yet resolved.
 # Use get_project_root() to access - never access directly.
@@ -297,7 +323,7 @@ def set_project_root(path: str) -> None:
     _WORKTREES_DIR = _PROJECT_ROOT / "worktrees"
 
 
-def _get_repo() -> 'git.Repo':
+def _get_repo() -> "git.Repo":
     """Get git.Repo instance for project."""
     if git is None:
         raise ShardError("GitPython not installed. Run: pip install GitPython")
@@ -328,11 +354,9 @@ def _get_git_version() -> Tuple[int, ...]:
 
     try:
         import subprocess
+
         result = subprocess.run(
-            ["git", "--version"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "--version"], capture_output=True, text=True, check=True
         )
         # Output format: "git version 2.38.1" or "git version 2.38.1.windows.1"
         version_str = result.stdout.strip()
@@ -404,7 +428,8 @@ def _get_next_sequence(name: str, date: str) -> int:
 
     pattern_prefix = f"{name}-{date}-"
     existing = [
-        d.name for d in worktrees_dir.iterdir()
+        d.name
+        for d in worktrees_dir.iterdir()
         if d.is_dir() and d.name.startswith(pattern_prefix)
     ]
 
@@ -440,7 +465,7 @@ def spawn_shard(
     name: str,
     brief_id: Optional[str] = None,
     description: Optional[str] = None,
-    project_root: Optional[str] = None
+    project_root: Optional[str] = None,
 ) -> Dict[str, str]:
     """
     Create SHARD: git branch + worktree for isolated agent work.
@@ -475,6 +500,7 @@ def spawn_shard(
 
     # Check if spawning from inside a worktree and record parent relationship
     import sys
+
     parent_shard = detect_shard_environment()
     parent_worktree_name = None
     if parent_shard:
@@ -486,7 +512,7 @@ def spawn_shard(
             f"   The new shard will branch from '{parent_branch}', not the primary branch.\n"
             f"   If you want to branch from the primary branch, run from the project root:\n"
             f"   cd {get_project_root()}\n",
-            file=sys.stderr
+            file=sys.stderr,
         )
 
     worktrees_dir = get_worktrees_dir()
@@ -530,7 +556,7 @@ def spawn_shard(
         spawned_by=name,  # Use name as spawned_by for now
         brief_id=brief_id,
         description=description,
-        parent_worktree=parent_worktree_name  # Track nested shard relationship
+        parent_worktree=parent_worktree_name,  # Track nested shard relationship
     )
 
     # Return SHARD info
@@ -544,7 +570,7 @@ def spawn_shard(
         "description": description,
         "created_at": created_at.isoformat(),
         "base_commit": base_commit,
-        "status": "spawned"
+        "status": "spawned",
     }
 
 
@@ -571,10 +597,7 @@ def _is_path_inside_worktree(path: Path, worktree_path: Path) -> bool:
         # Check 1: Is the literal (unresolved) path inside worktree?
         # This catches symlinks created inside the worktree
         try:
-            unresolved_inside = (
-                path == worktree_path or
-                worktree_path in path.parents
-            )
+            unresolved_inside = path == worktree_path or worktree_path in path.parents
         except (ValueError, TypeError):
             unresolved_inside = False
 
@@ -583,8 +606,8 @@ def _is_path_inside_worktree(path: Path, worktree_path: Path) -> bool:
         resolved_path = path.resolve()
         resolved_worktree = worktree_path.resolve()
         resolved_inside = (
-            resolved_path == resolved_worktree or
-            resolved_worktree in resolved_path.parents
+            resolved_path == resolved_worktree
+            or resolved_worktree in resolved_path.parents
         )
 
         # Block if EITHER check indicates we're inside
@@ -599,7 +622,7 @@ def cleanup_shard(
     worktree_name: str,
     keep_branch: bool = False,
     caller_cwd: Optional[str] = None,
-    project_root: Optional[str] = None
+    project_root: Optional[str] = None,
 ) -> bool:
     """
     Remove SHARD worktree and optionally delete branch.
@@ -698,7 +721,10 @@ def cleanup_shard(
         except Exception as e:
             # Don't raise error if branch deletion fails (branch might not exist)
             import sys
-            print(f"Warning: Could not delete branch {branch_name}: {e}", file=sys.stderr)
+
+            print(
+                f"Warning: Could not delete branch {branch_name}: {e}", file=sys.stderr
+            )
 
     # Prune stale worktree references
     try:
@@ -817,7 +843,7 @@ def _parse_worktree_info(worktree_path: str) -> Optional[Dict[str, str]]:
         "branch_name": branch_name,
         "name": name,
         "date": date,
-        "seq": f"{seq:03d}"
+        "seq": f"{seq:03d}",
     }
 
 
@@ -882,12 +908,7 @@ def get_review_queue(stale_days: int = 7) -> Dict[str, List[Dict]]:
         Dict with keys: 'ready', 'needs_commit', 'conflicts', 'stale'
         Each contains list of shard dicts with added 'git_info' and 'age_days' fields
     """
-    queue = {
-        "ready": [],
-        "needs_commit": [],
-        "conflicts": [],
-        "stale": []
-    }
+    queue = {"ready": [], "needs_commit": [], "conflicts": [], "stale": []}
 
     shards = list_shards()
 
@@ -962,7 +983,7 @@ def get_shard_git_info(worktree_name: str) -> Dict:
         "merge_status": "unknown",
         "commit_log": [],
         "diffstat": "",
-        "uncommitted": []
+        "uncommitted": [],
     }
 
     try:
@@ -1078,7 +1099,7 @@ def get_tender_metadata(worktree_name: str) -> Optional[Dict]:
         "worktree_name": worktree_name,
         "branch_name": shard_info["branch_name"],
         "name": shard_info["name"],
-        "worktree_path": str(worktree_path)
+        "worktree_path": str(worktree_path),
     }
 
     # Get git statistics if possible
@@ -1201,7 +1222,9 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
             try:
                 if result["master_commits_ahead"] > 0:
                     # Get file stats for changes on master
-                    name_status = repo.git.diff("--name-status", f"{base_commit}..master")
+                    name_status = repo.git.diff(
+                        "--name-status", f"{base_commit}..master"
+                    )
                     notable = []
                     for line in name_status.strip().split("\n")[:10]:  # Limit to 10
                         if line:
@@ -1221,14 +1244,18 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
             # Get work diff stat (agent's actual changes from base)
             try:
                 work_stat = repo.git.diff("--stat", f"{base_commit}..{branch}")
-                result["work_diff_stat"] = work_stat.strip() if work_stat.strip() else None
+                result["work_diff_stat"] = (
+                    work_stat.strip() if work_stat.strip() else None
+                )
             except:
                 pass
 
         # Get integration diff stat (what would merge with current master)
         try:
             integration_stat = repo.git.diff("--stat", f"master...{branch}")
-            result["integration_diff_stat"] = integration_stat.strip() if integration_stat.strip() else None
+            result["integration_diff_stat"] = (
+                integration_stat.strip() if integration_stat.strip() else None
+            )
         except:
             pass
 
@@ -1328,7 +1355,9 @@ def get_shard_work_diff(worktree_name: str, stat_only: bool = False) -> Optional
         raise ShardError(f"Failed to get work diff: {e}")
 
 
-def get_shard_diff(worktree_name: str, stat_only: bool = False, integration: bool = False) -> Optional[str]:
+def get_shard_diff(
+    worktree_name: str, stat_only: bool = False, integration: bool = False
+) -> Optional[str]:
     """
     Get diff between master and shard branch.
 
@@ -1366,7 +1395,7 @@ def get_shard_diff(worktree_name: str, stat_only: bool = False, integration: boo
 def merge_shard(
     worktree_name: str,
     caller_cwd: Optional[str] = None,
-    project_root: Optional[str] = None
+    project_root: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Merge shard branch into master and cleanup worktree.
@@ -1431,7 +1460,7 @@ def merge_shard(
             "success": False,
             "message": "Cannot merge: worktree has uncommitted changes",
             "uncommitted": uncommitted,
-            "conflicts": []
+            "conflicts": [],
         }
 
     # Check for merge conflicts or unknown status (fail safe)
@@ -1461,7 +1490,11 @@ def merge_shard(
                             # Check if this section has actual conflict markers
                             # Scan ahead for <<<<<<
                             j = i + 4  # Skip base, our, their lines
-                            while j < len(lines) and not lines[j].startswith("changed in both") and not lines[j].startswith("merged"):
+                            while (
+                                j < len(lines)
+                                and not lines[j].startswith("changed in both")
+                                and not lines[j].startswith("merged")
+                            ):
                                 if "<<<<<<<" in lines[j]:
                                     if filename not in conflict_files:
                                         conflict_files.append(filename)
@@ -1483,7 +1516,7 @@ def merge_shard(
             "success": False,
             "message": error_msg,
             "uncommitted": [],
-            "conflicts": conflict_files
+            "conflicts": conflict_files,
         }
 
     # All checks passed - perform the merge
@@ -1519,14 +1552,14 @@ def merge_shard(
                 "success": True,
                 "message": f"✓ Merged {branch_name} into master\n⚠ Warning: cleanup failed: {cleanup_error}",
                 "uncommitted": [],
-                "conflicts": []
+                "conflicts": [],
             }
 
         return {
             "success": True,
             "message": f"✓ Merged {branch_name} into master and cleaned up worktree",
             "uncommitted": [],
-            "conflicts": []
+            "conflicts": [],
         }
 
     except ShardError:
@@ -1548,6 +1581,7 @@ def merge_shard(
 # GRAFT WORKFLOW - Conflict Resolution
 # =============================================================================
 
+
 def get_graft_chain_root(worktree_name: str) -> str:
     """
     Get the root worktree name by following parent_worktree links in SQLite.
@@ -1564,8 +1598,7 @@ def get_graft_chain_root(worktree_name: str) -> str:
         while current and current not in visited:
             visited.add(current)
             cursor = conn.execute(
-                "SELECT parent_worktree FROM shards WHERE worktree_name = ?",
-                (current,)
+                "SELECT parent_worktree FROM shards WHERE worktree_name = ?", (current,)
             )
             row = cursor.fetchone()
 
@@ -1622,8 +1655,7 @@ def get_graft_chain(worktree_name: str) -> List[str]:
 
             # Find child (shard with parent_worktree = current)
             cursor = conn.execute(
-                "SELECT worktree_name FROM shards WHERE parent_worktree = ?",
-                (current,)
+                "SELECT worktree_name FROM shards WHERE parent_worktree = ?", (current,)
             )
             row = cursor.fetchone()
 
@@ -1719,24 +1751,25 @@ def is_nested_shard(worktree_name: str) -> bool:
             # Get commits on branch not on master, with timestamps
             # Format: "SHA TIMESTAMP" where TIMESTAMP is Unix epoch
             commits_output = repo.git.log(
-                "--format=%H %ct",
-                f"{actual_merge_base}..{branch}",
-                "--not", "master"
+                "--format=%H %ct", f"{actual_merge_base}..{branch}", "--not", "master"
             )
             if commits_output.strip():
                 # Parse creation time
                 from datetime import datetime as dt
+
                 try:
                     # created_at could be string or datetime
                     if isinstance(created_at, str):
-                        created_ts = dt.fromisoformat(created_at.replace('Z', '+00:00')).timestamp()
+                        created_ts = dt.fromisoformat(
+                            created_at.replace("Z", "+00:00")
+                        ).timestamp()
                     else:
                         created_ts = created_at.timestamp()
                 except (ValueError, AttributeError):
                     return False
 
                 # Check if any commit predates shard creation
-                for line in commits_output.strip().split('\n'):
+                for line in commits_output.strip().split("\n"):
                     parts = line.split()
                     if len(parts) >= 2:
                         commit_ts = int(parts[1])
@@ -1751,8 +1784,7 @@ def is_nested_shard(worktree_name: str) -> bool:
 
 
 def graft_shard(
-    worktree_name: str,
-    project_root: Optional[str] = None
+    worktree_name: str, project_root: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a graft worktree to resolve conflicts.
@@ -1824,7 +1856,9 @@ def graft_shard(
 
     # Create worktree from current master
     try:
-        repo.git.worktree("add", str(graft_worktree_path), "-b", graft_branch_name, "master")
+        repo.git.worktree(
+            "add", str(graft_worktree_path), "-b", graft_branch_name, "master"
+        )
     except Exception as e:
         raise ShardError(f"Failed to create graft worktree: {e}")
 
@@ -1836,7 +1870,7 @@ def graft_shard(
         base_commit=new_base_commit,
         created_at=created_at,
         parent_worktree=worktree_name,
-        description=f"Graft of {worktree_name} for conflict resolution"
+        description=f"Graft of {worktree_name} for conflict resolution",
     )
 
     # Cherry-pick commits
@@ -1893,8 +1927,7 @@ def graft_shard(
         )
     else:
         result["message"] = (
-            f"Graft created cleanly - ready to merge\n"
-            f"Location: {graft_worktree_path}"
+            f"Graft created cleanly - ready to merge\nLocation: {graft_worktree_path}"
         )
 
     return result
@@ -1904,7 +1937,7 @@ def cleanup_graft_chain(
     worktree_name: str,
     keep_branch: bool = False,
     caller_cwd: Optional[str] = None,
-    project_root: Optional[str] = None
+    project_root: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Clean up entire graft chain (original + all grafts).

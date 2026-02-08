@@ -19,36 +19,40 @@ def find_orphaned_threads(threads: List[Dict], folios: List[Dict]) -> List[Dict]
     # Build valid IDs set with defensive get
     valid_ids = set()
     for f in folios:
-        if 'folio_id' in f:
-            valid_ids.add(f['folio_id'])
+        if "folio_id" in f:
+            valid_ids.add(f["folio_id"])
 
     orphaned = []
     for thread in threads:
         # Skip threads missing required fields
-        if not all(k in thread for k in ['thread_id', 'from_id', 'to_id', 'type']):
+        if not all(k in thread for k in ["thread_id", "from_id", "to_id", "type"]):
             continue
 
-        thread_id = thread['thread_id']
+        thread_id = thread["thread_id"]
 
-        if thread['to_id'] not in valid_ids:
-            orphaned.append({
-                'thread_id': thread_id,
-                'direction': 'to_id',
-                'missing_id': thread['to_id'],
-                'type': thread['type'],
-                'weaver': thread.get('weaver'),
-                'created_at': thread.get('created_at', 'unknown')
-            })
+        if thread["to_id"] not in valid_ids:
+            orphaned.append(
+                {
+                    "thread_id": thread_id,
+                    "direction": "to_id",
+                    "missing_id": thread["to_id"],
+                    "type": thread["type"],
+                    "weaver": thread.get("weaver"),
+                    "created_at": thread.get("created_at", "unknown"),
+                }
+            )
 
-        if thread['from_id'] not in valid_ids:
-            orphaned.append({
-                'thread_id': thread_id,
-                'direction': 'from_id',
-                'missing_id': thread['from_id'],
-                'type': thread['type'],
-                'weaver': thread.get('weaver'),
-                'created_at': thread.get('created_at', 'unknown')
-            })
+        if thread["from_id"] not in valid_ids:
+            orphaned.append(
+                {
+                    "thread_id": thread_id,
+                    "direction": "from_id",
+                    "missing_id": thread["from_id"],
+                    "type": thread["type"],
+                    "weaver": thread.get("weaver"),
+                    "created_at": thread.get("created_at", "unknown"),
+                }
+            )
 
     return orphaned
 
@@ -59,25 +63,20 @@ def analyze_by_weaver(threads: List[Dict]) -> Dict[str, Any]:
     Returns:
         Dict mapping weaver to stats
     """
-    by_weaver = defaultdict(lambda: {
-        'total': 0,
-        'types': Counter()
-    })
+    by_weaver = defaultdict(lambda: {"total": 0, "types": Counter()})
 
     for thread in threads:
         # Skip threads missing required fields
-        if 'type' not in thread:
+        if "type" not in thread:
             continue
 
-        weaver = thread.get('weaver') or 'null'
-        by_weaver[weaver]['total'] += 1
-        by_weaver[weaver]['types'][thread['type']] += 1
+        weaver = thread.get("weaver") or "null"
+        by_weaver[weaver]["total"] += 1
+        by_weaver[weaver]["types"][thread["type"]] += 1
 
     # Sort by total (descending)
     sorted_weavers = sorted(
-        by_weaver.items(),
-        key=lambda x: x[1]['total'],
-        reverse=True
+        by_weaver.items(), key=lambda x: x[1]["total"], reverse=True
     )
 
     return dict(sorted_weavers)
@@ -92,8 +91,8 @@ def analyze_by_type(threads: List[Dict]) -> Dict[str, Any]:
     # Count types with defensive get
     type_counts = Counter()
     for t in threads:
-        if 'type' in t:
-            type_counts[t['type']] += 1
+        if "type" in t:
+            type_counts[t["type"]] += 1
 
     # Breakdown by content for specific types
     status_values = Counter()
@@ -102,25 +101,25 @@ def analyze_by_type(threads: List[Dict]) -> Dict[str, Any]:
 
     for thread in threads:
         # Skip threads without type field
-        if 'type' not in thread:
+        if "type" not in thread:
             continue
 
-        if thread['type'] == 'status' and thread.get('content'):
-            status_values[thread['content']] += 1
-        elif thread['type'] == 'tag' and thread.get('content'):
-            tag_values[thread['content']] += 1
-        elif thread['type'] == 'reply':
+        if thread["type"] == "status" and thread.get("content"):
+            status_values[thread["content"]] += 1
+        elif thread["type"] == "tag" and thread.get("content"):
+            tag_values[thread["content"]] += 1
+        elif thread["type"] == "reply":
             # Extract target type from to_id prefix
-            to_id = thread.get('to_id', '')
-            target_type = to_id.split('-')[0] if '-' in to_id else 'unknown'
+            to_id = thread.get("to_id", "")
+            target_type = to_id.split("-")[0] if "-" in to_id else "unknown"
             reply_targets[target_type] += 1
 
     return {
-        'total': len(threads),
-        'by_type': dict(type_counts),
-        'status_breakdown': dict(status_values),
-        'tag_breakdown': dict(tag_values),
-        'reply_targets': dict(reply_targets)
+        "total": len(threads),
+        "by_type": dict(type_counts),
+        "status_breakdown": dict(status_values),
+        "tag_breakdown": dict(tag_values),
+        "reply_targets": dict(reply_targets),
     }
 
 
@@ -148,9 +147,9 @@ def print_orphaned_threads(threads: List[Dict], folios: List[Dict]):
         click.echo()
 
     # Summary stats
-    by_direction = Counter(item['direction'] for item in orphaned)
-    by_type = Counter(item['type'] for item in orphaned)
-    by_weaver = Counter(item.get('weaver') or 'null' for item in orphaned)
+    by_direction = Counter(item["direction"] for item in orphaned)
+    by_type = Counter(item["type"] for item in orphaned)
+    by_weaver = Counter(item.get("weaver") or "null" for item in orphaned)
 
     click.echo("Broken by direction:")
     for direction, count in by_direction.most_common():
@@ -167,7 +166,9 @@ def print_orphaned_threads(threads: List[Dict], folios: List[Dict]):
         click.echo(f"  - {weaver}: {count} orphaned threads")
 
     click.echo()
-    click.echo("💡 Action: Review these threads - may indicate deleted resources or migration issues")
+    click.echo(
+        "💡 Action: Review these threads - may indicate deleted resources or migration issues"
+    )
 
 
 def print_weaver_stats(threads: List[Dict]):
@@ -181,13 +182,13 @@ def print_weaver_stats(threads: List[Dict]):
     click.echo()
 
     for weaver, data in list(stats.items())[:10]:  # Top 10 weavers
-        count = data['total']
+        count = data["total"]
         pct = (count / total) * 100
 
         click.echo(f"{weaver}: {count} threads ({pct:.1f}%)")
 
         # Show type breakdown
-        for thread_type, type_count in data['types'].most_common(5):
+        for thread_type, type_count in data["types"].most_common(5):
             type_pct = (type_count / count) * 100
             click.echo(f"  - {thread_type}: {type_count} ({type_pct:.1f}%)")
 
@@ -199,47 +200,46 @@ def print_type_distribution(threads: List[Dict]):
     import click
 
     stats = analyze_by_type(threads)
-    total = stats['total']
+    total = stats["total"]
 
     click.echo(f"📈 THREAD TYPE DISTRIBUTION ({total} threads):")
     click.echo()
 
     # Sort by count descending
-    sorted_types = sorted(
-        stats['by_type'].items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
+    sorted_types = sorted(stats["by_type"].items(), key=lambda x: x[1], reverse=True)
 
     max_count = max(count for _, count in sorted_types) if sorted_types else 1
 
     for thread_type, count in sorted_types:
         pct = (count / total) * 100
         bar_length = int((count / max_count) * 20)
-        bar = '█' * bar_length
+        bar = "█" * bar_length
 
         click.echo(f"{thread_type:12} {count:3} ({pct:4.1f}%)  {bar}")
 
     # Show breakdowns
-    if stats['status_breakdown']:
+    if stats["status_breakdown"]:
         click.echo()
         click.echo("Status Values (status threads):")
-        for status, count in sorted(stats['status_breakdown'].items(),
-                                   key=lambda x: x[1], reverse=True):
+        for status, count in sorted(
+            stats["status_breakdown"].items(), key=lambda x: x[1], reverse=True
+        ):
             click.echo(f"  - {status}: {count}")
 
-    if stats['tag_breakdown']:
+    if stats["tag_breakdown"]:
         click.echo()
         click.echo("Common Tags (tag threads):")
-        for tag, count in sorted(stats['tag_breakdown'].items(),
-                                key=lambda x: x[1], reverse=True)[:10]:
+        for tag, count in sorted(
+            stats["tag_breakdown"].items(), key=lambda x: x[1], reverse=True
+        )[:10]:
             click.echo(f"  - {tag}: {count}")
 
-    if stats['reply_targets']:
+    if stats["reply_targets"]:
         click.echo()
         click.echo("Reply Targets (reply threads):")
-        for target_type, count in sorted(stats['reply_targets'].items(),
-                                        key=lambda x: x[1], reverse=True):
+        for target_type, count in sorted(
+            stats["reply_targets"].items(), key=lambda x: x[1], reverse=True
+        ):
             click.echo(f"  - {target_type}: {count} replies")
 
 
@@ -254,8 +254,8 @@ def analyze_folios_by_type(folios: List[Dict]) -> Dict[str, int]:
     """
     type_counts = Counter()
     for folio in folios:
-        if 'type' in folio:
-            type_counts[folio['type']] += 1
+        if "type" in folio:
+            type_counts[folio["type"]] += 1
     return dict(type_counts)
 
 
@@ -270,7 +270,7 @@ def analyze_folios_by_status(folios: List[Dict]) -> Dict[str, int]:
     """
     status_counts = Counter()
     for folio in folios:
-        status = folio.get('status', 'unknown')
+        status = folio.get("status", "unknown")
         status_counts[status] += 1
     return dict(status_counts)
 
@@ -286,7 +286,7 @@ def analyze_folios_by_site(folios: List[Dict]) -> Dict[str, int]:
     """
     site_counts = Counter()
     for folio in folios:
-        site_id = folio.get('site_id', 'unknown')
+        site_id = folio.get("site_id", "unknown")
         site_counts[site_id] += 1
     return dict(site_counts)
 
@@ -301,15 +301,19 @@ def get_folio_stats(folios: List[Dict]) -> Dict[str, Any]:
         Dict with total, by_type, by_status, by_site
     """
     return {
-        'total': len(folios),
-        'by_type': analyze_folios_by_type(folios),
-        'by_status': analyze_folios_by_status(folios),
-        'by_site': analyze_folios_by_site(folios)
+        "total": len(folios),
+        "by_type": analyze_folios_by_type(folios),
+        "by_status": analyze_folios_by_status(folios),
+        "by_site": analyze_folios_by_site(folios),
     }
 
 
-def print_folio_stats(folios: List[Dict], by_type: bool = True,
-                      by_status: bool = True, by_site: bool = True):
+def print_folio_stats(
+    folios: List[Dict],
+    by_type: bool = True,
+    by_status: bool = True,
+    by_site: bool = True,
+):
     """Pretty print folio statistics.
 
     Args:
@@ -329,11 +333,12 @@ def print_folio_stats(folios: List[Dict], by_type: bool = True,
         if type_counts:
             click.echo("By Type:")
             max_count = max(type_counts.values()) if type_counts else 1
-            for folio_type, count in sorted(type_counts.items(),
-                                            key=lambda x: x[1], reverse=True):
+            for folio_type, count in sorted(
+                type_counts.items(), key=lambda x: x[1], reverse=True
+            ):
                 pct = (count / total) * 100 if total > 0 else 0
                 bar_length = int((count / max_count) * 20)
-                bar = '█' * bar_length
+                bar = "█" * bar_length
                 click.echo(f"  {folio_type:12} {count:4} ({pct:5.1f}%)  {bar}")
             click.echo()
 
@@ -341,8 +346,9 @@ def print_folio_stats(folios: List[Dict], by_type: bool = True,
         status_counts = analyze_folios_by_status(folios)
         if status_counts:
             click.echo("By Status:")
-            for status, count in sorted(status_counts.items(),
-                                        key=lambda x: x[1], reverse=True):
+            for status, count in sorted(
+                status_counts.items(), key=lambda x: x[1], reverse=True
+            ):
                 pct = (count / total) * 100 if total > 0 else 0
                 click.echo(f"  {status:12} {count:4} ({pct:5.1f}%)")
             click.echo()
@@ -352,12 +358,13 @@ def print_folio_stats(folios: List[Dict], by_type: bool = True,
         if site_counts:
             click.echo(f"By Site ({len(site_counts)} sites):")
             # Show top 10 sites if many
-            sorted_sites = sorted(site_counts.items(),
-                                  key=lambda x: x[1], reverse=True)
+            sorted_sites = sorted(site_counts.items(), key=lambda x: x[1], reverse=True)
             for site_id, count in sorted_sites[:10]:
                 pct = (count / total) * 100 if total > 0 else 0
                 click.echo(f"  {site_id:20} {count:4} ({pct:5.1f}%)")
             if len(sorted_sites) > 10:
                 remaining = sum(count for _, count in sorted_sites[10:])
-                click.echo(f"  ... and {len(sorted_sites) - 10} more sites ({remaining} folios)")
+                click.echo(
+                    f"  ... and {len(sorted_sites) - 10} more sites ({remaining} folios)"
+                )
             click.echo()

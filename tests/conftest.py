@@ -36,7 +36,7 @@ def pytest_configure(config):
     # Add test project
     registry["projects"]["test-project"] = {
         "data_dir": str(test_project_dir),
-        "name": "test-project"
+        "name": "test-project",
     }
 
     # Save registry
@@ -79,10 +79,7 @@ def test_project_id() -> str:
 @pytest.fixture
 def test_headers(test_project_id: str, test_agent_id: str) -> dict:
     """Return standard test headers with project and agent IDs."""
-    return {
-        "X-Project-Id": test_project_id,
-        "X-Agent-Id": test_agent_id
-    }
+    return {"X-Project-Id": test_project_id, "X-Agent-Id": test_agent_id}
 
 
 @pytest.fixture

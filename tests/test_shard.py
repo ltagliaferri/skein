@@ -24,6 +24,7 @@ import pytest
 # Import hypothesis for property-based testing
 try:
     from hypothesis import given, settings, strategies as st, assume, HealthCheck
+
     HYPOTHESIS_AVAILABLE = True
 except ImportError:
     HYPOTHESIS_AVAILABLE = False
@@ -64,13 +65,14 @@ def git_version_at_least(major: int, minor: int) -> bool:
 # Skip marker for tests requiring git 2.38+
 requires_git_238 = pytest.mark.skipif(
     not git_version_at_least(2, 38),
-    reason="Test requires git 2.38+ for three-argument merge-tree"
+    reason="Test requires git 2.38+ for three-argument merge-tree",
 )
 
 
 # =============================================================================
 # FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def temp_git_repo(tmp_path: Path) -> Generator[Path, None, None]:
@@ -87,11 +89,15 @@ def temp_git_repo(tmp_path: Path) -> Generator[Path, None, None]:
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
 
     # Create initial commit (required for worktrees)
@@ -100,13 +106,17 @@ def temp_git_repo(tmp_path: Path) -> Generator[Path, None, None]:
     subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
 
     # Ensure we're on master branch
     subprocess.run(
         ["git", "branch", "-M", "master"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
 
     yield repo_path
@@ -162,6 +172,7 @@ def spawned_shard(shard_env: Path):
 # CORE INVARIANT TESTS
 # =============================================================================
 
+
 class TestSpawnCleanupRoundtrip:
     """
     Invariant 1: spawn/cleanup roundtrip leaves no trace.
@@ -172,12 +183,10 @@ class TestSpawnCleanupRoundtrip:
         """WHY: Core safety property - after cleanup, repo should be pristine."""
         # Record initial state
         subprocess.run(
-            ["git", "branch", "--list"],
-            cwd=shard_env, capture_output=True, text=True
+            ["git", "branch", "--list"], cwd=shard_env, capture_output=True, text=True
         ).stdout
         subprocess.run(
-            ["git", "worktree", "list"],
-            cwd=shard_env, capture_output=True, text=True
+            ["git", "worktree", "list"], cwd=shard_env, capture_output=True, text=True
         ).stdout
 
         # Spawn and cleanup
@@ -194,14 +203,12 @@ class TestSpawnCleanupRoundtrip:
         assert not worktree_path.exists(), "Worktree directory should be removed"
 
         final_branches = subprocess.run(
-            ["git", "branch", "--list"],
-            cwd=shard_env, capture_output=True, text=True
+            ["git", "branch", "--list"], cwd=shard_env, capture_output=True, text=True
         ).stdout
         assert branch_name not in final_branches, "Branch should be deleted"
 
         final_worktrees = subprocess.run(
-            ["git", "worktree", "list"],
-            cwd=shard_env, capture_output=True, text=True
+            ["git", "worktree", "list"], cwd=shard_env, capture_output=True, text=True
         ).stdout
         assert worktree_name not in final_worktrees, "No orphan worktree entries"
 
@@ -210,8 +217,9 @@ class TestSpawnCleanupRoundtrip:
         if git_worktrees_dir.exists():
             entries = list(git_worktrees_dir.iterdir())
             for entry in entries:
-                assert worktree_name not in entry.name, \
+                assert worktree_name not in entry.name, (
                     f"Orphaned .git/worktrees entry: {entry}"
+                )
 
     def test_cleanup_with_keep_branch_preserves_only_branch(self, shard_env: Path):
         """WHY: keep_branch option should only affect branch, not worktree."""
@@ -224,8 +232,7 @@ class TestSpawnCleanupRoundtrip:
         # Worktree gone, branch remains
         assert not worktree_path.exists()
         branches = subprocess.run(
-            ["git", "branch", "--list"],
-            cwd=shard_env, capture_output=True, text=True
+            ["git", "branch", "--list"], cwd=shard_env, capture_output=True, text=True
         ).stdout
         assert branch_name.replace("shard-", "") in branches or branch_name in branches
 
@@ -243,7 +250,9 @@ class TestCleanupNeverAffectsMaster:
         subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
         subprocess.run(
             ["git", "commit", "-m", "Add important file"],
-            cwd=shard_env, check=True, capture_output=True
+            cwd=shard_env,
+            check=True,
+            capture_output=True,
         )
 
         # Spawn and cleanup
@@ -310,7 +319,9 @@ class TestMergeRequirements:
         subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
         subprocess.run(
             ["git", "commit", "-m", "Shard changes"],
-            cwd=worktree_path, check=True, capture_output=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
         )
 
         # Create conflicting changes on master
@@ -319,7 +330,9 @@ class TestMergeRequirements:
         subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
         subprocess.run(
             ["git", "commit", "-m", "Master changes"],
-            cwd=shard_env, check=True, capture_output=True
+            cwd=shard_env,
+            check=True,
+            capture_output=True,
         )
 
         # Merge should detect conflict and refuse
@@ -329,8 +342,9 @@ class TestMergeRequirements:
         # Either detects "conflict" explicitly (git 2.38+) or reports "unknown" status (older git)
         # Both are valid safety responses - merge is blocked either way
         msg_lower = result["message"].lower()
-        assert "conflict" in msg_lower or "unknown" in msg_lower, \
+        assert "conflict" in msg_lower or "unknown" in msg_lower, (
             f"Expected 'conflict' or 'unknown' in message, got: {result['message']}"
+        )
 
         # Master should be unaffected (no partial merge)
         assert master_conflict.read_text() == "master version"
@@ -358,8 +372,9 @@ class TestListShardsAccuracy:
             names = {s["worktree_name"] for s in shards}
 
             for info in spawned:
-                assert info["worktree_name"] in names, \
+                assert info["worktree_name"] in names, (
                     f"Missing spawned shard: {info['worktree_name']}"
+                )
         finally:
             for info in spawned:
                 try:
@@ -387,14 +402,12 @@ class TestListShardsAccuracy:
         # Simulate corruption: delete directory but not git metadata
         # (shouldn't happen normally, but test resilience)
         subprocess.run(
-            ["rm", "-rf", str(worktree_path)],
-            check=True, capture_output=True
+            ["rm", "-rf", str(worktree_path)], check=True, capture_output=True
         )
 
         # Prune to clean up
         subprocess.run(
-            ["git", "worktree", "prune"],
-            cwd=shard_env, check=True, capture_output=True
+            ["git", "worktree", "prune"], cwd=shard_env, check=True, capture_output=True
         )
 
         # List should not include phantom
@@ -437,7 +450,7 @@ class TestDuplicateSpawnPrevention:
         # Manually create a directory that would conflict with next sequence
         # (simulating race condition or manual creation)
         seq = int(info["worktree_name"].split("-")[-1])
-        next_name = info["worktree_name"].replace(f"-{seq:03d}", f"-{seq+1:03d}")
+        next_name = info["worktree_name"].replace(f"-{seq:03d}", f"-{seq + 1:03d}")
         fake_worktree = worktrees_dir / next_name
         fake_worktree.mkdir()
 
@@ -461,6 +474,7 @@ class TestSequenceCap:
 
         # Create a fake worktree at sequence 999 to simulate limit
         from datetime import datetime
+
         today = datetime.now().strftime("%Y%m%d")
         fake_name = f"seq-cap-test-{today}-999"
         fake_worktree = worktrees_dir / fake_name
@@ -487,6 +501,7 @@ class TestSequenceCap:
         worktrees_dir.mkdir(exist_ok=True)
 
         from datetime import datetime
+
         today = datetime.now().strftime("%Y%m%d")
 
         # Create worktree at 998, next should be 999 (allowed)
@@ -504,6 +519,7 @@ class TestSequenceCap:
 # =============================================================================
 # EDGE CASE TESTS
 # =============================================================================
+
 
 class TestNameValidation:
     """Edge cases for worktree/agent naming."""
@@ -641,15 +657,15 @@ class TestValidateShardName:
     def test_special_chars_rejected(self):
         """WHY: Special characters cause git/filesystem issues."""
         invalid_chars = [
-            "agent/branch",   # slash
-            "agent:name",     # colon
-            "agent*wild",     # asterisk
-            "agent?query",    # question mark
-            "agent[0]",       # brackets
-            "agent\\back",    # backslash
-            "agent~tilde",    # tilde
-            "agent^caret",    # caret
-            "agent name",     # space
+            "agent/branch",  # slash
+            "agent:name",  # colon
+            "agent*wild",  # asterisk
+            "agent?query",  # question mark
+            "agent[0]",  # brackets
+            "agent\\back",  # backslash
+            "agent~tilde",  # tilde
+            "agent^caret",  # caret
+            "agent name",  # space
         ]
         for name in invalid_chars:
             is_valid, error = validate_shard_name(name)
@@ -706,8 +722,10 @@ class TestSelfDeletionPrevention:
             with pytest.raises(ShardError) as exc_info:
                 cleanup_shard(info["worktree_name"])
 
-            assert "inside" in str(exc_info.value).lower() or \
-                   "cannot cleanup" in str(exc_info.value).lower()
+            assert (
+                "inside" in str(exc_info.value).lower()
+                or "cannot cleanup" in str(exc_info.value).lower()
+            )
         finally:
             os.chdir(original_cwd)
             cleanup_shard(info["worktree_name"])
@@ -721,8 +739,10 @@ class TestSelfDeletionPrevention:
         with pytest.raises(ShardError) as exc_info:
             cleanup_shard(info["worktree_name"], caller_cwd=worktree_path)
 
-        assert "inside" in str(exc_info.value).lower() or \
-               "caller_cwd" in str(exc_info.value).lower()
+        assert (
+            "inside" in str(exc_info.value).lower()
+            or "caller_cwd" in str(exc_info.value).lower()
+        )
 
         # Actual cleanup should work when cwd is outside
         cleanup_shard(info["worktree_name"])
@@ -739,8 +759,10 @@ class TestSelfDeletionPrevention:
             with pytest.raises(ShardError) as exc_info:
                 merge_shard(info["worktree_name"])
 
-            assert "inside" in str(exc_info.value).lower() or \
-                   "cannot merge" in str(exc_info.value).lower()
+            assert (
+                "inside" in str(exc_info.value).lower()
+                or "cannot merge" in str(exc_info.value).lower()
+            )
         finally:
             os.chdir(original_cwd)
             cleanup_shard(info["worktree_name"])
@@ -764,7 +786,9 @@ class TestMergeWithCommits:
         subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
         subprocess.run(
             ["git", "commit", "-m", "Add new feature"],
-            cwd=worktree_path, check=True, capture_output=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
         )
 
         # Merge should succeed
@@ -792,7 +816,9 @@ class TestMergeWithCommits:
         subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
         subprocess.run(
             ["git", "commit", "-m", "Feature"],
-            cwd=worktree_path, check=True, capture_output=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
         )
 
         result = merge_shard(info["worktree_name"])
@@ -801,7 +827,9 @@ class TestMergeWithCommits:
         # Check for merge commit
         log = subprocess.run(
             ["git", "log", "--oneline", "-1"],
-            cwd=shard_env, capture_output=True, text=True
+            cwd=shard_env,
+            capture_output=True,
+            text=True,
         ).stdout
         assert "Merge" in log
 
@@ -819,7 +847,9 @@ class TestGetShardDiff:
         subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
         subprocess.run(
             ["git", "commit", "-m", "Changes"],
-            cwd=worktree_path, check=True, capture_output=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
         )
 
         diff = get_shard_diff(info["worktree_name"])
@@ -861,7 +891,9 @@ class TestGetShardGitInfo:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", f"Commit {i}"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
         git_info = get_shard_git_info(info["worktree_name"])
@@ -905,6 +937,7 @@ class TestProjectRootDetection:
     def test_skein_project_env_var_override(self, temp_git_repo: Path, monkeypatch):
         """WHY: SKEIN_PROJECT should override cwd-based detection."""
         import skein.shard as shard_module
+
         shard_module._PROJECT_ROOT = None
         shard_module._WORKTREES_DIR = None
 
@@ -983,8 +1016,9 @@ class TestConcurrentOperations:
         all_successful = len(results) == 3 and len(errors) == 0
         some_rejected = len(errors) > 0
 
-        assert all_successful or some_rejected, \
+        assert all_successful or some_rejected, (
             "Should either all succeed or gracefully handle race"
+        )
 
         # Unique paths if multiple succeeded
         if len(results) > 1:
@@ -1019,7 +1053,7 @@ class TestIsPathInsideWorktree:
         def broken_resolve(self):
             raise OSError("Permission denied")
 
-        with patch.object(Path, 'resolve', broken_resolve):
+        with patch.object(Path, "resolve", broken_resolve):
             # Should return True (fail closed) instead of False
             result = _is_path_inside_worktree(worktree, worktree)
             assert result is True, "Should fail closed (return True) on error"
@@ -1055,15 +1089,18 @@ class TestIsPathInsideWorktree:
 # =============================================================================
 
 if HYPOTHESIS_AVAILABLE:
-
     # Strategy for valid agent IDs
-    valid_agent_id = st.from_regex(r'[a-z][a-z0-9-]{2,30}', fullmatch=True)
+    valid_agent_id = st.from_regex(r"[a-z][a-z0-9-]{2,30}", fullmatch=True)
 
     class TestPropertyBased:
         """Property-based tests using Hypothesis."""
 
         @given(agent_id=valid_agent_id)
-        @settings(max_examples=20, deadline=10000, suppress_health_check=[HealthCheck.function_scoped_fixture])
+        @settings(
+            max_examples=20,
+            deadline=10000,
+            suppress_health_check=[HealthCheck.function_scoped_fixture],
+        )
         def test_spawn_cleanup_invariant(self, agent_id: str, shard_env: Path):
             """
             Property: For any valid agent_id, spawn then cleanup leaves repo unchanged.
@@ -1074,7 +1111,9 @@ if HYPOTHESIS_AVAILABLE:
                 # Record pre-state
                 pre_worktrees = subprocess.run(
                     ["git", "worktree", "list"],
-                    cwd=shard_env, capture_output=True, text=True
+                    cwd=shard_env,
+                    capture_output=True,
+                    text=True,
                 ).stdout
 
                 # Spawn
@@ -1086,7 +1125,9 @@ if HYPOTHESIS_AVAILABLE:
                 # Post-state should match pre-state
                 post_worktrees = subprocess.run(
                     ["git", "worktree", "list"],
-                    cwd=shard_env, capture_output=True, text=True
+                    cwd=shard_env,
+                    capture_output=True,
+                    text=True,
                 ).stdout
 
                 assert pre_worktrees == post_worktrees
@@ -1096,7 +1137,11 @@ if HYPOTHESIS_AVAILABLE:
                 pass
 
         @given(count=st.integers(min_value=1, max_value=5))
-        @settings(max_examples=5, deadline=30000, suppress_health_check=[HealthCheck.function_scoped_fixture])
+        @settings(
+            max_examples=5,
+            deadline=30000,
+            suppress_health_check=[HealthCheck.function_scoped_fixture],
+        )
         def test_list_matches_spawned_count(self, count: int, shard_env: Path):
             """
             Property: list_shards returns exactly the shards that were spawned.
@@ -1126,7 +1171,11 @@ if HYPOTHESIS_AVAILABLE:
                         pass
 
         @given(agent_id=valid_agent_id)
-        @settings(max_examples=10, deadline=10000, suppress_health_check=[HealthCheck.function_scoped_fixture])
+        @settings(
+            max_examples=10,
+            deadline=10000,
+            suppress_health_check=[HealthCheck.function_scoped_fixture],
+        )
         def test_shard_name_parsing_roundtrip(self, agent_id: str, shard_env: Path):
             """
             Property: Shard name can be parsed back to extract the original name.
@@ -1151,6 +1200,7 @@ if HYPOTHESIS_AVAILABLE:
 # =============================================================================
 # ADDITIONAL REGRESSION TESTS
 # =============================================================================
+
 
 class TestRegressions:
     """Tests for specific historical bugs and regressions."""
@@ -1213,6 +1263,7 @@ class TestRegressions:
 # INTEGRATION TESTS
 # =============================================================================
 
+
 class TestIntegration:
     """Full workflow integration tests."""
 
@@ -1238,7 +1289,9 @@ def new_feature():
         subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
         subprocess.run(
             ["git", "commit", "-m", "Add new feature"],
-            cwd=worktree_path, check=True, capture_output=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
         )
 
         # 4. Check status before merge
@@ -1264,8 +1317,7 @@ def new_feature():
 
         # 9. Verify branch is gone
         branches = subprocess.run(
-            ["git", "branch"],
-            cwd=shard_env, capture_output=True, text=True
+            ["git", "branch"], cwd=shard_env, capture_output=True, text=True
         ).stdout
         assert info["branch_name"] not in branches
 
@@ -1273,6 +1325,7 @@ def new_feature():
 # =============================================================================
 # REVIEW QUEUE TESTS
 # =============================================================================
+
 
 class TestGetReviewQueue:
     """Tests for get_review_queue() categorization logic."""
@@ -1298,7 +1351,9 @@ class TestGetReviewQueue:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Add file"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             queue = get_review_queue()
@@ -1348,7 +1403,9 @@ class TestGetReviewQueue:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Shard changes"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             # Create conflicting changes on master
@@ -1356,7 +1413,9 @@ class TestGetReviewQueue:
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Master changes"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             queue = get_review_queue()
@@ -1382,7 +1441,7 @@ class TestGetReviewQueue:
 
             our_shard = next(
                 (s for s in all_shards if s["worktree_name"] == info["worktree_name"]),
-                None
+                None,
             )
 
             assert our_shard is not None
@@ -1446,6 +1505,7 @@ class TestGetShardAgeDays:
 # DETECT SHARD ENVIRONMENT TESTS
 # =============================================================================
 
+
 class TestDetectShardEnvironment:
     """Tests for detect_shard_environment() cwd detection."""
 
@@ -1501,6 +1561,7 @@ class TestDetectShardEnvironment:
 # SPAWN SEQUENCE CAP INTEGRATION TEST
 # =============================================================================
 
+
 class TestSpawnSequenceCapIntegration:
     """Integration test: spawn_shard properly surfaces sequence cap error."""
 
@@ -1513,6 +1574,7 @@ class TestSpawnSequenceCapIntegration:
         worktrees_dir.mkdir(exist_ok=True)
 
         from datetime import datetime
+
         today = datetime.now().strftime("%Y%m%d")
 
         # Create a fake worktree at sequence 999
@@ -1535,6 +1597,7 @@ class TestSpawnSequenceCapIntegration:
 # =============================================================================
 # TENDER METADATA TESTS
 # =============================================================================
+
 
 class TestGetTenderMetadata:
     """Tests for get_tender_metadata() function."""
@@ -1575,7 +1638,9 @@ class TestGetTenderMetadata:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Add file"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             metadata = get_tender_metadata(info["worktree_name"])
@@ -1595,7 +1660,9 @@ class TestGetTenderMetadata:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Add modified.py"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             metadata = get_tender_metadata(info["worktree_name"])
@@ -1611,6 +1678,7 @@ class TestGetTenderMetadata:
 # BUG FIX REGRESSION TESTS
 # =============================================================================
 
+
 class TestBugFixRegressions:
     """Regression tests for specific bugs that were fixed."""
 
@@ -1623,6 +1691,7 @@ class TestBugFixRegressions:
         worktrees_dir.mkdir(exist_ok=True)
 
         from datetime import datetime
+
         today = datetime.now().strftime("%Y%m%d")
 
         # Create a fake worktree with zero sequence
@@ -1647,6 +1716,7 @@ class TestBugFixRegressions:
         worktrees_dir.mkdir(exist_ok=True)
 
         from datetime import datetime
+
         today = datetime.now().strftime("%Y%m%d")
 
         # Create a fake worktree with sequence > 999
@@ -1844,7 +1914,9 @@ class TestDriftDetection:
                 subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
                 subprocess.run(
                     ["git", "commit", "-m", f"Master commit {i}"],
-                    cwd=shard_env, check=True, capture_output=True
+                    cwd=shard_env,
+                    check=True,
+                    capture_output=True,
                 )
 
             # Now should detect drift
@@ -1865,7 +1937,9 @@ class TestDriftDetection:
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Add new file"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             # Delete a file on master
@@ -1873,7 +1947,9 @@ class TestDriftDetection:
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Delete readme"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             drift = get_shard_drift_info(info["worktree_name"])
@@ -1904,7 +1980,9 @@ class TestWorkDiffVsIntegrationDiff:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Agent work"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             # Master adds a file
@@ -1912,7 +1990,9 @@ class TestWorkDiffVsIntegrationDiff:
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Master addition"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             # Work diff should NOT mention master_only.py
@@ -1935,7 +2015,9 @@ class TestWorkDiffVsIntegrationDiff:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Stat test"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             stat_output = get_shard_work_diff(info["worktree_name"], stat_only=True)
@@ -1943,7 +2025,9 @@ class TestWorkDiffVsIntegrationDiff:
             assert "stat_file.py" in stat_output
             # Should be stat format, not full diff
             assert "@@" not in stat_output
-            assert "+" in stat_output or "-" in stat_output or "insertion" in stat_output
+            assert (
+                "+" in stat_output or "-" in stat_output or "insertion" in stat_output
+            )
 
         finally:
             cleanup_shard(info["worktree_name"])
@@ -1967,21 +2051,26 @@ class TestConflictDetection:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Shard version"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             (shard_env / conflict_file).write_text("master version\n")
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Master version"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             drift = get_shard_drift_info(info["worktree_name"])
             # Either "conflict" (git 2.38+) or "unknown" (older git) are valid
             # Both represent safe behavior - merge would be blocked
-            assert drift["conflict_status"] in ("conflict", "unknown"), \
+            assert drift["conflict_status"] in ("conflict", "unknown"), (
                 f"Expected 'conflict' or 'unknown', got: {drift['conflict_status']}"
+            )
             # Note: conflict_files detection is best-effort
 
         finally:
@@ -1998,21 +2087,26 @@ class TestConflictDetection:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Shard changes"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             (shard_env / "master_only.py").write_text("master content")
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Master changes"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             drift = get_shard_drift_info(info["worktree_name"])
             # Either "clean" (git 2.38+) or "unknown" (older git) are valid
             # On older git we can't determine status, on newer git we correctly detect clean
-            assert drift["conflict_status"] in ("clean", "unknown"), \
+            assert drift["conflict_status"] in ("clean", "unknown"), (
                 f"Expected 'clean' or 'unknown', got: {drift['conflict_status']}"
+            )
             assert drift["master_commits_ahead"] == 1
 
         finally:
@@ -2022,6 +2116,7 @@ class TestConflictDetection:
 # =============================================================================
 # GRAFT WORKFLOW TESTS
 # =============================================================================
+
 
 class TestGraftCreation:
     """
@@ -2039,14 +2134,18 @@ class TestGraftCreation:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Work commit"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             # Graft it
             graft_result = graft_shard(info["worktree_name"])
 
             assert "graft_worktree_name" in graft_result
-            assert f"{info['worktree_name']}-graft" == graft_result["graft_worktree_name"]
+            assert (
+                f"{info['worktree_name']}-graft" == graft_result["graft_worktree_name"]
+            )
 
             # Graft worktree should exist
             graft_path = Path(graft_result["graft_worktree_path"])
@@ -2070,7 +2169,9 @@ class TestGraftCreation:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Parent commit"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             graft_result = graft_shard(info["worktree_name"])
@@ -2094,7 +2195,9 @@ class TestGraftCreation:
                 subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
                 subprocess.run(
                     ["git", "commit", "-m", f"Commit {i}"],
-                    cwd=worktree_path, check=True, capture_output=True
+                    cwd=worktree_path,
+                    check=True,
+                    capture_output=True,
                 )
 
             graft_result = graft_shard(info["worktree_name"])
@@ -2127,14 +2230,18 @@ class TestGraftConflictHandling:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Shard change"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             (shard_env / conflict_file).write_text("master version\n")
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Master change"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             graft_result = graft_shard(info["worktree_name"])
@@ -2184,7 +2291,9 @@ class TestGraftChainManagement:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Chain commit"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             # Create a graft
@@ -2225,7 +2334,9 @@ class TestGraftOfGraft:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Original work"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             # Master evolves
@@ -2233,7 +2344,9 @@ class TestGraftOfGraft:
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Master evolution 1"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             # First graft
@@ -2245,7 +2358,9 @@ class TestGraftOfGraft:
             subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Master evolution 2"],
-                cwd=shard_env, check=True, capture_output=True
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
             )
 
             # Second graft (graft of graft)
@@ -2300,7 +2415,9 @@ class TestGraftAlreadyExists:
             subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Dup commit"],
-                cwd=worktree_path, check=True, capture_output=True
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
             )
 
             # First graft succeeds

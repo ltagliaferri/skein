@@ -15,6 +15,7 @@ from .models import AgentInfo, Site, Folio, Thread, LogLine
 
 try:
     from knurl import canon, hash as knurl_hash
+
     KNURL_AVAILABLE = True
 except ImportError:
     KNURL_AVAILABLE = False
@@ -36,13 +37,13 @@ def compute_folio_hash(folio: Folio) -> str:
         "created_by": folio.created_by,
     }
     canonical = canon.serialize(immutable)
-    return knurl_hash.compute(canonical.decode('utf-8'), prefix="folio")
+    return knurl_hash.compute(canonical.decode("utf-8"), prefix="folio")
 
 
 # Project Registry
 def load_project_registry() -> Dict[str, Dict[str, Any]]:
     """Load project registry from ~/.skein/projects.json."""
-    registry_file = Path.home() / '.skein' / 'projects.json'
+    registry_file = Path.home() / ".skein" / "projects.json"
     if not registry_file.exists():
         logger.warning("No ~/.skein/projects.json found, using default data dir")
         return {}
@@ -50,7 +51,7 @@ def load_project_registry() -> Dict[str, Dict[str, Any]]:
     try:
         with open(registry_file) as f:
             data = json.load(f)
-            return data.get('projects', {})
+            return data.get("projects", {})
     except Exception as e:
         logger.error(f"Failed to load project registry: {e}")
         return {}
@@ -66,7 +67,7 @@ def get_data_dir_for_project(project_id: Optional[str] = None) -> Path:
     if project_id:
         registry = load_project_registry()
         if project_id in registry:
-            data_dir = Path(registry[project_id]['data_dir'])
+            data_dir = Path(registry[project_id]["data_dir"])
             data_dir.mkdir(parents=True, exist_ok=True)
             return data_dir
         else:
@@ -80,6 +81,7 @@ def get_data_dir_for_project(project_id: Optional[str] = None) -> Path:
 
 
 # SQLite Database for Logs
+
 
 class LogDatabase:
     """SQLite database for log storage and querying."""
@@ -203,16 +205,19 @@ class LogDatabase:
             count = 0
 
             for line in lines:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO logs (stream_id, level, source, message, metadata)
                     VALUES (?, ?, ?, ?, ?)
-                """, (
-                    stream_id,
-                    line.get("level", "INFO"),
-                    source,
-                    line.get("message", ""),
-                    json.dumps(line.get("metadata", {}))
-                ))
+                """,
+                    (
+                        stream_id,
+                        line.get("level", "INFO"),
+                        source,
+                        line.get("message", ""),
+                        json.dumps(line.get("metadata", {})),
+                    ),
+                )
                 count += 1
 
             conn.commit()
@@ -224,7 +229,7 @@ class LogDatabase:
         since: Optional[str] = None,
         level: Optional[str] = None,
         search: Optional[str] = None,
-        limit: int = 1000
+        limit: int = 1000,
     ) -> List[LogLine]:
         """Query logs with filters."""
         with self._get_connection() as conn:
@@ -262,7 +267,7 @@ class LogDatabase:
                     level=row["level"],
                     source=row["source"],
                     message=row["message"],
-                    metadata=json.loads(row["metadata"]) if row["metadata"] else {}
+                    metadata=json.loads(row["metadata"]) if row["metadata"] else {},
                 )
                 for row in rows
             ]
@@ -291,22 +296,25 @@ class LogDatabase:
         label: str,
         file_path: str,
         file_size: int,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
     ) -> bool:
         """Add screenshot metadata to database."""
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO screenshots (screenshot_id, strand_id, turn_number, label, file_path, file_size, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                screenshot_id,
-                strand_id,
-                turn_number,
-                label,
-                file_path,
-                file_size,
-                json.dumps(metadata)
-            ))
+            """,
+                (
+                    screenshot_id,
+                    strand_id,
+                    turn_number,
+                    label,
+                    file_path,
+                    file_size,
+                    json.dumps(metadata),
+                ),
+            )
             conn.commit()
             return True
 
@@ -314,7 +322,7 @@ class LogDatabase:
         self,
         strand_id: Optional[str] = None,
         since: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """Query screenshots with filters."""
         with self._get_connection() as conn:
@@ -341,8 +349,7 @@ class LogDatabase:
         """Get specific screenshot by ID."""
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM screenshots WHERE screenshot_id = ?",
-                (screenshot_id,)
+                "SELECT * FROM screenshots WHERE screenshot_id = ?", (screenshot_id,)
             )
             row = cursor.fetchone()
             return dict(row) if row else None
@@ -363,7 +370,7 @@ class LogDatabase:
         tokens_used: Optional[int] = None,
         shard_path: Optional[str] = None,
         tender_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
         Add a yield to the sack for a chain.
@@ -387,7 +394,8 @@ class LogDatabase:
             True on success
         """
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO sacks (
                     sack_id, chain_id, task_id, agent_id,
                     status, outcome, artifacts, notes,
@@ -395,21 +403,23 @@ class LogDatabase:
                     metadata
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                sack_id,
-                chain_id,
-                task_id,
-                agent_id,
-                status,
-                outcome,
-                json.dumps(artifacts) if artifacts else None,
-                notes,
-                duration_seconds,
-                tokens_used,
-                shard_path,
-                tender_id,
-                json.dumps(metadata) if metadata else None
-            ))
+            """,
+                (
+                    sack_id,
+                    chain_id,
+                    task_id,
+                    agent_id,
+                    status,
+                    outcome,
+                    json.dumps(artifacts) if artifacts else None,
+                    notes,
+                    duration_seconds,
+                    tokens_used,
+                    shard_path,
+                    tender_id,
+                    json.dumps(metadata) if metadata else None,
+                ),
+            )
             conn.commit()
             return True
 
@@ -425,8 +435,7 @@ class LogDatabase:
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM sacks WHERE chain_id = ? ORDER BY timestamp",
-                (chain_id,)
+                "SELECT * FROM sacks WHERE chain_id = ? ORDER BY timestamp", (chain_id,)
             )
             rows = cursor.fetchall()
 
@@ -434,10 +443,10 @@ class LogDatabase:
             for row in rows:
                 yield_dict = dict(row)
                 # Parse JSON fields
-                if yield_dict.get('artifacts'):
-                    yield_dict['artifacts'] = json.loads(yield_dict['artifacts'])
-                if yield_dict.get('metadata'):
-                    yield_dict['metadata'] = json.loads(yield_dict['metadata'])
+                if yield_dict.get("artifacts"):
+                    yield_dict["artifacts"] = json.loads(yield_dict["artifacts"])
+                if yield_dict.get("metadata"):
+                    yield_dict["metadata"] = json.loads(yield_dict["metadata"])
                 results.append(yield_dict)
 
             return results
@@ -445,19 +454,16 @@ class LogDatabase:
     def get_yield(self, sack_id: str) -> Optional[Dict[str, Any]]:
         """Get specific yield by ID."""
         with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM sacks WHERE sack_id = ?",
-                (sack_id,)
-            )
+            cursor = conn.execute("SELECT * FROM sacks WHERE sack_id = ?", (sack_id,))
             row = cursor.fetchone()
             if not row:
                 return None
 
             yield_dict = dict(row)
-            if yield_dict.get('artifacts'):
-                yield_dict['artifacts'] = json.loads(yield_dict['artifacts'])
-            if yield_dict.get('metadata'):
-                yield_dict['metadata'] = json.loads(yield_dict['metadata'])
+            if yield_dict.get("artifacts"):
+                yield_dict["artifacts"] = json.loads(yield_dict["artifacts"])
+            if yield_dict.get("metadata"):
+                yield_dict["metadata"] = json.loads(yield_dict["metadata"])
             return yield_dict
 
     def get_yields_by_status(self, status: str) -> List[Dict[str, Any]]:
@@ -465,17 +471,17 @@ class LogDatabase:
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM sacks WHERE status = ? ORDER BY timestamp DESC",
-                (status,)
+                (status,),
             )
             rows = cursor.fetchall()
 
             results = []
             for row in rows:
                 yield_dict = dict(row)
-                if yield_dict.get('artifacts'):
-                    yield_dict['artifacts'] = json.loads(yield_dict['artifacts'])
-                if yield_dict.get('metadata'):
-                    yield_dict['metadata'] = json.loads(yield_dict['metadata'])
+                if yield_dict.get("artifacts"):
+                    yield_dict["artifacts"] = json.loads(yield_dict["artifacts"])
+                if yield_dict.get("metadata"):
+                    yield_dict["metadata"] = json.loads(yield_dict["metadata"])
                 results.append(yield_dict)
 
             return results
@@ -485,22 +491,24 @@ class LogDatabase:
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM sacks WHERE agent_id = ? ORDER BY timestamp DESC",
-                (agent_id,)
+                (agent_id,),
             )
             rows = cursor.fetchall()
 
             results = []
             for row in rows:
                 yield_dict = dict(row)
-                if yield_dict.get('artifacts'):
-                    yield_dict['artifacts'] = json.loads(yield_dict['artifacts'])
-                if yield_dict.get('metadata'):
-                    yield_dict['metadata'] = json.loads(yield_dict['metadata'])
+                if yield_dict.get("artifacts"):
+                    yield_dict["artifacts"] = json.loads(yield_dict["artifacts"])
+                if yield_dict.get("metadata"):
+                    yield_dict["metadata"] = json.loads(yield_dict["metadata"])
                 results.append(yield_dict)
 
             return results
 
-    def get_previous_yield(self, chain_id: str, before_task_id: str) -> Optional[Dict[str, Any]]:
+    def get_previous_yield(
+        self, chain_id: str, before_task_id: str
+    ) -> Optional[Dict[str, Any]]:
         """
         Get the most recent yield in a chain before a specific task.
 
@@ -516,15 +524,14 @@ class LogDatabase:
         with self._get_connection() as conn:
             # Get all yields in chain ordered by timestamp
             cursor = conn.execute(
-                "SELECT * FROM sacks WHERE chain_id = ? ORDER BY timestamp",
-                (chain_id,)
+                "SELECT * FROM sacks WHERE chain_id = ? ORDER BY timestamp", (chain_id,)
             )
             rows = cursor.fetchall()
 
             # Find the yield just before the specified task
             previous = None
             for row in rows:
-                if row['task_id'] == before_task_id:
+                if row["task_id"] == before_task_id:
                     break
                 previous = row
 
@@ -532,14 +539,15 @@ class LogDatabase:
                 return None
 
             yield_dict = dict(previous)
-            if yield_dict.get('artifacts'):
-                yield_dict['artifacts'] = json.loads(yield_dict['artifacts'])
-            if yield_dict.get('metadata'):
-                yield_dict['metadata'] = json.loads(yield_dict['metadata'])
+            if yield_dict.get("artifacts"):
+                yield_dict["artifacts"] = json.loads(yield_dict["artifacts"])
+            if yield_dict.get("metadata"):
+                yield_dict["metadata"] = json.loads(yield_dict["metadata"])
             return yield_dict
 
 
 # JSON Storage for Structured Artifacts
+
 
 class JSONStore:
     """JSON-based storage for roster, sites, folios, signals."""
@@ -563,8 +571,10 @@ class JSONStore:
         agents = self._load_json(agents_file, [])
 
         # Update or append
-        existing_idx = next((i for i, a in enumerate(agents) if a["agent_id"] == agent.agent_id), None)
-        agent_dict = agent.model_dump(mode='json')
+        existing_idx = next(
+            (i for i, a in enumerate(agents) if a["agent_id"] == agent.agent_id), None
+        )
+        agent_dict = agent.model_dump(mode="json")
 
         if existing_idx is not None:
             agents[existing_idx] = agent_dict
@@ -598,7 +608,7 @@ class JSONStore:
         site_dir.mkdir(exist_ok=True)
 
         metadata_file = site_dir / "metadata.json"
-        self._save_json(metadata_file, site.model_dump(mode='json'))
+        self._save_json(metadata_file, site.model_dump(mode="json"))
 
         # Ensure folios directory exists
         (site_dir / "folios").mkdir(exist_ok=True)
@@ -622,7 +632,12 @@ class JSONStore:
             return Site(**self._load_json(metadata_file))
         return None
 
-    def update_site(self, site_id: str, status: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> Optional[Site]:
+    def update_site(
+        self,
+        site_id: str,
+        status: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Site]:
         """Update site status and/or metadata."""
         site = self.get_site(site_id)
         if not site:
@@ -654,7 +669,7 @@ class JSONStore:
         folios_dir.mkdir(exist_ok=True)
 
         folio_file = folios_dir / f"{folio.folio_id}.json"
-        self._save_json(folio_file, folio.model_dump(mode='json'))
+        self._save_json(folio_file, folio.model_dump(mode="json"))
         return True
 
     def get_folios(self, site_id: Optional[str] = None) -> List[Folio]:
@@ -691,7 +706,7 @@ class JSONStore:
                     # Lazy hash: compute and save if missing
                     if not folio.content_hash and KNURL_AVAILABLE:
                         folio.content_hash = compute_folio_hash(folio)
-                        self._save_json(folio_file, folio.model_dump(mode='json'))
+                        self._save_json(folio_file, folio.model_dump(mode="json"))
 
                     return folio
         return None
@@ -749,10 +764,16 @@ class JSONStore:
     def save_thread(self, thread: Thread) -> bool:
         """Save thread."""
         thread_file = self.threads_dir / f"{thread.thread_id}.json"
-        self._save_json(thread_file, thread.model_dump(mode='json'))
+        self._save_json(thread_file, thread.model_dump(mode="json"))
         return True
 
-    def get_threads(self, from_id: Optional[str] = None, to_id: Optional[str] = None, type: Optional[str] = None, weaver: Optional[str] = None) -> List[Thread]:
+    def get_threads(
+        self,
+        from_id: Optional[str] = None,
+        to_id: Optional[str] = None,
+        type: Optional[str] = None,
+        weaver: Optional[str] = None,
+    ) -> List[Thread]:
         """Get threads with optional filters."""
         threads = []
         for thread_file in self.threads_dir.glob("*.json"):
@@ -809,7 +830,10 @@ class JSONStore:
                 if thread.thread_id in thread_map:
                     continue
                 # Include if from_id or to_id is a thread we care about
-                if thread.from_id in involved_thread_ids or thread.to_id in involved_thread_ids:
+                if (
+                    thread.from_id in involved_thread_ids
+                    or thread.to_id in involved_thread_ids
+                ):
                     thread_map[thread.thread_id] = thread
                     involved_thread_ids.add(thread.thread_id)
                     found_new = True
@@ -849,7 +873,7 @@ class JSONStore:
 
         Convert all datetime strings to timezone-aware (UTC) format.
         """
-        datetime_fields = ['created_at', 'registered_at', 'acknowledged_at', 'read_at']
+        datetime_fields = ["created_at", "registered_at", "acknowledged_at", "read_at"]
 
         for field in datetime_fields:
             if field in data and data[field]:
@@ -861,9 +885,9 @@ class JSONStore:
                 # Parse the datetime string
                 try:
                     # Try parsing with timezone first
-                    if dt_str.endswith('Z'):
-                        dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
-                    elif '+' in dt_str or dt_str.count(':') > 2:
+                    if dt_str.endswith("Z"):
+                        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                    elif "+" in dt_str or dt_str.count(":") > 2:
                         dt = datetime.fromisoformat(dt_str)
                     else:
                         # Naive datetime - assume UTC
@@ -882,12 +906,12 @@ class JSONStore:
         if not file_path.exists():
             return default if default is not None else {}
 
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             return json.load(f)
 
     def _save_json(self, file_path: Path, data):
         """Save JSON file."""
-        with open(file_path, 'w') as f:
+        with open(file_path, "w") as f:
             json.dump(data, f, indent=2, default=str)
 
 

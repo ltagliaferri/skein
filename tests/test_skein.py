@@ -14,13 +14,9 @@ async def test_skein_workflow():
     print("🧪 Testing SKEIN Workflow\n")
 
     # Default headers including project ID
-    headers = {
-        "X-Project-Id": "test-project",
-        "X-Agent-Id": "test-agent-001"
-    }
+    headers = {"X-Project-Id": "test-project", "X-Agent-Id": "test-agent-001"}
 
     async with aiohttp.ClientSession(headers=headers) as session:
-
         # Test 1: Register an agent
         print("1️⃣ Registering agent...")
         async with session.post(
@@ -28,8 +24,8 @@ async def test_skein_workflow():
             json={
                 "agent_id": "test-agent-001",
                 "capabilities": ["testing", "debugging"],
-                "metadata": {"purpose": "skein-testing"}
-            }
+                "metadata": {"purpose": "skein-testing"},
+            },
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -56,8 +52,8 @@ async def test_skein_workflow():
             json={
                 "site_id": "test-investigation",
                 "purpose": "Testing SKEIN collaboration features",
-                "metadata": {"tags": ["testing", "demo"]}
-            }
+                "metadata": {"tags": ["testing", "demo"]},
+            },
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -76,12 +72,12 @@ async def test_skein_workflow():
                 "title": "Test database connection timeout",
                 "content": "Need to investigate why connections are timing out after 30s",
                 "references": [],
-                "metadata": {}
-            }
+                "metadata": {},
+            },
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                issue_id = data['folio_id']
+                issue_id = data["folio_id"]
                 print(f"✅ Issue created: {issue_id}")
             else:
                 print(f"❌ Failed to create issue: {await resp.text()}")
@@ -117,12 +113,12 @@ async def test_skein_workflow():
                 """,
                 "target_agent": "next-session",
                 "references": [f"folio:{issue_id}"],
-                "metadata": {"questions_enabled": True}
-            }
+                "metadata": {"questions_enabled": True},
+            },
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                brief_id = data['folio_id']
+                brief_id = data["folio_id"]
                 print(f"✅ Brief created: {brief_id}")
                 print(f"   Handoff string: HANDOFF: {brief_id}")
             else:
@@ -132,8 +128,7 @@ async def test_skein_workflow():
         # Test 6: List folios by site
         print("\n6️⃣ Listing folios by site...")
         async with session.get(
-            f"{BASE_URL}/folios",
-            params={"site_id": "test-investigation"}
+            f"{BASE_URL}/folios", params={"site_id": "test-investigation"}
         ) as resp:
             if resp.status == 200:
                 folios = await resp.json()
@@ -146,8 +141,7 @@ async def test_skein_workflow():
         # Test 6a: Search folios with query
         print("\n6️⃣a Searching folios with query...")
         async with session.get(
-            f"{BASE_URL}/folios/search",
-            params={"q": "database"}
+            f"{BASE_URL}/folios/search", params={"q": "database"}
         ) as resp:
             if resp.status == 200:
                 results = await resp.json()
@@ -160,13 +154,12 @@ async def test_skein_workflow():
         # Test 6b: Search with type filter
         print("\n6️⃣b Searching folios with --type filter...")
         async with session.get(
-            f"{BASE_URL}/folios/search",
-            params={"q": "database", "type": "issue"}
+            f"{BASE_URL}/folios/search", params={"q": "database", "type": "issue"}
         ) as resp:
             if resp.status == 200:
                 results = await resp.json()
                 print(f"✅ Found {len(results)} issue(s) for 'database'")
-                assert all(r['type'] == 'issue' for r in results), "Type filter failed"
+                assert all(r["type"] == "issue" for r in results), "Type filter failed"
             else:
                 print(f"❌ Failed to search with type filter: {await resp.text()}")
 
@@ -174,15 +167,17 @@ async def test_skein_workflow():
         print("\n6️⃣c Searching folios with --status filter...")
         async with session.get(
             f"{BASE_URL}/folios/search",
-            params={"q": "", "type": "issue", "status": "open"}
+            params={"q": "", "type": "issue", "status": "open"},
         ) as resp:
             if resp.status == 200:
                 results = await resp.json()
                 print(f"✅ Found {len(results)} open issue(s)")
                 # Verify all results are open (this was the bug we fixed)
                 for result in results:
-                    if result.get('status') != 'open':
-                        print(f"⚠️  WARNING: Found non-open issue: {result['folio_id']} status={result.get('status')}")
+                    if result.get("status") != "open":
+                        print(
+                            f"⚠️  WARNING: Found non-open issue: {result['folio_id']} status={result.get('status')}"
+                        )
             else:
                 print(f"❌ Failed to search with status filter: {await resp.text()}")
 
@@ -194,12 +189,32 @@ async def test_skein_workflow():
                 "stream_id": "test-debug-stream",
                 "source": "test-agent-001",
                 "lines": [
-                    {"stream_id": "test-debug-stream", "level": "INFO", "message": "Starting database investigation", "metadata": {}},
-                    {"stream_id": "test-debug-stream", "level": "DEBUG", "message": "Connection pool size: 10", "metadata": {}},
-                    {"stream_id": "test-debug-stream", "level": "ERROR", "message": "Query timeout after 30.2s", "metadata": {}},
-                    {"stream_id": "test-debug-stream", "level": "INFO", "message": "Reproduced issue in staging", "metadata": {}}
-                ]
-            }
+                    {
+                        "stream_id": "test-debug-stream",
+                        "level": "INFO",
+                        "message": "Starting database investigation",
+                        "metadata": {},
+                    },
+                    {
+                        "stream_id": "test-debug-stream",
+                        "level": "DEBUG",
+                        "message": "Connection pool size: 10",
+                        "metadata": {},
+                    },
+                    {
+                        "stream_id": "test-debug-stream",
+                        "level": "ERROR",
+                        "message": "Query timeout after 30.2s",
+                        "metadata": {},
+                    },
+                    {
+                        "stream_id": "test-debug-stream",
+                        "level": "INFO",
+                        "message": "Reproduced issue in staging",
+                        "metadata": {},
+                    },
+                ],
+            },
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -210,8 +225,7 @@ async def test_skein_workflow():
         # Test 8: Retrieve logs
         print("\n8️⃣ Retrieving logs...")
         async with session.get(
-            f"{BASE_URL}/logs/test-debug-stream",
-            params={"level": "ERROR"}
+            f"{BASE_URL}/logs/test-debug-stream", params={"level": "ERROR"}
         ) as resp:
             if resp.status == 200:
                 logs = await resp.json()
@@ -224,49 +238,53 @@ async def test_skein_workflow():
         # Test 9: Thread search - by type
         print("\n9️⃣ Thread search - by type...")
         async with session.get(
-            f"{BASE_URL}/threads",
-            params={"type": "message"}
+            f"{BASE_URL}/threads", params={"type": "message"}
         ) as resp:
             if resp.status == 200:
                 threads = await resp.json()
                 print(f"✅ Found {len(threads)} message thread(s)")
-                assert all(t['type'] == 'message' for t in threads), "Type filter failed"
+                assert all(t["type"] == "message" for t in threads), (
+                    "Type filter failed"
+                )
             else:
                 print(f"❌ Failed to search threads by type: {await resp.text()}")
 
         # Test 9a: Thread search - by weaver
         print("\n9️⃣a Thread search - by weaver...")
         async with session.get(
-            f"{BASE_URL}/threads",
-            params={"weaver": "test-agent-001"}
+            f"{BASE_URL}/threads", params={"weaver": "test-agent-001"}
         ) as resp:
             if resp.status == 200:
                 threads = await resp.json()
                 print(f"✅ Found {len(threads)} thread(s) created by test-agent-001")
-                assert all(t.get('weaver') == 'test-agent-001' for t in threads if t.get('weaver')), "Weaver filter failed"
+                assert all(
+                    t.get("weaver") == "test-agent-001"
+                    for t in threads
+                    if t.get("weaver")
+                ), "Weaver filter failed"
             else:
                 print(f"❌ Failed to search threads by weaver: {await resp.text()}")
 
         # Test 9b: Thread search - content search
         print("\n9️⃣b Thread search - content search...")
         async with session.get(
-            f"{BASE_URL}/threads",
-            params={"search": "Brief"}
+            f"{BASE_URL}/threads", params={"search": "Brief"}
         ) as resp:
             if resp.status == 200:
                 threads = await resp.json()
                 print(f"✅ Found {len(threads)} thread(s) containing 'Brief'")
                 for thread in threads:
-                    if thread.get('content'):
-                        assert 'brief' in thread['content'].lower(), "Content search failed"
+                    if thread.get("content"):
+                        assert "brief" in thread["content"].lower(), (
+                            "Content search failed"
+                        )
             else:
                 print(f"❌ Failed to search threads by content: {await resp.text()}")
 
         # Test 9c: Thread search - time filter
         print("\n9️⃣c Thread search - time filter...")
         async with session.get(
-            f"{BASE_URL}/threads",
-            params={"since": "1hour"}
+            f"{BASE_URL}/threads", params={"since": "1hour"}
         ) as resp:
             if resp.status == 200:
                 threads = await resp.json()
@@ -294,25 +312,20 @@ async def test_unified_search():
 
     print("🔍 Testing Unified Search API\n")
 
-    headers = {
-        "X-Project-Id": "test-project",
-        "X-Agent-Id": "test-search-agent"
-    }
+    headers = {"X-Project-Id": "test-project", "X-Agent-Id": "test-search-agent"}
 
     async with aiohttp.ClientSession(headers=headers) as session:
-
         # Test 1: Basic folio search (default)
         print("1️⃣ Testing basic folio search...")
-        async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "test"}
-        ) as resp:
+        async with session.get(f"{BASE_URL}/search", params={"q": "test"}) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 print(f"✅ Search completed in {data.get('execution_time_ms')}ms")
                 print(f"   Total results: {data.get('total', 0)}")
                 print(f"   Resources searched: {', '.join(data.get('resources', []))}")
-                assert "folios" in data.get("results", {}), "Default should search folios"
+                assert "folios" in data.get("results", {}), (
+                    "Default should search folios"
+                )
             else:
                 print(f"❌ Failed basic search: {await resp.text()}")
                 return
@@ -321,7 +334,7 @@ async def test_unified_search():
         print("\n2️⃣ Testing multi-resource search...")
         async with session.get(
             f"{BASE_URL}/search",
-            params={"q": "test", "resources": "folios,threads,agents,sites"}
+            params={"q": "test", "resources": "folios,threads,agents,sites"},
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -330,15 +343,16 @@ async def test_unified_search():
                 for resource_type, resource_data in results.items():
                     total = resource_data.get("total", 0)
                     items_count = len(resource_data.get("items", []))
-                    print(f"   • {resource_type}: {total} total, {items_count} returned")
+                    print(
+                        f"   • {resource_type}: {total} total, {items_count} returned"
+                    )
             else:
                 print(f"❌ Failed multi-resource search: {await resp.text()}")
 
         # Test 3: Search with filters - folios by type and status
         print("\n3️⃣ Testing folio search with type and status filters...")
         async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "", "type": "issue", "status": "open"}
+            f"{BASE_URL}/search", params={"q": "", "type": "issue", "status": "open"}
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -354,8 +368,7 @@ async def test_unified_search():
         # Test 4: Search with site patterns
         print("\n4️⃣ Testing search with site patterns...")
         async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "", "sites": ["test-*", "opus-*"]}
+            f"{BASE_URL}/search", params={"q": "", "sites": ["test-*", "opus-*"]}
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -370,7 +383,7 @@ async def test_unified_search():
         print("\n5️⃣ Testing agent search by capabilities...")
         async with session.get(
             f"{BASE_URL}/search",
-            params={"q": "", "resources": "agents", "capabilities": "testing"}
+            params={"q": "", "resources": "agents", "capabilities": "testing"},
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -387,7 +400,12 @@ async def test_unified_search():
         print("\n6️⃣ Testing thread search by weaver and type...")
         async with session.get(
             f"{BASE_URL}/search",
-            params={"q": "", "resources": "threads", "thread_type": "message", "weaver": "test-agent-001"}
+            params={
+                "q": "",
+                "resources": "threads",
+                "thread_type": "message",
+                "weaver": "test-agent-001",
+            },
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -401,8 +419,7 @@ async def test_unified_search():
         # Test 7: Relevance sorting
         print("\n7️⃣ Testing relevance sorting...")
         async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "database", "sort": "relevance"}
+            f"{BASE_URL}/search", params={"q": "database", "sort": "relevance"}
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -416,8 +433,7 @@ async def test_unified_search():
         # Test 8: Pagination
         print("\n8️⃣ Testing pagination...")
         async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "", "limit": 5, "offset": 0}
+            f"{BASE_URL}/search", params={"q": "", "limit": 5, "offset": 0}
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -427,12 +443,13 @@ async def test_unified_search():
 
                 # Get page 2
                 async with session.get(
-                    f"{BASE_URL}/search",
-                    params={"q": "", "limit": 5, "offset": 5}
+                    f"{BASE_URL}/search", params={"q": "", "limit": 5, "offset": 5}
                 ) as resp2:
                     if resp2.status == 200:
                         data2 = await resp2.json()
-                        page2 = data2.get("results", {}).get("folios", {}).get("items", [])
+                        page2 = (
+                            data2.get("results", {}).get("folios", {}).get("items", [])
+                        )
                         print(f"   Page 2: {len(page2)} items (offset=5)")
             else:
                 print(f"❌ Failed pagination test: {await resp.text()}")
@@ -440,8 +457,7 @@ async def test_unified_search():
         # Test 9: Time filters
         print("\n9️⃣ Testing time filters...")
         async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "", "since": "1hour"}
+            f"{BASE_URL}/search", params={"q": "", "since": "1hour"}
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -453,23 +469,23 @@ async def test_unified_search():
         # Test 10: Empty query with filters (list all matching)
         print("\n🔟 Testing empty query with filters...")
         async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "", "type": "brief", "status": "open"}
+            f"{BASE_URL}/search", params={"q": "", "type": "brief", "status": "open"}
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 folios = data.get("results", {}).get("folios", {}).get("items", [])
                 print(f"✅ Found {len(folios)} open briefs (empty query)")
                 for folio in folios:
-                    assert folio.get("type") == "brief", "Type filter failed with empty query"
+                    assert folio.get("type") == "brief", (
+                        "Type filter failed with empty query"
+                    )
             else:
                 print(f"❌ Failed empty query test: {await resp.text()}")
 
         # Test 11: Invalid resource type (error handling)
         print("\n1️⃣1️⃣ Testing invalid resource type...")
         async with session.get(
-            f"{BASE_URL}/search",
-            params={"q": "test", "resources": "invalid"}
+            f"{BASE_URL}/search", params={"q": "test", "resources": "invalid"}
         ) as resp:
             if resp.status == 400:
                 error = await resp.json()

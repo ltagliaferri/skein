@@ -13,22 +13,35 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .models import (
-    AgentRegistration, AgentInfo,
-    SiteCreate, Site, SiteUpdate,
-    FolioCreate, Folio, FolioUpdate,
-    ThreadCreate, Thread,
-    LogBatch, LogLine,
+    AgentRegistration,
+    AgentInfo,
+    SiteCreate,
+    Site,
+    SiteUpdate,
+    FolioCreate,
+    Folio,
+    FolioUpdate,
+    ThreadCreate,
+    Thread,
+    LogBatch,
+    LogLine,
     FolioType,
-    ScreenshotCreate, Screenshot,
-    YieldCreate, Yield
+    ScreenshotCreate,
+    Screenshot,
+    YieldCreate,
+    Yield,
 )
 from .storage import JSONStore, LogDatabase, get_data_dir_for_project
 from .utils import (
-    generate_folio_id, generate_thread_id, generate_yield_id, parse_mentions,
-    get_current_status, get_current_assignment,
+    generate_folio_id,
+    generate_thread_id,
+    generate_yield_id,
+    parse_mentions,
+    get_current_status,
+    get_current_assignment,
     auto_invalidate_cache,
     parse_relative_time,
-    generate_agent_name
+    generate_agent_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +60,7 @@ def get_project_store(x_project_id: Optional[str] = Header(None)) -> JSONStore:
     if not x_project_id:
         raise HTTPException(
             status_code=400,
-            detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first."
+            detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first.",
         )
 
     data_dir = get_data_dir_for_project(x_project_id)
@@ -65,7 +78,7 @@ def get_project_log_db(x_project_id: Optional[str] = Header(None)) -> LogDatabas
     if not x_project_id:
         raise HTTPException(
             status_code=400,
-            detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first."
+            detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first.",
         )
 
     data_dir = get_data_dir_for_project(x_project_id)
@@ -84,7 +97,7 @@ def get_project_screenshots_dir(x_project_id: Optional[str] = Header(None)) -> P
     if not x_project_id:
         raise HTTPException(
             status_code=400,
-            detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first."
+            detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first.",
         )
 
     data_dir = get_data_dir_for_project(x_project_id)
@@ -96,10 +109,10 @@ def get_project_screenshots_dir(x_project_id: Optional[str] = Header(None)) -> P
 
 # Roster Endpoints
 
+
 @router.post("/roster/register")
 async def register_agent(
-    registration: AgentRegistration,
-    store: JSONStore = Depends(get_project_store)
+    registration: AgentRegistration, store: JSONStore = Depends(get_project_store)
 ):
     """Register an agent in the roster."""
     agent = AgentInfo(
@@ -110,7 +123,7 @@ async def register_agent(
         registered_at=datetime.now(),
         capabilities=registration.capabilities,
         status=registration.status or "active",
-        metadata=registration.metadata
+        metadata=registration.metadata,
     )
 
     success = store.save_agent(agent)
@@ -123,8 +136,10 @@ async def register_agent(
 
 @router.get("/roster", response_model=List[AgentInfo])
 async def get_roster(
-    status: Optional[str] = Query(None, description="Filter by status: active, retired"),
-    store: JSONStore = Depends(get_project_store)
+    status: Optional[str] = Query(
+        None, description="Filter by status: active, retired"
+    ),
+    store: JSONStore = Depends(get_project_store),
 ):
     """Get registered agents, optionally filtered by status."""
     return store.get_agents(status=status)
@@ -132,6 +147,7 @@ async def get_roster(
 
 class AgentActivity(BaseModel):
     """Agent info enriched with activity data for QM dashboards."""
+
     agent_id: str
     name: Optional[str] = None
     agent_type: Optional[str] = None
@@ -148,8 +164,10 @@ class AgentActivity(BaseModel):
 
 @router.get("/roster/enriched", response_model=List[AgentActivity])
 async def get_roster_enriched(
-    status: Optional[str] = Query(None, description="Filter by status: active, retired"),
-    store: JSONStore = Depends(get_project_store)
+    status: Optional[str] = Query(
+        None, description="Filter by status: active, retired"
+    ),
+    store: JSONStore = Depends(get_project_store),
 ):
     """
     Get registered agents with activity data for QM work.
@@ -212,19 +230,21 @@ async def get_roster_enriched(
         if not last_activity_relative:
             last_activity_relative = format_relative_time(agent.registered_at)
 
-        enriched.append(AgentActivity(
-            agent_id=agent.agent_id,
-            name=agent.name,
-            agent_type=agent.agent_type,
-            status=agent.status,
-            registered_at=agent.registered_at,
-            last_activity=last_activity,
-            last_activity_relative=last_activity_relative,
-            activity_status=activity_status,
-            working_site=working_site,
-            folio_count=folio_count,
-            last_folio_type=last_folio_type,
-        ))
+        enriched.append(
+            AgentActivity(
+                agent_id=agent.agent_id,
+                name=agent.name,
+                agent_type=agent.agent_type,
+                status=agent.status,
+                registered_at=agent.registered_at,
+                last_activity=last_activity,
+                last_activity_relative=last_activity_relative,
+                activity_status=activity_status,
+                working_site=working_site,
+                folio_count=folio_count,
+                last_folio_type=last_folio_type,
+            )
+        )
 
     # Sort by most recent activity first (active agents at top)
     enriched.sort(key=lambda a: a.last_activity or a.registered_at, reverse=True)
@@ -243,6 +263,7 @@ async def get_agent(agent_id: str, store: JSONStore = Depends(get_project_store)
 
 class AgentUpdate(BaseModel):
     """Model for updating agent fields."""
+
     status: Optional[str] = None
     name: Optional[str] = None
     agent_type: Optional[str] = None
@@ -253,9 +274,7 @@ class AgentUpdate(BaseModel):
 
 @router.patch("/roster/{agent_id}")
 async def update_agent(
-    agent_id: str,
-    update: AgentUpdate,
-    store: JSONStore = Depends(get_project_store)
+    agent_id: str, update: AgentUpdate, store: JSONStore = Depends(get_project_store)
 ):
     """Update agent registration."""
     agent = store.get_agent(agent_id)
@@ -282,11 +301,12 @@ async def update_agent(
 
 # Site Endpoints
 
+
 @router.post("/sites")
 async def create_site(
     site_create: SiteCreate,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Create a new site."""
     created_by = x_agent_id or "unknown"
@@ -297,7 +317,7 @@ async def create_site(
         created_by=created_by,
         purpose=site_create.purpose,
         status="active",
-        metadata=site_create.metadata
+        metadata=site_create.metadata,
     )
 
     success = store.save_site(site)
@@ -312,7 +332,7 @@ async def create_site(
 async def get_sites(
     status: Optional[str] = None,
     tag: Optional[str] = None,
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Get all sites with optional filters."""
     sites = store.get_sites()
@@ -336,26 +356,27 @@ async def get_site(site_id: str, store: JSONStore = Depends(get_project_store)):
         active_sites = [s for s in all_sites if s.status == "active"]
         if active_sites:
             site_ids = [s.site_id for s in active_sites[:50]]
-            suffix = f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            suffix = (
+                f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            )
             raise HTTPException(
                 status_code=404,
-                detail=f"Site '{site_id}' not found. Active sites: {', '.join(site_ids)}{suffix}. Run 'skein sites' for full list."
+                detail=f"Site '{site_id}' not found. Active sites: {', '.join(site_ids)}{suffix}. Run 'skein sites' for full list.",
             )
-        raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found. No active sites exist - create one with 'skein site create <id> \"description\"'")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Site '{site_id}' not found. No active sites exist - create one with 'skein site create <id> \"description\"'",
+        )
     return site
 
 
 @router.patch("/sites/{site_id}", response_model=Site)
 async def update_site(
-    site_id: str,
-    site_update: SiteUpdate,
-    store: JSONStore = Depends(get_project_store)
+    site_id: str, site_update: SiteUpdate, store: JSONStore = Depends(get_project_store)
 ):
     """Update site status and/or metadata."""
     updated_site = store.update_site(
-        site_id,
-        status=site_update.status,
-        metadata=site_update.metadata
+        site_id, status=site_update.status, metadata=site_update.metadata
     )
     if not updated_site:
         raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found")
@@ -367,7 +388,7 @@ async def get_site_folios(
     site_id: str,
     type: Optional[FolioType] = None,
     since: Optional[str] = None,
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Get folios for a specific site."""
     folios = store.get_folios(site_id=site_id)
@@ -393,19 +414,36 @@ async def get_site_folios(
 
 # Title validation
 GENERIC_TITLES = {
-    'handoff', 'handoff brief', 'brief', 'untitled', 'test', 'title',
-    'issue', 'friction', 'finding', 'notion', 'summary', 'tender', 'writ',
-    'new folio', 'folio', 'update', 'fix', 'change', 'todo', 'task'
+    "handoff",
+    "handoff brief",
+    "brief",
+    "untitled",
+    "test",
+    "title",
+    "issue",
+    "friction",
+    "finding",
+    "notion",
+    "summary",
+    "tender",
+    "writ",
+    "new folio",
+    "folio",
+    "update",
+    "fix",
+    "change",
+    "todo",
+    "task",
 }
 
 TITLE_EXAMPLES = {
-    'brief': 'e.g., "Implement OAuth for API endpoints" or "Fix race condition in websocket handler"',
-    'issue': 'e.g., "Agents crash when site_id contains spaces" or "Memory leak in long-running sessions"',
-    'friction': 'e.g., "Must restart server after config changes" or "Error messages don\'t show line numbers"',
-    'finding': 'e.g., "Redis caching reduces latency by 40%" or "Users prefer dark mode 3:1"',
-    'tender': 'e.g., "Auth refactor ready for review" or "New dashboard component complete"',
-    'notion': 'e.g., "Could use websockets for real-time updates" or "Consider caching user preferences"',
-    'summary': 'e.g., "Completed OAuth integration" or "Session retrospective: agent coordination"',
+    "brief": 'e.g., "Implement OAuth for API endpoints" or "Fix race condition in websocket handler"',
+    "issue": 'e.g., "Agents crash when site_id contains spaces" or "Memory leak in long-running sessions"',
+    "friction": 'e.g., "Must restart server after config changes" or "Error messages don\'t show line numbers"',
+    "finding": 'e.g., "Redis caching reduces latency by 40%" or "Users prefer dark mode 3:1"',
+    "tender": 'e.g., "Auth refactor ready for review" or "New dashboard component complete"',
+    "notion": 'e.g., "Could use websockets for real-time updates" or "Consider caching user preferences"',
+    "summary": 'e.g., "Completed OAuth integration" or "Session retrospective: agent coordination"',
 }
 
 # Patterns for shard/worktree IDs:
@@ -413,19 +451,19 @@ TITLE_EXAMPLES = {
 # - bucket-1210-20251210-001 (name-based)
 # - eaa09237-20251207-154442 (hex-date-timestamp)
 SHARD_ID_PATTERN = re.compile(
-    r'^[a-f0-9]{8}-\d{8}-\d{3,6}:\s*|'  # 8-char hex: 65af2039-20251205-001:
-    r'^[a-z]+-\d{4}-\d{8}-\d{3}:\s*',    # name-based: bucket-1210-20251210-001:
-    re.IGNORECASE
+    r"^[a-f0-9]{8}-\d{8}-\d{3,6}:\s*|"  # 8-char hex: 65af2039-20251205-001:
+    r"^[a-z]+-\d{4}-\d{8}-\d{3}:\s*",  # name-based: bucket-1210-20251210-001:
+    re.IGNORECASE,
 )
 
 # Folio type prefixes that are redundant (the type field already says this)
 TYPE_PREFIX_PATTERN = re.compile(
-    r'^(tender|brief|issue|finding|friction|notion|summary|writ|playbook|mantle|plan):\s*',
-    re.IGNORECASE
+    r"^(tender|brief|issue|finding|friction|notion|summary|writ|playbook|mantle|plan):\s*",
+    re.IGNORECASE,
 )
 
 # Status markers often copied from content (handles markdown bold or plain)
-STATUS_MARKER_PATTERN = re.compile(r'(\*\*)?Status:(\*\*)?\s*\w+\.?\s*', re.IGNORECASE)
+STATUS_MARKER_PATTERN = re.compile(r"(\*\*)?Status:(\*\*)?\s*\w+\.?\s*", re.IGNORECASE)
 
 
 def validate_folio_title(title: str, folio_type: str) -> str:
@@ -442,48 +480,54 @@ def validate_folio_title(title: str, folio_type: str) -> str:
     """
     # Must have a title
     if not title or not title.strip():
-        example = TITLE_EXAMPLES.get(folio_type, 'e.g., "Clear description of what this folio is about"')
+        example = TITLE_EXAMPLES.get(
+            folio_type, 'e.g., "Clear description of what this folio is about"'
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"{folio_type.capitalize()} needs a title that describes what it's about.\n\n{example}"
+            detail=f"{folio_type.capitalize()} needs a title that describes what it's about.\n\n{example}",
         )
 
     title = title.strip()
 
     # Strip markdown cruft
-    title = re.sub(r'^#+\s*', '', title)  # Leading headers
-    title = re.sub(r'^\*\*(.+?)\*\*', r'\1', title)  # Bold wrapper (keep content)
-    title = re.sub(r'^__(.+?)__', r'\1', title)  # Underscore bold wrapper
+    title = re.sub(r"^#+\s*", "", title)  # Leading headers
+    title = re.sub(r"^\*\*(.+?)\*\*", r"\1", title)  # Bold wrapper (keep content)
+    title = re.sub(r"^__(.+?)__", r"\1", title)  # Underscore bold wrapper
     title = title.strip()
 
     # Strip status markers (must be before stripping bold, uses markdown)
-    title = STATUS_MARKER_PATTERN.sub('', title)
+    title = STATUS_MARKER_PATTERN.sub("", title)
 
     # Strip redundant type prefixes FIRST (they come before shard IDs)
-    title = TYPE_PREFIX_PATTERN.sub('', title)
+    title = TYPE_PREFIX_PATTERN.sub("", title)
 
     # Strip shard/worktree IDs from start (after type prefix is removed)
-    title = SHARD_ID_PATTERN.sub('', title)
+    title = SHARD_ID_PATTERN.sub("", title)
 
     # Clean up any remaining type prefixes (in case of "## Tender: shard-id: ...")
-    title = TYPE_PREFIX_PATTERN.sub('', title)
+    title = TYPE_PREFIX_PATTERN.sub("", title)
 
     title = title.strip()
 
     # Check for generic/lazy titles
     if title.lower() in GENERIC_TITLES:
-        example = TITLE_EXAMPLES.get(folio_type, 'e.g., "Clear description of what this folio is about"')
+        example = TITLE_EXAMPLES.get(
+            folio_type, 'e.g., "Clear description of what this folio is about"'
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"\"{title}\" is too generic - what's this {folio_type} actually about?\n\n{example}"
+            detail=f'"{title}" is too generic - what\'s this {folio_type} actually about?\n\n{example}',
         )
 
     # Check minimum length (avoid "ok", "done", etc.)
     if len(title) < 10:
-        example = TITLE_EXAMPLES.get(folio_type, 'e.g., "Clear description of what this folio is about"')
+        example = TITLE_EXAMPLES.get(
+            folio_type, 'e.g., "Clear description of what this folio is about"'
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"\"{title}\" is too brief ({len(title)} chars) - give a bit more detail so others know what this covers.\n\n{example}"
+            detail=f'"{title}" is too brief ({len(title)} chars) - give a bit more detail so others know what this covers.\n\n{example}',
         )
 
     # Truncate if too long (but don't reject - just fix it)
@@ -498,7 +542,7 @@ async def post_to_site(
     site_id: str,
     folio_create: FolioCreate,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Post a folio to a site."""
     # Validate and clean title
@@ -512,12 +556,17 @@ async def post_to_site(
         active_sites = [s for s in all_sites if s.status == "active"]
         if active_sites:
             site_ids = [s.site_id for s in active_sites[:50]]
-            suffix = f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            suffix = (
+                f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            )
             raise HTTPException(
                 status_code=404,
-                detail=f"Site '{site_id}' not found. Active sites: {', '.join(site_ids)}{suffix}. Run 'skein sites' for full list."
+                detail=f"Site '{site_id}' not found. Active sites: {', '.join(site_ids)}{suffix}. Run 'skein sites' for full list.",
             )
-        raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found. No active sites exist - create one with 'skein site create <id> \"description\"'")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Site '{site_id}' not found. No active sites exist - create one with 'skein site create <id> \"description\"'",
+        )
 
     created_by = x_agent_id or "unknown"
     folio_id = generate_folio_id(folio_create.type)
@@ -537,7 +586,7 @@ async def post_to_site(
         target_agent=folio_create.target_agent,
         omlet=folio_create.omlet,
         archived=False,
-        metadata=folio_create.metadata
+        metadata=folio_create.metadata,
     )
 
     success = store.save_folio(folio)
@@ -555,14 +604,17 @@ async def post_to_site(
             type="mention",
             content=f"Mentioned in {folio_create.type}: {folio_create.title}",
             weaver=created_by,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         store.save_thread(thread)
 
     # SUGAR API: Create status thread if status provided (undocumented)
     # Don't create default status - let patterns emerge naturally
     # Only create if explicitly provided AND not "open" (which is just noise)
-    if folio_create.metadata.get("status") and folio_create.metadata.get("status") != "open":
+    if (
+        folio_create.metadata.get("status")
+        and folio_create.metadata.get("status") != "open"
+    ):
         status_thread = Thread(
             thread_id=generate_thread_id(),
             from_id=folio_id,
@@ -570,7 +622,7 @@ async def post_to_site(
             type="status",
             content=folio_create.metadata.get("status"),
             weaver=created_by,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         store.save_thread(status_thread)
         auto_invalidate_cache("status", folio_id)
@@ -584,7 +636,7 @@ async def post_to_site(
             type="assignment",
             content=f"Assigned {folio_create.type}: {folio_create.title}",
             weaver=created_by,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         store.save_thread(assignment_thread)
         auto_invalidate_cache("assignment", folio_id)
@@ -598,7 +650,7 @@ async def post_to_site(
             type="message",
             content=f"Brief for you: {folio_create.title}",
             weaver=created_by,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         store.save_thread(thread)
 
@@ -607,11 +659,12 @@ async def post_to_site(
 
 # Folio Endpoints
 
+
 @router.post("/folios")
 async def create_folio(
     folio_create: FolioCreate,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Create a folio (shortcut for POST /sites/{site_id}/folios)."""
     return await post_to_site(folio_create.site_id, folio_create, x_agent_id, store)
@@ -624,7 +677,7 @@ async def get_folios(
     assigned_to: Optional[str] = None,
     status: Optional[str] = None,
     archived: Optional[bool] = False,
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Get folios with filters."""
     # Validate site_id is not empty string
@@ -663,14 +716,15 @@ async def search_folios(
     q: str = Query(...),
     type: Optional[FolioType] = None,
     status: Optional[str] = None,
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Search folios by content."""
     folios = store.get_folios()
 
     # Simple text search for MVP
     matching = [
-        f for f in folios
+        f
+        for f in folios
         if q.lower() in f.title.lower() or q.lower() in f.content.lower()
     ]
 
@@ -680,7 +734,8 @@ async def search_folios(
     if status:
         # Get status from threads with fallback to stored field (consistent with /folios endpoint)
         matching = [
-            f for f in matching
+            f
+            for f in matching
             if (get_current_status(f.folio_id, store) or f.status or "open") == status
         ]
 
@@ -710,7 +765,7 @@ async def update_folio(
     folio_id: str,
     update: FolioUpdate,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Update folio fields (title, content, status, assigned_to, archived)."""
     folio = store.get_folio(folio_id)
@@ -735,7 +790,7 @@ async def update_folio(
             type="status",
             content=update.status,
             weaver=created_by,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         store.save_thread(status_thread)
         auto_invalidate_cache("status", folio_id)
@@ -751,7 +806,7 @@ async def update_folio(
             type="assignment",
             content=f"Assigned to {update.assigned_to}",
             weaver=created_by,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         store.save_thread(assignment_thread)
         auto_invalidate_cache("assignment", folio_id)
@@ -767,6 +822,7 @@ async def update_folio(
 
 class FolioMoveRequest(BaseModel):
     """Request to move a folio to a different site."""
+
     dest_site_id: str
     note: Optional[str] = None
 
@@ -776,7 +832,7 @@ async def move_folio(
     folio_id: str,
     move_request: FolioMoveRequest,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """
     Move a folio from its current site to a different site.
@@ -803,24 +859,25 @@ async def move_folio(
             type="message",
             content=f"Moved to {move_request.dest_site_id}: {move_request.note}",
             weaver=created_by,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         store.save_thread(move_thread)
 
     return {
         "success": True,
         "folio": moved_folio,
-        "moved_to": move_request.dest_site_id
+        "moved_to": move_request.dest_site_id,
     }
 
 
 # Thread Endpoints
 
+
 @router.post("/threads")
 async def create_thread(
     thread_create: ThreadCreate,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Create a thread between resources."""
     thread_id = generate_thread_id()
@@ -835,7 +892,7 @@ async def create_thread(
         type=thread_create.type,
         content=thread_create.content,
         weaver=weaver,
-        created_at=datetime.now()
+        created_at=datetime.now(),
     )
 
     success = store.save_thread(thread)
@@ -860,7 +917,7 @@ async def get_threads(
     weaver: Optional[str] = None,
     search: Optional[str] = None,
     since: Optional[str] = None,
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """Get threads with optional filters.
 
@@ -883,8 +940,7 @@ async def get_threads(
     if search:
         search_lower = search.lower()
         threads = [
-            t for t in threads
-            if t.content and search_lower in t.content.lower()
+            t for t in threads if t.content and search_lower in t.content.lower()
         ]
 
     # Apply time filter
@@ -898,6 +954,7 @@ async def get_threads(
                 # If thread is naive and since_dt is aware, make thread aware (assume UTC)
                 if thread_dt.tzinfo is None and since_dt.tzinfo is not None:
                     from datetime import timezone as tz
+
                     thread_dt = thread_dt.replace(tzinfo=tz.utc)
                 filtered_threads.append((t, thread_dt >= since_dt))
             threads = [t for t, keep in filtered_threads if keep]
@@ -911,7 +968,7 @@ async def get_threads(
 async def get_inbox(
     x_agent_id: str = Header(..., alias="X-Agent-Id"),
     unread: Optional[bool] = None,
-    store: JSONStore = Depends(get_project_store)
+    store: JSONStore = Depends(get_project_store),
 ):
     """
     Get inbox for the calling agent with full conversation context.
@@ -929,7 +986,9 @@ async def get_inbox(
 
 
 @router.patch("/threads/{thread_id}/read")
-async def mark_thread_read(thread_id: str, store: JSONStore = Depends(get_project_store)):
+async def mark_thread_read(
+    thread_id: str, store: JSONStore = Depends(get_project_store)
+):
     """Mark a thread as read."""
     success = store.mark_thread_read(thread_id)
 
@@ -941,10 +1000,10 @@ async def mark_thread_read(thread_id: str, store: JSONStore = Depends(get_projec
 
 # Log Endpoints
 
+
 @router.post("/logs")
 async def post_logs(
-    log_batch: LogBatch,
-    log_db: LogDatabase = Depends(get_project_log_db)
+    log_batch: LogBatch, log_db: LogDatabase = Depends(get_project_log_db)
 ):
     """Post logs to a stream."""
     lines = [line.model_dump() for line in log_batch.lines]
@@ -966,7 +1025,7 @@ async def get_logs(
     level: Optional[str] = None,
     search: Optional[str] = None,
     limit: int = Query(1000, le=10000),
-    log_db: LogDatabase = Depends(get_project_log_db)
+    log_db: LogDatabase = Depends(get_project_log_db),
 ):
     """Get logs from a stream with filters."""
     return log_db.get_logs(stream_id, since, level, search, limit)
@@ -974,8 +1033,11 @@ async def get_logs(
 
 # Discovery Endpoints
 
+
 @router.get("/activity")
-async def get_activity(since: Optional[str] = None, store: JSONStore = Depends(get_project_store)):
+async def get_activity(
+    since: Optional[str] = None, store: JSONStore = Depends(get_project_store)
+):
     """Get recent activity across SKEIN."""
     # Simple implementation for MVP
     folios = store.get_folios()
@@ -992,11 +1054,12 @@ async def get_activity(since: Optional[str] = None, store: JSONStore = Depends(g
 
     return {
         "new_folios": folios[:10],  # Last 10 folios
-        "active_agents": list({f.created_by for f in folios})
+        "active_agents": list({f.created_by for f in folios}),
     }
 
 
 # Unified Search Endpoint
+
 
 @router.get("/search")
 async def unified_search(
@@ -1025,7 +1088,7 @@ async def unified_search(
     limit: int = Query(50, le=500),
     offset: int = Query(0),
     store: JSONStore = Depends(get_project_store),
-    x_agent_id: Optional[str] = Header(None, alias="X-Agent-Id")
+    x_agent_id: Optional[str] = Header(None, alias="X-Agent-Id"),
 ):
     """
     Unified search across multiple resource types.
@@ -1052,6 +1115,7 @@ async def unified_search(
         offset: Skip first N results
     """
     import time
+
     start_time = time.time()
 
     # Parse resources
@@ -1061,7 +1125,7 @@ async def unified_search(
         if r not in valid_resources:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid resource type: '{r}'. Valid: {', '.join(valid_resources)}"
+                detail=f"Invalid resource type: '{r}'. Valid: {', '.join(valid_resources)}",
             )
 
     # Resolve 'me' in weaver filter
@@ -1100,7 +1164,8 @@ async def unified_search(
         if q:
             q_lower = q.lower()
             folios = [
-                f for f in folios
+                f
+                for f in folios
                 if q_lower in f.title.lower() or q_lower in f.content.lower()
             ]
 
@@ -1114,8 +1179,10 @@ async def unified_search(
         if sites:
             # Support glob patterns
             import fnmatch
+
             folios = [
-                f for f in folios
+                f
+                for f in folios
                 if any(fnmatch.fnmatch(f.site_id, pattern) for pattern in sites)
             ]
 
@@ -1149,16 +1216,14 @@ async def unified_search(
                 if q_lower in folio.content.lower():
                     score += 1
                 return score
+
             folios.sort(key=relevance_score, reverse=True)
 
         # Pagination
         folios_total = len(folios)
-        folios = folios[offset:offset + limit]
+        folios = folios[offset : offset + limit]
 
-        results["folios"] = {
-            "total": folios_total,
-            "items": folios
-        }
+        results["folios"] = {"total": folios_total, "items": folios}
         total += folios_total
 
     # Search threads
@@ -1168,10 +1233,7 @@ async def unified_search(
         # Text search
         if q:
             q_lower = q.lower()
-            threads = [
-                t for t in threads
-                if t.content and q_lower in t.content.lower()
-            ]
+            threads = [t for t in threads if t.content and q_lower in t.content.lower()]
 
         # Filters
         if thread_type:
@@ -1193,6 +1255,7 @@ async def unified_search(
                 thread_dt = t.created_at
                 if thread_dt.tzinfo is None and since_dt.tzinfo is not None:
                     from datetime import timezone as tz
+
                     thread_dt = thread_dt.replace(tzinfo=tz.utc)
                 if thread_dt >= since_dt:
                     filtered.append(t)
@@ -1205,6 +1268,7 @@ async def unified_search(
                 thread_dt = t.created_at
                 if thread_dt.tzinfo is None and before_dt.tzinfo is not None:
                     from datetime import timezone as tz
+
                     thread_dt = thread_dt.replace(tzinfo=tz.utc)
                 if thread_dt < before_dt:
                     filtered.append(t)
@@ -1218,12 +1282,9 @@ async def unified_search(
 
         # Pagination
         threads_total = len(threads)
-        threads = threads[offset:offset + limit]
+        threads = threads[offset : offset + limit]
 
-        results["threads"] = {
-            "total": threads_total,
-            "items": threads
-        }
+        results["threads"] = {"total": threads_total, "items": threads}
         total += threads_total
 
     # Search agents
@@ -1234,10 +1295,13 @@ async def unified_search(
         if q:
             q_lower = q.lower()
             agents = [
-                a for a in agents
-                if (q_lower in a.agent_id.lower() or
-                    q_lower in (a.name or "").lower() or
-                    any(q_lower in cap.lower() for cap in (a.capabilities or [])))
+                a
+                for a in agents
+                if (
+                    q_lower in a.agent_id.lower()
+                    or q_lower in (a.name or "").lower()
+                    or any(q_lower in cap.lower() for cap in (a.capabilities or []))
+                )
             ]
 
         # Filters
@@ -1246,7 +1310,8 @@ async def unified_search(
 
         if capabilities:
             agents = [
-                a for a in agents
+                a
+                for a in agents
                 if a.capabilities and all(cap in a.capabilities for cap in capabilities)
             ]
 
@@ -1267,12 +1332,9 @@ async def unified_search(
 
         # Pagination
         agents_total = len(agents)
-        agents = agents[offset:offset + limit]
+        agents = agents[offset : offset + limit]
 
-        results["agents"] = {
-            "total": agents_total,
-            "items": agents
-        }
+        results["agents"] = {"total": agents_total, "items": agents}
         total += agents_total
 
     # Search sites
@@ -1283,7 +1345,8 @@ async def unified_search(
         if q:
             q_lower = q.lower()
             sites_list = [
-                s for s in sites_list
+                s
+                for s in sites_list
                 if q_lower in s.site_id.lower() or q_lower in (s.purpose or "").lower()
             ]
 
@@ -1305,12 +1368,9 @@ async def unified_search(
 
         # Pagination
         sites_total = len(sites_list)
-        sites_list = sites_list[offset:offset + limit]
+        sites_list = sites_list[offset : offset + limit]
 
-        results["sites"] = {
-            "total": sites_total,
-            "items": sites_list
-        }
+        results["sites"] = {"total": sites_total, "items": sites_list}
         total += sites_total
 
     execution_time_ms = int((time.time() - start_time) * 1000)
@@ -1319,11 +1379,12 @@ async def unified_search(
         "query": q,
         "resources": resource_list,
         "filters": {
-            k: v for k, v in {
+            k: v
+            for k, v in {
                 "status": status,
                 "since": since,
                 "before": before,
-                "type": type.value if type and hasattr(type, 'value') else type,
+                "type": type.value if type and hasattr(type, "value") else type,
                 "site": site,
                 "sites": sites,
                 "assigned_to": assigned_to,
@@ -1336,22 +1397,24 @@ async def unified_search(
                 "capabilities": capabilities,
                 "sort": sort,
                 "limit": limit,
-                "offset": offset
-            }.items() if v is not None
+                "offset": offset,
+            }.items()
+            if v is not None
         },
         "total": total,
         "results": results,
-        "execution_time_ms": execution_time_ms
+        "execution_time_ms": execution_time_ms,
     }
 
 
 # Screenshot Endpoints
 
+
 @router.post("/screenshots")
 async def upload_screenshot(
     screenshot_create: ScreenshotCreate,
     screenshots_dir: Path = Depends(get_project_screenshots_dir),
-    log_db: LogDatabase = Depends(get_project_log_db)
+    log_db: LogDatabase = Depends(get_project_log_db),
 ):
     """Upload a screenshot from web app."""
     # Generate screenshot ID
@@ -1363,15 +1426,19 @@ async def upload_screenshot(
     strand_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate filename
-    turn_suffix = f"_turn-{screenshot_create.turn_number}" if screenshot_create.turn_number else ""
+    turn_suffix = (
+        f"_turn-{screenshot_create.turn_number}"
+        if screenshot_create.turn_number
+        else ""
+    )
     filename = f"{timestamp.strftime('%Y-%m-%dT%H-%M-%S')}{turn_suffix}_{screenshot_create.label}.png"
     file_path = strand_dir / filename
 
     try:
         # Decode base64 and save
         screenshot_data = screenshot_create.screenshot_data
-        if screenshot_data.startswith('data:image/png;base64,'):
-            screenshot_data = screenshot_data.split(',')[1]
+        if screenshot_data.startswith("data:image/png;base64,"):
+            screenshot_data = screenshot_data.split(",")[1]
 
         image_bytes = base64.b64decode(screenshot_data)
         file_path.write_bytes(image_bytes)
@@ -1385,20 +1452,18 @@ async def upload_screenshot(
             label=screenshot_create.label,
             file_path=str(file_path),
             file_size=file_size,
-            metadata={}
+            metadata={},
         )
 
         logger.info(f"Screenshot saved: {screenshot_id} ({file_size} bytes)")
 
-        return {
-            "success": True,
-            "screenshot_id": screenshot_id,
-            "file_size": file_size
-        }
+        return {"success": True, "screenshot_id": screenshot_id, "file_size": file_size}
 
     except Exception as e:
         logger.error(f"Failed to save screenshot: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to save screenshot: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save screenshot: {str(e)}"
+        )
 
 
 @router.get("/screenshots", response_model=List[Screenshot])
@@ -1406,7 +1471,7 @@ async def list_screenshots(
     strand_id: Optional[str] = None,
     since: Optional[str] = None,
     limit: int = Query(50, le=200),
-    log_db: LogDatabase = Depends(get_project_log_db)
+    log_db: LogDatabase = Depends(get_project_log_db),
 ):
     """List screenshots with optional filters."""
     screenshots_data = log_db.get_screenshots(strand_id, since, limit)
@@ -1420,7 +1485,7 @@ async def list_screenshots(
             label=row["label"],
             file_path=row["file_path"],
             file_size=row["file_size"],
-            metadata={}
+            metadata={},
         )
         for row in screenshots_data
     ]
@@ -1428,8 +1493,7 @@ async def list_screenshots(
 
 @router.get("/screenshots/{screenshot_id}")
 async def get_screenshot_image(
-    screenshot_id: str,
-    log_db: LogDatabase = Depends(get_project_log_db)
+    screenshot_id: str, log_db: LogDatabase = Depends(get_project_log_db)
 ):
     """Get screenshot image file."""
     screenshot_data = log_db.get_screenshot(screenshot_id)
@@ -1443,16 +1507,13 @@ async def get_screenshot_image(
         raise HTTPException(status_code=404, detail="Screenshot file not found")
 
     return FileResponse(
-        file_path,
-        media_type="image/png",
-        filename=f"{screenshot_id}.png"
+        file_path, media_type="image/png", filename=f"{screenshot_id}.png"
     )
 
 
 @router.get("/screenshots/{screenshot_id}/metadata", response_model=Screenshot)
 async def get_screenshot_metadata(
-    screenshot_id: str,
-    log_db: LogDatabase = Depends(get_project_log_db)
+    screenshot_id: str, log_db: LogDatabase = Depends(get_project_log_db)
 ):
     """Get screenshot metadata without downloading image."""
     screenshot_data = log_db.get_screenshot(screenshot_id)
@@ -1468,18 +1529,19 @@ async def get_screenshot_metadata(
         label=screenshot_data["label"],
         file_path=screenshot_data["file_path"],
         file_size=screenshot_data["file_size"],
-        metadata={}
+        metadata={},
     )
 
 
 # Agent Naming
+
 
 @router.post("/naming/generate")
 async def generate_name(
     role: Optional[str] = None,
     brief_content: Optional[str] = None,
     project: Optional[str] = None,
-    x_project_id: Optional[str] = Header(None)
+    x_project_id: Optional[str] = Header(None),
 ):
     """
     Generate a memorable agent name.
@@ -1499,9 +1561,7 @@ async def generate_name(
     project_id = project or x_project_id
 
     name = generate_agent_name(
-        project=project_id,
-        role=role,
-        brief_content=brief_content
+        project=project_id, role=role, brief_content=brief_content
     )
 
     return {"name": name}
@@ -1509,8 +1569,10 @@ async def generate_name(
 
 # Yield/Sack Endpoints (chain data passing)
 
+
 class YieldRequest(BaseModel):
     """Request to store a yield in a chain's sack."""
+
     chain_id: str
     task_id: str
     yield_data: YieldCreate
@@ -1525,7 +1587,7 @@ class YieldRequest(BaseModel):
 async def store_yield(
     yield_request: YieldRequest,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
-    log_db: LogDatabase = Depends(get_project_log_db)
+    log_db: LogDatabase = Depends(get_project_log_db),
 ):
     """
     Store a yield in the chain's sack.
@@ -1547,7 +1609,7 @@ async def store_yield(
         duration_seconds=yield_request.duration_seconds,
         tokens_used=yield_request.tokens_used,
         shard_path=yield_request.shard_path,
-        tender_id=yield_request.tender_id
+        tender_id=yield_request.tender_id,
     )
 
     if not success:
@@ -1555,17 +1617,12 @@ async def store_yield(
 
     logger.info(f"Stored yield {sack_id} for chain {yield_request.chain_id}")
 
-    return {
-        "success": True,
-        "sack_id": sack_id,
-        "chain_id": yield_request.chain_id
-    }
+    return {"success": True, "sack_id": sack_id, "chain_id": yield_request.chain_id}
 
 
 @router.get("/yields/chain/{chain_id}", response_model=List[Yield])
 async def get_chain_yields(
-    chain_id: str,
-    log_db: LogDatabase = Depends(get_project_log_db)
+    chain_id: str, log_db: LogDatabase = Depends(get_project_log_db)
 ):
     """
     Get all yields in a chain, ordered by execution.
@@ -1589,17 +1646,14 @@ async def get_chain_yields(
             tokens_used=y.get("tokens_used"),
             shard_path=y.get("shard_path"),
             tender_id=y.get("tender_id"),
-            metadata=y.get("metadata") or {}
+            metadata=y.get("metadata") or {},
         )
         for y in yields_data
     ]
 
 
 @router.get("/yields/{sack_id}", response_model=Yield)
-async def get_yield(
-    sack_id: str,
-    log_db: LogDatabase = Depends(get_project_log_db)
-):
+async def get_yield(sack_id: str, log_db: LogDatabase = Depends(get_project_log_db)):
     """Get specific yield by ID."""
     yield_data = log_db.get_yield(sack_id)
 
@@ -1620,14 +1674,13 @@ async def get_yield(
         tokens_used=yield_data.get("tokens_used"),
         shard_path=yield_data.get("shard_path"),
         tender_id=yield_data.get("tender_id"),
-        metadata=yield_data.get("metadata") or {}
+        metadata=yield_data.get("metadata") or {},
     )
 
 
 @router.get("/yields/status/{status}", response_model=List[Yield])
 async def get_yields_by_status(
-    status: str,
-    log_db: LogDatabase = Depends(get_project_log_db)
+    status: str, log_db: LogDatabase = Depends(get_project_log_db)
 ):
     """
     Get yields by status.
@@ -1651,7 +1704,7 @@ async def get_yields_by_status(
             tokens_used=y.get("tokens_used"),
             shard_path=y.get("shard_path"),
             tender_id=y.get("tender_id"),
-            metadata=y.get("metadata") or {}
+            metadata=y.get("metadata") or {},
         )
         for y in yields_data
     ]
@@ -1659,8 +1712,7 @@ async def get_yields_by_status(
 
 @router.get("/yields/agent/{agent_id}", response_model=List[Yield])
 async def get_agent_yields(
-    agent_id: str,
-    log_db: LogDatabase = Depends(get_project_log_db)
+    agent_id: str, log_db: LogDatabase = Depends(get_project_log_db)
 ):
     """Get all yields by a specific agent."""
     yields_data = log_db.get_agent_yields(agent_id)
@@ -1680,7 +1732,7 @@ async def get_agent_yields(
             tokens_used=y.get("tokens_used"),
             shard_path=y.get("shard_path"),
             tender_id=y.get("tender_id"),
-            metadata=y.get("metadata") or {}
+            metadata=y.get("metadata") or {},
         )
         for y in yields_data
     ]

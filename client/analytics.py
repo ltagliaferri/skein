@@ -75,7 +75,9 @@ def analyze_by_weaver(threads: List[Dict]) -> Dict[str, Any]:
         by_weaver[weaver]["types"][thread["type"]] += 1
 
     # Sort by total (descending)
-    sorted_weavers = sorted(by_weaver.items(), key=lambda x: x[1]["total"], reverse=True)
+    sorted_weavers = sorted(
+        by_weaver.items(), key=lambda x: x[1]["total"], reverse=True
+    )
 
     return dict(sorted_weavers)
 
@@ -227,9 +229,9 @@ def print_type_distribution(threads: List[Dict]):
     if stats["tag_breakdown"]:
         click.echo()
         click.echo("Common Tags (tag threads):")
-        for tag, count in sorted(stats["tag_breakdown"].items(), key=lambda x: x[1], reverse=True)[
-            :10
-        ]:
+        for tag, count in sorted(
+            stats["tag_breakdown"].items(), key=lambda x: x[1], reverse=True
+        )[:10]:
             click.echo(f"  - {tag}: {count}")
 
     if stats["reply_targets"]:
@@ -331,7 +333,9 @@ def print_folio_stats(
         if type_counts:
             click.echo("By Type:")
             max_count = max(type_counts.values()) if type_counts else 1
-            for folio_type, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
+            for folio_type, count in sorted(
+                type_counts.items(), key=lambda x: x[1], reverse=True
+            ):
                 pct = (count / total) * 100 if total > 0 else 0
                 bar_length = int((count / max_count) * 20)
                 bar = "█" * bar_length
@@ -342,7 +346,9 @@ def print_folio_stats(
         status_counts = analyze_folios_by_status(folios)
         if status_counts:
             click.echo("By Status:")
-            for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True):
+            for status, count in sorted(
+                status_counts.items(), key=lambda x: x[1], reverse=True
+            ):
                 pct = (count / total) * 100 if total > 0 else 0
                 click.echo(f"  {status:12} {count:4} ({pct:5.1f}%)")
             click.echo()
@@ -358,5 +364,7 @@ def print_folio_stats(
                 click.echo(f"  {site_id:20} {count:4} ({pct:5.1f}%)")
             if len(sorted_sites) > 10:
                 remaining = sum(count for _, count in sorted_sites[10:])
-                click.echo(f"  ... and {len(sorted_sites) - 10} more sites ({remaining} folios)")
+                click.echo(
+                    f"  ... and {len(sorted_sites) - 10} more sites ({remaining} folios)"
+                )
             click.echo()

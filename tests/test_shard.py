@@ -217,7 +217,9 @@ class TestSpawnCleanupRoundtrip:
         if git_worktrees_dir.exists():
             entries = list(git_worktrees_dir.iterdir())
             for entry in entries:
-                assert worktree_name not in entry.name, f"Orphaned .git/worktrees entry: {entry}"
+                assert worktree_name not in entry.name, (
+                    f"Orphaned .git/worktrees entry: {entry}"
+                )
 
     def test_cleanup_with_keep_branch_preserves_only_branch(self, shard_env: Path):
         """WHY: keep_branch option should only affect branch, not worktree."""
@@ -340,9 +342,9 @@ class TestMergeRequirements:
         # Either detects "conflict" explicitly (git 2.38+) or reports "unknown" status (older git)
         # Both are valid safety responses - merge is blocked either way
         msg_lower = result["message"].lower()
-        assert (
-            "conflict" in msg_lower or "unknown" in msg_lower
-        ), f"Expected 'conflict' or 'unknown' in message, got: {result['message']}"
+        assert "conflict" in msg_lower or "unknown" in msg_lower, (
+            f"Expected 'conflict' or 'unknown' in message, got: {result['message']}"
+        )
 
         # Master should be unaffected (no partial merge)
         assert master_conflict.read_text() == "master version"
@@ -370,9 +372,9 @@ class TestListShardsAccuracy:
             names = {s["worktree_name"] for s in shards}
 
             for info in spawned:
-                assert (
-                    info["worktree_name"] in names
-                ), f"Missing spawned shard: {info['worktree_name']}"
+                assert info["worktree_name"] in names, (
+                    f"Missing spawned shard: {info['worktree_name']}"
+                )
         finally:
             for info in spawned:
                 try:
@@ -399,10 +401,14 @@ class TestListShardsAccuracy:
 
         # Simulate corruption: delete directory but not git metadata
         # (shouldn't happen normally, but test resilience)
-        subprocess.run(["rm", "-rf", str(worktree_path)], check=True, capture_output=True)
+        subprocess.run(
+            ["rm", "-rf", str(worktree_path)], check=True, capture_output=True
+        )
 
         # Prune to clean up
-        subprocess.run(["git", "worktree", "prune"], cwd=shard_env, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "worktree", "prune"], cwd=shard_env, check=True, capture_output=True
+        )
 
         # List should not include phantom
         shards = list_shards()
@@ -734,7 +740,8 @@ class TestSelfDeletionPrevention:
             cleanup_shard(info["worktree_name"], caller_cwd=worktree_path)
 
         assert (
-            "inside" in str(exc_info.value).lower() or "caller_cwd" in str(exc_info.value).lower()
+            "inside" in str(exc_info.value).lower()
+            or "caller_cwd" in str(exc_info.value).lower()
         )
 
         # Actual cleanup should work when cwd is outside
@@ -1009,9 +1016,9 @@ class TestConcurrentOperations:
         all_successful = len(results) == 3 and len(errors) == 0
         some_rejected = len(errors) > 0
 
-        assert (
-            all_successful or some_rejected
-        ), "Should either all succeed or gracefully handle race"
+        assert all_successful or some_rejected, (
+            "Should either all succeed or gracefully handle race"
+        )
 
         # Unique paths if multiple succeeded
         if len(results) > 1:
@@ -2020,7 +2027,9 @@ class TestWorkDiffVsIntegrationDiff:
             assert "stat_file.py" in stat_output
             # Should be stat format, not full diff
             assert "@@" not in stat_output
-            assert "+" in stat_output or "-" in stat_output or "insertion" in stat_output
+            assert (
+                "+" in stat_output or "-" in stat_output or "insertion" in stat_output
+            )
 
         finally:
             cleanup_shard(info["worktree_name"])
@@ -2138,7 +2147,9 @@ class TestGraftCreation:
             graft_result = graft_shard(info["worktree_name"])
 
             assert "graft_worktree_name" in graft_result
-            assert f"{info['worktree_name']}-graft" == graft_result["graft_worktree_name"]
+            assert (
+                f"{info['worktree_name']}-graft" == graft_result["graft_worktree_name"]
+            )
 
             # Graft worktree should exist
             graft_path = Path(graft_result["graft_worktree_path"])

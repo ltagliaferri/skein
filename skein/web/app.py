@@ -183,8 +183,12 @@ def create_app() -> FastAPI:
 
         # Compute status from threads for each folio
         for folio in folios:
-            folio.status = get_current_status(folio.folio_id, store) or folio.status or "open"
-            folio.assigned_to = get_current_assignment(folio.folio_id, store) or folio.assigned_to
+            folio.status = (
+                get_current_status(folio.folio_id, store) or folio.status or "open"
+            )
+            folio.assigned_to = (
+                get_current_assignment(folio.folio_id, store) or folio.assigned_to
+            )
 
         # Apply filters
         if type:
@@ -199,7 +203,10 @@ def create_app() -> FastAPI:
         all_folios = store.get_folios(site_id=site_id)
         available_types = sorted(set(f.type for f in all_folios))
         available_statuses = sorted(
-            set(get_current_status(f.folio_id, store) or f.status or "open" for f in all_folios)
+            set(
+                get_current_status(f.folio_id, store) or f.status or "open"
+                for f in all_folios
+            )
         )
 
         return templates.TemplateResponse(
@@ -217,15 +224,21 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/folios/{folio_id}", response_class=HTMLResponse)
-    async def folio_detail(request: Request, folio_id: str, store: JSONStore = Depends(get_store)):
+    async def folio_detail(
+        request: Request, folio_id: str, store: JSONStore = Depends(get_store)
+    ):
         """Folio detail view."""
         folio = store.get_folio(folio_id)
         if not folio:
             raise HTTPException(status_code=404, detail=f"Folio '{folio_id}' not found")
 
         # Compute status from threads
-        folio.status = get_current_status(folio.folio_id, store) or folio.status or "open"
-        folio.assigned_to = get_current_assignment(folio.folio_id, store) or folio.assigned_to
+        folio.status = (
+            get_current_status(folio.folio_id, store) or folio.status or "open"
+        )
+        folio.assigned_to = (
+            get_current_assignment(folio.folio_id, store) or folio.assigned_to
+        )
 
         # Get threads related to this folio
         threads = store.get_threads(from_id=folio_id)
@@ -248,7 +261,9 @@ def create_app() -> FastAPI:
         cross_refs = []
         # Match patterns like brief-20251208-0jt9, issue-20251207-akrj, etc.
         folio_id_pattern = r"\b(brief|issue|friction|finding|notion|summary|tender|plan|playbook|mantle|writ)-\d{8}-[a-z0-9]{4}\b"
-        re.findall(folio_id_pattern, folio.content, re.IGNORECASE) if folio.content else []
+        re.findall(
+            folio_id_pattern, folio.content, re.IGNORECASE
+        ) if folio.content else []
         # Get full matches
         full_matches = (
             re.findall(
@@ -288,8 +303,12 @@ def create_app() -> FastAPI:
 
         # Compute status for each folio
         for folio in folios:
-            folio.status = get_current_status(folio.folio_id, store) or folio.status or "open"
-            folio.assigned_to = get_current_assignment(folio.folio_id, store) or folio.assigned_to
+            folio.status = (
+                get_current_status(folio.folio_id, store) or folio.status or "open"
+            )
+            folio.assigned_to = (
+                get_current_assignment(folio.folio_id, store) or folio.assigned_to
+            )
 
         # Sort by created_at, newest first
         folios.sort(key=lambda f: f.created_at, reverse=True)
@@ -346,8 +365,12 @@ def create_app() -> FastAPI:
 
         # Compute status from threads
         for folio in folios:
-            folio.status = get_current_status(folio.folio_id, store) or folio.status or "open"
-            folio.assigned_to = get_current_assignment(folio.folio_id, store) or folio.assigned_to
+            folio.status = (
+                get_current_status(folio.folio_id, store) or folio.status or "open"
+            )
+            folio.assigned_to = (
+                get_current_assignment(folio.folio_id, store) or folio.assigned_to
+            )
 
         if type:
             folios = [f for f in folios if f.type == type]

@@ -528,7 +528,9 @@ class LogDatabase:
 
             return results
 
-    def get_previous_yield(self, chain_id: str, before_task_id: str) -> Optional[Dict[str, Any]]:
+    def get_previous_yield(
+        self, chain_id: str, before_task_id: str
+    ) -> Optional[Dict[str, Any]]:
         """
         Get the most recent yield in a chain before a specific task.
 
@@ -850,7 +852,10 @@ class JSONStore:
                 if thread.thread_id in thread_map:
                     continue
                 # Include if from_id or to_id is a thread we care about
-                if thread.from_id in involved_thread_ids or thread.to_id in involved_thread_ids:
+                if (
+                    thread.from_id in involved_thread_ids
+                    or thread.to_id in involved_thread_ids
+                ):
                     thread_map[thread.thread_id] = thread
                     involved_thread_ids.add(thread.thread_id)
                     found_new = True

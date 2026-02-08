@@ -18,7 +18,9 @@ class TestValidatePositionalArgs:
         """Valid arguments should not raise any errors."""
         # These should all pass without raising exceptions
         validate_positional_args("site-id", "description", command_name="issue")
-        validate_positional_args("my-site", "Some content here", command_name="brief create")
+        validate_positional_args(
+            "my-site", "Some content here", command_name="brief create"
+        )
         validate_positional_args("test-site", "Finding details", command_name="finding")
 
     def test_content_equals_syntax_fails(self):
@@ -35,7 +37,9 @@ class TestValidatePositionalArgs:
     def test_description_equals_syntax_fails(self):
         """Arguments with description= syntax should raise helpful error."""
         with pytest.raises(click.ClickException) as exc_info:
-            validate_positional_args("site-id", "description=test", command_name="finding")
+            validate_positional_args(
+                "site-id", "description=test", command_name="finding"
+            )
 
         error_msg = str(exc_info.value)
         assert "Incorrect syntax" in error_msg
@@ -53,7 +57,9 @@ class TestValidatePositionalArgs:
     def test_equals_in_actual_content_passes(self):
         """Equals sign in actual content (not at start) should pass."""
         # These should pass - the equals is part of the actual content
-        validate_positional_args("site-id", "The equation x=5 is important", command_name="issue")
+        validate_positional_args(
+            "site-id", "The equation x=5 is important", command_name="issue"
+        )
         validate_positional_args(
             "site-id", "Config: debug=true and verbose=false", command_name="finding"
         )
@@ -65,13 +71,17 @@ class TestValidatePositionalArgs:
 
     def test_non_identifier_before_equals_passes(self):
         """Equals with non-identifier before it should pass."""
-        validate_positional_args("site-id", "value-with-dashes=test", command_name="issue")
+        validate_positional_args(
+            "site-id", "value-with-dashes=test", command_name="issue"
+        )
         validate_positional_args("site-id", "123=test", command_name="issue")
 
     def test_multiple_args_with_one_bad(self):
         """If any argument is bad, should raise error."""
         with pytest.raises(click.ClickException):
-            validate_positional_args("site-id", "good-arg", "content=bad", command_name="issue")
+            validate_positional_args(
+                "site-id", "good-arg", "content=bad", command_name="issue"
+            )
 
     def test_first_arg_with_equals_fails(self):
         """Even first argument with name=value syntax should fail."""
@@ -89,7 +99,9 @@ class TestValidatePositionalArgs:
     def test_error_message_includes_help_hint(self):
         """Error message should suggest using --help."""
         with pytest.raises(click.ClickException) as exc_info:
-            validate_positional_args("site-id", "content=test", command_name="brief create")
+            validate_positional_args(
+                "site-id", "content=test", command_name="brief create"
+            )
 
         error_msg = str(exc_info.value)
         assert "--help" in error_msg

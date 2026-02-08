@@ -136,7 +136,9 @@ async def register_agent(
 
 @router.get("/roster", response_model=List[AgentInfo])
 async def get_roster(
-    status: Optional[str] = Query(None, description="Filter by status: active, retired"),
+    status: Optional[str] = Query(
+        None, description="Filter by status: active, retired"
+    ),
     store: JSONStore = Depends(get_project_store),
 ):
     """Get registered agents, optionally filtered by status."""
@@ -162,7 +164,9 @@ class AgentActivity(BaseModel):
 
 @router.get("/roster/enriched", response_model=List[AgentActivity])
 async def get_roster_enriched(
-    status: Optional[str] = Query(None, description="Filter by status: active, retired"),
+    status: Optional[str] = Query(
+        None, description="Filter by status: active, retired"
+    ),
     store: JSONStore = Depends(get_project_store),
 ):
     """
@@ -352,7 +356,9 @@ async def get_site(site_id: str, store: JSONStore = Depends(get_project_store)):
         active_sites = [s for s in all_sites if s.status == "active"]
         if active_sites:
             site_ids = [s.site_id for s in active_sites[:50]]
-            suffix = f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            suffix = (
+                f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            )
             raise HTTPException(
                 status_code=404,
                 detail=f"Site '{site_id}' not found. Active sites: {', '.join(site_ids)}{suffix}. Run 'skein sites' for full list.",
@@ -550,7 +556,9 @@ async def post_to_site(
         active_sites = [s for s in all_sites if s.status == "active"]
         if active_sites:
             site_ids = [s.site_id for s in active_sites[:50]]
-            suffix = f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            suffix = (
+                f" (+{len(active_sites) - 50} more)" if len(active_sites) > 50 else ""
+            )
             raise HTTPException(
                 status_code=404,
                 detail=f"Site '{site_id}' not found. Active sites: {', '.join(site_ids)}{suffix}. Run 'skein sites' for full list.",
@@ -603,7 +611,10 @@ async def post_to_site(
     # SUGAR API: Create status thread if status provided (undocumented)
     # Don't create default status - let patterns emerge naturally
     # Only create if explicitly provided AND not "open" (which is just noise)
-    if folio_create.metadata.get("status") and folio_create.metadata.get("status") != "open":
+    if (
+        folio_create.metadata.get("status")
+        and folio_create.metadata.get("status") != "open"
+    ):
         status_thread = Thread(
             thread_id=generate_thread_id(),
             from_id=folio_id,
@@ -711,7 +722,11 @@ async def search_folios(
     folios = store.get_folios()
 
     # Simple text search for MVP
-    matching = [f for f in folios if q.lower() in f.title.lower() or q.lower() in f.content.lower()]
+    matching = [
+        f
+        for f in folios
+        if q.lower() in f.title.lower() or q.lower() in f.content.lower()
+    ]
 
     if type:
         matching = [f for f in matching if f.type == type]
@@ -924,7 +939,9 @@ async def get_threads(
     # Apply content search filter
     if search:
         search_lower = search.lower()
-        threads = [t for t in threads if t.content and search_lower in t.content.lower()]
+        threads = [
+            t for t in threads if t.content and search_lower in t.content.lower()
+        ]
 
     # Apply time filter
     if since:
@@ -969,7 +986,9 @@ async def get_inbox(
 
 
 @router.patch("/threads/{thread_id}/read")
-async def mark_thread_read(thread_id: str, store: JSONStore = Depends(get_project_store)):
+async def mark_thread_read(
+    thread_id: str, store: JSONStore = Depends(get_project_store)
+):
     """Mark a thread as read."""
     success = store.mark_thread_read(thread_id)
 
@@ -983,7 +1002,9 @@ async def mark_thread_read(thread_id: str, store: JSONStore = Depends(get_projec
 
 
 @router.post("/logs")
-async def post_logs(log_batch: LogBatch, log_db: LogDatabase = Depends(get_project_log_db)):
+async def post_logs(
+    log_batch: LogBatch, log_db: LogDatabase = Depends(get_project_log_db)
+):
     """Post logs to a stream."""
     lines = [line.model_dump() for line in log_batch.lines]
     count = log_db.add_logs(log_batch.stream_id, log_batch.source, lines)
@@ -1014,7 +1035,9 @@ async def get_logs(
 
 
 @router.get("/activity")
-async def get_activity(since: Optional[str] = None, store: JSONStore = Depends(get_project_store)):
+async def get_activity(
+    since: Optional[str] = None, store: JSONStore = Depends(get_project_store)
+):
     """Get recent activity across SKEIN."""
     # Simple implementation for MVP
     folios = store.get_folios()
@@ -1141,7 +1164,9 @@ async def unified_search(
         if q:
             q_lower = q.lower()
             folios = [
-                f for f in folios if q_lower in f.title.lower() or q_lower in f.content.lower()
+                f
+                for f in folios
+                if q_lower in f.title.lower() or q_lower in f.content.lower()
             ]
 
         # Filters
@@ -1156,7 +1181,9 @@ async def unified_search(
             import fnmatch
 
             folios = [
-                f for f in folios if any(fnmatch.fnmatch(f.site_id, pattern) for pattern in sites)
+                f
+                for f in folios
+                if any(fnmatch.fnmatch(f.site_id, pattern) for pattern in sites)
             ]
 
         if status:
@@ -1399,10 +1426,12 @@ async def upload_screenshot(
     strand_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate filename
-    turn_suffix = f"_turn-{screenshot_create.turn_number}" if screenshot_create.turn_number else ""
-    filename = (
-        f"{timestamp.strftime('%Y-%m-%dT%H-%M-%S')}{turn_suffix}_{screenshot_create.label}.png"
+    turn_suffix = (
+        f"_turn-{screenshot_create.turn_number}"
+        if screenshot_create.turn_number
+        else ""
     )
+    filename = f"{timestamp.strftime('%Y-%m-%dT%H-%M-%S')}{turn_suffix}_{screenshot_create.label}.png"
     file_path = strand_dir / filename
 
     try:
@@ -1432,7 +1461,9 @@ async def upload_screenshot(
 
     except Exception as e:
         logger.error(f"Failed to save screenshot: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to save screenshot: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save screenshot: {str(e)}"
+        )
 
 
 @router.get("/screenshots", response_model=List[Screenshot])
@@ -1475,7 +1506,9 @@ async def get_screenshot_image(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Screenshot file not found")
 
-    return FileResponse(file_path, media_type="image/png", filename=f"{screenshot_id}.png")
+    return FileResponse(
+        file_path, media_type="image/png", filename=f"{screenshot_id}.png"
+    )
 
 
 @router.get("/screenshots/{screenshot_id}/metadata", response_model=Screenshot)
@@ -1527,7 +1560,9 @@ async def generate_name(
     # Use project from header if not explicitly provided
     project_id = project or x_project_id
 
-    name = generate_agent_name(project=project_id, role=role, brief_content=brief_content)
+    name = generate_agent_name(
+        project=project_id, role=role, brief_content=brief_content
+    )
 
     return {"name": name}
 
@@ -1586,7 +1621,9 @@ async def store_yield(
 
 
 @router.get("/yields/chain/{chain_id}", response_model=List[Yield])
-async def get_chain_yields(chain_id: str, log_db: LogDatabase = Depends(get_project_log_db)):
+async def get_chain_yields(
+    chain_id: str, log_db: LogDatabase = Depends(get_project_log_db)
+):
     """
     Get all yields in a chain, ordered by execution.
 
@@ -1642,7 +1679,9 @@ async def get_yield(sack_id: str, log_db: LogDatabase = Depends(get_project_log_
 
 
 @router.get("/yields/status/{status}", response_model=List[Yield])
-async def get_yields_by_status(status: str, log_db: LogDatabase = Depends(get_project_log_db)):
+async def get_yields_by_status(
+    status: str, log_db: LogDatabase = Depends(get_project_log_db)
+):
     """
     Get yields by status.
 
@@ -1672,7 +1711,9 @@ async def get_yields_by_status(status: str, log_db: LogDatabase = Depends(get_pr
 
 
 @router.get("/yields/agent/{agent_id}", response_model=List[Yield])
-async def get_agent_yields(agent_id: str, log_db: LogDatabase = Depends(get_project_log_db)):
+async def get_agent_yields(
+    agent_id: str, log_db: LogDatabase = Depends(get_project_log_db)
+):
     """Get all yields by a specific agent."""
     yields_data = log_db.get_agent_yields(agent_id)
 

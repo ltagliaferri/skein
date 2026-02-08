@@ -81,7 +81,9 @@ class FolioCreate(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     assigned_to: Optional[str] = None
     target_agent: Optional[str] = None  # For briefs
-    omlet: Optional[str] = None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    omlet: Optional[str] = (
+        None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    )
 
 
 class Folio(BaseModel):
@@ -95,7 +97,9 @@ class Folio(BaseModel):
     status: str = "open"
     assigned_to: Optional[str] = None
     target_agent: Optional[str] = None
-    omlet: Optional[str] = None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    omlet: Optional[str] = (
+        None  # Reference to agent execution (strand_id/agent_id/turn-N)
+    )
     archived: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
     acknowledged_at: Optional[datetime] = None

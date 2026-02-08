@@ -20,7 +20,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from skein.routes import router as skein_router
 
 # Context variable for request ID - accessible throughout the request lifecycle
-request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
+request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default=""
+)
 
 
 def get_config():
@@ -102,7 +104,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     Catch-all exception handler to prevent 500 errors from crashing requests.
     Logs full stack trace and returns structured error response with request ID.
     """
-    request_id = getattr(request.state, "request_id", None) or request_id_var.get() or "unknown"
+    request_id = (
+        getattr(request.state, "request_id", None) or request_id_var.get() or "unknown"
+    )
 
     logger.error(
         f"[{request_id}] Unhandled exception on {request.method} {request.url.path}: {type(exc).__name__}: {exc}",
@@ -168,4 +172,6 @@ if __name__ == "__main__":
     logger.info(f"Docs: http://localhost:{config['port']}/docs")
     logger.info("=" * 80)
 
-    uvicorn.run(app, host=config["host"], port=config["port"], log_level=config["log_level"])
+    uvicorn.run(
+        app, host=config["host"], port=config["port"], log_level=config["log_level"]
+    )

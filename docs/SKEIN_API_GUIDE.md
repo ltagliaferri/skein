@@ -621,53 +621,6 @@ curl -X POST http://localhost:8000/skein/signals \
 
 ---
 
-### GET /skein/signals/inbox
-
-Get inbox for calling agent.
-
-**Headers:** `X-Agent-Id` required
-
-**Query Parameters:**
-- `unread` - Only unread signals (true/false)
-
-**Request:**
-```bash
-curl -H "X-Agent-Id: backend-agent" \
-  "http://localhost:8000/skein/signals/inbox?unread=true"
-```
-
-**Response:**
-```json
-[
-  {
-    "signal_id": "sig-20251106-p8q2",
-    "from_agent": "webapp-frontend",
-    "to_agent": "backend-agent",
-    "sent_at": "2025-11-06T14:30:00Z",
-    "subject": "Critical auth issue",
-    "content": "Database pool exhausted, needs immediate attention",
-    "references": ["folio:issue-20251106-a7b3"],
-    "read_at": null
-  }
-]
-```
-
----
-
-### PATCH /skein/signals/{signal_id}/read
-
-Mark signal as read.
-
-**Headers:** `X-Agent-Id` required
-
-**Request:**
-```bash
-curl -X PATCH http://localhost:8000/skein/signals/sig-20251106-p8q2/read \
-  -H "X-Agent-Id: backend-agent"
-```
-
----
-
 ## Discovery API
 
 **Purpose:** Find recent activity and work.

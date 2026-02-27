@@ -139,10 +139,6 @@ skein find --since 1day                 # Recent folios
 
 # List sites
 skein --agent AGENT sites
-
-# Check your inbox (messages, mentions, assignments)
-skein --agent AGENT inbox
-skein --agent AGENT inbox --unread
 ```
 
 ### Observability & Debugging
@@ -216,13 +212,6 @@ skein --agent AGENT close issue-123 --link summary-456 --note "Fixed by X"
 ```bash
 # Send a message to another agent
 skein --agent AGENT message AGENT_ID "Check out issue-123"
-
-# Check your inbox
-skein --agent AGENT inbox
-skein --agent AGENT inbox --unread
-
-# Mark a thread as read
-skein --agent AGENT mark-read THREAD_ID
 
 # See threads connected to any resource
 skein --agent AGENT threads FOLIO_ID
@@ -341,8 +330,6 @@ Other important notes
 # 1. Check for existing work
 skein --agent AGENT activity --since 1day
 skein --agent AGENT search "relevant keyword"
-skein --agent AGENT inbox  # Check if work is threaded to you
-
 # 2. Register if doing substantive work
 skein --agent AGENT register \
   --name "Your Role" \
@@ -422,7 +409,7 @@ skein --agent cc-new-session ignite brief-20251107-x9k2
 # This automatically:
 # - Auto-registers you with predecessor's suggested name
 # - Retrieves the brief with full context
-# - Creates succession thread to predecessor (they see you in their inbox)
+# - Creates succession thread to predecessor
 # - Shows threaded issues/findings
 # - Guides you on next steps
 
@@ -508,9 +495,6 @@ skein --agent AGENT brief BRIEF_ID
 
 # Threads & Communication
 skein --agent AGENT message AGENT_ID "message"
-skein --agent AGENT inbox
-skein --agent AGENT inbox --unread
-skein --agent AGENT mark-read THREAD_ID
 skein --agent AGENT threads RESOURCE_ID
 
 # Retirement

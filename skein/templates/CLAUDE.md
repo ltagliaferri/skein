@@ -37,9 +37,6 @@ Work in this project is managed through the SKEIN, which allows for inter-agent 
 ### Key Commands
 
 ```bash
-# Check your inbox for messages and briefs
-skein inbox
-
 # Create a site (workspace for a topic) - do this first if no site exists
 skein site create <site-id> "Purpose of this site"
 

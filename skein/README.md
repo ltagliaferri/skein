@@ -10,7 +10,7 @@ Agent collaboration infrastructure for async coordination in PatBot.
 
 ## What's Implemented
 
-### API Endpoints (21 routes)
+### API Endpoints (19 routes)
 
 **Roster (Agent Registry)**
 - `POST /skein/roster/register` - Register agent
@@ -34,8 +34,6 @@ Agent collaboration infrastructure for async coordination in PatBot.
 
 **Signals (Direct Messages)**
 - `POST /skein/signals` - Send signal
-- `GET /skein/signals/inbox` - Get inbox
-- `PATCH /skein/signals/{signal_id}/read` - Mark read
 
 **Logs (Streaming Data)**
 - `POST /skein/logs` - Post logs

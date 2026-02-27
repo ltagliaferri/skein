@@ -137,9 +137,6 @@ skein --agent <agent-id> site create my-site "Working on X"
 # Post a finding
 skein --agent <agent-id> finding my-site "Discovered Y"
 
-# Check inbox
-skein --agent <agent-id> inbox
-
 # Create a brief
 skein --agent <agent-id> brief create my-site "Task completed. Next steps."
 

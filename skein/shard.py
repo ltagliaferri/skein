@@ -915,7 +915,7 @@ def get_review_queue(stale_days: int = 7) -> Dict[str, List[Dict]]:
     Groups shards into:
     - ready: Has commits, clean working tree, no conflicts (ready to merge)
     - needs_commit: Has uncommitted changes
-    - conflicts: Would have merge conflicts with master
+    - conflicts: Would have merge conflicts with base branch
     - stale: No commits and older than stale_days
 
     Args:
@@ -1170,9 +1170,9 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
 
     Returns information about:
     - Base commit (where shard branched from)
-    - Master activity since base (commits, notable changes)
+    - Base branch activity since base (commits, notable changes)
     - Work diff (agent's actual changes from base)
-    - Integration diff (what would merge into current master)
+    - Integration diff (what would merge into base branch)
     - Conflict status
 
     Args:
@@ -1185,7 +1185,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
         >>> info = get_shard_drift_info('fix-bug-20260113-001')
         >>> if info['conflict_status'] == 'conflict':
         ...     print(f"Conflicts in: {', '.join(info['conflict_files'])}")
-        >>> elif info['master_commits_ahead'] > 10:
+        >>> elif info['base_commits_ahead'] > 10:
         ...     print("Shard is stale, consider grafting")
     """
     shard_info = get_shard_status(worktree_name)
@@ -1205,8 +1205,8 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
         "base_commit_short": None,
         "base_commit_date": None,
         "has_metadata": metadata is not None,
-        "master_commits_ahead": 0,
-        "master_notable_changes": [],
+        "base_commits_ahead": 0,
+        "base_notable_changes": [],
         "is_stale": False,
         "is_nested": is_nested_shard(worktree_name),
         "conflict_status": "unknown",
@@ -1234,14 +1234,14 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
             # Count commits on base_branch since base
             try:
                 count = repo.git.rev_list("--count", f"{base_commit}..{base_branch}")
-                result["master_commits_ahead"] = int(count)
+                result["base_commits_ahead"] = int(count)
                 result["is_stale"] = int(count) > 0
             except Exception:
                 pass
 
             # Get notable changes on base_branch since base
             try:
-                if result["master_commits_ahead"] > 0:
+                if result["base_commits_ahead"] > 0:
                     # Get file stats for changes on base_branch
                     name_status = repo.git.diff(
                         "--name-status", f"{base_commit}..{base_branch}"
@@ -1258,7 +1258,7 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
                                     notable.append(f"added: {file_path}")
                                 elif status.startswith("R"):
                                     notable.append(f"renamed: {file_path}")
-                    result["master_notable_changes"] = notable
+                    result["base_notable_changes"] = notable
             except Exception:
                 pass
 
@@ -1362,7 +1362,7 @@ def get_shard_work_diff(worktree_name: str, stat_only: bool = False) -> Optional
     Get the WORK diff: agent's actual changes from base commit.
 
     This shows only what the agent committed, without any false deletions
-    from master evolution.
+    from base branch evolution.
 
     Args:
         worktree_name: Worktree directory name
@@ -1400,15 +1400,15 @@ def get_shard_diff(
     worktree_name: str, stat_only: bool = False, integration: bool = False
 ) -> Optional[str]:
     """
-    Get diff between master and shard branch.
+    Get diff between base branch and shard branch.
 
-    By default returns integration diff (master...branch) which shows what would merge.
+    By default returns integration diff (base_branch...branch) which shows what would merge.
     Use get_shard_work_diff() for agent's actual changes from base.
 
     Args:
         worktree_name: Worktree directory name (e.g., 'opus-security-architect-20251109-001')
         stat_only: If True, return only --stat output
-        integration: If True, use three-dot diff (master...branch) for merge preview
+        integration: If True, use three-dot diff (base_branch...branch) for merge preview
 
     Returns:
         Git diff output as string, or None if no changes or shard not found
@@ -1736,21 +1736,21 @@ def is_graft(worktree_name: str) -> bool:
 
 def is_nested_shard(worktree_name: str) -> bool:
     """
-    Check if worktree is a nested shard (spawned from another shard, not master).
+    Check if worktree is a nested shard (spawned from another shard, not base branch).
 
     A nested shard is one where:
     - The branch was created from inside another worktree, so it contains
-      commits from the parent shard that aren't on master
+      commits from the parent shard that aren't on base branch
     - Has parent_worktree set (recorded during spawn), OR
     - Is a graft (grafts always have parent worktrees)
 
     The detection is based on explicit parent tracking rather than heuristics.
     This avoids:
-    - False negative when master hasn't moved (merge-base equals base_commit
+    - False negative when base branch hasn't moved (merge-base equals base_commit
       even for nested shards)
     - False positive when shard was rebased (merge-base changes but it's not nested)
 
-    Nested shards cannot be merged directly to master without first grafting
+    Nested shards cannot be merged directly to base branch without first grafting
     to isolate their changes.
 
     Returns:
@@ -1770,7 +1770,7 @@ def is_nested_shard(worktree_name: str) -> bool:
         return True
 
     # For legacy shards without parent_worktree tracking, check for commits
-    # not on master that predate the shard creation
+    # not on base branch that predate the shard creation
     base_commit = metadata.get("base_commit")
     created_at = metadata.get("created_at")
     if not base_commit or not created_at:
@@ -1833,7 +1833,7 @@ def graft_shard(
     """
     Create a graft worktree to resolve conflicts.
 
-    Creates a new worktree from current master and cherry-picks commits
+    Creates a new worktree from current base branch and cherry-picks commits
     from the source shard. If conflicts occur, leaves in conflicted state
     for manual resolution.
 

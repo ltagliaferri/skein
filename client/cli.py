@@ -5238,12 +5238,12 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
                     click.echo(f"(Base created: {base_date})\n")
 
                 # Show base branch activity if there's drift
-                master_ahead = drift_info.get("master_commits_ahead", 0)
+                master_ahead = drift_info.get("base_commits_ahead", 0)
                 if master_ahead > 0:
                     click.echo(
                         f"Note: {base_branch} has {master_ahead} new commits since your base."
                     )
-                    notable = drift_info.get("master_notable_changes", [])
+                    notable = drift_info.get("base_notable_changes", [])
                     if notable:
                         click.echo(f"Notable changes on {base_branch}:")
                         for change in notable[:5]:
@@ -5495,7 +5495,7 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
     try:
         # First, show drift context
         drift_info = shard_worktree.get_shard_drift_info(worktree_name)
-        master_ahead = drift_info.get("master_commits_ahead", 0)
+        master_ahead = drift_info.get("base_commits_ahead", 0)
         base_branch = drift_info.get("base_branch", "master")
 
         click.echo(f"Testing integration with current {base_branch}...")
@@ -6100,7 +6100,7 @@ def shard_triage(ctx, output_json):
             uncommitted = git_info.get("uncommitted", [])
 
             # Get drift info
-            master_ahead = drift_info.get("master_commits_ahead", 0)
+            master_ahead = drift_info.get("base_commits_ahead", 0)
             base_commit = drift_info.get("base_commit_short")
             conflict_status = drift_info.get("conflict_status", "unknown")
             conflict_files = drift_info.get("conflict_files", [])
@@ -6323,8 +6323,8 @@ def shard_inspect(ctx, worktree_name, output_json):
             "tender": tender_info,
             "base_commit": drift_info.get("base_commit_short"),
             "base_commit_date": drift_info.get("base_commit_date"),
-            "master_commits_ahead": drift_info.get("master_commits_ahead", 0),
-            "master_notable_changes": drift_info.get("master_notable_changes", []),
+            "base_commits_ahead": drift_info.get("base_commits_ahead", 0),
+            "base_notable_changes": drift_info.get("base_notable_changes", []),
             "is_graft": shard_worktree.is_graft(worktree_name),
             "is_nested": is_nested,
             "work_diff_stat": drift_info.get("work_diff_stat"),
@@ -6421,13 +6421,13 @@ def shard_inspect(ctx, worktree_name, output_json):
                 click.echo()
 
             # Show master activity (drift)
-            master_ahead = drift_info.get("master_commits_ahead", 0)
+            master_ahead = drift_info.get("base_commits_ahead", 0)
             if master_ahead > 0:
                 click.echo("Master Activity Since Your Base:")
                 click.echo(f"  {master_ahead} new commits merged to master")
                 click.echo()
 
-                notable = drift_info.get("master_notable_changes", [])
+                notable = drift_info.get("base_notable_changes", [])
                 if notable:
                     click.echo("  Notable changes:")
                     for change in notable[:5]:

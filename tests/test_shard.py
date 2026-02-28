@@ -1903,7 +1903,7 @@ class TestDriftDetection:
         try:
             # Initially no drift
             drift = get_shard_drift_info(info["worktree_name"])
-            assert drift["master_commits_ahead"] == 0
+            assert drift["base_commits_ahead"] == 0
             assert drift["is_stale"] is False
 
             # Add commits on master
@@ -1919,7 +1919,7 @@ class TestDriftDetection:
 
             # Now should detect drift
             drift = get_shard_drift_info(info["worktree_name"])
-            assert drift["master_commits_ahead"] == 3
+            assert drift["base_commits_ahead"] == 3
             assert drift["is_stale"] is True
 
         finally:
@@ -1951,7 +1951,7 @@ class TestDriftDetection:
             )
 
             drift = get_shard_drift_info(info["worktree_name"])
-            notable = drift["master_notable_changes"]
+            notable = drift["base_notable_changes"]
             assert len(notable) > 0
             # Should include both additions and deletions
             notable_str = " ".join(notable)
@@ -2107,7 +2107,7 @@ class TestConflictDetection:
                 "clean",
                 "unknown",
             ), f"Expected 'clean' or 'unknown', got: {drift['conflict_status']}"
-            assert drift["master_commits_ahead"] == 1
+            assert drift["base_commits_ahead"] == 1
 
         finally:
             cleanup_shard(info["worktree_name"])

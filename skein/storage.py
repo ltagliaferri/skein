@@ -206,6 +206,49 @@ class LogDatabase:
             """
             )
 
+            # Threads table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS threads (
+                    thread_id TEXT PRIMARY KEY,
+                    from_id TEXT NOT NULL,
+                    to_id TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    content TEXT,
+                    weaver TEXT,
+                    created_at DATETIME NOT NULL
+                )
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_threads_from
+                ON threads(from_id)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_threads_to
+                ON threads(to_id)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_threads_type
+                ON threads(type)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_threads_created
+                ON threads(created_at)
+            """
+            )
+
             conn.commit()
 
     @contextmanager
@@ -567,6 +610,131 @@ class LogDatabase:
                 yield_dict["metadata"] = json.loads(yield_dict["metadata"])
             return yield_dict
 
+    # Thread Operations
+
+    def save_thread(self, thread: Thread) -> bool:
+        """Save a thread to the database."""
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO threads
+                (thread_id, from_id, to_id, type, content, weaver, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    thread.thread_id,
+                    thread.from_id,
+                    thread.to_id,
+                    thread.type,
+                    thread.content,
+                    thread.weaver,
+                    thread.created_at.isoformat()
+                    if isinstance(thread.created_at, datetime)
+                    else str(thread.created_at),
+                ),
+            )
+            conn.commit()
+        return True
+
+    def get_threads(
+        self,
+        from_id: Optional[str] = None,
+        to_id: Optional[str] = None,
+        type: Optional[str] = None,
+        weaver: Optional[str] = None,
+    ) -> List[Thread]:
+        """Get threads with optional filters using indexed queries."""
+        with self._get_connection() as conn:
+            query = "SELECT * FROM threads WHERE 1=1"
+            params = []
+
+            if from_id:
+                query += " AND from_id = ?"
+                params.append(from_id)
+            if to_id:
+                query += " AND to_id = ?"
+                params.append(to_id)
+            if type:
+                query += " AND type = ?"
+                params.append(type)
+            if weaver:
+                query += " AND weaver = ?"
+                params.append(weaver)
+
+            cursor = conn.execute(query, params)
+            rows = cursor.fetchall()
+
+            return [
+                Thread(
+                    thread_id=row["thread_id"],
+                    from_id=row["from_id"],
+                    to_id=row["to_id"],
+                    type=row["type"],
+                    content=row["content"],
+                    weaver=row["weaver"],
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
+
+    def migrate_threads_from_json(self, threads_dir: Path) -> int:
+        """Migrate thread JSON files into SQLite. Returns count of migrated threads."""
+        if not threads_dir.exists():
+            return 0
+
+        json_files = list(threads_dir.glob("*.json"))
+        if not json_files:
+            return 0
+
+        # Check if we already have data (idempotent)
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM threads")
+            existing_count = cursor.fetchone()[0]
+            if existing_count > 0:
+                logger.info(
+                    f"Threads table already has {existing_count} rows, skipping migration"
+                )
+                return 0
+
+        count = 0
+        with self._get_connection() as conn:
+            for thread_file in json_files:
+                try:
+                    with open(thread_file) as f:
+                        data = json.load(f)
+
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO threads
+                        (thread_id, from_id, to_id, type, content, weaver, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        (
+                            data["thread_id"],
+                            data["from_id"],
+                            data["to_id"],
+                            data["type"],
+                            data.get("content"),
+                            data.get("weaver"),
+                            data["created_at"],
+                        ),
+                    )
+                    count += 1
+                except Exception as e:
+                    logger.error(f"Failed to migrate {thread_file.name}: {e}")
+
+            conn.commit()
+
+        logger.info(f"Migrated {count} threads from JSON to SQLite")
+
+        # Rename old dir as backup
+        migrated_dir = threads_dir.parent / "threads_migrated"
+        if not migrated_dir.exists():
+            threads_dir.rename(migrated_dir)
+            logger.info(f"Renamed {threads_dir} to {migrated_dir}")
+
+        return count
+
 
 # JSON Storage for Structured Artifacts
 
@@ -578,12 +746,14 @@ class JSONStore:
         self.base_dir = base_dir
         self.roster_dir = base_dir / "roster"
         self.sites_dir = base_dir / "sites"
-        self.threads_dir = base_dir / "threads"
 
         # Ensure directories exist
         self.roster_dir.mkdir(exist_ok=True)
         self.sites_dir.mkdir(exist_ok=True)
-        self.threads_dir.mkdir(exist_ok=True)
+
+        # SQLite-backed thread storage
+        db_path = base_dir / "skein.db"
+        self._log_db = LogDatabase(db_path)
 
     # Roster Operations
 
@@ -784,10 +954,8 @@ class JSONStore:
     # Thread Operations
 
     def save_thread(self, thread: Thread) -> bool:
-        """Save thread."""
-        thread_file = self.threads_dir / f"{thread.thread_id}.json"
-        self._save_json(thread_file, thread.model_dump(mode="json"))
-        return True
+        """Save thread to SQLite."""
+        return self._log_db.save_thread(thread)
 
     def get_threads(
         self,
@@ -796,93 +964,11 @@ class JSONStore:
         type: Optional[str] = None,
         weaver: Optional[str] = None,
     ) -> List[Thread]:
-        """Get threads with optional filters."""
-        threads = []
-        for thread_file in self.threads_dir.glob("*.json"):
-            thread_data = self._load_json(thread_file)
-            thread = Thread(**thread_data)
+        """Get threads with optional filters via SQLite."""
+        return self._log_db.get_threads(
+            from_id=from_id, to_id=to_id, type=type, weaver=weaver
+        )
 
-            # Apply filters
-            if from_id and thread.from_id != from_id:
-                continue
-            if to_id and thread.to_id != to_id:
-                continue
-            if type and thread.type != type:
-                continue
-            if weaver and thread.weaver != weaver:
-                continue
-
-            threads.append(thread)
-
-        return threads
-
-    def get_inbox(self, agent_id: str, unread_only: bool = False) -> List[Thread]:
-        """
-        Get agent's inbox with full conversation context.
-
-        Includes:
-        1. Threads TO agent (to_id=agent_id)
-        2. Threads WOVEN BY agent (weaver=agent_id)
-        3. Replies to threads agent is involved in (recursive)
-        """
-        # Start with threads TO agent (direct messages)
-        direct_threads = self.get_threads(to_id=agent_id)
-
-        # Add threads WOVEN BY agent (threads they created)
-        woven_threads = self.get_threads(weaver=agent_id)
-
-        # Combine and deduplicate
-        thread_map = {}
-        for t in direct_threads + woven_threads:
-            thread_map[t.thread_id] = t
-
-        # Find replies to any threads in the inbox
-        # A reply can have either:
-        #   - from_id = thread_id (thread chaining: thread-A -> thread-B)
-        #   - to_id = thread_id (agent reply: agent -> thread-A via 'skein reply')
-        all_threads = self.get_threads()
-        involved_thread_ids = set(thread_map.keys())
-
-        # Keep adding reply layers until we find no more
-        # Limit depth to prevent performance issues
-        max_depth = 5
-        for _ in range(max_depth):
-            found_new = False
-            for thread in all_threads:
-                if thread.thread_id in thread_map:
-                    continue
-                # Include if from_id or to_id is a thread we care about
-                if (
-                    thread.from_id in involved_thread_ids
-                    or thread.to_id in involved_thread_ids
-                ):
-                    thread_map[thread.thread_id] = thread
-                    involved_thread_ids.add(thread.thread_id)
-                    found_new = True
-
-            if not found_new:
-                break
-
-        threads = list(thread_map.values())
-
-        if unread_only:
-            threads = [t for t in threads if t.read_at is None]
-
-        # Sort by created_at, most recent first
-        threads.sort(key=lambda t: t.created_at, reverse=True)
-
-        return threads
-
-    def mark_thread_read(self, thread_id: str) -> bool:
-        """Mark thread as read."""
-        thread_file = self.threads_dir / f"{thread_id}.json"
-        if not thread_file.exists():
-            return False
-
-        thread_data = self._load_json(thread_file)
-        thread_data["read_at"] = datetime.now().isoformat()
-        self._save_json(thread_file, thread_data)
-        return True
 
     # Helper methods
 

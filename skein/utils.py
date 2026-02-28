@@ -76,107 +76,22 @@ def parse_mentions(content: str) -> Set[str]:
     return valid_mentions
 
 
-# Pure Threads: In-memory cache for status/assignment lookups
-_status_cache: Dict[str, Optional[str]] = {}
-_assignment_cache: Dict[str, Optional[str]] = {}
-
-
 def get_current_status(folio_id: str, json_store) -> Optional[str]:
-    """
-    Get current status of a folio from status threads.
-
-    Status is determined by the most recent 'status' thread pointing to this folio.
-    Thread content should be the status value (e.g., "open", "closed", "in_progress").
-
-    Args:
-        folio_id: The folio ID to get status for
-        json_store: JSONStore instance to query threads
-
-    Returns:
-        Status string or None if no status threads found
-    """
-    # Check cache first
-    if folio_id in _status_cache:
-        return _status_cache[folio_id]
-
-    # Get all status threads pointing to this folio
+    """Get current status of a folio from the most recent status thread."""
     status_threads = json_store.get_threads(to_id=folio_id, type="status")
-
     if not status_threads:
-        _status_cache[folio_id] = None
         return None
-
-    # Get the most recent status thread
     status_threads.sort(key=lambda t: t.created_at, reverse=True)
-    latest_status = status_threads[0].content
-
-    # Cache and return
-    _status_cache[folio_id] = latest_status
-    return latest_status
+    return status_threads[0].content
 
 
 def get_current_assignment(folio_id: str, json_store) -> Optional[str]:
-    """
-    Get current assignment of a folio from assignment threads.
-
-    Assignment is determined by the most recent 'assignment' thread pointing to an agent.
-    The to_id of the assignment thread is the assigned agent.
-
-    Args:
-        folio_id: The folio ID to get assignment for
-        json_store: JSONStore instance to query threads
-
-    Returns:
-        Agent ID or None if no assignment threads found
-    """
-    # Check cache first
-    if folio_id in _assignment_cache:
-        return _assignment_cache[folio_id]
-
-    # Get all assignment threads originating from this folio
+    """Get current assignment of a folio from the most recent assignment thread."""
     assignment_threads = json_store.get_threads(from_id=folio_id, type="assignment")
-
     if not assignment_threads:
-        _assignment_cache[folio_id] = None
         return None
-
-    # Get the most recent assignment thread
     assignment_threads.sort(key=lambda t: t.created_at, reverse=True)
-    latest_assignment = assignment_threads[0].to_id
-
-    # Cache and return
-    _assignment_cache[folio_id] = latest_assignment
-    return latest_assignment
-
-
-def invalidate_status_cache(folio_id: str):
-    """Invalidate status cache for a folio when a new status thread is created."""
-    if folio_id in _status_cache:
-        del _status_cache[folio_id]
-
-
-def invalidate_assignment_cache(folio_id: str):
-    """Invalidate assignment cache for a folio when a new assignment thread is created."""
-    if folio_id in _assignment_cache:
-        del _assignment_cache[folio_id]
-
-
-def auto_invalidate_cache(thread_type: str, folio_id: str):
-    """
-    Automatically invalidate the appropriate cache based on thread type.
-
-    Call this after saving a thread to ensure cache consistency.
-
-    Args:
-        thread_type: The type of thread being created ('status', 'assignment', etc.)
-        folio_id: The folio ID to invalidate cache for
-                  - For status threads: the to_id (folio being statused)
-                  - For assignment threads: the from_id (folio being assigned)
-    """
-    if thread_type == "status":
-        invalidate_status_cache(folio_id)
-    elif thread_type == "assignment":
-        invalidate_assignment_cache(folio_id)
+    return assignment_threads[0].to_id
 
 
 def format_relative_time(dt: datetime) -> str:

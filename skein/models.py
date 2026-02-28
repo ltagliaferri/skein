@@ -146,7 +146,6 @@ class Thread(BaseModel):
     content: Optional[str] = None
     weaver: Optional[str] = None  # Agent who created this connection
     created_at: datetime
-    read_at: Optional[datetime] = None
 
 
 # Log Models

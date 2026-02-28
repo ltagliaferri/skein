@@ -3159,57 +3159,6 @@ def thread_tree(ctx, resource_id, depth, output_json):
 
 
 @cli.command()
-@click.option("--unread", is_flag=True, help="Only show unread items")
-@click.option("--json", "output_json", is_flag=True)
-@click.pass_context
-def inbox(ctx, unread, output_json):
-    """Check your inbox (threads to you)."""
-    base_url = get_base_url(ctx.obj.get("url"))
-    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
-
-    if agent_id is None:
-        raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to check inbox"
-        )
-
-    params = {}
-    if unread:
-        params["unread"] = "true"
-
-    threads_list = make_request("GET", "/inbox", base_url, agent_id, params=params)
-
-    if output_json:
-        click.echo(json.dumps(threads_list, indent=2))
-    else:
-        if not threads_list:
-            click.echo("Inbox empty")
-        else:
-            click.echo(f"Inbox ({len(threads_list)} item(s)):\n")
-            for t in threads_list:
-                status = "[UNREAD]" if not t.get("read_at") else "[read]"
-                click.echo(f"  {status} [{t['type'].upper()}] From {t['from_id']}")
-                if t.get("content"):
-                    click.echo(f"    {t['content'][:200]}")
-                click.echo(f"    ID: {t['thread_id']}")
-                click.echo()
-
-
-@cli.command("mark-read")
-@click.argument("thread_id")
-@click.pass_context
-def mark_read(ctx, thread_id):
-    """Mark a thread as read."""
-    base_url = get_base_url(ctx.obj.get("url"))
-    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
-
-    result = make_request("PATCH", f"/threads/{thread_id}/read", base_url, agent_id)
-    if result.get("success"):
-        click.echo(f"Marked thread {thread_id} as read")
-    else:
-        click.echo(f"Failed to mark thread {thread_id} as read")
-
-
-@cli.command()
 @click.argument("from_id", required=False)
 @click.argument("to_id")
 @click.argument("thread_type")

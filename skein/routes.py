@@ -39,7 +39,6 @@ from .utils import (
     parse_mentions,
     get_current_status,
     get_current_assignment,
-    auto_invalidate_cache,
     parse_relative_time,
     generate_agent_name,
 )
@@ -625,7 +624,6 @@ async def post_to_site(
             created_at=datetime.now(),
         )
         store.save_thread(status_thread)
-        auto_invalidate_cache("status", folio_id)
 
     # SUGAR API: Create assignment thread if assigned_to provided (undocumented)
     if folio_create.assigned_to:
@@ -639,7 +637,6 @@ async def post_to_site(
             created_at=datetime.now(),
         )
         store.save_thread(assignment_thread)
-        auto_invalidate_cache("assignment", folio_id)
 
     # Create thread for target_agent if set (for briefs)
     if folio_create.target_agent:
@@ -793,7 +790,6 @@ async def update_folio(
             created_at=datetime.now(),
         )
         store.save_thread(status_thread)
-        auto_invalidate_cache("status", folio_id)
         # Also update field for backward compat (will be removed after migration)
         folio.status = update.status
 
@@ -809,7 +805,6 @@ async def update_folio(
             created_at=datetime.now(),
         )
         store.save_thread(assignment_thread)
-        auto_invalidate_cache("assignment", folio_id)
         # Also update field for backward compat (will be removed after migration)
         folio.assigned_to = update.assigned_to
 
@@ -900,12 +895,6 @@ async def create_thread(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to create thread")
 
-    # Auto-invalidate caches based on thread type
-    if thread_create.type == "status":
-        auto_invalidate_cache("status", thread_create.to_id)
-    elif thread_create.type == "assignment":
-        auto_invalidate_cache("assignment", thread_create.from_id)
-
     return {"success": True, "thread_id": thread_id}
 
 
@@ -962,40 +951,6 @@ async def get_threads(
             raise HTTPException(status_code=400, detail=str(e))
 
     return threads
-
-
-@router.get("/inbox", response_model=List[Thread])
-async def get_inbox(
-    x_agent_id: str = Header(..., alias="X-Agent-Id"),
-    unread: Optional[bool] = None,
-    store: JSONStore = Depends(get_project_store),
-):
-    """
-    Get inbox for the calling agent with full conversation context.
-
-    Includes:
-    - Threads TO agent (to_id=agent_id) - direct messages
-    - Threads WOVEN BY agent (weaver=agent_id) - threads agent created
-    - Replies to agent's threads (recursive, up to 5 levels deep)
-
-    This ensures agents see the full conversation flow, including replies
-    to threads they created or were mentioned in.
-    """
-    unread_only = unread if unread is not None else False
-    return store.get_inbox(x_agent_id, unread_only=unread_only)
-
-
-@router.patch("/threads/{thread_id}/read")
-async def mark_thread_read(
-    thread_id: str, store: JSONStore = Depends(get_project_store)
-):
-    """Mark a thread as read."""
-    success = store.mark_thread_read(thread_id)
-
-    if not success:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    return {"success": True}
 
 
 # Log Endpoints

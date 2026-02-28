@@ -59,6 +59,9 @@ from skein.shard import (
     get_graft_depth,
     is_graft,
     _get_shard_metadata,
+    _get_shard_base_branch,
+    _get_shard_base_ref,
+    _record_shard_metadata,
 )
 
 
@@ -2431,6 +2434,489 @@ class TestGraftAlreadyExists:
 
         finally:
             cleanup_graft_chain(info["worktree_name"])
+
+
+# =============================================================================
+# NON-DEFAULT BASE BRANCH TESTS
+# =============================================================================
+
+
+@pytest.fixture
+def shard_env_with_feature_branch(shard_env: Path):
+    """
+    Extend shard_env with a 'feature' branch that diverges from master.
+
+    Creates a 'feature' branch with its own commit so the SHA differs from master.
+    """
+    # Create a feature branch with a divergent commit
+    subprocess.run(
+        ["git", "checkout", "-b", "feature"],
+        cwd=shard_env,
+        check=True,
+        capture_output=True,
+    )
+    feature_file = shard_env / "feature.txt"
+    feature_file.write_text("feature content\n")
+    subprocess.run(["git", "add", "."], cwd=shard_env, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Feature branch commit"],
+        cwd=shard_env,
+        check=True,
+        capture_output=True,
+    )
+
+    # Switch back to master
+    subprocess.run(
+        ["git", "checkout", "master"],
+        cwd=shard_env,
+        check=True,
+        capture_output=True,
+    )
+
+    yield shard_env
+
+
+class TestSpawnShardWithBaseBranch:
+    """
+    Invariant: spawn_shard(base_branch=X) records X in metadata and
+    uses X's HEAD as base_commit.
+    """
+
+    def test_spawn_stores_base_branch_in_metadata(self, shard_env_with_feature_branch):
+        """WHY: base_branch must be persisted so merge/diff know where to target."""
+        repo_path = shard_env_with_feature_branch
+        info = spawn_shard("bb-test", base_branch="feature")
+        try:
+            assert info["base_branch"] == "feature"
+
+            # Verify metadata in SQLite
+            metadata = _get_shard_metadata(info["worktree_name"])
+            assert metadata is not None
+            assert metadata["base_branch"] == "feature"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_spawn_base_commit_is_sha_of_base_branch(self, shard_env_with_feature_branch):
+        """WHY: base_commit must point to the base_branch HEAD, not master."""
+        repo_path = shard_env_with_feature_branch
+
+        # Get the actual SHA of the feature branch
+        feature_sha = subprocess.run(
+            ["git", "rev-parse", "feature"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        master_sha = subprocess.run(
+            ["git", "rev-parse", "master"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        info = spawn_shard("bb-sha-test", base_branch="feature")
+        try:
+            assert info["base_commit"] == feature_sha
+            assert info["base_commit"] != master_sha
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_spawn_default_base_branch_is_master(self, shard_env):
+        """WHY: Omitting base_branch must default to 'master' for backwards compat."""
+        info = spawn_shard("default-bb-test")
+        try:
+            assert info["base_branch"] == "master"
+            metadata = _get_shard_metadata(info["worktree_name"])
+            assert metadata["base_branch"] == "master"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_spawn_worktree_branches_from_base_branch(self, shard_env_with_feature_branch):
+        """WHY: The worktree must contain base_branch content, not master content."""
+        repo_path = shard_env_with_feature_branch
+        info = spawn_shard("bb-content-test", base_branch="feature")
+        try:
+            worktree_path = Path(info["worktree_path"])
+            # The worktree should have feature.txt from the feature branch
+            assert (worktree_path / "feature.txt").exists()
+            assert (worktree_path / "feature.txt").read_text() == "feature content\n"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+
+class TestGetShardBaseBranch:
+    """
+    Invariant: _get_shard_base_branch returns stored branch or 'master' fallback.
+    """
+
+    def test_returns_stored_base_branch(self, shard_env_with_feature_branch):
+        """WHY: Must return the actual base_branch from metadata."""
+        info = spawn_shard("gbb-test", base_branch="feature")
+        try:
+            result = _get_shard_base_branch(info["worktree_name"])
+            assert result == "feature"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_returns_master_for_default_shard(self, shard_env):
+        """WHY: Default-spawned shards should report 'master'."""
+        info = spawn_shard("gbb-default")
+        try:
+            result = _get_shard_base_branch(info["worktree_name"])
+            assert result == "master"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_falls_back_to_master_for_legacy_shard(self, shard_env):
+        """WHY: Shards without base_branch column must fall back to 'master'."""
+        # Simulate a legacy shard by inserting metadata without base_branch
+        info = spawn_shard("gbb-legacy")
+        try:
+            # Overwrite metadata with NULL base_branch to simulate legacy
+            import skein.shard as shard_module
+
+            conn = shard_module._get_db_connection()
+            try:
+                conn.execute(
+                    "UPDATE shards SET base_branch = NULL WHERE worktree_name = ?",
+                    (info["worktree_name"],),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = _get_shard_base_branch(info["worktree_name"])
+            assert result == "master"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_falls_back_for_nonexistent_shard(self, shard_env):
+        """WHY: Unknown worktree names must not crash, just return 'master'."""
+        result = _get_shard_base_branch("nonexistent-shard-12345")
+        assert result == "master"
+
+
+class TestGetShardBaseRef:
+    """
+    Invariant: _get_shard_base_ref returns stored base_commit SHA or 'master' fallback.
+    """
+
+    def test_returns_stored_base_commit(self, shard_env_with_feature_branch):
+        """WHY: Must return the exact commit SHA recorded at spawn time."""
+        repo_path = shard_env_with_feature_branch
+        feature_sha = subprocess.run(
+            ["git", "rev-parse", "feature"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        info = spawn_shard("gbr-test", base_branch="feature")
+        try:
+            result = _get_shard_base_ref(info["worktree_name"])
+            assert result == feature_sha
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_falls_back_to_master_for_legacy_shard(self, shard_env):
+        """WHY: Shards without base_commit must fall back to 'master'."""
+        info = spawn_shard("gbr-legacy")
+        try:
+            # Set base_commit to empty string to simulate legacy (column is NOT NULL)
+            import skein.shard as shard_module
+
+            conn = shard_module._get_db_connection()
+            try:
+                conn.execute(
+                    "UPDATE shards SET base_commit = '' WHERE worktree_name = ?",
+                    (info["worktree_name"],),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = _get_shard_base_ref(info["worktree_name"])
+            assert result == "master"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_falls_back_for_nonexistent_shard(self, shard_env):
+        """WHY: Unknown worktree names must not crash, just return 'master'."""
+        result = _get_shard_base_ref("nonexistent-shard-12345")
+        assert result == "master"
+
+
+@requires_git_238
+class TestMergeShardWithNonMasterBase:
+    """
+    Invariant: merge_shard checks out base_branch (not master) before merging.
+    """
+
+    def test_merge_targets_base_branch(self, shard_env_with_feature_branch):
+        """WHY: Merge must land on base_branch, not hardcoded master."""
+        repo_path = shard_env_with_feature_branch
+
+        info = spawn_shard("merge-bb-test", base_branch="feature")
+        worktree_path = Path(info["worktree_path"])
+
+        # Make a commit in the shard
+        (worktree_path / "shard_work.txt").write_text("shard work\n")
+        subprocess.run(
+            ["git", "add", "."], cwd=worktree_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Shard work"],
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
+        )
+
+        result = merge_shard(info["worktree_name"])
+        assert result["success"] is True
+
+        # Verify the merge landed on 'feature', not 'master'
+        # Check that feature branch has the shard's file
+        subprocess.run(
+            ["git", "checkout", "feature"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+        )
+        assert (repo_path / "shard_work.txt").exists()
+
+        # Master should NOT have the shard's file
+        subprocess.run(
+            ["git", "checkout", "master"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+        )
+        assert not (repo_path / "shard_work.txt").exists()
+
+    def test_merge_message_references_base_branch(self, shard_env_with_feature_branch):
+        """WHY: Merge message should reference the actual base_branch."""
+        repo_path = shard_env_with_feature_branch
+
+        info = spawn_shard("merge-msg-test", base_branch="feature")
+        worktree_path = Path(info["worktree_path"])
+
+        # Make a commit in the shard
+        (worktree_path / "msg_test.txt").write_text("msg test\n")
+        subprocess.run(
+            ["git", "add", "."], cwd=worktree_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Msg test commit"],
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
+        )
+
+        result = merge_shard(info["worktree_name"])
+        assert result["success"] is True
+        assert "feature" in result["message"]
+
+
+class TestGetShardDiffWithNonMasterBase:
+    """
+    Invariant: get_shard_diff uses base_branch for diff range, not hardcoded master.
+    """
+
+    def test_diff_uses_base_branch(self, shard_env_with_feature_branch):
+        """WHY: Diff must be against base_branch so it shows only shard changes."""
+        repo_path = shard_env_with_feature_branch
+
+        info = spawn_shard("diff-bb-test", base_branch="feature")
+        worktree_path = Path(info["worktree_path"])
+
+        try:
+            # Make a change in the shard
+            (worktree_path / "diff_test.txt").write_text("diff test\n")
+            subprocess.run(
+                ["git", "add", "."], cwd=worktree_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Diff test commit"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+
+            diff_output = get_shard_diff(info["worktree_name"])
+            assert diff_output is not None
+            assert "diff_test.txt" in diff_output
+
+            # The diff should NOT show feature.txt as a new file since it's in the base
+            assert "feature.txt" not in diff_output
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_diff_against_master_would_include_feature_content(self, shard_env_with_feature_branch):
+        """WHY: Confirms that using wrong base would give different results."""
+        repo_path = shard_env_with_feature_branch
+
+        info = spawn_shard("diff-compare-test", base_branch="feature")
+        worktree_path = Path(info["worktree_path"])
+
+        try:
+            # Make a change in the shard
+            (worktree_path / "compare_test.txt").write_text("compare\n")
+            subprocess.run(
+                ["git", "add", "."], cwd=worktree_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Compare commit"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+
+            # get_shard_diff should use 'feature' as base - won't show feature.txt
+            diff = get_shard_diff(info["worktree_name"])
+            assert "feature.txt" not in diff
+
+            # Manually diff against master to show it WOULD include feature.txt
+            import skein.shard as shard_module
+
+            repo = shard_module._get_repo()
+            master_diff = repo.git.diff(f"master..{info['branch_name']}")
+            assert "feature.txt" in master_diff
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_work_diff_uses_base_commit_sha(self, shard_env_with_feature_branch):
+        """WHY: Work diff must use the exact SHA from spawn time, not current branch tip."""
+        repo_path = shard_env_with_feature_branch
+
+        info = spawn_shard("wdiff-bb-test", base_branch="feature")
+        worktree_path = Path(info["worktree_path"])
+
+        try:
+            # Make a change in the shard
+            (worktree_path / "work_diff_test.txt").write_text("work diff\n")
+            subprocess.run(
+                ["git", "add", "."], cwd=worktree_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Work diff commit"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+
+            work_diff = get_shard_work_diff(info["worktree_name"])
+            assert work_diff is not None
+            assert "work_diff_test.txt" in work_diff
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+
+class TestShardStashAutoDetection:
+    """
+    Invariant: shard_stash (CLI) auto-detects current branch as base_branch.
+
+    Since shard_stash lives in the CLI layer (client/cli.py), we test the
+    underlying mechanism: spawn_shard called with the current branch name.
+    """
+
+    def test_spawn_with_current_branch_as_base(self, shard_env_with_feature_branch):
+        """WHY: shard_stash detects current branch and passes it as base_branch."""
+        repo_path = shard_env_with_feature_branch
+
+        # Switch to the feature branch (simulating being on a non-master branch)
+        subprocess.run(
+            ["git", "checkout", "feature"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+        )
+
+        # This is what shard_stash does: detect current branch, pass as base_branch
+        import skein.shard as shard_module
+
+        repo = shard_module._get_repo()
+        current_branch = repo.active_branch.name
+        assert current_branch == "feature"
+
+        info = spawn_shard("stash-test", base_branch=current_branch)
+        try:
+            assert info["base_branch"] == "feature"
+            metadata = _get_shard_metadata(info["worktree_name"])
+            assert metadata["base_branch"] == "feature"
+        finally:
+            # Switch back to master before cleanup (avoid being on feature during cleanup)
+            subprocess.run(
+                ["git", "checkout", "master"],
+                cwd=repo_path,
+                check=True,
+                capture_output=True,
+            )
+            cleanup_shard(info["worktree_name"])
+
+    def test_stash_from_master_uses_master_base(self, shard_env):
+        """WHY: On master, stash should default base_branch to 'master'."""
+        import skein.shard as shard_module
+
+        repo = shard_module._get_repo()
+        current_branch = repo.active_branch.name
+        assert current_branch == "master"
+
+        info = spawn_shard("stash-master-test", base_branch=current_branch)
+        try:
+            assert info["base_branch"] == "master"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+
+class TestDriftDetectionWithNonMasterBase:
+    """
+    Invariant: Drift detection uses base_branch, not hardcoded master.
+    """
+
+    def test_drift_detects_base_branch_evolution(self, shard_env_with_feature_branch):
+        """WHY: Drift should track commits on the base_branch, not master."""
+        repo_path = shard_env_with_feature_branch
+
+        # Spawn the shard FIRST, then evolve the feature branch
+        info = spawn_shard("drift-bb-test", base_branch="feature")
+        try:
+            # Add a commit to feature AFTER shard creation, without checking out
+            # in the main repo (use a temp worktree to avoid disturbing state)
+            tmp_wt = repo_path.parent / "feature-wt"
+            subprocess.run(
+                ["git", "worktree", "add", str(tmp_wt), "feature"],
+                cwd=repo_path,
+                check=True,
+                capture_output=True,
+            )
+            (tmp_wt / "feature_evolution.txt").write_text("evolved\n")
+            subprocess.run(
+                ["git", "add", "."], cwd=tmp_wt, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Feature evolves after shard"],
+                cwd=tmp_wt,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "worktree", "remove", str(tmp_wt)],
+                cwd=repo_path,
+                check=True,
+                capture_output=True,
+            )
+
+            drift_info = get_shard_drift_info(info["worktree_name"])
+            assert drift_info is not None
+            assert drift_info["base_branch"] == "feature"
+            # The base_branch evolved by 1 commit after shard was created
+            assert drift_info["base_commits_ahead"] >= 1
+        finally:
+            cleanup_shard(info["worktree_name"])
 
 
 if __name__ == "__main__":

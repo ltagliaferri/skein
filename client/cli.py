@@ -5870,7 +5870,7 @@ def shard_review(ctx, stale_days, output_json):
         categories = [
             ("READY", "ready", "Merge candidates - clean and ready"),
             ("NEEDS_COMMIT", "needs_commit", "Have uncommitted changes"),
-            ("CONFLICTS", "conflicts", "Would conflict with master"),
+            ("CONFLICTS", "conflicts", "Would conflict with base branch"),
             ("STALE", "stale", f"No commits, older than {stale_days} days"),
         ]
 
@@ -6104,6 +6104,7 @@ def shard_triage(ctx, output_json):
             base_commit = drift_info.get("base_commit_short")
             conflict_status = drift_info.get("conflict_status", "unknown")
             conflict_files = drift_info.get("conflict_files", [])
+            base_branch = drift_info.get("base_branch", "master")
 
             # Check if this is a graft
             is_graft = shard_worktree.is_graft(wt_name)
@@ -6150,7 +6151,8 @@ def shard_triage(ctx, output_json):
                 "status_icon": status_icon,
                 "confidence": confidence,
                 "tender_id": tender.get("folio_id") if tender else None,
-                "master_ahead": master_ahead,
+                "base_ahead": master_ahead,
+                "base_branch": base_branch,
                 "base_commit": base_commit,
                 "is_graft": is_graft,
                 "graft_depth": graft_depth,
@@ -6173,7 +6175,8 @@ def shard_triage(ctx, output_json):
                 status = entry["status"]
                 icon = entry["status_icon"]
                 conf = entry["confidence"]
-                master_ahead = entry.get("master_ahead", 0)
+                base_ahead = entry.get("base_ahead", 0)
+                base_branch = entry.get("base_branch", "master")
                 base_commit = entry.get("base_commit")
                 is_graft = entry.get("is_graft", False)
 
@@ -6197,12 +6200,12 @@ def shard_triage(ctx, output_json):
                 context_parts = []
                 if base_commit:
                     context_parts.append(f"base: {base_commit}")
-                if master_ahead > 0:
+                if base_ahead > 0:
                     conflict_status_val = entry.get("conflict_status", "unknown")
                     if conflict_status_val == "conflict":
-                        context_parts.append(f"master +{master_ahead} (conflicts)")
+                        context_parts.append(f"{base_branch} +{base_ahead} (conflicts)")
                     else:
-                        context_parts.append(f"master +{master_ahead} (no conflicts)")
+                        context_parts.append(f"{base_branch} +{base_ahead} (no conflicts)")
                 if is_graft:
                     root = shard_worktree.get_graft_chain_root(name)
                     context_parts.append(f"graft of {root}")
@@ -6213,10 +6216,10 @@ def shard_triage(ctx, output_json):
                 # Show conflict details if CONFLICT status but no drift info shown above
                 conflict_status_val = entry.get("conflict_status", "unknown")
                 conflict_files_list = entry.get("conflict_files", [])
-                if status == "CONFLICT" and master_ahead == 0 and not is_graft:
+                if status == "CONFLICT" and base_ahead == 0 and not is_graft:
                     # Conflict exists but not from drift or graft - explain why
                     click.echo(
-                        f"       conflicts with master (files: {', '.join(conflict_files_list[:3])}{'...' if len(conflict_files_list) > 3 else ''})"
+                        f"       conflicts with {base_branch} (files: {', '.join(conflict_files_list[:3])}{'...' if len(conflict_files_list) > 3 else ''})"
                     )
                 elif status == "CONFLICT" and conflict_files_list:
                     # Show which files conflict (for all CONFLICT cases with file info)
@@ -6377,6 +6380,7 @@ def shard_inspect(ctx, worktree_name, output_json):
 
             # Show work info with base commit
             base_commit = drift_info.get("base_commit_short")
+            base_branch = drift_info.get("base_branch", "master")
             base_date = drift_info.get("base_commit_date", "")
             commits = git_info.get("commits_ahead", 0)
             uncommitted = git_info.get("uncommitted", [])
@@ -6384,7 +6388,7 @@ def shard_inspect(ctx, worktree_name, output_json):
             if uncommitted:
                 click.echo("Your Work (has uncommitted changes):")
             elif conflict_status == "conflict":
-                click.echo("Your Work (conflicts with master):")
+                click.echo(f"Your Work (conflicts with {base_branch}):")
             else:
                 click.echo("Your Work (clean, ready to integrate):")
 
@@ -6423,8 +6427,8 @@ def shard_inspect(ctx, worktree_name, output_json):
             # Show master activity (drift)
             master_ahead = drift_info.get("base_commits_ahead", 0)
             if master_ahead > 0:
-                click.echo("Master Activity Since Your Base:")
-                click.echo(f"  {master_ahead} new commits merged to master")
+                click.echo(f"{base_branch} Activity Since Your Base:")
+                click.echo(f"  {master_ahead} new commits merged to {base_branch}")
                 click.echo()
 
                 notable = drift_info.get("base_notable_changes", [])
@@ -6450,20 +6454,20 @@ def shard_inspect(ctx, worktree_name, output_json):
                 else:
                     click.echo("  ✓ Integration test: No conflicts detected")
                     if commits > 0:
-                        click.echo("  ✓ Ready to merge onto current master")
+                        click.echo(f"  ✓ Ready to merge onto current {base_branch}")
                     else:
                         click.echo("  ℹ No code changes (research/verification only)")
                 click.echo()
             elif base_commit:
                 if is_nested and not is_graft:
-                    # Nested shard at same base as master
+                    # Nested shard at same base as base branch
                     click.echo("⚠ Nested shard: contains commits from parent shard")
                     click.echo("  Must graft to isolate your changes before merging")
                 elif commits > 0:
-                    click.echo("✓ Master is at same state as your base")
+                    click.echo(f"✓ {base_branch} is at same state as your base")
                     click.echo("✓ Ready to merge")
                 else:
-                    click.echo("✓ Master is at same state as your base")
+                    click.echo(f"✓ {base_branch} is at same state as your base")
                     click.echo("ℹ No code changes (research/verification only)")
                 click.echo()
 

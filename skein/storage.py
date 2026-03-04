@@ -1,5 +1,5 @@
 """
-SKEIN storage layer: SQLite for logs, JSON for structured artifacts.
+SKEIN storage layer: SQLite for logs/threads/folios, JSON for roster/sites.
 Multi-project support via ~/.skein/projects.json registry.
 """
 
@@ -246,6 +246,85 @@ class LogDatabase:
                 """
                 CREATE INDEX IF NOT EXISTS idx_threads_created
                 ON threads(created_at)
+            """
+            )
+
+            # Folios table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS folios (
+                    folio_id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    site_id TEXT NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    created_by TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    status TEXT DEFAULT 'open',
+                    assigned_to TEXT,
+                    target_agent TEXT,
+                    omlet TEXT,
+                    archived INTEGER DEFAULT 0,
+                    metadata JSON,
+                    acknowledged_at DATETIME,
+                    content_hash TEXT
+                )
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_folios_site
+                ON folios(site_id)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_folios_type
+                ON folios(type)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_folios_status
+                ON folios(status)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_folios_created
+                ON folios(created_at DESC)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_folios_created_by
+                ON folios(created_by)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_folios_assigned
+                ON folios(assigned_to)
+            """
+            )
+
+            # FTS5 for folio search
+            conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS folios_fts
+                USING fts5(
+                    folio_id,
+                    title,
+                    content,
+                    content=folios,
+                    content_rowid=rowid
+                )
             """
             )
 
@@ -677,6 +756,312 @@ class LogDatabase:
                 for row in rows
             ]
 
+    # Folio Operations
+
+    def save_folio(self, folio: Folio) -> bool:
+        """Save or update a folio in SQLite."""
+        with self._get_connection() as conn:
+            created_at = (
+                folio.created_at.isoformat()
+                if isinstance(folio.created_at, datetime)
+                else str(folio.created_at)
+            )
+            acknowledged_at = None
+            if folio.acknowledged_at:
+                acknowledged_at = (
+                    folio.acknowledged_at.isoformat()
+                    if isinstance(folio.acknowledged_at, datetime)
+                    else str(folio.acknowledged_at)
+                )
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO folios
+                (folio_id, type, site_id, created_at, created_by, title, content,
+                 status, assigned_to, target_agent, omlet, archived, metadata,
+                 acknowledged_at, content_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    folio.folio_id,
+                    folio.type,
+                    folio.site_id,
+                    created_at,
+                    folio.created_by,
+                    folio.title,
+                    folio.content,
+                    folio.status or "open",
+                    folio.assigned_to,
+                    folio.target_agent,
+                    folio.omlet,
+                    1 if folio.archived else 0,
+                    json.dumps(folio.metadata) if folio.metadata else "{}",
+                    acknowledged_at,
+                    folio.content_hash,
+                ),
+            )
+
+            # Update FTS index
+            conn.execute(
+                "INSERT OR REPLACE INTO folios_fts(rowid, folio_id, title, content) "
+                "SELECT rowid, folio_id, title, content FROM folios WHERE folio_id = ?",
+                (folio.folio_id,),
+            )
+
+            conn.commit()
+        return True
+
+    def get_folio(self, folio_id: str) -> Optional[Folio]:
+        """Get a specific folio by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_folio(row)
+
+    def get_folios(
+        self,
+        site_id: Optional[str] = None,
+        type: Optional[str] = None,
+        status: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        created_by: Optional[str] = None,
+        archived: Optional[bool] = None,
+    ) -> List[Folio]:
+        """Get folios with optional filters."""
+        with self._get_connection() as conn:
+            query = "SELECT * FROM folios WHERE 1=1"
+            params = []
+
+            if site_id:
+                query += " AND site_id = ?"
+                params.append(site_id)
+            if type:
+                query += " AND type = ?"
+                params.append(type)
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+            if assigned_to:
+                query += " AND assigned_to = ?"
+                params.append(assigned_to)
+            if created_by:
+                query += " AND created_by = ?"
+                params.append(created_by)
+            if archived is not None:
+                query += " AND archived = ?"
+                params.append(1 if archived else 0)
+
+            query += " ORDER BY created_at DESC"
+
+            cursor = conn.execute(query, params)
+            return [self._row_to_folio(row) for row in cursor.fetchall()]
+
+    def move_folio(self, folio_id: str, dest_site_id: str) -> Optional[Folio]:
+        """Move a folio to a different site."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            conn.execute(
+                "UPDATE folios SET site_id = ? WHERE folio_id = ?",
+                (dest_site_id, folio_id),
+            )
+            conn.commit()
+
+            # Return updated folio
+            cursor = conn.execute(
+                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+            )
+            return self._row_to_folio(cursor.fetchone())
+
+    def search_folios(self, query: str, limit: int = 50) -> List[Folio]:
+        """Full-text search across folios using FTS5."""
+        with self._get_connection() as conn:
+            # FTS5 query - escape special characters for safety
+            fts_query = query.replace('"', '""')
+            cursor = conn.execute(
+                """
+                SELECT folios.* FROM folios
+                JOIN folios_fts ON folios.rowid = folios_fts.rowid
+                WHERE folios_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+            """,
+                (f'"{fts_query}"', limit),
+            )
+            return [self._row_to_folio(row) for row in cursor.fetchall()]
+
+    def get_folio_count(self, site_id: Optional[str] = None) -> int:
+        """Get count of folios, optionally by site."""
+        with self._get_connection() as conn:
+            if site_id:
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM folios WHERE site_id = ?", (site_id,)
+                )
+            else:
+                cursor = conn.execute("SELECT COUNT(*) FROM folios")
+            return cursor.fetchone()[0]
+
+    def get_folio_stats(self, site_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get folio statistics (type/status breakdowns), optionally by site."""
+        with self._get_connection() as conn:
+            base = "SELECT {} FROM folios"
+            where = ""
+            params = []
+            if site_id:
+                where = " WHERE site_id = ?"
+                params = [site_id]
+
+            # By type
+            cursor = conn.execute(
+                base.format("type, COUNT(*) as cnt") + where + " GROUP BY type",
+                params,
+            )
+            by_type = {row["type"]: row["cnt"] for row in cursor.fetchall()}
+
+            # By status
+            cursor = conn.execute(
+                base.format("status, COUNT(*) as cnt") + where + " GROUP BY status",
+                params,
+            )
+            by_status = {row["status"]: row["cnt"] for row in cursor.fetchall()}
+
+            # Total
+            cursor = conn.execute(
+                base.format("COUNT(*) as cnt") + where, params
+            )
+            total = cursor.fetchone()["cnt"]
+
+            return {"total": total, "by_type": by_type, "by_status": by_status}
+
+    def _row_to_folio(self, row: sqlite3.Row) -> Folio:
+        """Convert a SQLite row to a Folio model."""
+        metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+        return Folio(
+            folio_id=row["folio_id"],
+            type=row["type"],
+            site_id=row["site_id"],
+            created_at=row["created_at"],
+            created_by=row["created_by"],
+            title=row["title"],
+            content=row["content"],
+            status=row["status"] or "open",
+            assigned_to=row["assigned_to"],
+            target_agent=row["target_agent"],
+            omlet=row["omlet"],
+            archived=bool(row["archived"]),
+            metadata=metadata,
+            acknowledged_at=row["acknowledged_at"],
+            content_hash=row["content_hash"],
+        )
+
+    def migrate_folios_from_json(self, sites_dir: Path) -> int:
+        """
+        Migrate folio JSON files from all sites into SQLite.
+        Returns count of migrated folios. Idempotent.
+        """
+        if not sites_dir.exists():
+            return 0
+
+        # Check if we already have data (idempotent)
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM folios")
+            existing_count = cursor.fetchone()[0]
+            if existing_count > 0:
+                logger.info(
+                    f"Folios table already has {existing_count} rows, skipping migration"
+                )
+                return 0
+
+        # Collect all folio JSON files
+        folio_files = []
+        for site_dir in sites_dir.iterdir():
+            if site_dir.is_dir():
+                folios_dir = site_dir / "folios"
+                if folios_dir.exists():
+                    folio_files.extend(folios_dir.glob("*.json"))
+
+        if not folio_files:
+            return 0
+
+        logger.info(f"Migrating {len(folio_files)} folios from JSON to SQLite")
+
+        count = 0
+        errors = 0
+        with self._get_connection() as conn:
+            for folio_file in folio_files:
+                try:
+                    with open(folio_file) as f:
+                        data = json.load(f)
+
+                    # Handle missing fields gracefully
+                    folio_id = data.get("folio_id", folio_file.stem)
+                    metadata = data.get("metadata", {})
+
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO folios
+                        (folio_id, type, site_id, created_at, created_by, title, content,
+                         status, assigned_to, target_agent, omlet, archived, metadata,
+                         acknowledged_at, content_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        (
+                            folio_id,
+                            data.get("type", "issue"),
+                            data.get("site_id", folio_file.parent.parent.name),
+                            data.get("created_at", datetime.now(timezone.utc).isoformat()),
+                            data.get("created_by", "unknown"),
+                            data.get("title", ""),
+                            data.get("content", ""),
+                            data.get("status", "open"),
+                            data.get("assigned_to"),
+                            data.get("target_agent"),
+                            data.get("omlet"),
+                            1 if data.get("archived", False) else 0,
+                            json.dumps(metadata) if metadata else "{}",
+                            data.get("acknowledged_at"),
+                            data.get("content_hash"),
+                        ),
+                    )
+                    count += 1
+                except Exception as e:
+                    logger.error(f"Failed to migrate {folio_file.name}: {e}")
+                    errors += 1
+
+            # Populate FTS index in bulk
+            conn.execute(
+                """
+                INSERT INTO folios_fts(rowid, folio_id, title, content)
+                SELECT rowid, folio_id, title, content FROM folios
+            """
+            )
+
+            conn.commit()
+
+        logger.info(
+            f"Migrated {count} folios from JSON to SQLite ({errors} errors)"
+        )
+
+        # Backup sites/ folio dirs by renaming
+        for site_dir in sites_dir.iterdir():
+            if site_dir.is_dir():
+                folios_dir = site_dir / "folios"
+                migrated_dir = site_dir / "folios_migrated"
+                if folios_dir.exists() and not migrated_dir.exists():
+                    folios_dir.rename(migrated_dir)
+                    logger.info(f"Backed up {folios_dir} -> {migrated_dir}")
+
+        return count
+
     def migrate_threads_from_json(self, threads_dir: Path) -> int:
         """Migrate thread JSON files into SQLite. Returns count of migrated threads."""
         if not threads_dir.exists():
@@ -740,7 +1125,7 @@ class LogDatabase:
 
 
 class JSONStore:
-    """JSON-based storage for roster, sites, folios, signals."""
+    """Storage for roster (JSON), sites (JSON), folios/threads (SQLite)."""
 
     def __init__(self, base_dir: Path = None):
         self.base_dir = base_dir
@@ -751,9 +1136,12 @@ class JSONStore:
         self.roster_dir.mkdir(exist_ok=True)
         self.sites_dir.mkdir(exist_ok=True)
 
-        # SQLite-backed thread storage
+        # SQLite-backed storage for threads and folios
         db_path = base_dir / "skein.db"
         self._log_db = LogDatabase(db_path)
+
+        # Auto-migrate folios from JSON to SQLite if needed
+        self._log_db.migrate_folios_from_json(self.sites_dir)
 
     # Roster Operations
 
@@ -844,112 +1232,45 @@ class JSONStore:
         self.save_site(site)
         return site
 
-    # Folio Operations
+    # Folio Operations (SQLite-backed)
 
     def save_folio(self, folio: Folio) -> bool:
-        """Save folio to site."""
-        site_dir = self.sites_dir / folio.site_id
-        if not site_dir.exists():
-            logger.error(f"Site {folio.site_id} does not exist")
-            return False
-
+        """Save folio to SQLite."""
         # Compute content hash if not present
         if not folio.content_hash and KNURL_AVAILABLE:
             folio.content_hash = compute_folio_hash(folio)
 
-        folios_dir = site_dir / "folios"
-        folios_dir.mkdir(exist_ok=True)
-
-        folio_file = folios_dir / f"{folio.folio_id}.json"
-        self._save_json(folio_file, folio.model_dump(mode="json"))
-        return True
+        return self._log_db.save_folio(folio)
 
     def get_folios(self, site_id: Optional[str] = None) -> List[Folio]:
         """Get folios, optionally filtered by site."""
-        folios = []
-
-        if site_id:
-            site_dirs = [self.sites_dir / site_id]
-        else:
-            site_dirs = [d for d in self.sites_dir.iterdir() if d.is_dir()]
-
-        for site_dir in site_dirs:
-            folios_dir = site_dir / "folios"
-            if folios_dir.exists():
-                for folio_file in folios_dir.glob("*.json"):
-                    folio_data = self._load_json(folio_file)
-                    # Normalize datetime fields to prevent comparison errors
-                    folio_data = self._normalize_datetime_fields(folio_data)
-                    folios.append(Folio(**folio_data))
-
-        return folios
+        return self._log_db.get_folios(site_id=site_id)
 
     def get_folio(self, folio_id: str) -> Optional[Folio]:
         """Get specific folio by ID."""
-        # Search all sites
-        for site_dir in self.sites_dir.iterdir():
-            if site_dir.is_dir():
-                folio_file = site_dir / "folios" / f"{folio_id}.json"
-                if folio_file.exists():
-                    folio_data = self._load_json(folio_file)
-                    folio_data = self._normalize_datetime_fields(folio_data)
-                    folio = Folio(**folio_data)
-
-                    # Lazy hash: compute and save if missing
-                    if not folio.content_hash and KNURL_AVAILABLE:
-                        folio.content_hash = compute_folio_hash(folio)
-                        self._save_json(folio_file, folio.model_dump(mode="json"))
-
-                    return folio
-        return None
+        folio = self._log_db.get_folio(folio_id)
+        if folio and not folio.content_hash and KNURL_AVAILABLE:
+            folio.content_hash = compute_folio_hash(folio)
+            self._log_db.save_folio(folio)
+        return folio
 
     def move_folio(self, folio_id: str, dest_site_id: str) -> Optional[Folio]:
         """
-        Move a folio from its current site to a different site.
+        Move a folio to a different site.
 
         Returns the updated folio on success, None if folio not found.
         Raises ValueError if destination site doesn't exist.
         """
-        # Find the folio and its current location
-        source_site_id = None
-        source_file = None
-        for site_dir in self.sites_dir.iterdir():
-            if site_dir.is_dir():
-                folio_file = site_dir / "folios" / f"{folio_id}.json"
-                if folio_file.exists():
-                    source_site_id = site_dir.name
-                    source_file = folio_file
-                    break
-
-        if not source_file or not source_site_id:
-            return None
-
         # Verify destination site exists
         dest_site_dir = self.sites_dir / dest_site_id
         if not dest_site_dir.exists():
             raise ValueError(f"Destination site '{dest_site_id}' does not exist")
 
-        # Load the folio
-        folio_data = self._load_json(source_file)
-        folio_data = self._normalize_datetime_fields(folio_data)
+        return self._log_db.move_folio(folio_id, dest_site_id)
 
-        # Update site_id
-        old_site_id = folio_data.get("site_id")
-        folio_data["site_id"] = dest_site_id
-
-        # Ensure destination folios directory exists
-        dest_folios_dir = dest_site_dir / "folios"
-        dest_folios_dir.mkdir(exist_ok=True)
-
-        # Save to new location
-        dest_file = dest_folios_dir / f"{folio_id}.json"
-        self._save_json(dest_file, folio_data)
-
-        # Delete from old location
-        source_file.unlink()
-
-        logger.info(f"Moved folio {folio_id} from {old_site_id} to {dest_site_id}")
-        return Folio(**folio_data)
+    def search_folios(self, query: str, limit: int = 50) -> List[Folio]:
+        """Full-text search across folios."""
+        return self._log_db.search_folios(query, limit=limit)
 
     # Thread Operations
 

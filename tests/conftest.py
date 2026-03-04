@@ -39,9 +39,12 @@ def pytest_configure(config):
         "name": "test-project",
     }
 
-    # Save registry
-    with open(registry_file, "w") as f:
-        json.dump(registry, f, indent=2)
+    # Save registry (skip if read-only filesystem, e.g. shard worktree)
+    try:
+        with open(registry_file, "w") as f:
+            json.dump(registry, f, indent=2)
+    except OSError:
+        pass
 
 
 @pytest.fixture

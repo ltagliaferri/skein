@@ -715,21 +715,13 @@ async def search_folios(
     status: Optional[str] = None,
     store: JSONStore = Depends(get_project_store),
 ):
-    """Search folios by content."""
-    folios = store.get_folios()
-
-    # Simple text search for MVP
-    matching = [
-        f
-        for f in folios
-        if q.lower() in f.title.lower() or q.lower() in f.content.lower()
-    ]
+    """Search folios by content using FTS5."""
+    matching = store.search_folios(q)
 
     if type:
         matching = [f for f in matching if f.type == type]
 
     if status:
-        # Get status from threads with fallback to stored field (consistent with /folios endpoint)
         matching = [
             f
             for f in matching
@@ -1106,7 +1098,11 @@ async def unified_search(
 
     # Search folios
     if "folios" in resource_list:
-        folios = store.get_folios()
+        # Use FTS5 when query is present, otherwise get all
+        if q:
+            folios = store.search_folios(q, limit=500)
+        else:
+            folios = store.get_folios()
 
         # Compute status from threads
         for folio in folios:
@@ -1114,15 +1110,6 @@ async def unified_search(
             computed_assignment = get_current_assignment(folio.folio_id, store)
             folio.status = computed_status or folio.status or "open"
             folio.assigned_to = computed_assignment or folio.assigned_to
-
-        # Text search
-        if q:
-            q_lower = q.lower()
-            folios = [
-                f
-                for f in folios
-                if q_lower in f.title.lower() or q_lower in f.content.lower()
-            ]
 
         # Filters
         if type:

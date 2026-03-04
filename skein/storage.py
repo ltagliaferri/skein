@@ -328,12 +328,35 @@ class LogDatabase:
             """
             )
 
+            # FTS5 triggers to keep index in sync
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS folios_ai AFTER INSERT ON folios BEGIN
+                    INSERT INTO folios_fts(rowid, folio_id, title, content)
+                    VALUES (new.rowid, new.folio_id, new.title, new.content);
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS folios_ad AFTER DELETE ON folios BEGIN
+                    INSERT INTO folios_fts(folios_fts, rowid, folio_id, title, content)
+                    VALUES('delete', old.rowid, old.folio_id, old.title, old.content);
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS folios_au AFTER UPDATE ON folios BEGIN
+                    INSERT INTO folios_fts(folios_fts, rowid, folio_id, title, content)
+                    VALUES('delete', old.rowid, old.folio_id, old.title, old.content);
+                    INSERT INTO folios_fts(rowid, folio_id, title, content)
+                    VALUES (new.rowid, new.folio_id, new.title, new.content);
+                END
+            """)
+
             conn.commit()
 
     @contextmanager
     def _get_connection(self):
         """Get database connection context manager."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -801,12 +824,7 @@ class LogDatabase:
                 ),
             )
 
-            # Update FTS index
-            conn.execute(
-                "INSERT OR REPLACE INTO folios_fts(rowid, folio_id, title, content) "
-                "SELECT rowid, folio_id, title, content FROM folios WHERE folio_id = ?",
-                (folio.folio_id,),
-            )
+            # FTS index updated automatically via triggers
 
             conn.commit()
         return True
@@ -1037,13 +1055,7 @@ class LogDatabase:
                     logger.error(f"Failed to migrate {folio_file.name}: {e}")
                     errors += 1
 
-            # Populate FTS index in bulk
-            conn.execute(
-                """
-                INSERT INTO folios_fts(rowid, folio_id, title, content)
-                SELECT rowid, folio_id, title, content FROM folios
-            """
-            )
+            # FTS index populated automatically via triggers on INSERT
 
             conn.commit()
 

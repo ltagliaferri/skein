@@ -9,7 +9,7 @@ import subprocess
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Set, Optional, Dict
+from typing import Set, Optional
 
 
 def generate_folio_id(folio_type: str) -> str:

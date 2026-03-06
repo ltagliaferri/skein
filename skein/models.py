@@ -70,6 +70,7 @@ FolioType = Literal[
     "mantle",
     "writ",
     "plan",
+    "hypothesis",
 ]
 
 

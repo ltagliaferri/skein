@@ -1678,3 +1678,174 @@ async def get_agent_yields(
         )
         for y in yields_data
     ]
+
+
+# ============================================================================
+# Hypothesis Endpoints
+# ============================================================================
+
+HYPOTHESIS_VERDICTS = {
+    "confirmed",
+    "disconfirmed",
+    "inconclusive",
+    "deferred",
+    "blocked",
+}
+
+HYPOTHESIS_PRIORITIES = {"high", "medium", "low"}
+
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+class HypothesisVerdict(BaseModel):
+    verdict: str
+    note: Optional[str] = None
+    evidence: Optional[str] = None  # finding folio ID
+
+
+@router.get("/hypotheses/next/{site_id}")
+async def hypothesis_next(
+    site_id: str,
+    store: JSONStore = Depends(get_project_store),
+):
+    """Get the highest-priority open hypothesis in a site."""
+    site = store.get_site(site_id)
+    if not site:
+        raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found")
+
+    folios = store.get_folios(site_id=site_id)
+    hypotheses = [f for f in folios if f.type == "hypothesis"]
+
+    # Filter to open (pending) hypotheses
+    open_hypos = []
+    for h in hypotheses:
+        computed_status = get_current_status(h.folio_id, store)
+        status = computed_status or h.status or "open"
+        # Extract just the verdict (first line)
+        verdict = status.split("\n")[0]
+        if verdict == "open":
+            open_hypos.append(h)
+
+    if not open_hypos:
+        return {"hypothesis": None, "remaining": 0}
+
+    # Sort by priority (high > medium > low), then by creation date (oldest first)
+    open_hypos.sort(
+        key=lambda h: (
+            PRIORITY_ORDER.get(h.metadata.get("priority", "medium"), 1),
+            h.created_at,
+        )
+    )
+
+    return {"hypothesis": open_hypos[0], "remaining": len(open_hypos)}
+
+
+@router.get("/hypotheses/status/{site_id}")
+async def hypothesis_status(
+    site_id: str,
+    store: JSONStore = Depends(get_project_store),
+):
+    """Get burndown counts for hypotheses in a site."""
+    site = store.get_site(site_id)
+    if not site:
+        raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found")
+
+    folios = store.get_folios(site_id=site_id)
+    hypotheses = [f for f in folios if f.type == "hypothesis"]
+
+    counts = {"pending": 0, "total": len(hypotheses)}
+    for h in hypotheses:
+        computed_status = get_current_status(h.folio_id, store)
+        status = computed_status or h.status or "open"
+        # Extract just the verdict (first line)
+        verdict = status.split("\n")[0]
+        if verdict == "open":
+            counts["pending"] += 1
+        else:
+            counts[verdict] = counts.get(verdict, 0) + 1
+
+    return counts
+
+
+@router.post("/hypotheses/{hypothesis_id}/verdict")
+async def hypothesis_verdict(
+    hypothesis_id: str,
+    verdict_req: HypothesisVerdict,
+    x_agent_id: str = Header(None, alias="X-Agent-Id"),
+    store: JSONStore = Depends(get_project_store),
+):
+    """Set verdict on a hypothesis. Creates a status thread."""
+    folio = store.get_folio(hypothesis_id)
+    if not folio:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+    if folio.type != "hypothesis":
+        raise HTTPException(
+            status_code=400, detail=f"Folio '{hypothesis_id}' is not a hypothesis"
+        )
+
+    if verdict_req.verdict not in HYPOTHESIS_VERDICTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid verdict '{verdict_req.verdict}'. Must be one of: {', '.join(sorted(HYPOTHESIS_VERDICTS))}",
+        )
+
+    # Confirmed requires evidence
+    if verdict_req.verdict == "confirmed" and not verdict_req.evidence:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmed verdict requires --evidence (finding folio ID)",
+        )
+
+    # Disconfirmed requires note
+    if verdict_req.verdict == "disconfirmed" and not verdict_req.note:
+        raise HTTPException(
+            status_code=400,
+            detail="Disconfirmed verdict requires --note (what was tried)",
+        )
+
+    created_by = x_agent_id or "unknown"
+
+    # Create status thread with verdict only (keeps get_current_status clean)
+    status_thread = Thread(
+        thread_id=generate_thread_id(),
+        from_id=hypothesis_id,
+        to_id=hypothesis_id,
+        type="status",
+        content=verdict_req.verdict,
+        weaver=created_by,
+        created_at=datetime.now(),
+    )
+    store.save_thread(status_thread)
+
+    # Store note in folio content (appended to original claim)
+    if verdict_req.note:
+        folio.content = f"{folio.content}\n\nVerdict note: {verdict_req.note}"
+
+    # Also update folio status field for backward compat
+    folio.status = verdict_req.verdict
+    store.save_folio(folio)
+
+    # If evidence provided, create reference thread to the finding
+    if verdict_req.evidence:
+        evidence_folio = store.get_folio(verdict_req.evidence)
+        if not evidence_folio:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Evidence folio '{verdict_req.evidence}' not found",
+            )
+        ref_thread = Thread(
+            thread_id=generate_thread_id(),
+            from_id=hypothesis_id,
+            to_id=verdict_req.evidence,
+            type="reference",
+            content=f"Evidence for {verdict_req.verdict} verdict",
+            weaver=created_by,
+            created_at=datetime.now(),
+        )
+        store.save_thread(ref_thread)
+
+    return {
+        "success": True,
+        "hypothesis_id": hypothesis_id,
+        "verdict": verdict_req.verdict,
+    }

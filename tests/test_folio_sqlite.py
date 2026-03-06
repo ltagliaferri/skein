@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from skein.storage import LogDatabase, JSONStore
-from skein.models import Folio, Site, Thread
+from skein.models import Folio, Site
 
 
 @pytest.fixture

@@ -1992,6 +1992,262 @@ def post_summary(ctx, site_id, title, details):
 
 
 # ============================================================================
+# Hypothesis Commands
+# ============================================================================
+
+
+@cli.group()
+def hypothesis():
+    """Hypothesis tracking for structured investigations."""
+    pass
+
+
+@hypothesis.command("add")
+@click.argument("site_id")
+@click.argument("claim")
+@click.option(
+    "--priority",
+    "-p",
+    type=click.Choice(["high", "medium", "low"]),
+    default="medium",
+    help="Priority level (default: medium)",
+)
+@click.option("--source", "-s", help="Where this hypothesis came from")
+@click.pass_context
+def hypothesis_add(ctx, site_id, claim, priority, source):
+    """Add a hypothesis to a site.
+
+    Examples:
+        skein hypothesis add recon-target "IDOR on /api/orders"
+        skein hypothesis add recon-target "SQL injection in search" --priority high
+        skein hypothesis add recon-target "XSS via SVG upload" --source RIFT-0042
+    """
+    validate_positional_args(site_id, claim, command_name="hypothesis add")
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    metadata = {"priority": priority}
+    if source:
+        metadata["source"] = source
+
+    data = {
+        "type": "hypothesis",
+        "site_id": site_id,
+        "title": claim,
+        "content": claim,
+        "metadata": metadata,
+    }
+
+    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    click.echo(f"Added hypothesis: {result['folio_id']}")
+
+
+@hypothesis.command("next")
+@click.argument("site_id")
+@click.pass_context
+def hypothesis_next(ctx, site_id):
+    """Get the next hypothesis to investigate (highest priority, oldest first).
+
+    Example:
+        skein hypothesis next recon-target
+    """
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    result = make_request(
+        "GET", f"/hypotheses/next/{site_id}", base_url, agent_id
+    )
+
+    hypo = result.get("hypothesis")
+    if not hypo:
+        click.echo("No pending hypotheses.")
+        return
+
+    remaining = result.get("remaining", 0)
+    priority = hypo.get("metadata", {}).get("priority", "medium")
+    source = hypo.get("metadata", {}).get("source", "")
+
+    click.echo(f"{hypo['folio_id']} [{priority}] {hypo['title']}")
+    if source:
+        click.echo(f"  Source: {source}")
+    click.echo(f"  {remaining} pending")
+
+
+@hypothesis.command("verdict")
+@click.argument("hypothesis_id")
+@click.argument(
+    "verdict_value",
+    type=click.Choice(
+        ["confirmed", "disconfirmed", "inconclusive", "deferred", "blocked"]
+    ),
+)
+@click.option("--note", "-n", help="What was tried / what was found")
+@click.option("--evidence", "-e", help="Finding folio ID (required for confirmed)")
+@click.pass_context
+def hypothesis_verdict(ctx, hypothesis_id, verdict_value, note, evidence):
+    """Set verdict on a hypothesis.
+
+    Examples:
+        skein hypothesis verdict hypothesis-20260305-a7b3 confirmed --evidence finding-20260305-x1y2 --note "PoC works"
+        skein hypothesis verdict hypothesis-20260305-a7b3 disconfirmed --note "Tested two accounts, 403 on cross-access"
+        skein hypothesis verdict hypothesis-20260305-a7b3 blocked --note "Need admin credentials"
+    """
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    data = {"verdict": verdict_value}
+    if note:
+        data["note"] = note
+    if evidence:
+        data["evidence"] = evidence
+
+    make_request(
+        "POST",
+        f"/hypotheses/{hypothesis_id}/verdict",
+        base_url,
+        agent_id,
+        json=data,
+    )
+    click.echo(f"Verdict: {hypothesis_id} -> {verdict_value}")
+
+
+@hypothesis.command("list")
+@click.argument("site_id")
+@click.option(
+    "--verdict",
+    "-v",
+    help="Filter by verdict (pending, confirmed, disconfirmed, inconclusive, deferred, blocked)",
+)
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def hypothesis_list(ctx, site_id, verdict, output_json):
+    """List hypotheses in a site.
+
+    Examples:
+        skein hypothesis list recon-target
+        skein hypothesis list recon-target --verdict blocked
+        skein hypothesis list recon-target --verdict pending
+    """
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    params = {"site_id": site_id, "type": "hypothesis"}
+    folios = make_request("GET", "/folios", base_url, agent_id, params=params)
+
+    # Filter by verdict if specified
+    if verdict:
+        if verdict == "pending":
+            folios = [f for f in folios if f.get("status", "open") == "open"]
+        else:
+            folios = [
+                f for f in folios
+                if f.get("status", "").split("\n")[0] == verdict
+            ]
+
+    if output_json:
+        click.echo(json.dumps(folios, indent=2, default=str))
+        return
+
+    if not folios:
+        click.echo("No hypotheses found.")
+        return
+
+    for f in folios:
+        status = f.get("status", "open")
+        # Extract just the verdict (first line) in case note was concatenated
+        display_status = status.split("\n")[0] if status else "open"
+        display_status = "pending" if display_status == "open" else display_status
+        priority = f.get("metadata", {}).get("priority", "medium")
+        click.echo(f"[{display_status}] [{priority}] {f['title']} {f['folio_id']}")
+
+
+@hypothesis.command("status")
+@click.argument("site_id")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def hypothesis_status(ctx, site_id, output_json):
+    """Show burndown status for hypotheses in a site.
+
+    Example:
+        skein hypothesis status recon-target
+    """
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    result = make_request(
+        "GET", f"/hypotheses/status/{site_id}", base_url, agent_id
+    )
+
+    if output_json:
+        click.echo(json.dumps(result, indent=2))
+        return
+
+    total = result.get("total", 0)
+    if total == 0:
+        click.echo("No hypotheses in this site.")
+        return
+
+    click.echo(f"Hypotheses: {total} total")
+    for key in ["pending", "confirmed", "disconfirmed", "inconclusive", "deferred", "blocked"]:
+        count = result.get(key, 0)
+        if count > 0:
+            click.echo(f"  {key}: {count}")
+
+
+@hypothesis.command("promote")
+@click.argument("notion_id")
+@click.option(
+    "--priority",
+    "-p",
+    type=click.Choice(["high", "medium", "low"]),
+    default="medium",
+    help="Priority level (default: medium)",
+)
+@click.option("--claim", help="Override claim text (default: notion title)")
+@click.pass_context
+def hypothesis_promote(ctx, notion_id, priority, claim):
+    """Promote a notion to a hypothesis.
+
+    Takes a notion folio and creates a hypothesis from it, closing the original notion.
+
+    Example:
+        skein hypothesis promote notion-20260305-a1b2
+        skein hypothesis promote notion-20260305-a1b2 --priority high --claim "Refined claim text"
+    """
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    # Fetch the notion
+    notion_folio = make_request("GET", f"/folios/{notion_id}", base_url, agent_id)
+    if notion_folio.get("type") != "notion":
+        raise click.ClickException(f"Folio '{notion_id}' is not a notion")
+
+    # Create hypothesis from the notion
+    hypothesis_claim = claim or notion_folio["title"]
+    data = {
+        "type": "hypothesis",
+        "site_id": notion_folio["site_id"],
+        "title": hypothesis_claim,
+        "content": notion_folio.get("content", hypothesis_claim),
+        "metadata": {"priority": priority, "source": f"promoted from {notion_id}"},
+    }
+
+    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    hypo_id = result["folio_id"]
+
+    # Close the notion with reference to the new hypothesis
+    make_request(
+        "PATCH",
+        f"/folios/{notion_id}",
+        base_url,
+        agent_id,
+        json={"status": "closed"},
+    )
+
+    click.echo(f"Promoted {notion_id} -> {hypo_id}")
+
+
+# ============================================================================
 # Frictions Commands
 # ============================================================================
 

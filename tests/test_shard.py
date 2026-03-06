@@ -61,7 +61,6 @@ from skein.shard import (
     _get_shard_metadata,
     _get_shard_base_branch,
     _get_shard_base_ref,
-    _record_shard_metadata,
 )
 
 
@@ -2484,7 +2483,7 @@ class TestSpawnShardWithBaseBranch:
 
     def test_spawn_stores_base_branch_in_metadata(self, shard_env_with_feature_branch):
         """WHY: base_branch must be persisted so merge/diff know where to target."""
-        repo_path = shard_env_with_feature_branch
+        _repo_path = shard_env_with_feature_branch
         info = spawn_shard("bb-test", base_branch="feature")
         try:
             assert info["base_branch"] == "feature"
@@ -2536,7 +2535,7 @@ class TestSpawnShardWithBaseBranch:
 
     def test_spawn_worktree_branches_from_base_branch(self, shard_env_with_feature_branch):
         """WHY: The worktree must contain base_branch content, not master content."""
-        repo_path = shard_env_with_feature_branch
+        _repo_path = shard_env_with_feature_branch
         info = spawn_shard("bb-content-test", base_branch="feature")
         try:
             worktree_path = Path(info["worktree_path"])
@@ -2699,7 +2698,7 @@ class TestMergeShardWithNonMasterBase:
 
     def test_merge_message_references_base_branch(self, shard_env_with_feature_branch):
         """WHY: Merge message should reference the actual base_branch."""
-        repo_path = shard_env_with_feature_branch
+        _repo_path = shard_env_with_feature_branch
 
         info = spawn_shard("merge-msg-test", base_branch="feature")
         worktree_path = Path(info["worktree_path"])
@@ -2728,7 +2727,7 @@ class TestGetShardDiffWithNonMasterBase:
 
     def test_diff_uses_base_branch(self, shard_env_with_feature_branch):
         """WHY: Diff must be against base_branch so it shows only shard changes."""
-        repo_path = shard_env_with_feature_branch
+        _repo_path = shard_env_with_feature_branch
 
         info = spawn_shard("diff-bb-test", base_branch="feature")
         worktree_path = Path(info["worktree_path"])
@@ -2757,7 +2756,7 @@ class TestGetShardDiffWithNonMasterBase:
 
     def test_diff_against_master_would_include_feature_content(self, shard_env_with_feature_branch):
         """WHY: Confirms that using wrong base would give different results."""
-        repo_path = shard_env_with_feature_branch
+        _repo_path = shard_env_with_feature_branch
 
         info = spawn_shard("diff-compare-test", base_branch="feature")
         worktree_path = Path(info["worktree_path"])
@@ -2790,7 +2789,7 @@ class TestGetShardDiffWithNonMasterBase:
 
     def test_work_diff_uses_base_commit_sha(self, shard_env_with_feature_branch):
         """WHY: Work diff must use the exact SHA from spawn time, not current branch tip."""
-        repo_path = shard_env_with_feature_branch
+        _repo_path = shard_env_with_feature_branch
 
         info = spawn_shard("wdiff-bb-test", base_branch="feature")
         worktree_path = Path(info["worktree_path"])

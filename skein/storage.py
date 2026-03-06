@@ -263,6 +263,21 @@ class LogDatabase:
             """
             )
 
+            # Compound indexes for batch status/assignment lookups
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_threads_to_type_created
+                ON threads(to_id, type, created_at DESC)
+            """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_threads_from_type_created
+                ON threads(from_id, type, created_at DESC)
+            """
+            )
+
             # Folios table
             conn.execute(
                 """
@@ -793,6 +808,66 @@ class LogDatabase:
                 for row in rows
             ]
 
+    def get_latest_statuses(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+        """Get the most recent status for each folio in a single query.
+
+        Returns dict mapping folio_id -> status content.
+        """
+        with self._get_connection() as conn:
+            query = """
+                SELECT t.to_id AS folio_id, t.content
+                FROM threads t
+                INNER JOIN (
+                    SELECT to_id, MAX(created_at) AS max_created
+                    FROM threads WHERE type = 'status'
+                    {where_clause}
+                    GROUP BY to_id
+                ) latest ON t.to_id = latest.to_id
+                        AND t.created_at = latest.max_created
+                        AND t.type = 'status'
+            """
+            params = []
+            if folio_ids is not None:
+                placeholders = ",".join("?" for _ in folio_ids)
+                where_clause = f"AND to_id IN ({placeholders})"
+                params = list(folio_ids)
+            else:
+                where_clause = ""
+
+            query = query.format(where_clause=where_clause)
+            cursor = conn.execute(query, params)
+            return {row["folio_id"]: row["content"] for row in cursor.fetchall()}
+
+    def get_latest_assignments(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+        """Get the most recent assignment for each folio in a single query.
+
+        Returns dict mapping folio_id -> assigned_to (the to_id of the assignment thread).
+        """
+        with self._get_connection() as conn:
+            query = """
+                SELECT t.from_id AS folio_id, t.to_id AS assigned_to
+                FROM threads t
+                INNER JOIN (
+                    SELECT from_id, MAX(created_at) AS max_created
+                    FROM threads WHERE type = 'assignment'
+                    {where_clause}
+                    GROUP BY from_id
+                ) latest ON t.from_id = latest.from_id
+                        AND t.created_at = latest.max_created
+                        AND t.type = 'assignment'
+            """
+            params = []
+            if folio_ids is not None:
+                placeholders = ",".join("?" for _ in folio_ids)
+                where_clause = f"AND from_id IN ({placeholders})"
+                params = list(folio_ids)
+            else:
+                where_clause = ""
+
+            query = query.format(where_clause=where_clause)
+            cursor = conn.execute(query, params)
+            return {row["folio_id"]: row["assigned_to"] for row in cursor.fetchall()}
+
     # Folio Operations
 
     def save_folio(self, folio: Folio) -> bool:
@@ -1313,6 +1388,14 @@ class JSONStore:
         return self._log_db.get_threads(
             from_id=from_id, to_id=to_id, type=type, weaver=weaver
         )
+
+    def get_latest_statuses(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+        """Get the most recent status for each folio in a single query."""
+        return self._log_db.get_latest_statuses(folio_ids)
+
+    def get_latest_assignments(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+        """Get the most recent assignment for each folio in a single query."""
+        return self._log_db.get_latest_assignments(folio_ids)
 
     # Helper methods
 

@@ -2822,14 +2822,14 @@ class TestGetShardDiffWithNonMasterBase:
 
 class TestShardStashAutoDetection:
     """
-    Invariant: shard_stash (CLI) auto-detects current branch as base_branch.
+    Invariant: shard_stash (CLI) always uses master as base_branch.
 
     Since shard_stash lives in the CLI layer (client/cli.py), we test the
-    underlying mechanism: spawn_shard called with the current branch name.
+    underlying mechanism: spawn_shard called with base_branch="master".
     """
 
-    def test_spawn_with_current_branch_as_base(self, shard_env_with_feature_branch):
-        """WHY: shard_stash detects current branch and passes it as base_branch."""
+    def test_stash_always_uses_master_base(self, shard_env_with_feature_branch):
+        """WHY: shard_stash should always branch from master, even when on another branch."""
         repo_path = shard_env_with_feature_branch
 
         # Switch to the feature branch (simulating being on a non-master branch)
@@ -2840,18 +2840,12 @@ class TestShardStashAutoDetection:
             capture_output=True,
         )
 
-        # This is what shard_stash does: detect current branch, pass as base_branch
-        import skein.shard as shard_module
-
-        repo = shard_module._get_repo()
-        current_branch = repo.active_branch.name
-        assert current_branch == "feature"
-
-        info = spawn_shard("stash-test", base_branch=current_branch)
+        # shard_stash now always passes base_branch="master"
+        info = spawn_shard("stash-test", base_branch="master")
         try:
-            assert info["base_branch"] == "feature"
+            assert info["base_branch"] == "master"
             metadata = _get_shard_metadata(info["worktree_name"])
-            assert metadata["base_branch"] == "feature"
+            assert metadata["base_branch"] == "master"
         finally:
             # Switch back to master before cleanup (avoid being on feature during cleanup)
             subprocess.run(

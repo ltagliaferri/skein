@@ -2495,7 +2495,9 @@ class TestSpawnShardWithBaseBranch:
         finally:
             cleanup_shard(info["worktree_name"])
 
-    def test_spawn_base_commit_is_sha_of_base_branch(self, shard_env_with_feature_branch):
+    def test_spawn_base_commit_is_sha_of_base_branch(
+        self, shard_env_with_feature_branch
+    ):
         """WHY: base_commit must point to the base_branch HEAD, not master."""
         repo_path = shard_env_with_feature_branch
 
@@ -2533,7 +2535,9 @@ class TestSpawnShardWithBaseBranch:
         finally:
             cleanup_shard(info["worktree_name"])
 
-    def test_spawn_worktree_branches_from_base_branch(self, shard_env_with_feature_branch):
+    def test_spawn_worktree_branches_from_base_branch(
+        self, shard_env_with_feature_branch
+    ):
         """WHY: The worktree must contain base_branch content, not master content."""
         _repo_path = shard_env_with_feature_branch
         info = spawn_shard("bb-content-test", base_branch="feature")
@@ -2754,7 +2758,9 @@ class TestGetShardDiffWithNonMasterBase:
         finally:
             cleanup_shard(info["worktree_name"])
 
-    def test_diff_against_master_would_include_feature_content(self, shard_env_with_feature_branch):
+    def test_diff_against_master_would_include_feature_content(
+        self, shard_env_with_feature_branch
+    ):
         """WHY: Confirms that using wrong base would give different results."""
         _repo_path = shard_env_with_feature_branch
 

@@ -953,9 +953,7 @@ class LogDatabase:
             by_status = {row["status"]: row["cnt"] for row in cursor.fetchall()}
 
             # Total
-            cursor = conn.execute(
-                base.format("COUNT(*) as cnt") + where, params
-            )
+            cursor = conn.execute(base.format("COUNT(*) as cnt") + where, params)
             total = cursor.fetchone()["cnt"]
 
             return {"total": total, "by_type": by_type, "by_status": by_status}
@@ -1036,7 +1034,9 @@ class LogDatabase:
                             folio_id,
                             data.get("type", "issue"),
                             data.get("site_id", folio_file.parent.parent.name),
-                            data.get("created_at", datetime.now(timezone.utc).isoformat()),
+                            data.get(
+                                "created_at", datetime.now(timezone.utc).isoformat()
+                            ),
                             data.get("created_by", "unknown"),
                             data.get("title", ""),
                             data.get("content", ""),
@@ -1059,9 +1059,7 @@ class LogDatabase:
 
             conn.commit()
 
-        logger.info(
-            f"Migrated {count} folios from JSON to SQLite ({errors} errors)"
-        )
+        logger.info(f"Migrated {count} folios from JSON to SQLite ({errors} errors)")
 
         # Backup sites/ folio dirs by renaming
         for site_dir in sites_dir.iterdir():
@@ -1301,7 +1299,6 @@ class JSONStore:
         return self._log_db.get_threads(
             from_id=from_id, to_id=to_id, type=type, weaver=weaver
         )
-
 
     # Helper methods
 

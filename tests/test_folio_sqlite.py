@@ -141,9 +141,25 @@ class TestLogDatabaseFolios:
         assert db.move_folio("nonexistent", "site-b") is None
 
     def test_search_folios(self, db):
-        db.save_folio(make_folio("folio-1", title="Database migration issue", content="Move folios to SQLite"))
-        db.save_folio(make_folio("folio-2", title="UI bug in dashboard", content="Button doesn't work"))
-        db.save_folio(make_folio("folio-3", title="Performance optimization", content="Speed up database queries"))
+        db.save_folio(
+            make_folio(
+                "folio-1",
+                title="Database migration issue",
+                content="Move folios to SQLite",
+            )
+        )
+        db.save_folio(
+            make_folio(
+                "folio-2", title="UI bug in dashboard", content="Button doesn't work"
+            )
+        )
+        db.save_folio(
+            make_folio(
+                "folio-3",
+                title="Performance optimization",
+                content="Speed up database queries",
+            )
+        )
 
         results = db.search_folios("database")
         assert len(results) >= 1
@@ -278,9 +294,10 @@ class TestFolioMigration:
         sites_dir = tmp_dir / "sites"
 
         self._make_json_folio(
-            sites_dir, "issue-20260303-0001",
+            sites_dir,
+            "issue-20260303-0001",
             title="Database migration issue",
-            content="Move folios to SQLite storage"
+            content="Move folios to SQLite storage",
         )
 
         db.migrate_folios_from_json(sites_dir)
@@ -396,8 +413,16 @@ class TestJSONStoreFolios:
             store.move_folio("folio-1", "nonexistent-site")
 
     def test_search_via_store(self, store):
-        store.save_folio(make_folio("folio-1", title="Database migration plan", content="Move to SQLite"))
-        store.save_folio(make_folio("folio-2", title="UI improvements plan", content="Better buttons"))
+        store.save_folio(
+            make_folio(
+                "folio-1", title="Database migration plan", content="Move to SQLite"
+            )
+        )
+        store.save_folio(
+            make_folio(
+                "folio-2", title="UI improvements plan", content="Better buttons"
+            )
+        )
 
         results = store.search_folios("database")
         assert len(results) >= 1
@@ -411,12 +436,15 @@ class TestJSONStoreFolios:
         # Create site metadata
         site_meta_dir = sites_dir / "test-site"
         with open(site_meta_dir / "metadata.json", "w") as f:
-            json.dump({
-                "site_id": "test-site",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "created_by": "test",
-                "purpose": "test",
-            }, f)
+            json.dump(
+                {
+                    "site_id": "test-site",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_by": "test",
+                    "purpose": "test",
+                },
+                f,
+            )
 
         # Create a JSON folio
         folio_data = {

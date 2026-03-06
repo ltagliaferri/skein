@@ -224,9 +224,24 @@ class TestHypothesisPriorityOrdering:
 
     def test_priority_ordering(self, store):
         make_site(store)
-        make_hypothesis(store, folio_id="hypothesis-20260305-low1", priority="low", title="Low priority")
-        make_hypothesis(store, folio_id="hypothesis-20260305-hi01", priority="high", title="High priority")
-        make_hypothesis(store, folio_id="hypothesis-20260305-med1", priority="medium", title="Medium priority")
+        make_hypothesis(
+            store,
+            folio_id="hypothesis-20260305-low1",
+            priority="low",
+            title="Low priority",
+        )
+        make_hypothesis(
+            store,
+            folio_id="hypothesis-20260305-hi01",
+            priority="high",
+            title="High priority",
+        )
+        make_hypothesis(
+            store,
+            folio_id="hypothesis-20260305-med1",
+            priority="medium",
+            title="Medium priority",
+        )
 
         folios = store.get_folios(site_id="test-site")
         hypotheses = [f for f in folios if f.type == "hypothesis"]

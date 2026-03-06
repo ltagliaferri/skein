@@ -75,7 +75,9 @@ def _get_db_connection() -> sqlite3.Connection:
         cursor = conn.execute("PRAGMA table_info(shards)")
         columns = {row[1] for row in cursor.fetchall()}
         if "base_branch" not in columns:
-            conn.execute("ALTER TABLE shards ADD COLUMN base_branch TEXT DEFAULT 'master'")
+            conn.execute(
+                "ALTER TABLE shards ADD COLUMN base_branch TEXT DEFAULT 'master'"
+            )
             conn.commit()
     except Exception:
         pass  # Best effort migration
@@ -1423,7 +1425,9 @@ def get_shard_diff(
 
         # Get diff between base branch and shard branch
         base_branch = _get_shard_base_branch(worktree_name)
-        diff_range = f"{base_branch}...{branch}" if integration else f"{base_branch}..{branch}"
+        diff_range = (
+            f"{base_branch}...{branch}" if integration else f"{base_branch}..{branch}"
+        )
         if stat_only:
             diff_output = repo.git.diff("--stat", diff_range)
         else:
@@ -1795,7 +1799,10 @@ def is_nested_shard(worktree_name: str) -> bool:
             # Get commits on branch not on base_branch, with timestamps
             # Format: "SHA TIMESTAMP" where TIMESTAMP is Unix epoch
             commits_output = repo.git.log(
-                "--format=%H %ct", f"{actual_merge_base}..{branch}", "--not", base_branch
+                "--format=%H %ct",
+                f"{actual_merge_base}..{branch}",
+                "--not",
+                base_branch,
             )
             if commits_output.strip():
                 # Parse creation time

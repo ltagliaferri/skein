@@ -2054,9 +2054,7 @@ def hypothesis_next(ctx, site_id):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    result = make_request(
-        "GET", f"/hypotheses/next/{site_id}", base_url, agent_id
-    )
+    result = make_request("GET", f"/hypotheses/next/{site_id}", base_url, agent_id)
 
     hypo = result.get("hypothesis")
     if not hypo:
@@ -2140,8 +2138,7 @@ def hypothesis_list(ctx, site_id, verdict, output_json):
             folios = [f for f in folios if f.get("status", "open") == "open"]
         else:
             folios = [
-                f for f in folios
-                if f.get("status", "").split("\n")[0] == verdict
+                f for f in folios if f.get("status", "").split("\n")[0] == verdict
             ]
 
     if output_json:
@@ -2174,9 +2171,7 @@ def hypothesis_status(ctx, site_id, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    result = make_request(
-        "GET", f"/hypotheses/status/{site_id}", base_url, agent_id
-    )
+    result = make_request("GET", f"/hypotheses/status/{site_id}", base_url, agent_id)
 
     if output_json:
         click.echo(json.dumps(result, indent=2))
@@ -2188,7 +2183,14 @@ def hypothesis_status(ctx, site_id, output_json):
         return
 
     click.echo(f"Hypotheses: {total} total")
-    for key in ["pending", "confirmed", "disconfirmed", "inconclusive", "deferred", "blocked"]:
+    for key in [
+        "pending",
+        "confirmed",
+        "disconfirmed",
+        "inconclusive",
+        "deferred",
+        "blocked",
+    ]:
         count = result.get(key, 0)
         if count > 0:
             click.echo(f"  {key}: {count}")
@@ -5178,7 +5180,12 @@ def shard(ctx, project_path):
 @click.option("--agent", "spawn_agent", required=True, help="Agent ID for this SHARD")
 @click.option("--brief", help="Brief ID this SHARD relates to")
 @click.option("--description", help="Work description")
-@click.option("--base", "base_branch", default="master", help="Branch to fork from (default: master)")
+@click.option(
+    "--base",
+    "base_branch",
+    default="master",
+    help="Branch to fork from (default: master)",
+)
 @click.pass_context
 def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
     """
@@ -5197,7 +5204,9 @@ def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
     try:
         # Create worktree
         shard_info = shard_worktree.spawn_shard(
-            name=spawn_agent, brief_id=brief, description=description,
+            name=spawn_agent,
+            brief_id=brief,
+            description=description,
             base_branch=base_branch,
         )
 
@@ -5417,6 +5426,7 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
             raise click.ClickException(f"SHARD not found: {worktree_name}")
 
         from skein import shard as shard_module
+
         base_branch = shard_module._get_shard_base_branch(worktree_name)
 
         if integration:
@@ -5607,6 +5617,7 @@ def shard_graft(ctx, worktree_name):
 
     try:
         from skein import shard as shard_module
+
         base_branch = shard_module._get_shard_base_branch(worktree_name)
         click.echo(f"Creating graft worktree from current {base_branch}...")
         click.echo(f"Applying commits from {worktree_name}...")
@@ -6410,7 +6421,9 @@ def shard_triage(ctx, output_json):
                     if conflict_status_val == "conflict":
                         context_parts.append(f"{base_branch} +{base_ahead} (conflicts)")
                     else:
-                        context_parts.append(f"{base_branch} +{base_ahead} (no conflicts)")
+                        context_parts.append(
+                            f"{base_branch} +{base_ahead} (no conflicts)"
+                        )
                 if is_graft:
                     root = shard_worktree.get_graft_chain_root(name)
                     context_parts.append(f"graft of {root}")
@@ -6776,7 +6789,9 @@ def shard_inspect(ctx, worktree_name, output_json):
                 click.echo("Graft to isolate your changes from parent shard:")
                 click.echo(f"  → skein shard graft {worktree_name}")
                 click.echo()
-                click.echo("This will cherry-pick only your commits onto the base branch.")
+                click.echo(
+                    "This will cherry-pick only your commits onto the base branch."
+                )
             elif commits == 0:
                 click.echo("Nothing to merge (research/verification shard):")
                 click.echo(f"  → skein shard cleanup {worktree_name}")
@@ -6835,7 +6850,9 @@ def shard_stash(ctx, description, stash_agent):
 
         # Create the shard (fork from current branch so merge returns there)
         new_shard = shard_worktree.spawn_shard(
-            stash_agent, description=description, base_branch=current_branch,
+            stash_agent,
+            description=description,
+            base_branch=current_branch,
         )
         worktree_path = new_shard["worktree_path"]
         worktree_name = new_shard["worktree_name"]

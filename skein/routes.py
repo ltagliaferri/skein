@@ -31,7 +31,7 @@ from .models import (
     YieldCreate,
     Yield,
 )
-from .storage import JSONStore, LogDatabase, get_data_dir_for_project
+from .storage import JSONStore, LogDatabase, get_data_dir_for_project, ensure_aware
 from .utils import (
     generate_folio_id,
     generate_thread_id,
@@ -405,7 +405,7 @@ async def get_site_folios(
         folios = [f for f in folios if f.type == type]
 
     if since:
-        since_dt = datetime.fromisoformat(since)
+        since_dt = ensure_aware(datetime.fromisoformat(since))
         folios = [f for f in folios if f.created_at >= since_dt]
 
     return folios
@@ -937,17 +937,7 @@ async def get_threads(
     if since:
         try:
             since_dt = parse_relative_time(since)
-            # Handle timezone-naive threads (legacy data)
-            filtered_threads = []
-            for t in threads:
-                thread_dt = t.created_at
-                # If thread is naive and since_dt is aware, make thread aware (assume UTC)
-                if thread_dt.tzinfo is None and since_dt.tzinfo is not None:
-                    from datetime import timezone as tz
-
-                    thread_dt = thread_dt.replace(tzinfo=tz.utc)
-                filtered_threads.append((t, thread_dt >= since_dt))
-            threads = [t for t, keep in filtered_threads if keep]
+            threads = [t for t in threads if t.created_at >= since_dt]
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -1200,30 +1190,10 @@ async def unified_search(
             threads = [t for t in threads if t.to_id == to_id]
 
         if since_dt:
-            # Handle timezone-naive threads (legacy data)
-            filtered = []
-            for t in threads:
-                thread_dt = t.created_at
-                if thread_dt.tzinfo is None and since_dt.tzinfo is not None:
-                    from datetime import timezone as tz
-
-                    thread_dt = thread_dt.replace(tzinfo=tz.utc)
-                if thread_dt >= since_dt:
-                    filtered.append(t)
-            threads = filtered
+            threads = [t for t in threads if t.created_at >= since_dt]
 
         if before_dt:
-            # Handle timezone-naive threads (legacy data)
-            filtered = []
-            for t in threads:
-                thread_dt = t.created_at
-                if thread_dt.tzinfo is None and before_dt.tzinfo is not None:
-                    from datetime import timezone as tz
-
-                    thread_dt = thread_dt.replace(tzinfo=tz.utc)
-                if thread_dt < before_dt:
-                    filtered.append(t)
-            threads = filtered
+            threads = [t for t in threads if t.created_at < before_dt]
 
         # Sort
         if sort in ["created", "relevance"]:

@@ -23,6 +23,20 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def ensure_aware(dt_value) -> Optional[datetime]:
+    """Ensure a datetime value is timezone-aware (UTC). Handles strings and datetime objects."""
+    if dt_value is None:
+        return None
+    if isinstance(dt_value, str):
+        if dt_value.endswith("Z"):
+            dt_value = datetime.fromisoformat(dt_value.replace("Z", "+00:00"))
+        else:
+            dt_value = datetime.fromisoformat(dt_value)
+    if isinstance(dt_value, datetime) and dt_value.tzinfo is None:
+        dt_value = dt_value.replace(tzinfo=timezone.utc)
+    return dt_value
+
+
 def compute_folio_hash(folio: Folio) -> str:
     """Compute content-addressable hash of folio's immutable fields."""
     if not KNURL_AVAILABLE:
@@ -428,7 +442,7 @@ class LogDatabase:
                 LogLine(
                     id=row["id"],
                     stream_id=row["stream_id"],
-                    timestamp=datetime.fromisoformat(row["timestamp"]),
+                    timestamp=ensure_aware(row["timestamp"]),
                     level=row["level"],
                     source=row["source"],
                     message=row["message"],
@@ -774,7 +788,7 @@ class LogDatabase:
                     type=row["type"],
                     content=row["content"],
                     weaver=row["weaver"],
-                    created_at=row["created_at"],
+                    created_at=ensure_aware(row["created_at"]),
                 )
                 for row in rows
             ]
@@ -965,7 +979,7 @@ class LogDatabase:
             folio_id=row["folio_id"],
             type=row["type"],
             site_id=row["site_id"],
-            created_at=row["created_at"],
+            created_at=ensure_aware(row["created_at"]),
             created_by=row["created_by"],
             title=row["title"],
             content=row["content"],
@@ -975,7 +989,7 @@ class LogDatabase:
             omlet=row["omlet"],
             archived=bool(row["archived"]),
             metadata=metadata,
-            acknowledged_at=row["acknowledged_at"],
+            acknowledged_at=ensure_aware(row["acknowledged_at"]),
             content_hash=row["content_hash"],
         )
 
@@ -1178,7 +1192,7 @@ class JSONStore:
         """Get registered agents, optionally filtered by status."""
         agents_file = self.roster_dir / "agents.json"
         agents_data = self._load_json(agents_file, [])
-        agents = [AgentInfo(**a) for a in agents_data]
+        agents = [AgentInfo(**self._normalize_datetime_fields(a)) for a in agents_data]
 
         if status is not None:
             agents = [a for a in agents if a.status == status]
@@ -1211,7 +1225,7 @@ class JSONStore:
             if site_dir.is_dir():
                 metadata_file = site_dir / "metadata.json"
                 if metadata_file.exists():
-                    site_data = self._load_json(metadata_file)
+                    site_data = self._normalize_datetime_fields(self._load_json(metadata_file))
                     sites.append(Site(**site_data))
         return sites
 
@@ -1219,7 +1233,7 @@ class JSONStore:
         """Get specific site."""
         metadata_file = self.sites_dir / site_id / "metadata.json"
         if metadata_file.exists():
-            return Site(**self._load_json(metadata_file))
+            return Site(**self._normalize_datetime_fields(self._load_json(metadata_file)))
         return None
 
     def update_site(

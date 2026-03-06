@@ -2114,7 +2114,10 @@ def hypothesis_verdict(ctx, hypothesis_id, verdict_value, note, evidence):
 @click.option(
     "--verdict",
     "-v",
-    help="Filter by verdict (pending, confirmed, disconfirmed, inconclusive, deferred, blocked)",
+    type=click.Choice(
+        ["pending", "confirmed", "disconfirmed", "inconclusive", "deferred", "blocked"]
+    ),
+    help="Filter by verdict",
 )
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
@@ -2183,17 +2186,23 @@ def hypothesis_status(ctx, site_id, output_json):
         return
 
     click.echo(f"Hypotheses: {total} total")
-    for key in [
+    known_keys = [
         "pending",
         "confirmed",
         "disconfirmed",
         "inconclusive",
         "deferred",
         "blocked",
-    ]:
+    ]
+    known_sum = 0
+    for key in known_keys:
         count = result.get(key, 0)
         if count > 0:
             click.echo(f"  {key}: {count}")
+            known_sum += count
+    other = total - known_sum
+    if other > 0:
+        click.echo(f"  other: {other}")
 
 
 @hypothesis.command("promote")
@@ -2224,6 +2233,13 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
     if notion_folio.get("type") != "notion":
         raise click.ClickException(f"Folio '{notion_id}' is not a notion")
 
+    # Check if already closed/promoted
+    notion_status = notion_folio.get("status", "open")
+    if notion_status != "open":
+        raise click.ClickException(
+            f"Notion '{notion_id}' is already {notion_status}. Cannot promote."
+        )
+
     # Create hypothesis from the notion
     hypothesis_claim = claim or notion_folio["title"]
     data = {
@@ -2237,14 +2253,21 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
     result = make_request("POST", "/folios", base_url, agent_id, json=data)
     hypo_id = result["folio_id"]
 
-    # Close the notion with reference to the new hypothesis
-    make_request(
-        "PATCH",
-        f"/folios/{notion_id}",
-        base_url,
-        agent_id,
-        json={"status": "closed"},
-    )
+    # Close the notion
+    try:
+        make_request(
+            "PATCH",
+            f"/folios/{notion_id}",
+            base_url,
+            agent_id,
+            json={"status": "closed"},
+        )
+    except Exception:
+        click.echo(
+            f"Warning: hypothesis {hypo_id} created but failed to close {notion_id}",
+            err=True,
+        )
+        raise
 
     click.echo(f"Promoted {notion_id} -> {hypo_id}")
 

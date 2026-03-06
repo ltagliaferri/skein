@@ -547,6 +547,15 @@ async def post_to_site(
     # Validate and clean title
     folio_create.title = validate_folio_title(folio_create.title, folio_create.type)
 
+    # Validate hypothesis-specific metadata
+    if folio_create.type == "hypothesis":
+        priority = folio_create.metadata.get("priority", "medium")
+        if priority not in HYPOTHESIS_PRIORITIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid priority '{priority}'. Must be one of: high, medium, low",
+            )
+
     # Verify site exists
     site = store.get_site(site_id)
     if not site:
@@ -1737,7 +1746,7 @@ async def hypothesis_next(
         )
     )
 
-    return {"hypothesis": open_hypos[0], "remaining": len(open_hypos)}
+    return {"hypothesis": open_hypos[0], "remaining": len(open_hypos) - 1}
 
 
 @router.get("/hypotheses/status/{site_id}")
@@ -1789,6 +1798,14 @@ async def hypothesis_verdict(
             detail=f"Invalid verdict '{verdict_req.verdict}'. Must be one of: {', '.join(sorted(HYPOTHESIS_VERDICTS))}",
         )
 
+    # Check if already verdicted
+    current_status = get_current_status(hypothesis_id, store)
+    if current_status and current_status != "open":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hypothesis already has verdict '{current_status}'. Cannot re-verdict.",
+        )
+
     # Confirmed requires evidence
     if verdict_req.verdict == "confirmed" and not verdict_req.evidence:
         raise HTTPException(
@@ -1802,6 +1819,20 @@ async def hypothesis_verdict(
             status_code=400,
             detail="Disconfirmed verdict requires --note (what was tried)",
         )
+
+    # Validate evidence exists BEFORE any state mutation
+    if verdict_req.evidence:
+        evidence_folio = store.get_folio(verdict_req.evidence)
+        if not evidence_folio:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Evidence folio '{verdict_req.evidence}' not found",
+            )
+        if evidence_folio.type != "finding":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Evidence must be a finding folio, got '{evidence_folio.type}'",
+            )
 
     created_by = x_agent_id or "unknown"
 
@@ -1817,22 +1848,25 @@ async def hypothesis_verdict(
     )
     store.save_thread(status_thread)
 
-    # Store note in folio content (appended to original claim)
-    if verdict_req.note:
-        folio.content = f"{folio.content}\n\nVerdict note: {verdict_req.note}"
-
     # Also update folio status field for backward compat
     folio.status = verdict_req.verdict
     store.save_folio(folio)
 
-    # If evidence provided, create reference thread to the finding
+    # Store verdict note as a separate message thread (preserves folio content integrity)
+    if verdict_req.note:
+        note_thread = Thread(
+            thread_id=generate_thread_id(),
+            from_id=hypothesis_id,
+            to_id=hypothesis_id,
+            type="message",
+            content=f"Verdict note ({verdict_req.verdict}): {verdict_req.note}",
+            weaver=created_by,
+            created_at=datetime.now(),
+        )
+        store.save_thread(note_thread)
+
+    # Create reference thread to the evidence finding
     if verdict_req.evidence:
-        evidence_folio = store.get_folio(verdict_req.evidence)
-        if not evidence_folio:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Evidence folio '{verdict_req.evidence}' not found",
-            )
         ref_thread = Thread(
             thread_id=generate_thread_id(),
             from_id=hypothesis_id,

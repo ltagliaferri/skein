@@ -9,7 +9,7 @@ import subprocess
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Set, Optional
+from typing import List, Set, Optional
 
 
 def generate_folio_id(folio_type: str) -> str:
@@ -92,6 +92,21 @@ def get_current_assignment(folio_id: str, json_store) -> Optional[str]:
         return None
     assignment_threads.sort(key=lambda t: t.created_at, reverse=True)
     return assignment_threads[0].to_id
+
+
+def enrich_folios_with_status(folios: List, store) -> None:
+    """Batch-enrich folios with status and assignment from threads.
+
+    Uses batch queries instead of N+1 individual queries.
+    """
+    if not folios:
+        return
+    folio_ids = [f.folio_id for f in folios]
+    statuses = store.get_latest_statuses(folio_ids)
+    assignments = store.get_latest_assignments(folio_ids)
+    for folio in folios:
+        folio.status = statuses.get(folio.folio_id) or folio.status or "open"
+        folio.assigned_to = assignments.get(folio.folio_id) or folio.assigned_to
 
 
 def format_relative_time(dt: datetime) -> str:

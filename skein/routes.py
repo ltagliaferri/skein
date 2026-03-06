@@ -39,6 +39,7 @@ from .utils import (
     parse_mentions,
     get_current_status,
     get_current_assignment,
+    enrich_folios_with_status,
     parse_relative_time,
     generate_agent_name,
 )
@@ -391,15 +392,7 @@ async def get_site_folios(
 ):
     """Get folios for a specific site."""
     folios = store.get_folios(site_id=site_id)
-
-    # PURE THREADS: Compute status and assigned_to from threads
-    for folio in folios:
-        computed_status = get_current_status(folio.folio_id, store)
-        computed_assignment = get_current_assignment(folio.folio_id, store)
-
-        # Use computed values, fall back to stored values during migration
-        folio.status = computed_status or folio.status or "open"
-        folio.assigned_to = computed_assignment or folio.assigned_to
+    enrich_folios_with_status(folios, store)
 
     if type:
         folios = [f for f in folios if f.type == type]
@@ -691,15 +684,7 @@ async def get_folios(
         raise HTTPException(status_code=400, detail="site_id cannot be empty string")
 
     folios = store.get_folios(site_id=site_id)
-
-    # PURE THREADS: Compute status and assigned_to from threads
-    for folio in folios:
-        computed_status = get_current_status(folio.folio_id, store)
-        computed_assignment = get_current_assignment(folio.folio_id, store)
-
-        # Use computed values, fall back to stored values during migration
-        folio.status = computed_status or folio.status or "open"
-        folio.assigned_to = computed_assignment or folio.assigned_to
+    enrich_folios_with_status(folios, store)
 
     # Apply filters in Python (since we compute dynamically)
     if type:
@@ -726,16 +711,13 @@ async def search_folios(
 ):
     """Search folios by content using FTS5."""
     matching = store.search_folios(q)
+    enrich_folios_with_status(matching, store)
 
     if type:
         matching = [f for f in matching if f.type == type]
 
     if status:
-        matching = [
-            f
-            for f in matching
-            if (get_current_status(f.folio_id, store) or f.status or "open") == status
-        ]
+        matching = [f for f in matching if f.status == status]
 
     return matching
 
@@ -1103,12 +1085,7 @@ async def unified_search(
         else:
             folios = store.get_folios()
 
-        # Compute status from threads
-        for folio in folios:
-            computed_status = get_current_status(folio.folio_id, store)
-            computed_assignment = get_current_assignment(folio.folio_id, store)
-            folio.status = computed_status or folio.status or "open"
-            folio.assigned_to = computed_assignment or folio.assigned_to
+        enrich_folios_with_status(folios, store)
 
         # Filters
         if type:

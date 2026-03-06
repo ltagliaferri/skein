@@ -7,7 +7,7 @@ import string
 import re
 import subprocess
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Set, Optional
 
@@ -17,7 +17,7 @@ def generate_folio_id(folio_type: str) -> str:
     Generate folio ID with format: {type}-{YYYYMMDD}-{4char}
     Example: issue-20251106-a7b3
     """
-    date_str = datetime.now().strftime("%Y%m%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     random_suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"{folio_type}-{date_str}-{random_suffix}"
 
@@ -27,7 +27,7 @@ def generate_thread_id() -> str:
     Generate thread ID with format: thread-{YYYYMMDD}-{4char}
     Example: thread-20251107-p8q2
     """
-    date_str = datetime.now().strftime("%Y%m%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     random_suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"thread-{date_str}-{random_suffix}"
 
@@ -37,7 +37,7 @@ def generate_yield_id() -> str:
     Generate yield/sack ID with format: sack-{YYYYMMDD}-{4char}
     Example: sack-20251210-x7m2
     """
-    date_str = datetime.now().strftime("%Y%m%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     random_suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"sack-{date_str}-{random_suffix}"
 
@@ -315,7 +315,7 @@ def _run_custom_generator(
             {
                 "project": project or "",
                 "role": role or "",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "brief_content": brief_content or "",
             }
         )
@@ -347,7 +347,7 @@ def _generate_default_name(existing: Set[str]) -> str:
     """
     from .words import get_word_pair
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     time_suffix = now.strftime("%m%d")
 
     # Try up to 10 times to find unique name

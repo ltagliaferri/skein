@@ -5,7 +5,7 @@ SKEIN FastAPI routes.
 import logging
 import base64
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
@@ -119,7 +119,7 @@ async def register_agent(
         name=registration.name,
         agent_type=registration.agent_type,
         description=registration.description,
-        registered_at=datetime.now(),
+        registered_at=datetime.now(timezone.utc),
         capabilities=registration.capabilities,
         status=registration.status or "active",
         metadata=registration.metadata,
@@ -312,7 +312,7 @@ async def create_site(
 
     site = Site(
         site_id=site_create.site_id,
-        created_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
         created_by=created_by,
         purpose=site_create.purpose,
         status="active",
@@ -585,7 +585,7 @@ async def post_to_site(
         folio_id=folio_id,
         type=folio_create.type,
         site_id=site_id,
-        created_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
         created_by=created_by,
         title=folio_create.title,
         content=folio_create.content,
@@ -612,7 +612,7 @@ async def post_to_site(
             type="mention",
             content=f"Mentioned in {folio_create.type}: {folio_create.title}",
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(thread)
 
@@ -630,7 +630,7 @@ async def post_to_site(
             type="status",
             content=folio_create.metadata.get("status"),
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(status_thread)
 
@@ -643,7 +643,7 @@ async def post_to_site(
             type="assignment",
             content=f"Assigned {folio_create.type}: {folio_create.title}",
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(assignment_thread)
 
@@ -656,7 +656,7 @@ async def post_to_site(
             type="message",
             content=f"Brief for you: {folio_create.title}",
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(thread)
 
@@ -788,7 +788,7 @@ async def update_folio(
             type="status",
             content=update.status,
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(status_thread)
         # Also update field for backward compat (will be removed after migration)
@@ -803,7 +803,7 @@ async def update_folio(
             type="assignment",
             content=f"Assigned to {update.assigned_to}",
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(assignment_thread)
         # Also update field for backward compat (will be removed after migration)
@@ -855,7 +855,7 @@ async def move_folio(
             type="message",
             content=f"Moved to {move_request.dest_site_id}: {move_request.note}",
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(move_thread)
 
@@ -888,7 +888,7 @@ async def create_thread(
         type=thread_create.type,
         content=thread_create.content,
         weaver=weaver,
-        created_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
     )
 
     success = store.save_thread(thread)
@@ -1369,7 +1369,7 @@ async def upload_screenshot(
 ):
     """Upload a screenshot from web app."""
     # Generate screenshot ID
-    timestamp = datetime.now()
+    timestamp = datetime.now(timezone.utc)
     screenshot_id = f"screenshot-{timestamp.strftime('%Y%m%d-%H%M%S-%f')}"
 
     # Create strand-specific directory
@@ -1846,7 +1846,7 @@ async def hypothesis_verdict(
         type="status",
         content=verdict_req.verdict,
         weaver=created_by,
-        created_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
     )
     store.save_thread(status_thread)
 
@@ -1863,7 +1863,7 @@ async def hypothesis_verdict(
             type="message",
             content=f"Verdict note ({verdict_req.verdict}): {verdict_req.note}",
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(note_thread)
 
@@ -1876,7 +1876,7 @@ async def hypothesis_verdict(
             type="reference",
             content=f"Evidence for {verdict_req.verdict} verdict",
             weaver=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         store.save_thread(ref_thread)
 

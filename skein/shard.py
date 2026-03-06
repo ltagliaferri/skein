@@ -10,7 +10,7 @@ import os
 import re
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -537,7 +537,7 @@ def spawn_shard(
     worktrees_dir.mkdir(exist_ok=True)
 
     # Generate date and sequence
-    date = datetime.now().strftime("%Y%m%d")
+    date = datetime.now(timezone.utc).strftime("%Y%m%d")
     seq = _get_next_sequence(name, date)
 
     # Generate names
@@ -563,7 +563,7 @@ def spawn_shard(
             raise ShardError(f"Failed to create worktree: {e}")
         raise
 
-    created_at = datetime.now()
+    created_at = datetime.now(timezone.utc)
 
     # Record metadata in SQLite database for drift detection
     _record_shard_metadata(
@@ -902,7 +902,7 @@ def get_shard_age_days(shard_info: Dict[str, str]) -> Optional[int]:
 
     try:
         shard_date = datetime.strptime(date_str, "%Y%m%d")
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         delta = today - shard_date
         # Return 0 for future dates (negative age) - handles clock skew
         return max(0, delta.days)
@@ -1914,7 +1914,7 @@ def graft_shard(
     except Exception as e:
         raise ShardError(f"Failed to create graft worktree: {e}")
 
-    created_at = datetime.now()
+    created_at = datetime.now(timezone.utc)
 
     # Record graft metadata (inherits base_branch from source shard)
     _record_shard_metadata(

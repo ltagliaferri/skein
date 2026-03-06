@@ -72,13 +72,14 @@ def normalize_db(db_path: Path, dry_run: bool = False) -> dict[str, int]:
 
             count = 0
             for row in rows:
-                val = row[col]
+                val = row[1]  # col value by index (Row doesn't expose rowid by name)
+                rowid = row[0]
                 if val and isinstance(val, str) and NAIVE_DATETIME_RE.match(val):
                     new_val = val + "+00:00"
                     if not dry_run:
                         conn.execute(
                             f"UPDATE [{table}] SET [{col}] = ? WHERE rowid = ?",
-                            (new_val, row["rowid"]),
+                            (new_val, rowid),
                         )
                     count += 1
 

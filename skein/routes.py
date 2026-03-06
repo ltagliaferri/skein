@@ -1800,11 +1800,13 @@ async def hypothesis_verdict(
 
     # Check if already verdicted
     current_status = get_current_status(hypothesis_id, store)
-    if current_status and current_status != "open":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Hypothesis already has verdict '{current_status}'. Cannot re-verdict.",
-        )
+    if current_status:
+        verdict_value = current_status.split("\n")[0]
+        if verdict_value and verdict_value != "open":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Hypothesis already has verdict '{verdict_value}'. Cannot re-verdict.",
+            )
 
     # Confirmed requires evidence
     if verdict_req.verdict == "confirmed" and not verdict_req.evidence:

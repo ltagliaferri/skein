@@ -6865,17 +6865,12 @@ def shard_stash(ctx, description, stash_agent):
 
             stash_agent = f"stash-{datetime.now().strftime('%m%d')}"
 
-        # Detect current branch to use as base_branch
-        try:
-            current_branch = repo.active_branch.name
-        except TypeError:
-            current_branch = "master"
-
-        # Create the shard (fork from current branch so merge returns there)
+        # Always branch from master HEAD to avoid picking up stale
+        # commits from whatever branch the working tree is on.
         new_shard = shard_worktree.spawn_shard(
             stash_agent,
             description=description,
-            base_branch=current_branch,
+            base_branch="master",
         )
         worktree_path = new_shard["worktree_path"]
         worktree_name = new_shard["worktree_name"]

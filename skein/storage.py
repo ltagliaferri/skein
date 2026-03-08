@@ -120,7 +120,9 @@ def search_folio_across_projects(
             finally:
                 conn.close()
         except Exception as e:
-            logger.debug(f"Skipping project '{project_name}' during cross-project folio search: {e}")
+            logger.debug(
+                f"Skipping project '{project_name}' during cross-project folio search: {e}"
+            )
             continue
     return None
 
@@ -842,7 +844,9 @@ class LogDatabase:
                 for row in rows
             ]
 
-    def get_latest_statuses(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+    def get_latest_statuses(
+        self, folio_ids: Optional[List[str]] = None
+    ) -> Dict[str, str]:
         """Get the most recent status for each folio in a single query.
 
         Returns dict mapping folio_id -> status content.
@@ -872,7 +876,9 @@ class LogDatabase:
             cursor = conn.execute(query, params)
             return {row["folio_id"]: row["content"] for row in cursor.fetchall()}
 
-    def get_latest_assignments(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+    def get_latest_assignments(
+        self, folio_ids: Optional[List[str]] = None
+    ) -> Dict[str, str]:
         """Get the most recent assignment for each folio in a single query.
 
         Returns dict mapping folio_id -> assigned_to (the to_id of the assignment thread).
@@ -1334,7 +1340,9 @@ class JSONStore:
             if site_dir.is_dir():
                 metadata_file = site_dir / "metadata.json"
                 if metadata_file.exists():
-                    site_data = self._normalize_datetime_fields(self._load_json(metadata_file))
+                    site_data = self._normalize_datetime_fields(
+                        self._load_json(metadata_file)
+                    )
                     sites.append(Site(**site_data))
         return sites
 
@@ -1342,7 +1350,9 @@ class JSONStore:
         """Get specific site."""
         metadata_file = self.sites_dir / site_id / "metadata.json"
         if metadata_file.exists():
-            return Site(**self._normalize_datetime_fields(self._load_json(metadata_file)))
+            return Site(
+                **self._normalize_datetime_fields(self._load_json(metadata_file))
+            )
         return None
 
     def update_site(
@@ -1423,11 +1433,15 @@ class JSONStore:
             from_id=from_id, to_id=to_id, type=type, weaver=weaver
         )
 
-    def get_latest_statuses(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+    def get_latest_statuses(
+        self, folio_ids: Optional[List[str]] = None
+    ) -> Dict[str, str]:
         """Get the most recent status for each folio in a single query."""
         return self._log_db.get_latest_statuses(folio_ids)
 
-    def get_latest_assignments(self, folio_ids: Optional[List[str]] = None) -> Dict[str, str]:
+    def get_latest_assignments(
+        self, folio_ids: Optional[List[str]] = None
+    ) -> Dict[str, str]:
         """Get the most recent assignment for each folio in a single query."""
         return self._log_db.get_latest_assignments(folio_ids)
 

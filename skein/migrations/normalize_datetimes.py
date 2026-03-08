@@ -28,9 +28,7 @@ DATETIME_COLUMNS = {
 
 # Pattern: ISO datetime without timezone info (e.g. "2025-12-01T10:30:00" or "2025-12-01 10:30:00.123456")
 # Must NOT already have +XX:XX or Z suffix
-NAIVE_DATETIME_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?$"
-)
+NAIVE_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?$")
 
 
 def find_datetime_columns(conn):

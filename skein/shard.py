@@ -901,7 +901,7 @@ def get_shard_age_days(shard_info: Dict[str, str]) -> Optional[int]:
         return None
 
     try:
-        shard_date = datetime.strptime(date_str, "%Y%m%d")
+        shard_date = datetime.strptime(date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
         today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         delta = today - shard_date
         # Return 0 for future dates (negative age) - handles clock skew

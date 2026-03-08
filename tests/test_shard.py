@@ -1513,6 +1513,23 @@ class TestGetShardAgeDays:
         age = get_shard_age_days({"date": "invalid"})
         assert age is None
 
+    def test_no_timezone_error_on_subtraction(self):
+        """WHY: Regression for 'can't subtract offset-naive and offset-aware datetimes'.
+
+        datetime.strptime returns offset-naive; datetime.now(timezone.utc) returns
+        offset-aware. Subtracting them raises TypeError. Both sides must be aware.
+        """
+        # This must not raise TypeError
+        age = get_shard_age_days({"date": "20260101"})
+        assert isinstance(age, int)
+        assert age >= 0
+
+    def test_known_past_date_returns_positive_age(self):
+        """WHY: A date clearly in the past should return a positive integer."""
+        age = get_shard_age_days({"date": "20200101"})
+        assert age is not None
+        assert age > 0
+
 
 # =============================================================================
 # DETECT SHARD ENVIRONMENT TESTS

@@ -31,7 +31,7 @@ from .models import (
     YieldCreate,
     Yield,
 )
-from .storage import JSONStore, LogDatabase, get_data_dir_for_project, ensure_aware
+from .storage import JSONStore, LogDatabase, get_data_dir_for_project, ensure_aware, search_folio_across_projects
 from .utils import (
     generate_folio_id,
     generate_thread_id,
@@ -723,11 +723,19 @@ async def search_folios(
 
 
 @router.get("/folios/{folio_id}", response_model=Folio)
-async def get_folio(folio_id: str, store: JSONStore = Depends(get_project_store)):
+async def get_folio(
+    folio_id: str,
+    x_project_id: Optional[str] = Header(None),
+    store: JSONStore = Depends(get_project_store),
+):
     """Get specific folio."""
     folio = store.get_folio(folio_id)
     if not folio:
-        raise HTTPException(status_code=404, detail="Folio not found")
+        detail = "Folio not found"
+        found = search_folio_across_projects(folio_id, x_project_id)
+        if found:
+            detail = f"Folio not found in current project. This folio is registered in the {found['project_name']} project at {found['project_path']}"
+        raise HTTPException(status_code=404, detail=detail)
 
     # PURE THREADS: Compute status and assigned_to from threads
     computed_status = get_current_status(folio.folio_id, store)
@@ -745,12 +753,17 @@ async def update_folio(
     folio_id: str,
     update: FolioUpdate,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
+    x_project_id: Optional[str] = Header(None),
     store: JSONStore = Depends(get_project_store),
 ):
     """Update folio fields (title, content, status, assigned_to, archived)."""
     folio = store.get_folio(folio_id)
     if not folio:
-        raise HTTPException(status_code=404, detail="Folio not found")
+        detail = "Folio not found"
+        found = search_folio_across_projects(folio_id, x_project_id)
+        if found:
+            detail = f"Folio not found in current project. This folio is registered in the {found['project_name']} project at {found['project_path']}"
+        raise HTTPException(status_code=404, detail=detail)
 
     created_by = x_agent_id or "unknown"
 
@@ -810,6 +823,7 @@ async def move_folio(
     folio_id: str,
     move_request: FolioMoveRequest,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
+    x_project_id: Optional[str] = Header(None),
     store: JSONStore = Depends(get_project_store),
 ):
     """
@@ -826,7 +840,11 @@ async def move_folio(
         raise HTTPException(status_code=404, detail=str(e))
 
     if not moved_folio:
-        raise HTTPException(status_code=404, detail=f"Folio '{folio_id}' not found")
+        detail = f"Folio '{folio_id}' not found"
+        found = search_folio_across_projects(folio_id, x_project_id)
+        if found:
+            detail = f"Folio not found in current project. This folio is registered in the {found['project_name']} project at {found['project_path']}"
+        raise HTTPException(status_code=404, detail=detail)
 
     # Create a thread recording the move if note provided
     if move_request.note:
@@ -1728,12 +1746,17 @@ async def hypothesis_verdict(
     hypothesis_id: str,
     verdict_req: HypothesisVerdict,
     x_agent_id: str = Header(None, alias="X-Agent-Id"),
+    x_project_id: Optional[str] = Header(None),
     store: JSONStore = Depends(get_project_store),
 ):
     """Set verdict on a hypothesis. Creates a status thread."""
     folio = store.get_folio(hypothesis_id)
     if not folio:
-        raise HTTPException(status_code=404, detail="Hypothesis not found")
+        detail = "Hypothesis not found"
+        found = search_folio_across_projects(hypothesis_id, x_project_id)
+        if found:
+            detail = f"Hypothesis not found in current project. This folio is registered in the {found['project_name']} project at {found['project_path']}"
+        raise HTTPException(status_code=404, detail=detail)
     if folio.type != "hypothesis":
         raise HTTPException(
             status_code=400, detail=f"Folio '{hypothesis_id}' is not a hypothesis"

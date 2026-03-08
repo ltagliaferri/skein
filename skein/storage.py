@@ -91,6 +91,40 @@ def get_data_dir_for_project(project_id: Optional[str] = None) -> Path:
     raise ValueError("No project_id provided and no default available")
 
 
+def search_folio_across_projects(
+    folio_id: str, current_project_id: Optional[str] = None
+) -> Optional[Dict[str, str]]:
+    """
+    Search for a folio across all registered projects (except the current one).
+
+    Returns {"project_name": ..., "project_path": ...} if found, None otherwise.
+    Uses raw SQLite queries to avoid LogDatabase init overhead.
+    """
+    registry = load_project_registry()
+    for project_name, project_info in registry.items():
+        if project_name == current_project_id:
+            continue
+        try:
+            data_dir = Path(project_info["data_dir"])
+            db_path = data_dir / "skein.db"
+            if not db_path.exists():
+                continue
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                cursor = conn.execute(
+                    "SELECT 1 FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
+                )
+                if cursor.fetchone():
+                    project_path = project_info.get("path", str(data_dir))
+                    return {"project_name": project_name, "project_path": project_path}
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.debug(f"Skipping project '{project_name}' during cross-project folio search: {e}")
+            continue
+    return None
+
+
 # Legacy module-level variables removed - use project-specific instances via get_data_dir_for_project()
 
 

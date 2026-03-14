@@ -44,7 +44,7 @@ def parse(address: str) -> ParsedAddress:
     project, _, folio_id = address.partition(":")
 
     # Future: @peer and https:// prefixes — for now, only bare project names
-    if project.startswith("@") or project.startswith("http"):
+    if project.startswith("@") or project in ("http", "https"):
         # Not a project-scoped address, treat the whole thing as a bare ID
         return ParsedAddress(folio_id=address)
 

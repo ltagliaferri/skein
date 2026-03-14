@@ -119,7 +119,7 @@ def search_folio_across_projects(
                     return {"project_name": project_name, "project_path": project_path}
             finally:
                 conn.close()
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug(
                 f"Skipping project '{project_name}' during cross-project folio search: {e}"
             )
@@ -170,28 +170,29 @@ def resolve_folio_across_projects(
                 )
                 row = cursor.fetchone()
                 if row:
-                    metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+                    row_dict = dict(row)
                     folio = Folio(
-                        folio_id=row["folio_id"],
-                        type=row["type"],
-                        site_id=row["site_id"],
-                        created_at=ensure_aware(row["created_at"]),
-                        created_by=row["created_by"],
-                        title=row["title"],
-                        content=row["content"],
-                        status=row["status"] or "open",
-                        assigned_to=row["assigned_to"],
-                        target_agent=row["target_agent"],
-                        omlet=row["omlet"],
-                        archived=bool(row["archived"]),
-                        metadata=metadata,
-                        acknowledged_at=ensure_aware(row["acknowledged_at"]),
-                        content_hash=row["content_hash"],
+                        folio_id=row_dict["folio_id"],
+                        type=row_dict["type"],
+                        site_id=row_dict["site_id"],
+                        created_at=ensure_aware(row_dict["created_at"]),
+                        created_by=row_dict["created_by"],
+                        title=row_dict["title"],
+                        content=row_dict["content"],
+                        status=row_dict.get("status") or "open",
+                        assigned_to=row_dict.get("assigned_to"),
+                        target_agent=row_dict.get("target_agent"),
+                        omlet=row_dict.get("omlet"),
+                        archived=bool(row_dict.get("archived", False)),
+                        metadata=json.loads(row_dict.get("metadata") or "{}"),
+                        acknowledged_at=ensure_aware(row_dict.get("acknowledged_at")),
+                        content_hash=row_dict.get("content_hash"),
                     )
+                    logger.info(f"Resolved {folio_id} from project '{project_name}' (cascade)")
                     return {"folio": folio, "project_name": project_name}
             finally:
                 conn.close()
-        except Exception as e:
+        except (sqlite3.Error, KeyError) as e:
             logger.debug(
                 f"Skipping project '{project_name}' during cross-project folio resolve: {e}"
             )

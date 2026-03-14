@@ -784,7 +784,7 @@ async def search_folios(
     return matching
 
 
-@router.get("/folios/{folio_id:path}", response_model=Folio)
+@router.get("/folios/{folio_id}", response_model=Folio)
 async def get_folio(
     folio_id: str,
     x_project_id: Optional[str] = Header(None),
@@ -804,7 +804,7 @@ async def get_folio(
     return folio
 
 
-@router.patch("/folios/{folio_id:path}")
+@router.patch("/folios/{folio_id}")
 async def update_folio(
     folio_id: str,
     update: FolioUpdate,
@@ -883,7 +883,7 @@ class FolioMoveRequest(BaseModel):
     note: Optional[str] = None
 
 
-@router.post("/folios/{folio_id:path}/move")
+@router.post("/folios/{folio_id}/move")
 async def move_folio(
     folio_id: str,
     move_request: FolioMoveRequest,

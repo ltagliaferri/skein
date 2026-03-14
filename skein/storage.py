@@ -127,6 +127,78 @@ def search_folio_across_projects(
     return None
 
 
+def get_project_store(project_name: str) -> Optional["JSONStore"]:
+    """
+    Get a JSONStore for a named project from the registry.
+
+    Returns None if the project is not found or has no data directory.
+    """
+    registry = load_project_registry()
+    project_info = registry.get(project_name)
+    if not project_info:
+        return None
+    data_dir = Path(project_info["data_dir"])
+    if not data_dir.exists():
+        return None
+    return JSONStore(data_dir)
+
+
+def resolve_folio_across_projects(
+    folio_id: str, current_project_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Search for a folio across all registered projects (except the current one)
+    and return the actual folio data along with source project info.
+
+    Returns {"folio": Folio, "project_name": str} if found, None otherwise.
+    Uses raw SQLite for the existence check, then constructs a Folio from the row.
+    """
+    registry = load_project_registry()
+    for project_name, project_info in registry.items():
+        if project_name == current_project_id:
+            continue
+        try:
+            data_dir = Path(project_info["data_dir"])
+            db_path = data_dir / "skein.db"
+            if not db_path.exists():
+                continue
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                cursor = conn.execute(
+                    "SELECT * FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+                    folio = Folio(
+                        folio_id=row["folio_id"],
+                        type=row["type"],
+                        site_id=row["site_id"],
+                        created_at=ensure_aware(row["created_at"]),
+                        created_by=row["created_by"],
+                        title=row["title"],
+                        content=row["content"],
+                        status=row["status"] or "open",
+                        assigned_to=row["assigned_to"],
+                        target_agent=row["target_agent"],
+                        omlet=row["omlet"],
+                        archived=bool(row["archived"]),
+                        metadata=metadata,
+                        acknowledged_at=ensure_aware(row["acknowledged_at"]),
+                        content_hash=row["content_hash"],
+                    )
+                    return {"folio": folio, "project_name": project_name}
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.debug(
+                f"Skipping project '{project_name}' during cross-project folio resolve: {e}"
+            )
+            continue
+    return None
+
+
 # Legacy module-level variables removed - use project-specific instances via get_data_dir_for_project()
 
 

@@ -2478,9 +2478,11 @@ def folio(ctx, folio_id, no_pager, output_json):
     ftype = folio_data.get("type", "folio")
     site = folio_data.get("site") or ""
     site_str = f" ({site})" if site else ""
+    source_project = folio_data.get("source_project")
+    source_str = f" [{source_project}]" if source_project else ""
 
     output_lines.append(
-        f"{yellow}folio {ftype}-{fid.split('-', 1)[-1]}{site_str}{reset}"
+        f"{yellow}folio {ftype}-{fid.split('-', 1)[-1]}{site_str}{source_str}{reset}"
     )
     output_lines.append(f"Agent: {folio_data.get('created_by', 'unknown')}")
     output_lines.append(

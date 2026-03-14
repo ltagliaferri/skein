@@ -119,9 +119,82 @@ def search_folio_across_projects(
                     return {"project_name": project_name, "project_path": project_path}
             finally:
                 conn.close()
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug(
                 f"Skipping project '{project_name}' during cross-project folio search: {e}"
+            )
+            continue
+    return None
+
+
+def get_project_store(project_name: str) -> Optional["JSONStore"]:
+    """
+    Get a JSONStore for a named project from the registry.
+
+    Returns None if the project is not found or has no data directory.
+    """
+    registry = load_project_registry()
+    project_info = registry.get(project_name)
+    if not project_info:
+        return None
+    data_dir = Path(project_info["data_dir"])
+    if not data_dir.exists():
+        return None
+    return JSONStore(data_dir)
+
+
+def resolve_folio_across_projects(
+    folio_id: str, current_project_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Search for a folio across all registered projects (except the current one)
+    and return the actual folio data along with source project info.
+
+    Returns {"folio": Folio, "project_name": str} if found, None otherwise.
+    Uses raw SQLite for the existence check, then constructs a Folio from the row.
+    """
+    registry = load_project_registry()
+    for project_name, project_info in registry.items():
+        if project_name == current_project_id:
+            continue
+        try:
+            data_dir = Path(project_info["data_dir"])
+            db_path = data_dir / "skein.db"
+            if not db_path.exists():
+                continue
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                cursor = conn.execute(
+                    "SELECT * FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    row_dict = dict(row)
+                    folio = Folio(
+                        folio_id=row_dict["folio_id"],
+                        type=row_dict["type"],
+                        site_id=row_dict["site_id"],
+                        created_at=ensure_aware(row_dict["created_at"]),
+                        created_by=row_dict["created_by"],
+                        title=row_dict["title"],
+                        content=row_dict["content"],
+                        status=row_dict.get("status") or "open",
+                        assigned_to=row_dict.get("assigned_to"),
+                        target_agent=row_dict.get("target_agent"),
+                        omlet=row_dict.get("omlet"),
+                        archived=bool(row_dict.get("archived", False)),
+                        metadata=json.loads(row_dict.get("metadata") or "{}"),
+                        acknowledged_at=ensure_aware(row_dict.get("acknowledged_at")),
+                        content_hash=row_dict.get("content_hash"),
+                    )
+                    logger.info(f"Resolved {folio_id} from project '{project_name}' (cascade)")
+                    return {"folio": folio, "project_name": project_name}
+            finally:
+                conn.close()
+        except (sqlite3.Error, KeyError) as e:
+            logger.debug(
+                f"Skipping project '{project_name}' during cross-project folio resolve: {e}"
             )
             continue
     return None

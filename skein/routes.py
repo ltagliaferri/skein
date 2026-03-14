@@ -37,7 +37,10 @@ from .storage import (
     get_data_dir_for_project,
     ensure_aware,
     search_folio_across_projects,
+    resolve_folio_across_projects,
+    get_project_store as get_named_project_store,
 )
+from .address import parse as parse_address
 from .utils import (
     generate_folio_id,
     generate_thread_id,
@@ -111,6 +114,59 @@ def get_project_screenshots_dir(x_project_id: Optional[str] = Header(None)) -> P
     screenshots_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Using project '{x_project_id}' screenshots dir: {screenshots_dir}")
     return screenshots_dir
+
+
+# Address resolution
+
+def resolve_folio_read(
+    address: str,
+    current_project_id: Optional[str],
+    current_store: JSONStore,
+) -> Folio:
+    """
+    Resolve a folio address for reading.
+
+    Handles three cases:
+    1. Explicit project: "speakbot:brief-xxx" → look in speakbot's store
+    2. Bare, found locally: "brief-xxx" → return from current store
+    3. Bare, not found locally: cascade across all projects
+
+    Sets source_project on the Folio when it came from another project.
+    """
+    parsed = parse_address(address)
+
+    if parsed.is_qualified:
+        # Explicit project prefix — look in that project's store
+        target_store = get_named_project_store(parsed.project)
+        if not target_store:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project '{parsed.project}' not found in registry",
+            )
+        folio = target_store.get_folio(parsed.folio_id)
+        if not folio:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Folio '{parsed.folio_id}' not found in project '{parsed.project}'",
+            )
+        # Only tag source if it's different from the current project
+        if parsed.project != current_project_id:
+            folio.source_project = parsed.project
+        return folio
+
+    # Bare address — try current project first
+    folio = current_store.get_folio(parsed.folio_id)
+    if folio:
+        return folio
+
+    # Cascade: search all other projects
+    result = resolve_folio_across_projects(parsed.folio_id, current_project_id)
+    if result:
+        folio = result["folio"]
+        folio.source_project = result["project_name"]
+        return folio
+
+    raise HTTPException(status_code=404, detail="Folio not found")
 
 
 # Roster Endpoints
@@ -734,22 +790,16 @@ async def get_folio(
     x_project_id: Optional[str] = Header(None),
     store: JSONStore = Depends(get_project_store),
 ):
-    """Get specific folio."""
-    folio = store.get_folio(folio_id)
-    if not folio:
-        detail = "Folio not found"
-        found = search_folio_across_projects(folio_id, x_project_id)
-        if found:
-            detail = f"Folio not found in current project. This folio is registered in the {found['project_name']} project at {found['project_path']}"
-        raise HTTPException(status_code=404, detail=detail)
+    """Get specific folio. Supports colon-based cross-project addresses."""
+    folio = resolve_folio_read(folio_id, x_project_id, store)
 
     # PURE THREADS: Compute status and assigned_to from threads
-    computed_status = get_current_status(folio.folio_id, store)
-    computed_assignment = get_current_assignment(folio.folio_id, store)
-
-    # Use computed values, fall back to stored values during migration
-    folio.status = computed_status or folio.status or "open"
-    folio.assigned_to = computed_assignment or folio.assigned_to
+    # (only meaningful for local project folios)
+    if not folio.source_project:
+        computed_status = get_current_status(folio.folio_id, store)
+        computed_assignment = get_current_assignment(folio.folio_id, store)
+        folio.status = computed_status or folio.status or "open"
+        folio.assigned_to = computed_assignment or folio.assigned_to
 
     return folio
 
@@ -763,12 +813,21 @@ async def update_folio(
     store: JSONStore = Depends(get_project_store),
 ):
     """Update folio fields (title, content, status, assigned_to, archived)."""
+    parsed = parse_address(folio_id)
+    if parsed.is_qualified:
+        # Explicit project — resolve to that project's store
+        target_store = get_named_project_store(parsed.project)
+        if not target_store:
+            raise HTTPException(status_code=404, detail=f"Project '{parsed.project}' not found in registry")
+        store = target_store
+        folio_id = parsed.folio_id
+
     folio = store.get_folio(folio_id)
     if not folio:
         detail = "Folio not found"
         found = search_folio_across_projects(folio_id, x_project_id)
         if found:
-            detail = f"Folio not found in current project. This folio is registered in the {found['project_name']} project at {found['project_path']}"
+            detail = f"Folio not found in current project. Try: {found['project_name']}:{folio_id}"
         raise HTTPException(status_code=404, detail=detail)
 
     created_by = x_agent_id or "unknown"
@@ -838,6 +897,14 @@ async def move_folio(
     Updates the folio's site_id and physically relocates the file.
     Optionally records a thread with the move reason.
     """
+    parsed = parse_address(folio_id)
+    if parsed.is_qualified:
+        target_store = get_named_project_store(parsed.project)
+        if not target_store:
+            raise HTTPException(status_code=404, detail=f"Project '{parsed.project}' not found in registry")
+        store = target_store
+        folio_id = parsed.folio_id
+
     created_by = x_agent_id or "unknown"
 
     try:
@@ -849,7 +916,7 @@ async def move_folio(
         detail = f"Folio '{folio_id}' not found"
         found = search_folio_across_projects(folio_id, x_project_id)
         if found:
-            detail = f"Folio not found in current project. This folio is registered in the {found['project_name']} project at {found['project_path']}"
+            detail = f"Folio not found in current project. Try: {found['project_name']}:{folio_id}"
         raise HTTPException(status_code=404, detail=detail)
 
     # Create a thread recording the move if note provided

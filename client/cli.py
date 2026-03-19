@@ -1862,7 +1862,10 @@ def post_brief(ctx, site_id, content, title, target):
 
     Example:
         skein post brief skein-dev "Implement dark mode toggle" --title "Dark mode feature"
+        skein post brief skein-dev - --title "Dark mode feature" < content.txt
     """
+    if content == "-":
+        content = sys.stdin.read()
     validate_positional_args(site_id, content, command_name="post brief")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
@@ -2455,7 +2458,14 @@ def frictions(ctx, site_id, output_json):
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def folio(ctx, folio_id, no_pager, output_json):
-    """Read a single folio by ID."""
+    """Read a folio by ID. Supports cross-project addressing.
+
+    FOLIO_ID can be bare or project-qualified:
+
+    \b
+      skein folio brief-20251226-n1br              # current project, cascades if not found
+      skein folio speakbot:brief-20251226-n1br     # look in speakbot project
+    """
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 

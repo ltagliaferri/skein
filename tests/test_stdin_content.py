@@ -119,3 +119,21 @@ class TestPostBriefStdin:
 
         _, kwargs = mock_request.call_args
         assert kwargs["json"]["content"] == ""
+
+    def test_post_brief_stdin_with_equals_sign_not_rejected(self):
+        """Stdin content like 'title=My Brief' should NOT trigger validation error."""
+        runner = CliRunner()
+        mock_request = self._make_mock_request()
+
+        with patch("client.cli.make_request", mock_request):
+            result = runner.invoke(
+                cli,
+                ["post", "brief", "test-site", "-", "--title", "Test"],
+                input="title=My Brief\nfoo=bar",
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+
+        _, kwargs = mock_request.call_args
+        assert kwargs["json"]["content"] == "title=My Brief\nfoo=bar"

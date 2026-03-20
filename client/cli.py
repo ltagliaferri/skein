@@ -1864,9 +1864,12 @@ def post_brief(ctx, site_id, content, title, target):
         skein post brief skein-dev "Implement dark mode toggle" --title "Dark mode feature"
         skein post brief skein-dev - --title "Dark mode feature" < content.txt
     """
-    if content == "-":
+    from_stdin = content == "-"
+    if from_stdin:
         content = sys.stdin.read()
-    validate_positional_args(site_id, content, command_name="post brief")
+    validate_positional_args(site_id, command_name="post brief")
+    if not from_stdin:
+        validate_positional_args(content, command_name="post brief")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 

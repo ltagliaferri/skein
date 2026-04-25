@@ -2,10 +2,12 @@
 
 import json
 import os
+import shutil
 import sqlite3
 import stat
 import tarfile
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -358,14 +360,53 @@ def test_backup_cleans_up_temp_files_on_failure(tmp_path: Path) -> None:
 
 
 def test_backup_fails_loudly_on_unreadable_wal(tmp_path: Path) -> None:
-    """An unreadable skein.db-wal must surface as a per-project failure, not
-    a silent wal-less snapshot."""
+    """An unreadable skein.db-wal next to a real WAL-mode db must surface as a
+    per-project failure, not a silent wal-less snapshot.
+
+    Round 3 fix: previously this fixture used a DELETE-mode db with a fake
+    skein.db-wal sidecar, which only exercised permission-failure
+    propagation — not the original data-loss scenario. We now build a real
+    WAL-mode db with uncheckpointed rows and hold the connection open so
+    skein.db-wal actually exists as a SQLite WAL file when the backup runs.
+    """
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    data_dir = _make_project(projects_root, "alpha")
+    data_dir = projects_root / "alpha" / ".skein" / "data"
+    data_dir.mkdir(parents=True)
+
+    db_path = data_dir / "skein.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    # Disable auto-checkpoint so the WAL keeps growing rather than being
+    # folded into the main db. Combined with the held-open connection this
+    # guarantees skein.db-wal exists with real content for the duration of
+    # the test (the WAL would otherwise be truncated/removed on last close).
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, val TEXT)")
+    conn.executemany(
+        "INSERT INTO entries (val) VALUES (?)",
+        [(f"row-{i}",) for i in range(25)],
+    )
+    conn.commit()
+
+    # Canonical sibling pieces (matches _make_project layout).
+    (data_dir / "roster").mkdir()
+    (data_dir / "roster" / "agents.json").write_text("{}")
+    (data_dir / "sites").mkdir()
+    site = data_dir / "sites" / "alpha"
+    site.mkdir()
+    (site / "metadata.json").write_text(json.dumps({"site": "alpha"}))
+    (data_dir / "sessions.json").write_text("{}")
 
     wal_path = data_dir / "skein.db-wal"
-    wal_path.write_bytes(b"fake wal bytes for test")
+    # Sanity: without this, a future regression that breaks the WAL setup
+    # would silently turn this test back into the previous sidecar-only check.
+    assert wal_path.exists(), "fixture WAL missing — test setup regression"
+    assert wal_path.stat().st_size > 0, (
+        "fixture WAL is empty — test setup regression (auto-checkpoint or "
+        "close cleanup may have run)"
+    )
+
     os.chmod(wal_path, 0)
 
     backup_dir = tmp_path / "backups"
@@ -375,6 +416,7 @@ def test_backup_fails_loudly_on_unreadable_wal(tmp_path: Path) -> None:
         result = mgr.create_full_backup_all_projects(projects_root=projects_root)
     finally:
         os.chmod(wal_path, stat.S_IRUSR | stat.S_IWUSR)
+        conn.close()
 
     assert result["succeeded"] == 0, f"expected zero successes, got {result}"
     assert result["failed"] == 1, f"expected one failure, got {result}"
@@ -386,3 +428,135 @@ def test_backup_fails_loudly_on_unreadable_wal(tmp_path: Path) -> None:
     finals = list(full_dir.glob("*.tar.gz")) + list(full_dir.glob("*.json"))
     assert leftovers == [], f"unexpected temp files left behind: {leftovers}"
     assert finals == [], f"partial finalized files: {finals}"
+
+
+def test_backup_retries_when_wal_mutates_during_snapshot(tmp_path: Path) -> None:
+    """If the live WAL changes between the DB copy and the WAL copy, the
+    snapshot must retry rather than capture an inconsistent DB/WAL pair.
+
+    Simulates the live SKEIN service writing to skein.db-wal during the
+    snapshot by patching shutil.copy2 to bump the source WAL's mtime on the
+    first DB copy. The retry-on-mtime loop should detect the change, retry
+    once with a clean window, and produce a valid backup.
+    """
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = projects_root / "alpha" / ".skein" / "data"
+    data_dir.mkdir(parents=True)
+
+    db_path = data_dir / "skein.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, val TEXT)")
+    conn.executemany(
+        "INSERT INTO entries (val) VALUES (?)",
+        [(f"row-{i}",) for i in range(20)],
+    )
+    conn.commit()
+
+    (data_dir / "roster").mkdir()
+    (data_dir / "roster" / "agents.json").write_text("{}")
+    (data_dir / "sessions.json").write_text("{}")
+
+    src_wal = data_dir / "skein.db-wal"
+    assert src_wal.exists() and src_wal.stat().st_size > 0, (
+        "fixture WAL missing or empty — retry test would be vacuous"
+    )
+
+    backup_dir = tmp_path / "backups"
+    mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir, project_name="alpha")
+
+    real_copy2 = shutil.copy2
+    state = {"db_copies": 0}
+
+    def patched_copy2(src, dst, *args, **kwargs):
+        result = real_copy2(src, dst, *args, **kwargs)
+        # On the first DB copy, mutate the source WAL's mtime to simulate a
+        # live writer flushing a transaction between our DB and WAL copies.
+        # The WAL contents stay valid — only the mtime changes — which is
+        # exactly the inconsistency the retry guard is meant to catch.
+        if Path(src).name == "skein.db":
+            if state["db_copies"] == 0:
+                sb = src_wal.stat()
+                os.utime(
+                    src_wal,
+                    ns=(sb.st_atime_ns, sb.st_mtime_ns + 1_000_000),
+                )
+            state["db_copies"] += 1
+        return result
+
+    try:
+        with mock.patch("client.backup.shutil.copy2", side_effect=patched_copy2):
+            result = mgr.create_full_backup()
+    finally:
+        conn.close()
+
+    # Two DB copies = the first attempt's mtime mismatch triggered exactly
+    # one retry, which then succeeded.
+    assert state["db_copies"] >= 2, (
+        f"expected at least one retry (>=2 DB copies), got {state['db_copies']}"
+    )
+    assert result["skein_db_method"] == "sqlite3.backup"
+    assert result["skein_db_size"] > 0
+
+
+def test_backup_fails_loudly_when_wal_mutates_continuously(tmp_path: Path) -> None:
+    """If the WAL mutates on every retry attempt, the snapshot must raise
+    rather than silently capture a torn DB/WAL pair."""
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = projects_root / "alpha" / ".skein" / "data"
+    data_dir.mkdir(parents=True)
+
+    db_path = data_dir / "skein.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, val TEXT)")
+    conn.executemany(
+        "INSERT INTO entries (val) VALUES (?)",
+        [(f"row-{i}",) for i in range(20)],
+    )
+    conn.commit()
+
+    (data_dir / "roster").mkdir()
+    (data_dir / "roster" / "agents.json").write_text("{}")
+    (data_dir / "sessions.json").write_text("{}")
+
+    src_wal = data_dir / "skein.db-wal"
+    assert src_wal.exists() and src_wal.stat().st_size > 0
+
+    backup_dir = tmp_path / "backups"
+    mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir, project_name="alpha")
+
+    real_copy2 = shutil.copy2
+    state = {"db_copies": 0}
+
+    def patched_copy2(src, dst, *args, **kwargs):
+        result = real_copy2(src, dst, *args, **kwargs)
+        # Every DB copy bumps the WAL — the retry loop can never see a
+        # stable window and must raise after MAX_RETRIES.
+        if Path(src).name == "skein.db":
+            sb = src_wal.stat()
+            os.utime(
+                src_wal,
+                ns=(
+                    sb.st_atime_ns,
+                    sb.st_mtime_ns + (state["db_copies"] + 1) * 1_000_000,
+                ),
+            )
+            state["db_copies"] += 1
+        return result
+
+    try:
+        with mock.patch("client.backup.shutil.copy2", side_effect=patched_copy2):
+            with pytest.raises(RuntimeError, match="mutated during snapshot copy"):
+                mgr.create_full_backup()
+    finally:
+        conn.close()
+
+    # We should have hit the retry cap rather than bailing earlier.
+    assert state["db_copies"] >= 3, (
+        f"expected MAX_RETRIES=3 attempts, got {state['db_copies']}"
+    )

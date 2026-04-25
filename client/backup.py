@@ -116,12 +116,42 @@ class BackupManager:
             work_db.with_name(work_db.name + suffix) for suffix in ("-wal", "-shm")
         ]
         try:
-            shutil.copy2(source_db, work_db)
+            # Constraint trap: opening source as a SQLite ?mode=ro connection
+            # would give us a coherent DB+WAL view in one syscall, but it
+            # requires materializing -shm in the source's parent — which fails
+            # on RO mounts and chmod 555 dirs (the very case round 1 had to
+            # solve). So we filesystem-copy DB and WAL separately, which opens
+            # a race: the live service can mutate skein.db-wal between the two
+            # copies, leaving us with a torn DB/WAL pair that integrity_check
+            # cannot detect. Bound the race window with retry-on-mtime: stat
+            # the WAL before and after each copy attempt, retry if it moved,
+            # fail loud after MAX_RETRIES rather than silently capture a torn
+            # snapshot under sustained write load.
             src_wal = source_db.with_name(source_db.name + "-wal")
-            if src_wal.exists():
-                # WAL copy failure is fatal for this project's snapshot; silent
-                # drop would produce inconsistent backup.
-                shutil.copy2(src_wal, work_db.with_name(work_db.name + "-wal"))
+            wal_dest = work_db.with_name(work_db.name + "-wal")
+            MAX_RETRIES = 3
+
+            def _wal_mtime_ns() -> Optional[int]:
+                try:
+                    return src_wal.stat().st_mtime_ns
+                except FileNotFoundError:
+                    return None
+
+            for _attempt in range(MAX_RETRIES):
+                if wal_dest.exists():
+                    wal_dest.unlink()
+                wal_before = _wal_mtime_ns()
+                shutil.copy2(source_db, work_db)
+                if src_wal.exists():
+                    shutil.copy2(src_wal, wal_dest)
+                wal_after = _wal_mtime_ns()
+                if wal_before == wal_after:
+                    break
+            else:
+                raise RuntimeError(
+                    "skein.db-wal mutated during snapshot copy after "
+                    f"{MAX_RETRIES} retries — inconsistent DB/WAL pair risk"
+                )
 
             src = sqlite3.connect(f"file:{work_db}?mode=ro", uri=True)
             try:

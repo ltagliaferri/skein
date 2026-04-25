@@ -119,12 +119,9 @@ class BackupManager:
             shutil.copy2(source_db, work_db)
             src_wal = source_db.with_name(source_db.name + "-wal")
             if src_wal.exists():
-                # WAL copy is best-effort: missing it just means uncheckpointed
-                # writes are absent from the snapshot, which is acceptable.
-                try:
-                    shutil.copy2(src_wal, work_db.with_name(work_db.name + "-wal"))
-                except OSError:
-                    pass
+                # WAL copy failure is fatal for this project's snapshot; silent
+                # drop would produce inconsistent backup.
+                shutil.copy2(src_wal, work_db.with_name(work_db.name + "-wal"))
 
             src = sqlite3.connect(f"file:{work_db}?mode=ro", uri=True)
             try:

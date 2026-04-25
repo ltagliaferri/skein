@@ -325,24 +325,64 @@ def test_cleanup_keep_last_mixes_legacy_and_per_project_artifacts(
 
 
 def test_backup_cleans_up_temp_files_on_failure(tmp_path: Path) -> None:
-    """An exception mid-backup must not leave .tmp orphans behind."""
+    """An exception mid-backup must not leave .tmp orphans behind.
+
+    Inject failure at _calculate_checksum, which runs AFTER the tarball .tmp
+    has been written but BEFORE the metadata .tmp is created. This exercises
+    the cleanup path with a real orphan tarball .tmp on disk.
+    """
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
     data_dir = _make_project(projects_root, "alpha")
     backup_dir = tmp_path / "backups"
     mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir, project_name="alpha")
 
-    # Force the snapshot step to blow up after the tarball tmp would have been
-    # opened. We patch the snapshot method to raise.
-    def boom(_src, _dst):
+    full_dir = backup_dir / "full"
+
+    def boom(_path: Path) -> str:
+        # Sanity check: the tarball .tmp must exist by the time we fire,
+        # otherwise the cleanup assertion below would pass vacuously.
+        assert list(full_dir.glob("*.tar.gz.tmp")), (
+            "no tarball .tmp present when checksum fired; test would be vacuous"
+        )
         raise RuntimeError("simulated failure mid-backup")
 
-    mgr._snapshot_skein_db = boom  # type: ignore[assignment]
+    mgr._calculate_checksum = boom  # type: ignore[assignment]
     with pytest.raises(RuntimeError):
         mgr.create_full_backup()
 
-    full_dir = backup_dir / "full"
     leftovers = list(full_dir.glob("*.tmp"))
     assert leftovers == [], f"unexpected temp files left behind: {leftovers}"
     finals = list(full_dir.glob("*.tar.gz")) + list(full_dir.glob("*.json"))
+    assert finals == [], f"partial finalized files: {finals}"
+
+
+def test_backup_fails_loudly_on_unreadable_wal(tmp_path: Path) -> None:
+    """An unreadable skein.db-wal must surface as a per-project failure, not
+    a silent wal-less snapshot."""
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = _make_project(projects_root, "alpha")
+
+    wal_path = data_dir / "skein.db-wal"
+    wal_path.write_bytes(b"fake wal bytes for test")
+    os.chmod(wal_path, 0)
+
+    backup_dir = tmp_path / "backups"
+    mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir)
+
+    try:
+        result = mgr.create_full_backup_all_projects(projects_root=projects_root)
+    finally:
+        os.chmod(wal_path, stat.S_IRUSR | stat.S_IWUSR)
+
+    assert result["succeeded"] == 0, f"expected zero successes, got {result}"
+    assert result["failed"] == 1, f"expected one failure, got {result}"
+    assert result["errors"], "expected an error entry for the failed project"
+    assert result["errors"][0]["project"] == "alpha"
+
+    full_dir = backup_dir / "full"
+    leftovers = list(full_dir.glob("*.tmp"))
+    finals = list(full_dir.glob("*.tar.gz")) + list(full_dir.glob("*.json"))
+    assert leftovers == [], f"unexpected temp files left behind: {leftovers}"
     assert finals == [], f"partial finalized files: {finals}"

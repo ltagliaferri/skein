@@ -101,21 +101,48 @@ class BackupManager:
 
     @staticmethod
     def _snapshot_skein_db(source_db: Path, dest_db: Path) -> None:
-        """Snapshot a SQLite db using the .backup API.
+        """Snapshot a SQLite db to dest_db using the sqlite3 backup API.
 
-        Safe under live WAL writers — the backup API takes a consistent
-        snapshot even while another process is reading or writing.
+        Copies the source file (and its -wal sidecar, if present) to dest_db's
+        parent dir before opening it. SQLite in WAL mode needs write access to
+        the source's parent directory to materialize the -shm file even when
+        opened with mode=ro; on a read-only mount or chmod 555 parent dir the
+        bare-source open fails with "attempt to write a readonly database".
+        Reading from a writable scratch copy sidesteps that.
         """
-        src = sqlite3.connect(f"file:{source_db}?mode=ro", uri=True)
+        work_dir = dest_db.parent
+        work_db = work_dir / "_snapshot_src.db"
+        sidecar_paths = [
+            work_db.with_name(work_db.name + suffix) for suffix in ("-wal", "-shm")
+        ]
         try:
-            dst = sqlite3.connect(str(dest_db))
+            shutil.copy2(source_db, work_db)
+            src_wal = source_db.with_name(source_db.name + "-wal")
+            if src_wal.exists():
+                # WAL copy is best-effort: missing it just means uncheckpointed
+                # writes are absent from the snapshot, which is acceptable.
+                try:
+                    shutil.copy2(src_wal, work_db.with_name(work_db.name + "-wal"))
+                except OSError:
+                    pass
+
+            src = sqlite3.connect(f"file:{work_db}?mode=ro", uri=True)
             try:
-                src.backup(dst)
-                dst.commit()
+                dst = sqlite3.connect(str(dest_db))
+                try:
+                    src.backup(dst)
+                    dst.commit()
+                finally:
+                    dst.close()
             finally:
-                dst.close()
+                src.close()
         finally:
-            src.close()
+            for path in [work_db, *sidecar_paths]:
+                if path.exists():
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
 
     def _calculate_checksum(self, file_path: Path) -> str:
         """Calculate SHA256 checksum of a file."""
@@ -156,7 +183,13 @@ class BackupManager:
         project_name: Optional[str],
         tag: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create a tarball + metadata for a single project's data dir."""
+        """Create a tarball + metadata for a single project's data dir.
+
+        Writes both files to .tmp paths first and renames them into place only
+        after the full sequence (tar build + checksum + metadata write)
+        succeeds. On any failure, partial temp files are removed so list_backups
+        never sees an orphaned tarball without its sidecar.
+        """
         if not data_dir.exists():
             raise ValueError(f"Data directory does not exist: {data_dir}")
 
@@ -164,6 +197,9 @@ class BackupManager:
         base = self._build_backup_name(project_name, timestamp, tag)
         backup_name = base + ".tar.gz"
         backup_path = self.full_backup_dir / backup_name
+        metadata_path = self.full_backup_dir / (base + ".json")
+        backup_tmp = backup_path.with_name(backup_path.name + ".tmp")
+        metadata_tmp = metadata_path.with_name(metadata_path.name + ".tmp")
 
         # Files we never copy directly: the live db (snapshotted instead)
         # and its WAL/SHM sidecars (transient state).
@@ -173,43 +209,59 @@ class BackupManager:
         db_method: Optional[str] = None
         db_size: Optional[int] = None
 
-        with tempfile.TemporaryDirectory(prefix="skein-backup-") as tmpdir:
-            snapshot_db = Path(tmpdir) / "skein.db"
-            if live_db.exists() and live_db.stat().st_size > 0:
-                self._snapshot_skein_db(live_db, snapshot_db)
-                db_method = "sqlite3.backup"
-                db_size = snapshot_db.stat().st_size
+        try:
+            with tempfile.TemporaryDirectory(prefix="skein-backup-") as tmpdir:
+                snapshot_db = Path(tmpdir) / "skein.db"
+                if live_db.exists() and live_db.stat().st_size > 0:
+                    self._snapshot_skein_db(live_db, snapshot_db)
+                    db_method = "sqlite3.backup"
+                    db_size = snapshot_db.stat().st_size
 
-            with tarfile.open(backup_path, "w:gz", compresslevel=6) as tar:
-                if snapshot_db.exists():
-                    tar.add(snapshot_db, arcname="skein.db")
-                for item in sorted(data_dir.iterdir()):
-                    if item.name in skip_names:
-                        continue
-                    tar.add(item, arcname=item.name)
+                with tarfile.open(backup_tmp, "w:gz", compresslevel=6) as tar:
+                    if snapshot_db.exists():
+                        tar.add(snapshot_db, arcname="skein.db")
+                    for item in sorted(data_dir.iterdir()):
+                        if item.name in skip_names:
+                            continue
+                        tar.add(item, arcname=item.name)
 
-        checksum = self._calculate_checksum(backup_path)
-        backup_size = backup_path.stat().st_size
-        source_stats = self._get_dir_stats(data_dir)
+            checksum = self._calculate_checksum(backup_tmp)
+            backup_size = backup_tmp.stat().st_size
+            source_stats = self._get_dir_stats(data_dir)
 
-        metadata = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "backup_name": backup_name,
-            "project": project_name,
-            "layout": "per-project",
-            "checksum": checksum,
-            "backup_size": backup_size,
-            "source_dir": str(data_dir),
-            "source_stats": source_stats,
-            "skein_db_method": db_method,
-            "skein_db_size": db_size,
-            "tag": tag,
-            "skein_version": "1.0",
-        }
+            metadata = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "backup_name": backup_name,
+                "project": project_name,
+                "layout": "per-project",
+                "checksum": checksum,
+                "backup_size": backup_size,
+                "source_dir": str(data_dir),
+                "source_stats": source_stats,
+                "skein_db_method": db_method,
+                "skein_db_size": db_size,
+                "tag": tag,
+                "skein_version": "1.0",
+            }
 
-        metadata_path = self.full_backup_dir / (base + ".json")
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2, default=str)
+            with open(metadata_tmp, "w") as f:
+                json.dump(metadata, f, indent=2, default=str)
+
+            # Both temp files exist and are valid: promote into place. We move
+            # metadata first so that if the second rename is interrupted, the
+            # tarball stays at its .tmp path — list_backups will surface the
+            # entry (as exists=False) rather than leaving an invisible orphan
+            # tarball.
+            metadata_tmp.replace(metadata_path)
+            backup_tmp.replace(backup_path)
+        except BaseException:
+            for tmp in (backup_tmp, metadata_tmp):
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+            raise
 
         return {
             "backup_path": str(backup_path),
@@ -252,9 +304,7 @@ class BackupManager:
 
         for proj in projects:
             try:
-                result = self._backup_one(
-                    proj["data_dir"], proj["project"], tag=tag
-                )
+                result = self._backup_one(proj["data_dir"], proj["project"], tag=tag)
                 successes.append(result)
             except Exception as e:
                 errors.append({"project": proj["project"], "error": str(e)})
@@ -501,9 +551,7 @@ class BackupManager:
         if backup_name.endswith(".tar.gz"):
             metadata_path = self.full_backup_dir / (backup_name[:-7] + ".json")
         else:
-            metadata_path = self.full_backup_dir / (
-                Path(backup_name).stem + ".json"
-            )
+            metadata_path = self.full_backup_dir / (Path(backup_name).stem + ".json")
 
         if backup_path.exists():
             backup_path.unlink()

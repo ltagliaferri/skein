@@ -1,7 +1,9 @@
 """Tests for SKEIN backup and recovery."""
 
 import json
+import os
 import sqlite3
+import stat
 import tarfile
 from pathlib import Path
 
@@ -190,3 +192,157 @@ def test_cleanup_buckets_legacy_backups_without_project_field(
     assert res["success"]
     # All three share the legacy bucket — keep_last=1 removes the oldest two.
     assert len(res["removed"]) == 2
+
+
+def test_backup_succeeds_when_source_parent_is_read_only(tmp_path: Path) -> None:
+    """Backup must succeed against a WAL-mode db whose parent dir is unwritable.
+
+    Reproduces the failure mode where SQLite would otherwise try to materialize
+    skein.db-shm in a chmod 555 parent dir and raise "attempt to write a
+    readonly database", causing _backup_one to throw and the project to be
+    silently omitted from the run.
+    """
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = projects_root / "alpha" / ".skein" / "data"
+    data_dir.mkdir(parents=True)
+
+    # Build a WAL-mode db so the read path requires SHM materialization.
+    conn = sqlite3.connect(str(data_dir / "skein.db"))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, val TEXT)")
+    conn.executemany(
+        "INSERT INTO entries (val) VALUES (?)",
+        [(f"row-{i}",) for i in range(25)],
+    )
+    conn.commit()
+    # Truncate the WAL but the db file's header still records WAL mode, which
+    # is what triggers the SHM materialization attempt on the next read.
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.close()
+
+    # Add the canonical sibling pieces.
+    (data_dir / "roster").mkdir()
+    (data_dir / "roster" / "agents.json").write_text("{}")
+    (data_dir / "sessions.json").write_text("{}")
+
+    # Lock down the parent dir: nothing under it is writable.
+    original_mode = data_dir.stat().st_mode
+    os.chmod(
+        data_dir,
+        stat.S_IRUSR
+        | stat.S_IXUSR
+        | stat.S_IRGRP
+        | stat.S_IXGRP
+        | stat.S_IROTH
+        | stat.S_IXOTH,
+    )
+    try:
+        backup_dir = tmp_path / "backups"
+        mgr = BackupManager(
+            data_dir=data_dir, backup_dir=backup_dir, project_name="alpha"
+        )
+        result = mgr.create_full_backup()
+    finally:
+        os.chmod(data_dir, original_mode)
+
+    assert result["skein_db_method"] == "sqlite3.backup"
+    assert result["skein_db_size"] > 0
+
+    # Extract and verify the snapshot is a valid integrity-clean db with the
+    # rows we wrote (no silent loss).
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+    with tarfile.open(result["backup_path"], "r:gz") as tar:
+        tar.extractall(extract_dir)
+
+    extracted_db = extract_dir / "skein.db"
+    assert extracted_db.exists()
+    rconn = sqlite3.connect(str(extracted_db))
+    integrity = rconn.execute("PRAGMA integrity_check;").fetchone()[0]
+    rows = rconn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+    rconn.close()
+    assert integrity == "ok"
+    assert rows == 25
+
+
+def test_cleanup_keep_last_mixes_legacy_and_per_project_artifacts(
+    tmp_path: Path,
+) -> None:
+    """--keep-last must rotate per-project without cross-deleting legacy entries.
+
+    Mixed shared backup dir: a few per-project artifacts (with `project` set)
+    alongside legacy single-project artifacts (no `project` field). Each group
+    rotates independently — neither bucket cannibalizes the other.
+    """
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = _make_project(projects_root, "alpha")
+    backup_dir = tmp_path / "backups"
+    full_dir = backup_dir / "full"
+    full_dir.mkdir(parents=True)
+
+    mgr = BackupManager(backup_dir=backup_dir)
+
+    # 3 real per-project alpha backups via the manager.
+    for i in range(3):
+        mgr._backup_one(data_dir, "alpha", tag=f"a{i}")
+
+    # 3 hand-crafted legacy artifacts (no project field) in the same dir.
+    for i in range(3):
+        name = f"skein_full_2025-12-0{i + 1}_00-00-00"
+        (full_dir / f"{name}.tar.gz").write_bytes(b"x")
+        (full_dir / f"{name}.json").write_text(
+            json.dumps(
+                {
+                    "timestamp": f"2025-12-0{i + 1}T00:00:00+00:00",
+                    "backup_name": f"{name}.tar.gz",
+                    "checksum": "deadbeef",
+                    "backup_size": 1,
+                    "source_dir": "/legacy",
+                }
+            )
+        )
+
+    assert len(list(full_dir.glob("*.tar.gz"))) == 6
+    assert len(list(full_dir.glob("*.json"))) == 6
+
+    res = mgr.cleanup_old_backups(keep_last=1, dry_run=False)
+    assert res["success"]
+
+    removed = res["removed"]
+    keeping = res["keeping"]
+    # Each bucket (alpha + legacy) trims to 1, so 4 removed and 2 kept.
+    assert len(removed) == 4
+    assert len(keeping) == 2
+
+    # Each bucket is represented in `keeping` exactly once — neither side
+    # cross-deleted the other.
+    kept_alpha = [n for n in keeping if "alpha" in n]
+    kept_legacy = [n for n in keeping if "alpha" not in n]
+    assert len(kept_alpha) == 1
+    assert len(kept_legacy) == 1
+
+
+def test_backup_cleans_up_temp_files_on_failure(tmp_path: Path) -> None:
+    """An exception mid-backup must not leave .tmp orphans behind."""
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = _make_project(projects_root, "alpha")
+    backup_dir = tmp_path / "backups"
+    mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir, project_name="alpha")
+
+    # Force the snapshot step to blow up after the tarball tmp would have been
+    # opened. We patch the snapshot method to raise.
+    def boom(_src, _dst):
+        raise RuntimeError("simulated failure mid-backup")
+
+    mgr._snapshot_skein_db = boom  # type: ignore[assignment]
+    with pytest.raises(RuntimeError):
+        mgr.create_full_backup()
+
+    full_dir = backup_dir / "full"
+    leftovers = list(full_dir.glob("*.tmp"))
+    assert leftovers == [], f"unexpected temp files left behind: {leftovers}"
+    finals = list(full_dir.glob("*.tar.gz")) + list(full_dir.glob("*.json"))
+    assert finals == [], f"partial finalized files: {finals}"

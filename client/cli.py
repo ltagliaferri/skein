@@ -5146,24 +5146,38 @@ def backup_status(ctx):
 @click.option(
     "--confirm", is_flag=True, help="Confirm restore (required for actual restore)"
 )
+@click.option(
+    "--destination",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Restore to this directory instead of the current project's data dir. "
+        "Required when running outside a SKEIN project, unless the backup's "
+        "metadata records a source_dir to fall back to."
+    ),
+)
 @click.pass_context
-def restore(ctx, backup_id, dry_run, confirm):
+def restore(ctx, backup_id, dry_run, confirm, destination):
     """Restore SKEIN data from a backup.
 
-    WARNING: This will overwrite current data. A pre-restore backup is created automatically.
+    WARNING: This will overwrite the destination data. A pre-restore backup is
+    created automatically when the destination already contains data.
 
     Examples:
         skein restore skein_full_2025-11-15_00-00-00 --dry-run
         skein restore skein_full_2025-11-15_00-00-00 --confirm
         skein restore latest --confirm
+        skein restore skein_full_speakbot_2026-04-25_00-00-00 \\
+            --destination /tmp/restore-test --confirm
     """
-    from .backup import get_backup_manager_for_project
+    from .backup import BackupManager, get_backup_manager_for_project
 
+    # Use a project-scoped manager when we're inside a project (so default
+    # destination is the current project's data dir); otherwise fall back to a
+    # bare manager that can still operate on the shared backup dir.
     manager = get_backup_manager_for_project()
-    if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+    if manager is None:
+        manager = BackupManager()
 
     # Handle 'latest' as special case
     if backup_id == "latest":
@@ -5172,7 +5186,9 @@ def restore(ctx, backup_id, dry_run, confirm):
             raise click.ClickException("No backups found")
         backup_id = backups[0]["backup_name"].replace(".tar.gz", "")
 
-    result = manager.restore_backup(backup_id, dry_run=dry_run, confirm=confirm)
+    result = manager.restore_backup(
+        backup_id, dry_run=dry_run, confirm=confirm, destination=destination
+    )
 
     if dry_run:
         if result["success"]:

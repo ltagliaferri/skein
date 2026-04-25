@@ -17,7 +17,7 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 
 class BackupManager:
@@ -123,28 +123,33 @@ class BackupManager:
             # solve). So we filesystem-copy DB and WAL separately, which opens
             # a race: the live service can mutate skein.db-wal between the two
             # copies, leaving us with a torn DB/WAL pair that integrity_check
-            # cannot detect. Bound the race window with retry-on-mtime: stat
-            # the WAL before and after each copy attempt, retry if it moved,
-            # fail loud after MAX_RETRIES rather than silently capture a torn
-            # snapshot under sustained write load.
+            # cannot detect. Bound the race window with retry-on-token: stat
+            # the WAL before and after each copy attempt, retry if the token
+            # moved, fail loud after MAX_RETRIES rather than silently capture
+            # a torn snapshot under sustained write load. The token is
+            # (st_mtime_ns, st_size): mtime catches the common case, size
+            # catches sub-tick writes on filesystems with coarse mtime
+            # resolution (NFS/SMB/FUSE) and any append that happens to land
+            # on the same nanosecond tick.
             src_wal = source_db.with_name(source_db.name + "-wal")
             wal_dest = work_db.with_name(work_db.name + "-wal")
             MAX_RETRIES = 3
 
-            def _wal_mtime_ns() -> Optional[int]:
+            def _wal_token() -> Optional[Tuple[int, int]]:
                 try:
-                    return src_wal.stat().st_mtime_ns
+                    st = src_wal.stat()
                 except FileNotFoundError:
                     return None
+                return (st.st_mtime_ns, st.st_size)
 
             for _attempt in range(MAX_RETRIES):
                 if wal_dest.exists():
                     wal_dest.unlink()
-                wal_before = _wal_mtime_ns()
+                wal_before = _wal_token()
                 shutil.copy2(source_db, work_db)
                 if src_wal.exists():
                     shutil.copy2(src_wal, wal_dest)
-                wal_after = _wal_mtime_ns()
+                wal_after = _wal_token()
                 if wal_before == wal_after:
                     break
             else:

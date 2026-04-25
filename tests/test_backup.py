@@ -560,3 +560,81 @@ def test_backup_fails_loudly_when_wal_mutates_continuously(tmp_path: Path) -> No
     assert state["db_copies"] >= 3, (
         f"expected MAX_RETRIES=3 attempts, got {state['db_copies']}"
     )
+
+
+def test_backup_retries_when_wal_size_changes_within_same_mtime_tick(
+    tmp_path: Path,
+) -> None:
+    """If the WAL grows but its mtime is unchanged (sub-tick write on a
+    coarse-mtime filesystem like NFS/SMB/FUSE, or under clock manipulation),
+    the snapshot must still detect the change via the size component of the
+    token and retry. mtime alone is not sufficient.
+    """
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = projects_root / "alpha" / ".skein" / "data"
+    data_dir.mkdir(parents=True)
+
+    db_path = data_dir / "skein.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, val TEXT)")
+    conn.executemany(
+        "INSERT INTO entries (val) VALUES (?)",
+        [(f"row-{i}",) for i in range(20)],
+    )
+    conn.commit()
+
+    (data_dir / "roster").mkdir()
+    (data_dir / "roster" / "agents.json").write_text("{}")
+    (data_dir / "sessions.json").write_text("{}")
+
+    src_wal = data_dir / "skein.db-wal"
+    assert src_wal.exists() and src_wal.stat().st_size > 0, (
+        "fixture WAL missing or empty — retry test would be vacuous"
+    )
+
+    backup_dir = tmp_path / "backups"
+    mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir, project_name="alpha")
+
+    real_copy2 = shutil.copy2
+    state = {"db_copies": 0}
+
+    def patched_copy2(src, dst, *args, **kwargs):
+        result = real_copy2(src, dst, *args, **kwargs)
+        # On the first DB copy, append bytes to the source WAL while
+        # preserving its mtime. This is the mtime-only-token blind spot:
+        # content changed (size grew), mtime did not. The size component
+        # of the token must catch it.
+        if Path(src).name == "skein.db":
+            if state["db_copies"] == 0:
+                sb = src_wal.stat()
+                with open(src_wal, "ab") as wal_fh:
+                    wal_fh.write(b"\x00" * 4096)
+                # Restore the original mtime so only size has changed.
+                os.utime(src_wal, ns=(sb.st_atime_ns, sb.st_mtime_ns))
+                # Sanity: mtime preserved, size grew.
+                sb_after = src_wal.stat()
+                assert sb_after.st_mtime_ns == sb.st_mtime_ns, (
+                    "fixture failed to preserve mtime — test is vacuous"
+                )
+                assert sb_after.st_size > sb.st_size, (
+                    "fixture failed to grow WAL — test is vacuous"
+                )
+            state["db_copies"] += 1
+        return result
+
+    try:
+        with mock.patch("client.backup.shutil.copy2", side_effect=patched_copy2):
+            result = mgr.create_full_backup()
+    finally:
+        conn.close()
+
+    # Two DB copies = the first attempt's size mismatch triggered exactly
+    # one retry, which then succeeded (no further mutation after attempt 0).
+    assert state["db_copies"] >= 2, (
+        f"expected at least one retry (>=2 DB copies), got {state['db_copies']}"
+    )
+    assert result["skein_db_method"] == "sqlite3.backup"
+    assert result["skein_db_size"] > 0

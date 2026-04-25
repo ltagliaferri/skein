@@ -4,9 +4,11 @@ After=network.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=__SKEIN_PROJECT__
+# WorkingDirectory points at the skein source repo so `python -m client.cli`
+# can import the package. It is NOT a per-project context — backups discover
+# every ~/projects/*/.skein/data dir at run time.
+WorkingDirectory=__SKEIN_SRC__
 Environment="PATH=__PYTHON_BIN_DIR__:/usr/local/bin:/usr/bin"
-Environment="SKEIN_PROJECT=__SKEIN_PROJECT__"
 ExecStart=__PYTHON__ -m client.cli backup create
 ExecStartPost=__PYTHON__ -m client.cli backup cleanup --keep-last __KEEP_LAST__
 

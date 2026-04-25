@@ -3,14 +3,18 @@ SKEIN Backup & Recovery System
 
 Provides backup and restore functionality for SKEIN data:
 - Full backups (tar.gz of entire data directory)
+- Multi-project discovery (per-project tarballs)
 - Verification (checksums)
 - Restore with dry-run and confirmation
 """
 
 import json
+import sqlite3
 import tarfile
 import hashlib
 import shutil
+import tempfile
+from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
@@ -19,22 +23,99 @@ from typing import Optional, Dict, Any, List
 class BackupManager:
     """Manages SKEIN backup and restore operations."""
 
-    def __init__(self, data_dir: Path, backup_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        data_dir: Optional[Path] = None,
+        backup_dir: Optional[Path] = None,
+        project_name: Optional[str] = None,
+    ):
         """
         Initialize backup manager.
 
         Args:
-            data_dir: Path to .skein/data directory
+            data_dir: Path to .skein/data directory. Optional — when omitted,
+                the manager only supports multi-project ops (discover + backup-all)
+                and read-only ops (list/verify/cleanup) on the shared backup dir.
             backup_dir: Path to store backups (default: ~/.skein/backups)
+            project_name: Optional project name used in backup naming. If not
+                provided and data_dir looks like ~/projects/<name>/.skein/data,
+                derived from the path.
         """
-        self.data_dir = Path(data_dir)
+        self.data_dir = Path(data_dir) if data_dir else None
         self.backup_dir = (
             Path(backup_dir) if backup_dir else Path.home() / ".skein" / "backups"
         )
 
-        # Ensure backup directories exist
         self.full_backup_dir = self.backup_dir / "full"
         self.full_backup_dir.mkdir(parents=True, exist_ok=True)
+
+        if project_name:
+            self.project_name: Optional[str] = project_name
+        elif self.data_dir is not None:
+            self.project_name = self._derive_project_name(self.data_dir)
+        else:
+            self.project_name = None
+
+    @staticmethod
+    def _derive_project_name(data_dir: Path) -> Optional[str]:
+        """Derive a project name from a path like ~/projects/<name>/.skein/data."""
+        try:
+            parts = data_dir.resolve().parts
+        except OSError:
+            return None
+        # Look for the .skein dir and use its parent's name as the project.
+        for i, part in enumerate(parts):
+            if part == ".skein" and i > 0:
+                return parts[i - 1]
+        return None
+
+    @staticmethod
+    def discover_project_data_dirs(
+        projects_root: Optional[Path] = None,
+    ) -> List[Dict[str, Any]]:
+        """Find all ~/projects/*/.skein/data/ dirs with a non-empty skein.db.
+
+        Args:
+            projects_root: Defaults to ~/projects.
+
+        Returns:
+            List of {"project": <name>, "data_dir": Path} dicts, sorted by name.
+        """
+        root = Path(projects_root) if projects_root else Path.home() / "projects"
+        if not root.exists():
+            return []
+
+        result = []
+        for skein_db in sorted(root.glob("*/.skein/data/skein.db")):
+            try:
+                if not skein_db.is_file():
+                    continue
+                if skein_db.stat().st_size == 0:
+                    continue
+            except OSError:
+                continue
+            data_dir = skein_db.parent
+            project = data_dir.parent.parent.name
+            result.append({"project": project, "data_dir": data_dir})
+        return result
+
+    @staticmethod
+    def _snapshot_skein_db(source_db: Path, dest_db: Path) -> None:
+        """Snapshot a SQLite db using the .backup API.
+
+        Safe under live WAL writers — the backup API takes a consistent
+        snapshot even while another process is reading or writing.
+        """
+        src = sqlite3.connect(f"file:{source_db}?mode=ro", uri=True)
+        try:
+            dst = sqlite3.connect(str(dest_db))
+            try:
+                src.backup(dst)
+                dst.commit()
+            finally:
+                dst.close()
+        finally:
+            src.close()
 
     def _calculate_checksum(self, file_path: Path) -> str:
         """Calculate SHA256 checksum of a file."""
@@ -46,7 +127,7 @@ class BackupManager:
 
     def _get_dir_stats(self, directory: Path) -> Dict[str, Any]:
         """Get statistics for a directory."""
-        stats = {"total_files": 0, "total_size": 0, "file_types": {}}
+        stats: Dict[str, Any] = {"total_files": 0, "total_size": 0, "file_types": {}}
 
         for file_path in directory.rglob("*"):
             if file_path.is_file():
@@ -57,57 +138,76 @@ class BackupManager:
 
         return stats
 
-    def create_full_backup(self, tag: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Create a full backup of the SKEIN data directory.
-
-        Args:
-            tag: Optional tag to append to backup name
-
-        Returns:
-            Dict with backup details (path, checksum, stats)
-        """
-        if not self.data_dir.exists():
-            raise ValueError(f"Data directory does not exist: {self.data_dir}")
-
-        # Generate backup filename
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-        backup_name = f"skein_full_{timestamp}"
+    def _build_backup_name(
+        self, project: Optional[str], timestamp: str, tag: Optional[str]
+    ) -> str:
+        """Build the canonical base backup name (no extension)."""
+        if project:
+            base = f"skein_full_{project}_{timestamp}"
+        else:
+            base = f"skein_full_{timestamp}"
         if tag:
-            backup_name += f"_{tag}"
-        backup_name += ".tar.gz"
+            base += f"_{tag}"
+        return base
 
+    def _backup_one(
+        self,
+        data_dir: Path,
+        project_name: Optional[str],
+        tag: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a tarball + metadata for a single project's data dir."""
+        if not data_dir.exists():
+            raise ValueError(f"Data directory does not exist: {data_dir}")
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+        base = self._build_backup_name(project_name, timestamp, tag)
+        backup_name = base + ".tar.gz"
         backup_path = self.full_backup_dir / backup_name
 
-        # Create tar.gz archive
-        with tarfile.open(backup_path, "w:gz", compresslevel=6) as tar:
-            # Add data directory contents
-            for item in self.data_dir.iterdir():
-                tar.add(item, arcname=item.name)
+        # Files we never copy directly: the live db (snapshotted instead)
+        # and its WAL/SHM sidecars (transient state).
+        live_db = data_dir / "skein.db"
+        skip_names = {"skein.db", "skein.db-wal", "skein.db-shm"}
 
-        # Calculate checksum
+        db_method: Optional[str] = None
+        db_size: Optional[int] = None
+
+        with tempfile.TemporaryDirectory(prefix="skein-backup-") as tmpdir:
+            snapshot_db = Path(tmpdir) / "skein.db"
+            if live_db.exists() and live_db.stat().st_size > 0:
+                self._snapshot_skein_db(live_db, snapshot_db)
+                db_method = "sqlite3.backup"
+                db_size = snapshot_db.stat().st_size
+
+            with tarfile.open(backup_path, "w:gz", compresslevel=6) as tar:
+                if snapshot_db.exists():
+                    tar.add(snapshot_db, arcname="skein.db")
+                for item in sorted(data_dir.iterdir()):
+                    if item.name in skip_names:
+                        continue
+                    tar.add(item, arcname=item.name)
+
         checksum = self._calculate_checksum(backup_path)
-
-        # Get backup stats
         backup_size = backup_path.stat().st_size
-        source_stats = self._get_dir_stats(self.data_dir)
+        source_stats = self._get_dir_stats(data_dir)
 
-        # Create metadata file
         metadata = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backup_name": backup_name,
+            "project": project_name,
+            "layout": "per-project",
             "checksum": checksum,
             "backup_size": backup_size,
-            "source_dir": str(self.data_dir),
+            "source_dir": str(data_dir),
             "source_stats": source_stats,
+            "skein_db_method": db_method,
+            "skein_db_size": db_size,
             "tag": tag,
-            "skein_version": "1.0",  # TODO: Get from actual version
+            "skein_version": "1.0",
         }
 
-        # Remove .tar.gz and add .json for metadata file
-        metadata_path = self.full_backup_dir / (
-            backup_name.replace(".tar.gz", "") + ".json"
-        )
+        metadata_path = self.full_backup_dir / (base + ".json")
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2, default=str)
 
@@ -115,9 +215,56 @@ class BackupManager:
             "backup_path": str(backup_path),
             "metadata_path": str(metadata_path),
             "backup_name": backup_name,
+            "project": project_name,
             "checksum": checksum,
             "backup_size": backup_size,
+            "source_dir": str(data_dir),
             "source_stats": source_stats,
+            "skein_db_method": db_method,
+            "skein_db_size": db_size,
+        }
+
+    def create_full_backup(self, tag: Optional[str] = None) -> Dict[str, Any]:
+        """Create a full backup of THIS manager's data_dir.
+
+        Used for explicit single-project backups (e.g. pre-restore snapshots).
+        For the daily multi-project run, use create_full_backup_all_projects.
+        """
+        if self.data_dir is None:
+            raise ValueError(
+                "create_full_backup requires the manager to be initialized with data_dir"
+            )
+        return self._backup_one(self.data_dir, self.project_name, tag=tag)
+
+    def create_full_backup_all_projects(
+        self,
+        projects_root: Optional[Path] = None,
+        tag: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Discover all SKEIN project data dirs and back each up to its own tarball.
+
+        Continues past per-project failures so a single corrupt db does not
+        abort the run. Returns a summary with successes and errors.
+        """
+        projects = self.discover_project_data_dirs(projects_root)
+        successes: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
+
+        for proj in projects:
+            try:
+                result = self._backup_one(
+                    proj["data_dir"], proj["project"], tag=tag
+                )
+                successes.append(result)
+            except Exception as e:
+                errors.append({"project": proj["project"], "error": str(e)})
+
+        return {
+            "discovered": len(projects),
+            "succeeded": len(successes),
+            "failed": len(errors),
+            "projects": successes,
+            "errors": errors,
         }
 
     def list_backups(self, backup_type: str = "all") -> List[Dict[str, Any]]:
@@ -138,7 +285,6 @@ class BackupManager:
                     with open(metadata_file) as f:
                         metadata = json.load(f)
                     metadata["type"] = "full"
-                    # Check if actual backup file exists
                     # metadata_file is name.json, backup is name.tar.gz
                     backup_file = metadata_file.parent / (
                         metadata_file.stem + ".tar.gz"
@@ -230,7 +376,11 @@ class BackupManager:
         }
 
     def restore_backup(
-        self, backup_id: str, dry_run: bool = False, confirm: bool = False
+        self,
+        backup_id: str,
+        dry_run: bool = False,
+        confirm: bool = False,
+        destination: Optional[Path] = None,
     ) -> Dict[str, Any]:
         """
         Restore from a backup.
@@ -239,6 +389,9 @@ class BackupManager:
             backup_id: Backup identifier
             dry_run: If True, show what would be restored without making changes
             confirm: Must be True to actually perform restore
+            destination: Override the restore destination. Defaults to the
+                manager's data_dir if set, otherwise to the backup's recorded
+                source_dir.
 
         Returns:
             Dict with restore results
@@ -250,6 +403,19 @@ class BackupManager:
         backup_path = Path(metadata["backup_file"])
         if not backup_path.exists():
             return {"success": False, "error": f"Backup file missing: {backup_path}"}
+
+        # Resolve destination
+        if destination is not None:
+            target_dir = Path(destination)
+        elif self.data_dir is not None:
+            target_dir = self.data_dir
+        elif metadata.get("source_dir"):
+            target_dir = Path(metadata["source_dir"])
+        else:
+            return {
+                "success": False,
+                "error": "No destination known: pass destination or initialize with data_dir",
+            }
 
         # Verify backup first
         verification = self.verify_backup(backup_id)
@@ -270,7 +436,7 @@ class BackupManager:
                 "would_restore": {
                     "files": len(members),
                     "source_stats": metadata.get("source_stats", {}),
-                    "to_directory": str(self.data_dir),
+                    "to_directory": str(target_dir),
                     "members": members[:20],  # Show first 20 files
                 },
             }
@@ -283,9 +449,15 @@ class BackupManager:
 
         # Create backup of current state before restore
         pre_restore_backup = None
-        if self.data_dir.exists() and any(self.data_dir.iterdir()):
+        if target_dir.exists() and any(target_dir.iterdir()):
             try:
-                pre_restore = self.create_full_backup(tag="pre-restore")
+                pre_restore_manager = BackupManager(
+                    data_dir=target_dir,
+                    backup_dir=self.backup_dir,
+                    project_name=metadata.get("project")
+                    or self._derive_project_name(target_dir),
+                )
+                pre_restore = pre_restore_manager.create_full_backup(tag="pre-restore")
                 pre_restore_backup = pre_restore["backup_name"]
             except Exception as e:
                 return {
@@ -294,19 +466,19 @@ class BackupManager:
                 }
 
         # Clear existing data directory
-        if self.data_dir.exists():
-            for item in self.data_dir.iterdir():
+        if target_dir.exists():
+            for item in target_dir.iterdir():
                 if item.is_dir():
                     shutil.rmtree(item)
                 else:
                     item.unlink()
         else:
-            self.data_dir.mkdir(parents=True, exist_ok=True)
+            target_dir.mkdir(parents=True, exist_ok=True)
 
         # Extract backup
         try:
             with tarfile.open(backup_path, "r:gz") as tar:
-                tar.extractall(self.data_dir)
+                tar.extractall(target_dir)
         except Exception as e:
             return {
                 "success": False,
@@ -317,10 +489,26 @@ class BackupManager:
         return {
             "success": True,
             "restored_from": metadata["backup_name"],
-            "restored_to": str(self.data_dir),
+            "restored_to": str(target_dir),
             "files_restored": len(members),
             "pre_restore_backup": pre_restore_backup,
         }
+
+    def _remove_backup_files(self, backup_name: str) -> None:
+        """Remove a backup tarball and its sidecar metadata file."""
+        backup_path = self.full_backup_dir / backup_name
+        # Metadata sidecar drops the .tar.gz before adding .json
+        if backup_name.endswith(".tar.gz"):
+            metadata_path = self.full_backup_dir / (backup_name[:-7] + ".json")
+        else:
+            metadata_path = self.full_backup_dir / (
+                Path(backup_name).stem + ".json"
+            )
+
+        if backup_path.exists():
+            backup_path.unlink()
+        if metadata_path.exists():
+            metadata_path.unlink()
 
     def cleanup_old_backups(
         self,
@@ -331,8 +519,12 @@ class BackupManager:
         """
         Remove old backups based on retention policy.
 
+        With per-project backups, --keep-last rotates per project (each
+        project keeps its own last-N history). --older-than is global by
+        absolute timestamp.
+
         Args:
-            keep_last: Keep only the N most recent backups
+            keep_last: Keep only the N most recent backups per project
             older_than_days: Remove backups older than N days
             dry_run: Show what would be removed without actually removing
 
@@ -341,12 +533,20 @@ class BackupManager:
         """
         backups = self.list_backups(backup_type="full")
 
-        to_remove = []
-        to_keep = []
+        to_remove: List[Dict[str, Any]] = []
+        to_keep: List[Dict[str, Any]] = []
 
         if keep_last:
-            to_keep = backups[:keep_last]
-            to_remove = backups[keep_last:]
+            # Group by project for per-project rotation. Backups missing a
+            # project key (legacy single-project artifacts) bucket together.
+            by_project: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+            for b in backups:
+                project = b.get("project") or "<legacy>"
+                by_project[project].append(b)
+            for group in by_project.values():
+                # list_backups returned newest-first
+                to_keep.extend(group[:keep_last])
+                to_remove.extend(group[keep_last:])
         elif older_than_days:
             cutoff = datetime.now(timezone.utc).timestamp() - (older_than_days * 86400)
             for backup in backups:
@@ -366,21 +566,14 @@ class BackupManager:
                 "error": "Must specify --keep-last or --older-than",
             }
 
-        removed = []
-        errors = []
+        removed: List[str] = []
+        errors: List[str] = []
 
         if not dry_run:
             for backup in to_remove:
                 try:
                     backup_name = backup["backup_name"]
-                    backup_path = self.full_backup_dir / backup_name
-                    metadata_path = backup_path.with_suffix(".json")
-
-                    if backup_path.exists():
-                        backup_path.unlink()
-                    if metadata_path.exists():
-                        metadata_path.unlink()
-
+                    self._remove_backup_files(backup_name)
                     removed.append(backup_name)
                 except Exception as e:
                     errors.append(f"{backup.get('backup_name', 'unknown')}: {e}")
@@ -403,8 +596,6 @@ def get_backup_manager_for_project() -> Optional[BackupManager]:
     Returns:
         BackupManager instance or None if not in a project
     """
-    from pathlib import Path
-
     # Find project root (directory containing .skein)
     current = Path.cwd()
     while current != current.parent:

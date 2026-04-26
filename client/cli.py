@@ -4782,56 +4782,95 @@ def backup():
 
 @backup.command("create")
 @click.option("--tag", help="Tag to identify this backup (e.g., 'pre-migration')")
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Back up a specific .skein/data directory only (skip multi-project discovery)",
+)
+@click.option(
+    "--projects-root",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Override the projects root for discovery (default: ~/projects)",
+)
 @click.pass_context
-def backup_create(ctx, tag):
+def backup_create(ctx, tag, data_dir, projects_root):
     """Create a full backup of SKEIN data.
+
+    By default, discovers every ~/projects/*/.skein/data directory with a
+    non-empty skein.db and produces a per-project tar.gz under
+    ~/.skein/backups/full. Pass --data-dir to back up a single dir explicitly.
 
     Examples:
         skein backup create
         skein backup create --tag pre-migration
+        skein backup create --data-dir ~/projects/speakbot/.skein/data
     """
-    from .backup import get_backup_manager_for_project
+    from .backup import BackupManager
 
-    manager = get_backup_manager_for_project()
-    if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
-
-    try:
-        result = manager.create_full_backup(tag=tag)
+    if data_dir:
+        manager = BackupManager(data_dir=data_dir)
+        try:
+            result = manager.create_full_backup(tag=tag)
+        except Exception as e:
+            raise click.ClickException(f"Backup failed: {e}")
         click.echo(f"Backup created: {result['backup_name']}")
+        click.echo(f"  Project: {result.get('project') or '<unspecified>'}")
         click.echo(f"  Location: {result['backup_path']}")
         click.echo(f"  Checksum: {result['checksum'][:16]}...")
         click.echo(f"  Size: {result['backup_size']:,} bytes")
         stats = result["source_stats"]
         click.echo(f"  Files: {stats['total_files']}")
-    except Exception as e:
-        raise click.ClickException(f"Backup failed: {e}")
+        return
+
+    manager = BackupManager()
+    summary = manager.create_full_backup_all_projects(
+        projects_root=projects_root, tag=tag
+    )
+
+    if summary["discovered"] == 0:
+        click.echo("No SKEIN project data dirs discovered.")
+        return
+
+    click.echo(
+        f"Discovered {summary['discovered']} project(s); "
+        f"backed up {summary['succeeded']}, failed {summary['failed']}.\n"
+    )
+    for r in summary["projects"]:
+        click.echo(f"✓ {r['project']}  {r['backup_name']}")
+        click.echo(f"    Size:     {r['backup_size']:,} bytes")
+        click.echo(f"    Checksum: {r['checksum'][:16]}...")
+        click.echo(f"    Files:    {r['source_stats']['total_files']}")
+    if summary["errors"]:
+        click.echo("")
+        for err in summary["errors"]:
+            click.echo(f"✗ {err['project']}: {err['error']}")
+        # Treat any per-project failure as a non-zero exit so the systemd
+        # service surfaces partial-failure runs in journalctl.
+        ctx.exit(1)
 
 
 @backup.command("list")
 @click.option("--full", "backup_type", flag_value="full", help="Show only full backups")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.option("--project", help="Filter by project name")
 @click.pass_context
-def backup_list(ctx, backup_type, output_json):
+def backup_list(ctx, backup_type, output_json, project):
     """List available backups.
 
     Examples:
         skein backup list
         skein backup list --full
         skein backup list --json
+        skein backup list --project speakbot
     """
-    from .backup import get_backup_manager_for_project
+    from .backup import BackupManager
     import json
 
-    manager = get_backup_manager_for_project()
-    if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+    manager = BackupManager()
 
     backups = manager.list_backups(backup_type=backup_type or "all")
+    if project:
+        backups = [b for b in backups if b.get("project") == project]
 
     if output_json:
         click.echo(json.dumps(backups, indent=2, default=str))
@@ -4847,9 +4886,12 @@ def backup_list(ctx, backup_type, output_json):
         timestamp = backup.get("timestamp", "unknown")
         size = backup.get("backup_size", 0)
         tag = backup.get("tag", "")
+        proj = backup.get("project", "")
         exists = "✓" if backup.get("exists", False) else "✗"
 
         click.echo(f"{exists} {name}")
+        if proj:
+            click.echo(f"    Project: {proj}")
         click.echo(f"    Time: {timestamp}")
         click.echo(f"    Size: {size:,} bytes")
         if tag:
@@ -4866,13 +4908,9 @@ def backup_verify(ctx, backup_id):
     Examples:
         skein backup verify skein_full_2025-11-15_00-00-00
     """
-    from .backup import get_backup_manager_for_project
+    from .backup import BackupManager
 
-    manager = get_backup_manager_for_project()
-    if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+    manager = BackupManager()
 
     result = manager.verify_backup(backup_id)
 
@@ -4887,7 +4925,11 @@ def backup_verify(ctx, backup_id):
 
 
 @backup.command("cleanup")
-@click.option("--keep-last", type=int, help="Keep only the N most recent backups")
+@click.option(
+    "--keep-last",
+    type=int,
+    help="Keep only the N most recent backups per project",
+)
 @click.option(
     "--older-than", "older_than_days", type=int, help="Remove backups older than N days"
 )
@@ -4898,18 +4940,17 @@ def backup_verify(ctx, backup_id):
 def backup_cleanup(ctx, keep_last, older_than_days, dry_run):
     """Remove old backups based on retention policy.
 
+    With per-project backups, --keep-last rotates per project — each project
+    keeps its own last-N history. --older-than is global by absolute timestamp.
+
     Examples:
         skein backup cleanup --keep-last 10
         skein backup cleanup --older-than 30
         skein backup cleanup --keep-last 5 --dry-run
     """
-    from .backup import get_backup_manager_for_project
+    from .backup import BackupManager
 
-    manager = get_backup_manager_for_project()
-    if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+    manager = BackupManager()
 
     if not keep_last and not older_than_days:
         raise click.ClickException("Must specify --keep-last or --older-than")
@@ -4949,7 +4990,8 @@ def backup_enable(ctx, keep_last):
     """Enable automated daily backups via systemd timer.
 
     Installs and starts a user systemd timer that runs daily backups
-    with automatic cleanup.
+    with automatic cleanup. Backups discover all per-project SKEIN data
+    dirs at run time — no project context needed for the unit itself.
 
     Examples:
         skein backup enable
@@ -4958,15 +5000,6 @@ def backup_enable(ctx, keep_last):
     import sys
     import subprocess
     from pathlib import Path
-
-    # Find project root
-    current = Path.cwd()
-    while current != current.parent:
-        if (current / ".skein").exists():
-            break
-        current = current.parent
-    else:
-        raise click.ClickException("Not in a SKEIN project")
 
     # Find template files (in skein package's systemd dir)
     skein_pkg = Path(__file__).parent.parent
@@ -4982,13 +5015,15 @@ def backup_enable(ctx, keep_last):
     # Determine paths
     python_bin = sys.executable
     python_bin_dir = str(Path(python_bin).parent)
-    project_path = str(current)
+    # The skein source repo is the parent of the `client/` package — needed as
+    # the systemd service's WorkingDirectory so `python -m client.cli` resolves.
+    skein_src_dir = str(skein_pkg)
 
     # Read and substitute templates
     service_content = service_template.read_text()
     service_content = service_content.replace("__PYTHON__", python_bin)
     service_content = service_content.replace("__PYTHON_BIN_DIR__", python_bin_dir)
-    service_content = service_content.replace("__SKEIN_PROJECT__", project_path)
+    service_content = service_content.replace("__SKEIN_SRC__", skein_src_dir)
     service_content = service_content.replace("__KEEP_LAST__", str(keep_last))
 
     timer_content = timer_template.read_text()
@@ -5017,8 +5052,8 @@ def backup_enable(ctx, keep_last):
             ["systemctl", "--user", "start", "skein-backup.timer"], check=True
         )
         click.echo("\n✓ Backup timer enabled and started")
-        click.echo(f"  Project: {project_path}")
-        click.echo(f"  Retention: keep last {keep_last} backups")
+        click.echo("  Scope: all ~/projects/*/.skein/data (multi-project discovery)")
+        click.echo(f"  Retention: keep last {keep_last} backups per project")
         click.echo("\nCheck status with: skein backup status")
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"Failed to enable timer: {e}")
@@ -5111,24 +5146,38 @@ def backup_status(ctx):
 @click.option(
     "--confirm", is_flag=True, help="Confirm restore (required for actual restore)"
 )
+@click.option(
+    "--destination",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Restore to this directory instead of the current project's data dir. "
+        "Required when running outside a SKEIN project, unless the backup's "
+        "metadata records a source_dir to fall back to."
+    ),
+)
 @click.pass_context
-def restore(ctx, backup_id, dry_run, confirm):
+def restore(ctx, backup_id, dry_run, confirm, destination):
     """Restore SKEIN data from a backup.
 
-    WARNING: This will overwrite current data. A pre-restore backup is created automatically.
+    WARNING: This will overwrite the destination data. A pre-restore backup is
+    created automatically when the destination already contains data.
 
     Examples:
         skein restore skein_full_2025-11-15_00-00-00 --dry-run
         skein restore skein_full_2025-11-15_00-00-00 --confirm
         skein restore latest --confirm
+        skein restore skein_full_speakbot_2026-04-25_00-00-00 \\
+            --destination /tmp/restore-test --confirm
     """
-    from .backup import get_backup_manager_for_project
+    from .backup import BackupManager, get_backup_manager_for_project
 
+    # Use a project-scoped manager when we're inside a project (so default
+    # destination is the current project's data dir); otherwise fall back to a
+    # bare manager that can still operate on the shared backup dir.
     manager = get_backup_manager_for_project()
-    if not manager:
-        raise click.ClickException(
-            "Not in a SKEIN project. Run from a directory with .skein/"
-        )
+    if manager is None:
+        manager = BackupManager()
 
     # Handle 'latest' as special case
     if backup_id == "latest":
@@ -5137,7 +5186,9 @@ def restore(ctx, backup_id, dry_run, confirm):
             raise click.ClickException("No backups found")
         backup_id = backups[0]["backup_name"].replace(".tar.gz", "")
 
-    result = manager.restore_backup(backup_id, dry_run=dry_run, confirm=confirm)
+    result = manager.restore_backup(
+        backup_id, dry_run=dry_run, confirm=confirm, destination=destination
+    )
 
     if dry_run:
         if result["success"]:

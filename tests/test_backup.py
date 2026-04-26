@@ -722,3 +722,95 @@ def test_backup_retries_when_wal_content_changes_with_same_mtime_and_size(
     )
     assert result["skein_db_method"] == "sqlite3.backup"
     assert result["skein_db_size"] > 0
+
+
+def test_backup_retries_when_wal_ctime_changes(tmp_path: Path) -> None:
+    """If the WAL undergoes a metadata-change event that leaves mtime,
+    size, inode, and content all identical — the case prior rounds
+    declared 'unfixable from outside SQLite' — st_ctime_ns still ticks
+    and the snapshot must retry. A no-net-change chmod isolates that
+    signal: it touches the inode metadata (bumping ctime) without
+    altering any other observable in the prior 4-tuple token.
+    """
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = projects_root / "alpha" / ".skein" / "data"
+    data_dir.mkdir(parents=True)
+
+    db_path = data_dir / "skein.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, val TEXT)")
+    conn.executemany(
+        "INSERT INTO entries (val) VALUES (?)",
+        [(f"row-{i}",) for i in range(20)],
+    )
+    conn.commit()
+
+    (data_dir / "roster").mkdir()
+    (data_dir / "roster" / "agents.json").write_text("{}")
+    (data_dir / "sessions.json").write_text("{}")
+
+    src_wal = data_dir / "skein.db-wal"
+    assert src_wal.exists() and src_wal.stat().st_size > 0, (
+        "fixture WAL missing or empty — retry test would be vacuous"
+    )
+
+    backup_dir = tmp_path / "backups"
+    mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir, project_name="alpha")
+
+    real_copy2 = shutil.copy2
+    state = {"db_copies": 0}
+
+    def patched_copy2(src, dst, *args, **kwargs):
+        result = real_copy2(src, dst, *args, **kwargs)
+        # On the first DB copy, tick ctime via a no-net-change chmod
+        # (toggle a permission bit then toggle it back). This ticks
+        # st_ctime_ns twice but leaves the final mode, mtime, size,
+        # inode, and content all unchanged — the precise blind spot
+        # the 4-tuple (mtime, size, inode, hash) token had.
+        if Path(src).name == "skein.db":
+            if state["db_copies"] == 0:
+                sb = src_wal.stat()
+                original_mode = stat.S_IMODE(sb.st_mode)
+                toggle_bit = stat.S_IRGRP
+                os.chmod(src_wal, original_mode ^ toggle_bit)
+                os.chmod(src_wal, original_mode)
+                # Restore mtime in case any platform's chmod nudges it.
+                os.utime(src_wal, ns=(sb.st_atime_ns, sb.st_mtime_ns))
+                sb_after = src_wal.stat()
+                assert sb_after.st_mtime_ns == sb.st_mtime_ns, (
+                    "fixture failed to preserve mtime — test is vacuous"
+                )
+                assert sb_after.st_size == sb.st_size, (
+                    "fixture changed WAL size — test would conflate with size-test"
+                )
+                assert sb_after.st_ino == sb.st_ino, (
+                    "fixture changed inode — test would conflate with inode-test"
+                )
+                assert stat.S_IMODE(sb_after.st_mode) == original_mode, (
+                    "fixture failed to restore mode — test setup regression"
+                )
+                if sb_after.st_ctime_ns == sb.st_ctime_ns:
+                    pytest.skip(
+                        "platform ctime resolution too coarse to detect "
+                        "metadata-change tick — test cannot exercise the "
+                        "ctime-only blind spot here"
+                    )
+            state["db_copies"] += 1
+        return result
+
+    try:
+        with mock.patch("client.backup.shutil.copy2", side_effect=patched_copy2):
+            result = mgr.create_full_backup()
+    finally:
+        conn.close()
+
+    # Two DB copies = the first attempt's ctime mismatch triggered
+    # exactly one retry, which then succeeded.
+    assert state["db_copies"] >= 2, (
+        f"expected at least one retry (>=2 DB copies), got {state['db_copies']}"
+    )
+    assert result["skein_db_method"] == "sqlite3.backup"
+    assert result["skein_db_size"] > 0

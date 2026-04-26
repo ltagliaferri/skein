@@ -127,20 +127,41 @@ class BackupManager:
             # the WAL before and after each copy attempt, retry if the token
             # moved, fail loud after MAX_RETRIES rather than silently capture
             # a torn snapshot under sustained write load. The token is
-            # (st_mtime_ns, st_size): mtime catches the common case, size
-            # catches sub-tick writes on filesystems with coarse mtime
-            # resolution (NFS/SMB/FUSE) and any append that happens to land
-            # on the same nanosecond tick.
+            # (st_mtime_ns, st_size, st_ino, content_hash):
+            #   - st_mtime_ns: catches the common case (live writer flushed)
+            #   - st_size: catches sub-tick appends on filesystems with
+            #     coarse mtime resolution (NFS/SMB/FUSE) and appends that
+            #     happen to land on the same nanosecond tick
+            #   - st_ino: catches atomic-rename WAL replacement (same path,
+            #     different inode)
+            #   - content_hash (sha256 of WAL bytes): catches in-place
+            #     same-mtime-same-size rewrites where stat metadata
+            #     coincides but content differs
+            # Residual gap (intentionally unhandled): if the WAL is size 0
+            # both before and after a churn-and-truncate-back-to-zero cycle
+            # (e.g. a SQLite checkpoint that grew the WAL and reset it
+            # within one snapshot copy), nothing observable at the
+            # filesystem level distinguishes the two empty states — same
+            # size, same hash, possibly same inode. This is unfixable from
+            # outside the SQLite process and rare enough in practice that
+            # we accept it.
             src_wal = source_db.with_name(source_db.name + "-wal")
             wal_dest = work_db.with_name(work_db.name + "-wal")
             MAX_RETRIES = 3
 
-            def _wal_token() -> Optional[Tuple[int, int]]:
+            def _wal_token() -> Optional[Tuple[int, int, int, bytes]]:
                 try:
                     st = src_wal.stat()
                 except FileNotFoundError:
                     return None
-                return (st.st_mtime_ns, st.st_size)
+                hasher = hashlib.sha256()
+                try:
+                    with open(src_wal, "rb") as wal_fh:
+                        for chunk in iter(lambda: wal_fh.read(65536), b""):
+                            hasher.update(chunk)
+                except FileNotFoundError:
+                    return None
+                return (st.st_mtime_ns, st.st_size, st.st_ino, hasher.digest())
 
             for _attempt in range(MAX_RETRIES):
                 if wal_dest.exists():

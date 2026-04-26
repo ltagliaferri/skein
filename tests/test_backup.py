@@ -638,3 +638,87 @@ def test_backup_retries_when_wal_size_changes_within_same_mtime_tick(
     )
     assert result["skein_db_method"] == "sqlite3.backup"
     assert result["skein_db_size"] > 0
+
+
+def test_backup_retries_when_wal_content_changes_with_same_mtime_and_size(
+    tmp_path: Path,
+) -> None:
+    """If the WAL is rewritten in place — same byte count, same mtime, but
+    different content — the snapshot must still detect the change via the
+    content_hash component of the token and retry. mtime+size alone are
+    blind to this case (e.g. a SQLite frame overwrite that lands on the
+    same nanosecond tick), so the strengthened token must hash WAL bytes.
+    """
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    data_dir = projects_root / "alpha" / ".skein" / "data"
+    data_dir.mkdir(parents=True)
+
+    db_path = data_dir / "skein.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, val TEXT)")
+    conn.executemany(
+        "INSERT INTO entries (val) VALUES (?)",
+        [(f"row-{i}",) for i in range(20)],
+    )
+    conn.commit()
+
+    (data_dir / "roster").mkdir()
+    (data_dir / "roster" / "agents.json").write_text("{}")
+    (data_dir / "sessions.json").write_text("{}")
+
+    src_wal = data_dir / "skein.db-wal"
+    assert src_wal.exists() and src_wal.stat().st_size > 0, (
+        "fixture WAL missing or empty — retry test would be vacuous"
+    )
+
+    backup_dir = tmp_path / "backups"
+    mgr = BackupManager(data_dir=data_dir, backup_dir=backup_dir, project_name="alpha")
+
+    real_copy2 = shutil.copy2
+    state = {"db_copies": 0}
+
+    def patched_copy2(src, dst, *args, **kwargs):
+        result = real_copy2(src, dst, *args, **kwargs)
+        # On the first DB copy, overwrite the first byte of the source WAL
+        # in place — preserving file size — and reset its mtime. This is
+        # the mtime+size-only-token blind spot: stat metadata is identical
+        # before and after, but the content differs. The content_hash
+        # component of the strengthened token must catch it.
+        if Path(src).name == "skein.db":
+            if state["db_copies"] == 0:
+                sb = src_wal.stat()
+                with open(src_wal, "r+b") as wal_fh:
+                    wal_fh.seek(0)
+                    original = wal_fh.read(1)
+                    wal_fh.seek(0)
+                    # Flip a bit so the byte differs regardless of value.
+                    wal_fh.write(bytes([original[0] ^ 0xFF]))
+                # Restore the original mtime so only content has changed.
+                os.utime(src_wal, ns=(sb.st_atime_ns, sb.st_mtime_ns))
+                # Sanity: mtime preserved, size unchanged.
+                sb_after = src_wal.stat()
+                assert sb_after.st_mtime_ns == sb.st_mtime_ns, (
+                    "fixture failed to preserve mtime — test is vacuous"
+                )
+                assert sb_after.st_size == sb.st_size, (
+                    "fixture changed WAL size — test would conflate with size-test"
+                )
+            state["db_copies"] += 1
+        return result
+
+    try:
+        with mock.patch("client.backup.shutil.copy2", side_effect=patched_copy2):
+            result = mgr.create_full_backup()
+    finally:
+        conn.close()
+
+    # Two DB copies = the first attempt's content-hash mismatch triggered
+    # exactly one retry, which then succeeded.
+    assert state["db_copies"] >= 2, (
+        f"expected at least one retry (>=2 DB copies), got {state['db_copies']}"
+    )
+    assert result["skein_db_method"] == "sqlite3.backup"
+    assert result["skein_db_size"] > 0

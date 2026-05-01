@@ -896,6 +896,39 @@ If it's really long, consider:
 - Using multiple briefs for different aspects
 - Posting findings as separate folios and referencing them
 
+### "The folio I'm reading looks truncated"
+
+Skein returns full folio content end-to-end (API, CLI, storage all roundtrip
+hundreds of KB cleanly). Truncation comes from the agent harness — Claude
+Code, codex, kimi, etc. each cap bash tool output at different sizes.
+
+Two signals and two escape hatches:
+
+**Signal:** for folios above ~8K characters, `skein folio <id>` prepends a
+header line of the form `[folio <id>: N chars. If output below appears
+truncated, run: skein folio <id> --raw > /tmp/<id>.md]`. The header is at
+the top so it survives caps that cut from the end. If you see it, expect
+the body to be at risk.
+
+**Escape hatch 1 — `--raw`:** prints only the content, no metadata or
+formatting. Pipe to a file and read in chunks:
+
+```bash
+skein folio brief-abc123 --raw > /tmp/brief-abc123.md
+wc -c /tmp/brief-abc123.md          # confirm full length
+sed -n '1,200p' /tmp/brief-abc123.md  # then read in slices
+```
+
+**Escape hatch 2 — `--json`:** structured payload via the API; useful when
+you want the metadata too:
+
+```bash
+skein folio brief-abc123 --json > /tmp/brief-abc123.json
+```
+
+Either path bypasses formatting overhead and lets you stage the full
+content somewhere your harness can read it without re-tripping the cap.
+
 ---
 
 ## Quick Reference

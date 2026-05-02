@@ -5592,9 +5592,17 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
     default=None,
     help="Original working directory of caller (for orchestration tools)",
 )
-@click.confirmation_option(prompt="Are you sure you want to cleanup this SHARD?")
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    help="Skip confirmation prompt",
+)
 @click.pass_context
-def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
+def shard_cleanup(
+    ctx, worktree_name, keep_branch, chain, explicit_caller_cwd, assume_yes
+):
     """
     Remove SHARD worktree and optionally delete branch.
 
@@ -5618,6 +5626,9 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
     caller_cwd = explicit_caller_cwd if explicit_caller_cwd else os.getcwd()
 
     try:
+        if not assume_yes:
+            click.confirm("Are you sure you want to cleanup this SHARD?", abort=True)
+
         if chain:
             # Clean up entire graft chain
             result = shard_worktree.cleanup_graft_chain(
@@ -5671,6 +5682,8 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd):
 
     except shard_worktree.ShardError as e:
         raise click.ClickException(str(e))
+    except click.Abort:
+        raise
     except Exception as e:
         raise click.ClickException(f"Failed to cleanup SHARD: {e}")
 

@@ -15,6 +15,7 @@ import os
 import subprocess
 import tempfile
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator
 from unittest.mock import patch
@@ -484,9 +485,7 @@ class TestSequenceCap:
         worktrees_dir.mkdir(exist_ok=True)
 
         # Create a fake worktree at sequence 999 to simulate limit
-        from datetime import datetime
-
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
         fake_name = f"seq-cap-test-{today}-999"
         fake_worktree = worktrees_dir / fake_name
         fake_worktree.mkdir()
@@ -511,9 +510,7 @@ class TestSequenceCap:
         worktrees_dir = get_worktrees_dir()
         worktrees_dir.mkdir(exist_ok=True)
 
-        from datetime import datetime
-
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
         # Create worktree at 998, next should be 999 (allowed)
         fake_name = f"seq-ok-test-{today}-998"
@@ -1603,9 +1600,7 @@ class TestSpawnSequenceCapIntegration:
         worktrees_dir = get_worktrees_dir()
         worktrees_dir.mkdir(exist_ok=True)
 
-        from datetime import datetime
-
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
         # Create a fake worktree at sequence 999
         fake_name = f"spawn-cap-test-{today}-999"

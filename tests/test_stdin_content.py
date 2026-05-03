@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import pytest
 from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

@@ -1,6 +1,5 @@
 """Tests for SKEIN address parser."""
 
-import pytest
 from skein.address import parse, ParsedAddress
 
 

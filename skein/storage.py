@@ -188,7 +188,9 @@ def resolve_folio_across_projects(
                         acknowledged_at=ensure_aware(row_dict.get("acknowledged_at")),
                         content_hash=row_dict.get("content_hash"),
                     )
-                    logger.info(f"Resolved {folio_id} from project '{project_name}' (cascade)")
+                    logger.info(
+                        f"Resolved {folio_id} from project '{project_name}' (cascade)"
+                    )
                     return {"folio": folio, "project_name": project_name}
             finally:
                 conn.close()

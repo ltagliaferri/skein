@@ -105,7 +105,9 @@ class Folio(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     acknowledged_at: Optional[datetime] = None
     content_hash: Optional[str] = None  # Content-addressable hash of immutable fields
-    source_project: Optional[str] = None  # Runtime-only: set when resolved from another project. Never persisted to the database.
+    source_project: Optional[str] = (
+        None  # Runtime-only: set when resolved from another project. Never persisted to the database.
+    )
 
 
 class FolioUpdate(BaseModel):

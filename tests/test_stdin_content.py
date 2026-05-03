@@ -41,7 +41,9 @@ class TestPostBriefStdin:
 
         _, kwargs = mock_request.call_args
         posted_data = kwargs["json"]
-        assert posted_data["content"] == "This is the brief content from stdin.\nLine two."
+        assert (
+            posted_data["content"] == "This is the brief content from stdin.\nLine two."
+        )
         assert posted_data["title"] == "Test Title"
         assert posted_data["site_id"] == "test-site"
 
@@ -53,7 +55,14 @@ class TestPostBriefStdin:
         with patch("client.cli.make_request", mock_request):
             result = runner.invoke(
                 cli,
-                ["post", "brief", "test-site", "Inline content", "--title", "Test Title"],
+                [
+                    "post",
+                    "brief",
+                    "test-site",
+                    "Inline content",
+                    "--title",
+                    "Test Title",
+                ],
                 catch_exceptions=False,
             )
 

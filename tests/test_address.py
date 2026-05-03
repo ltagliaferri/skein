@@ -14,7 +14,9 @@ class TestParse:
 
     def test_project_qualified(self):
         result = parse("speakbot:brief-20251226-n1br")
-        assert result == ParsedAddress(folio_id="brief-20251226-n1br", project="speakbot")
+        assert result == ParsedAddress(
+            folio_id="brief-20251226-n1br", project="speakbot"
+        )
         assert result.is_qualified
 
     def test_project_with_hyphens(self):

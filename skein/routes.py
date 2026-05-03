@@ -118,6 +118,7 @@ def get_project_screenshots_dir(x_project_id: Optional[str] = Header(None)) -> P
 
 # Address resolution
 
+
 def resolve_folio_read(
     address: str,
     current_project_id: Optional[str],
@@ -818,7 +819,10 @@ async def update_folio(
         # Explicit project — resolve to that project's store
         target_store = get_named_project_store(parsed.project)
         if not target_store:
-            raise HTTPException(status_code=404, detail=f"Project '{parsed.project}' not found in registry")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project '{parsed.project}' not found in registry",
+            )
         store = target_store
         folio_id = parsed.folio_id
 
@@ -901,7 +905,10 @@ async def move_folio(
     if parsed.is_qualified:
         target_store = get_named_project_store(parsed.project)
         if not target_store:
-            raise HTTPException(status_code=404, detail=f"Project '{parsed.project}' not found in registry")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project '{parsed.project}' not found in registry",
+            )
         store = target_store
         folio_id = parsed.folio_id
 

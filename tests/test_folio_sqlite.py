@@ -200,6 +200,23 @@ class TestLogDatabaseFolios:
         assert retrieved.metadata["key"] == "value"
         assert retrieved.metadata["nested"]["a"] == 1
 
+    def test_get_site_last_activity_empty(self, db):
+        assert db.get_site_last_activity() == {}
+
+    def test_get_site_last_activity_returns_max_per_site(self, db):
+        t1 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
+        t3 = datetime(2026, 1, 3, 12, 0, tzinfo=timezone.utc)
+
+        db.save_folio(make_folio("f-1", "alpha", created_at=t1))
+        db.save_folio(make_folio("f-2", "alpha", created_at=t3))
+        db.save_folio(make_folio("f-3", "beta", created_at=t2))
+
+        result = db.get_site_last_activity()
+        assert set(result.keys()) == {"alpha", "beta"}
+        assert result["alpha"] == t3
+        assert result["beta"] == t2
+
     def test_folio_optional_fields(self, db):
         folio = make_folio(
             assigned_to="agent-x",

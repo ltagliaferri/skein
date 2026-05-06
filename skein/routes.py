@@ -39,6 +39,7 @@ from .storage import (
     search_folio_across_projects,
     resolve_folio_across_projects,
     get_project_store as get_named_project_store,
+    get_project_last_activity_timestamps,
 )
 from .address import parse as parse_address
 from .utils import (
@@ -168,6 +169,31 @@ def resolve_folio_read(
         return folio
 
     raise HTTPException(status_code=404, detail="Folio not found")
+
+
+# Project Endpoints (cross-project; no X-Project-Id header)
+
+
+@router.get("/projects/timestamps")
+async def get_projects_timestamps(
+    since: Optional[int] = Query(
+        None,
+        description="Unix timestamp cutoff. Only projects with last activity strictly greater than this value are returned.",
+    ),
+) -> Dict[str, int]:
+    """Return mapping of project_id -> latest folio created_at as unix seconds (int).
+
+    Aggregates across every registered project in ~/.skein/projects.json. Projects
+    with no folios, missing databases, or unreadable databases are omitted. With
+    ?since=<unix>, only projects whose latest activity is strictly greater than the
+    cutoff (>) are included.
+
+    This endpoint is cross-project by design and does NOT take an X-Project-Id header.
+    """
+    timestamps = get_project_last_activity_timestamps()
+    if since is None:
+        return timestamps
+    return {pid: ts for pid, ts in timestamps.items() if ts > since}
 
 
 # Roster Endpoints

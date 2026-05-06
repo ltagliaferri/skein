@@ -143,6 +143,42 @@ def get_project_store(project_name: str) -> Optional["JSONStore"]:
     return JSONStore(data_dir)
 
 
+def get_project_last_activity_timestamps() -> Dict[str, int]:
+    """Return mapping of project_id -> latest folio created_at as unix seconds (int).
+
+    Iterates the project registry and aggregates the latest folio created_at across
+    each project's sites. Projects whose data dir or skein.db doesn't exist, projects
+    with zero folios, and projects whose database is unreadable are omitted (logged
+    and skipped — a single bad project does not break the response).
+    """
+    registry = load_project_registry()
+    result: Dict[str, int] = {}
+    for project_name, project_info in registry.items():
+        try:
+            data_dir = Path(project_info["data_dir"])
+            db_path = data_dir / "skein.db"
+            if not db_path.exists():
+                continue
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                cursor = conn.execute("SELECT MAX(created_at) FROM folios")
+                row = cursor.fetchone()
+                if not row or row[0] is None:
+                    continue
+                dt = ensure_aware(row[0])
+                if dt is None:
+                    continue
+                result[project_name] = int(dt.timestamp())
+            finally:
+                conn.close()
+        except (sqlite3.Error, KeyError, OSError, ValueError) as e:
+            logger.debug(
+                f"Skipping project '{project_name}' during cross-project timestamps: {e}"
+            )
+            continue
+    return result
+
+
 def resolve_folio_across_projects(
     folio_id: str, current_project_id: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:

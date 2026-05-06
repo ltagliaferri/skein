@@ -1162,6 +1162,21 @@ class LogDatabase:
 
             return {"total": total, "by_type": by_type, "by_status": by_status}
 
+    def get_site_last_activity(self) -> Dict[str, datetime]:
+        """Return mapping of site_id -> latest folio created_at (timezone-aware).
+
+        Sites with zero folios are not included.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT site_id, MAX(created_at) AS last_created_at "
+                "FROM folios GROUP BY site_id"
+            )
+            return {
+                row["site_id"]: ensure_aware(row["last_created_at"])
+                for row in cursor.fetchall()
+            }
+
     def _row_to_folio(self, row: sqlite3.Row) -> Folio:
         """Convert a SQLite row to a Folio model."""
         metadata = json.loads(row["metadata"]) if row["metadata"] else {}
@@ -1489,6 +1504,10 @@ class JSONStore:
     def search_folios(self, query: str, limit: int = 50) -> List[Folio]:
         """Full-text search across folios."""
         return self._log_db.search_folios(query, limit=limit)
+
+    def get_site_last_activity(self) -> Dict[str, datetime]:
+        """Return mapping of site_id -> latest folio created_at (timezone-aware)."""
+        return self._log_db.get_site_last_activity()
 
     # Thread Operations
 

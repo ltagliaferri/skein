@@ -409,6 +409,29 @@ async def get_sites(
     return sites
 
 
+@router.get("/sites/timestamps")
+async def get_sites_timestamps(
+    since: Optional[int] = Query(
+        None,
+        description="Unix timestamp cutoff. Only sites with last activity strictly greater than this value are returned.",
+    ),
+    store: JSONStore = Depends(get_project_store),
+) -> Dict[str, int]:
+    """Return mapping of site_id -> last folio created_at as unix seconds (int).
+
+    Sites with zero folios are omitted. With ?since=<unix>, only sites whose
+    latest activity is strictly greater than the cutoff (>) are included.
+    """
+    activity = store.get_site_last_activity()
+    result: Dict[str, int] = {}
+    for site_id, dt in activity.items():
+        ts = int(dt.timestamp())
+        if since is not None and ts <= since:
+            continue
+        result[site_id] = ts
+    return result
+
+
 @router.get("/sites/{site_id}", response_model=Site)
 async def get_site(site_id: str, store: JSONStore = Depends(get_project_store)):
     """Get specific site."""

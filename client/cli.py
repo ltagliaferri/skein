@@ -6264,15 +6264,36 @@ def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence
     except Exception as e:
         raise click.ClickException(f"Failed to gather metadata: {e}")
 
-    # Derive site from project if not specified
+    # Resolve and validate the target site
+    available_sites = make_request("GET", "/sites", base_url, agent_id)
+    available_site_ids = [s["site_id"] for s in available_sites]
+
     if not site:
         worktree_path = shard_info.get("worktree_path", "")
+        derived = None
         if "/projects/" in worktree_path:
             parts = worktree_path.split("/projects/")[1].split("/")
             if parts:
-                site = f"{parts[0]}-development"
-        if not site:
+                derived = f"{parts[0]}-development"
+
+        if derived and derived in available_site_ids:
+            site = derived
+        elif "shard-review" in available_site_ids:
             site = "shard-review"
+        else:
+            tried = [derived] if derived else []
+            tried.append("shard-review")
+            raise click.ClickException(
+                f"No default site found — tried {', '.join(repr(t) for t in tried)}.\n"
+                f"Available sites: {', '.join(available_site_ids) or '(none)'}\n"
+                f"Pass one explicitly via: skein shard tender {worktree_name} --site <site>"
+            )
+    elif site not in available_site_ids:
+        raise click.ClickException(
+            f"Site '{site}' not found in this project.\n"
+            f"Available sites: {', '.join(available_site_ids) or '(none)'}\n"
+            f"Pass a valid site name from the list above: skein shard tender {worktree_name} --site <site>"
+        )
 
     # Default reviewer
     if not reviewer:

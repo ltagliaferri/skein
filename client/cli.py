@@ -26,6 +26,19 @@ except ImportError:
     # Fallback if skein package not installed
     generate_agent_name = None
 
+from skein.address import parse as parse_address
+
+
+def parse_post_site_id(site_id_arg: str) -> tuple:
+    """Parse a post site_id arg, supporting 'project:site' colon syntax.
+
+    Returns (site_id, project_override). Bare ids return (id, None).
+    """
+    parsed = parse_address(site_id_arg)
+    if parsed.is_qualified:
+        return parsed.folio_id, parsed.project
+    return parsed.folio_id, None
+
 
 def find_project_root() -> Optional[Path]:
     """
@@ -139,15 +152,22 @@ def validate_positional_args(*args, command_name: str):
 
 
 def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwargs):
-    """Make HTTP request to SKEIN API."""
+    """Make HTTP request to SKEIN API.
+
+    Accepts optional `project_id` kwarg to override the resolved project for this
+    call (e.g. from colon-syntax like 'speakbot:my-site' on a post command).
+    """
     url = f"{base_url}/skein{endpoint}"
     headers = kwargs.pop("headers", {})
+    project_id = kwargs.pop("project_id", None)
 
     if agent_id is not None:
         headers["X-Agent-Id"] = agent_id
 
-    # Add project ID from env var or project config
-    project_id = os.environ.get("SKEIN_PROJECT")
+    # Resolve project: explicit kwarg > SKEIN_PROJECT env > cwd .skein/ config.
+    # The top-level --project flag is pushed into SKEIN_PROJECT by the cli group.
+    if not project_id:
+        project_id = os.environ.get("SKEIN_PROJECT")
     if not project_id:
         project_config = get_project_config()
         if project_config:
@@ -216,15 +236,41 @@ def make_title_from_content(content: str, max_length: int = 100) -> str:
     return title
 
 
-@click.group()
+@click.group(
+    epilog=(
+        "\b\n"
+        "Cross-project usage:\n"
+        "  By default, SKEIN detects the project from the cwd's .skein/.\n"
+        "  To operate on another project, use --project or SKEIN_PROJECT:\n"
+        "\n"
+        "\b\n"
+        "    skein --project speakbot folio brief-20260101-abc1\n"
+        "    SKEIN_PROJECT=speakbot skein post finding skein-dev '...'\n"
+        "\n"
+        "  Read commands and `skein post` also accept project:id syntax:\n"
+        "\n"
+        "\b\n"
+        "    skein folio speakbot:brief-20260101-abc1\n"
+        "    skein post finding speakbot:skein-dev '...'\n"
+        "\n"
+        "\b\n"
+        "  Precedence:\n"
+        "    project:id colon syntax > --project flag > SKEIN_PROJECT > cwd"
+    )
+)
 @click.option(
     "--agent", envvar="SKEIN_AGENT_ID", help="Agent ID (or set SKEIN_AGENT_ID)"
 )
 @click.option(
     "--url", envvar="SKEIN_URL", help="SKEIN server URL (default: localhost:8001)"
 )
+@click.option(
+    "--project",
+    envvar="SKEIN_PROJECT",
+    help="Project to operate on (overrides cwd .skein/ discovery; or set SKEIN_PROJECT)",
+)
 @click.pass_context
-def cli(ctx, agent, url):
+def cli(ctx, agent, url, project):
     """SKEIN CLI - Agent collaboration system.
 
     Getting started: skein info quickstart
@@ -233,6 +279,11 @@ def cli(ctx, agent, url):
     ctx.ensure_object(dict)
     ctx.obj["agent"] = agent
     ctx.obj["url"] = url
+    ctx.obj["project"] = project
+
+    # Push --project to env so every make_request picks it up via the env path.
+    if project:
+        os.environ["SKEIN_PROJECT"] = project
 
 
 # ============================================================================
@@ -1096,10 +1147,16 @@ def playbook():
 @click.option("--title", help="Playbook title")
 @click.pass_context
 def playbook_create(ctx, site_id, content, title):
-    """Create a playbook."""
+    """Create a playbook.
+
+    Site ID accepts colon syntax for cross-project posting:
+        skein playbook create speakbot:skein-dev "..." --title "..."
+    """
     validate_positional_args(site_id, content, command_name="playbook create")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
 
     data = {
         "type": "playbook",
@@ -1109,7 +1166,9 @@ def playbook_create(ctx, site_id, content, title):
         "metadata": {},
     }
 
-    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
     playbook_id = result["folio_id"]
 
     click.echo(f"Created playbook: {playbook_id}")
@@ -1831,12 +1890,15 @@ def post():
 def post_issue(ctx, site_id, title, content, assign):
     """Post an issue.
 
-    Example:
+    Examples:
         skein post issue skein-dev "Fix login bug" --content "Users can't login with OAuth"
+        skein post issue speakbot:skein-dev "Cross-project issue"
     """
     validate_positional_args(site_id, title, command_name="post issue")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
 
     data = {
         "type": "issue",
@@ -1847,7 +1909,9 @@ def post_issue(ctx, site_id, title, content, assign):
         "metadata": {},
     }
 
-    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
     click.echo(f"Created issue: {result['folio_id']}")
 
 
@@ -1860,9 +1924,10 @@ def post_issue(ctx, site_id, title, content, assign):
 def post_brief(ctx, site_id, content, title, target):
     """Post a handoff brief.
 
-    Example:
+    Examples:
         skein post brief skein-dev "Implement dark mode toggle" --title "Dark mode feature"
         skein post brief skein-dev - --title "Dark mode feature" < content.txt
+        skein post brief speakbot:skein-dev "Cross-project brief" --title "..."
     """
     from_stdin = content == "-"
     if from_stdin:
@@ -1873,6 +1938,8 @@ def post_brief(ctx, site_id, content, title, target):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
+    site_id, project_override = parse_post_site_id(site_id)
+
     data = {
         "type": "brief",
         "site_id": site_id,
@@ -1882,7 +1949,9 @@ def post_brief(ctx, site_id, content, title, target):
         "metadata": {"questions_enabled": True},
     }
 
-    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
     brief_id = result["folio_id"]
 
     click.echo(f"Created brief: {brief_id}")
@@ -1897,12 +1966,15 @@ def post_brief(ctx, site_id, content, title, target):
 def post_friction(ctx, site_id, title, details):
     """Log a friction (problem/blocker).
 
-    Example:
+    Examples:
         skein post friction skein-dev "Must restart server after config changes"
+        skein post friction speakbot:skein-dev "Cross-project friction"
     """
     validate_positional_args(site_id, title, command_name="post friction")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
 
     data = {
         "type": "friction",
@@ -1912,7 +1984,9 @@ def post_friction(ctx, site_id, title, details):
         "metadata": {},
     }
 
-    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
     click.echo(f"Logged friction: {result['folio_id']}")
 
 
@@ -1924,12 +1998,15 @@ def post_friction(ctx, site_id, title, details):
 def post_notion(ctx, site_id, title, details):
     """Post a notion (rough idea not fully formed).
 
-    Example:
+    Examples:
         skein post notion skein-dev "Could use websockets for real-time updates"
+        skein post notion speakbot:skein-dev "Cross-project notion"
     """
     validate_positional_args(site_id, title, command_name="post notion")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
 
     data = {
         "type": "notion",
@@ -1939,7 +2016,9 @@ def post_notion(ctx, site_id, title, details):
         "metadata": {},
     }
 
-    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
     click.echo(f"Posted notion: {result['folio_id']}")
 
 
@@ -1951,12 +2030,15 @@ def post_notion(ctx, site_id, title, details):
 def post_finding(ctx, site_id, title, details):
     """Post a finding (discovery during investigation).
 
-    Example:
+    Examples:
         skein post finding skein-dev "Redis caching reduces latency by 40%"
+        skein post finding speakbot:skein-dev "Cross-project finding"
     """
     validate_positional_args(site_id, title, command_name="post finding")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
 
     data = {
         "type": "finding",
@@ -1966,7 +2048,9 @@ def post_finding(ctx, site_id, title, details):
         "metadata": {},
     }
 
-    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
     click.echo(f"Posted finding: {result['folio_id']}")
 
 
@@ -1978,12 +2062,15 @@ def post_finding(ctx, site_id, title, details):
 def post_summary(ctx, site_id, title, details):
     """Post a summary (completed work findings).
 
-    Example:
+    Examples:
         skein post summary skein-dev "Completed OAuth integration"
+        skein post summary speakbot:skein-dev "Cross-project summary"
     """
     validate_positional_args(site_id, title, command_name="post summary")
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
 
     data = {
         "type": "summary",
@@ -1993,7 +2080,9 @@ def post_summary(ctx, site_id, title, details):
         "metadata": {},
     }
 
-    result = make_request("POST", "/folios", base_url, agent_id, json=data)
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
     click.echo(f"Posted summary: {result['folio_id']}")
 
 

@@ -166,6 +166,28 @@ See `config/README.md` for configuration options. Key environment variables:
 - `SKEIN_HOST`: Server host (default: 0.0.0.0)
 - `SKEIN_URL`: Client server URL (default: http://localhost:8001)
 - `SKEIN_AGENT_ID`: Agent ID for CLI commands (avoids `--agent` flag)
+- `SKEIN_PROJECT`: Project to operate on (overrides cwd `.skein/` discovery)
+
+## Cross-Project Usage
+
+By default, the CLI detects the active project from the current directory's
+`.skein/` folder. To operate on another project from anywhere:
+
+```bash
+# Top-level flag, works on every command
+skein --project speakbot folio brief-20260101-abc1
+skein --project speakbot post finding skein-dev "..."
+
+# Equivalent: SKEIN_PROJECT env var
+SKEIN_PROJECT=speakbot skein folio brief-20260101-abc1
+
+# Per-call: project:id colon syntax (read commands and `skein post`)
+skein folio speakbot:brief-20260101-abc1
+skein post finding speakbot:skein-dev "Cross-project finding"
+```
+
+Precedence (most specific wins): `project:id` colon syntax > `--project` flag >
+`SKEIN_PROJECT` env > cwd `.skein/`.
 
 ## Development
 

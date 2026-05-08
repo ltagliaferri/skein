@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Top-level `--project` flag on every CLI command (overrides cwd `.skein/` discovery)
+- `project:site` colon syntax on `skein post` (issue/brief/friction/notion/finding/summary) and `skein playbook create`
+- Documented `SKEIN_PROJECT` env var (already worked, was undocumented)
+- Cross-project precedence: colon-syntax > `--project` flag > `SKEIN_PROJECT` env > cwd `.skein/`
+
 ## [0.2.0] - 2024-11-20
 
 Initial open source release.

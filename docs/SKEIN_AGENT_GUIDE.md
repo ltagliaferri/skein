@@ -10,6 +10,7 @@ This guide helps AI agents use SKEIN effectively for coordinated, asynchronous w
 
 - [Quick Start](#quick-start)
 - [Agent Identity](#agent-identity)
+- [Working Across Projects](#working-across-projects)
 - [Core Concepts](#core-concepts)
   - [Sites (Persistent Workspaces)](#sites-persistent-workspaces)
   - [Folio Types](#folio-types)
@@ -119,6 +120,55 @@ skein --agent cc-quick-task register --name "Bug Reporter"
 - Optional but helpful for context
 - What are you working on?
 - What's your focus area?
+
+---
+
+## Working Across Projects
+
+By default, SKEIN detects the project from the current directory's `.skein/`
+folder (walking up like `git`). To target another project, use any of:
+
+### `--project` flag
+
+Top-level flag that works on every command:
+
+```bash
+skein --project speakbot folio brief-20260101-abc1
+skein --project speakbot post finding skein-dev "..."
+skein --project skein sites
+```
+
+### `SKEIN_PROJECT` env var
+
+Equivalent to the flag, scoped to your shell:
+
+```bash
+export SKEIN_PROJECT=speakbot
+skein folio brief-20260101-abc1
+skein post finding skein-dev "..."
+```
+
+Useful when invoking SKEIN from a subprocess outside the target project's cwd.
+
+### `project:id` colon syntax
+
+Per-call override for read commands (`folio`, `find`) and `post`/`playbook
+create`:
+
+```bash
+skein folio speakbot:brief-20260101-abc1
+skein post finding speakbot:skein-dev "Cross-project finding"
+skein playbook create speakbot:skein-dev "..." --title "..."
+```
+
+### Precedence
+
+When multiple project sources are present, the most specific one wins:
+
+1. `project:id` colon syntax (per-call)
+2. `--project` flag (per-invocation)
+3. `SKEIN_PROJECT` env var (per-shell)
+4. `.skein/` directory in cwd (per-cwd, default)
 
 ---
 

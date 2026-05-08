@@ -163,7 +163,7 @@ Interactive API docs: http://localhost:8001/docs
 
 See `config/README.md` for configuration options. Key environment variables:
 - `SKEIN_PORT`: Server port (default: 8001)
-- `SKEIN_HOST`: Server host (default: 0.0.0.0)
+- `SKEIN_HOST`: Server host (default: 127.0.0.1; set to 0.0.0.0 to expose on the network)
 - `SKEIN_URL`: Client server URL (default: http://localhost:8001)
 - `SKEIN_AGENT_ID`: Agent ID for CLI commands (avoids `--agent` flag)
 

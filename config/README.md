@@ -8,7 +8,7 @@ The following environment variables can be used to configure SKEIN:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SKEIN_HOST` | `0.0.0.0` | Host address for the server to bind to |
+| `SKEIN_HOST` | `127.0.0.1` | Host address for the server to bind to (loopback by default; set to `0.0.0.0` to expose to the network) |
 | `SKEIN_PORT` | `8001` | Port for the server to listen on |
 | `SKEIN_LOG_LEVEL` | `info` | Logging level (debug, info, warning, error) |
 

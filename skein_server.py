@@ -27,7 +27,8 @@ request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 def get_config():
     """Load configuration from environment variables and config file."""
-    config = {"host": "0.0.0.0", "port": 8001, "log_level": "info"}
+    # Loopback by default; SKEIN has no auth, so opt in to network exposure via SKEIN_HOST or config.json.
+    config = {"host": "127.0.0.1", "port": 8001, "log_level": "info"}
 
     # Try to load from config file
     config_file = Path(__file__).parent / "config" / "config.json"

@@ -5272,8 +5272,8 @@ def shard(ctx, project_path):
 @click.option(
     "--base",
     "base_branch",
-    default="master",
-    help="Branch to fork from (default: master)",
+    default=None,
+    help="Branch to fork from (default: auto-detected from repo)",
 )
 @click.pass_context
 def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
@@ -5291,6 +5291,12 @@ def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
     shard_worktree = get_shard_worktree_module()
 
     try:
+        # Detect default branch if not explicitly provided
+        if base_branch is None:
+            from skein import shard as shard_module
+
+            base_branch = shard_module._detect_default_branch()
+
         # Create worktree
         shard_info = shard_worktree.spawn_shard(
             name=spawn_agent,
@@ -6936,8 +6942,14 @@ def shard_inspect(ctx, worktree_name, output_json):
 @shard.command("stash")
 @click.argument("description")
 @click.option("--agent", "stash_agent", help="Agent ID for the new SHARD")
+@click.option(
+    "--base",
+    "base_branch",
+    default=None,
+    help="Branch to stash onto (default: auto-detected from repo)",
+)
 @click.pass_context
-def shard_stash(ctx, description, stash_agent):
+def shard_stash(ctx, description, stash_agent, base_branch):
     """
     Stash uncommitted changes into a new SHARD.
 
@@ -6946,6 +6958,7 @@ def shard_stash(ctx, description, stash_agent):
 
     Example:
         skein shard stash "WIP: auth refactor"
+        skein shard stash "WIP: auth refactor" --base main
     """
     shard_worktree = get_shard_worktree_module()
 
@@ -6965,12 +6978,16 @@ def shard_stash(ctx, description, stash_agent):
 
             stash_agent = f"stash-{datetime.now().strftime('%m%d')}"
 
-        # Always branch from master HEAD to avoid picking up stale
+        # Detect default branch if not explicitly provided
+        if base_branch is None:
+            base_branch = shard_module._detect_default_branch(repo)
+
+        # Branch from the detected default to avoid picking up stale
         # commits from whatever branch the working tree is on.
         new_shard = shard_worktree.spawn_shard(
             stash_agent,
             description=description,
-            base_branch="master",
+            base_branch=base_branch,
         )
         worktree_path = new_shard["worktree_path"]
         worktree_name = new_shard["worktree_name"]

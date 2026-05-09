@@ -349,6 +349,74 @@ def _get_repo() -> "git.Repo":
         raise ShardError(f"Not a git repository: {get_project_root()}")
 
 
+def _detect_default_branch(repo=None) -> str:
+    """
+    Detect the default branch of the project repo.
+
+    Tries in order:
+    1. git symbolic-ref --short refs/remotes/origin/HEAD (origin's stated default)
+    2. Check if 'main' or 'master' local branch exists
+    3. Fall back to 'master'
+
+    Args:
+        repo: Optional git.Repo instance. If None, uses the project repo.
+
+    Returns:
+        Branch name string, e.g. 'main' or 'master'
+    """
+    import subprocess
+
+    working_dir = None
+    if repo is not None:
+        try:
+            working_dir = str(repo.working_dir)
+        except Exception:
+            pass
+    if working_dir is None:
+        try:
+            working_dir = str(get_project_root())
+        except Exception:
+            return "master"
+
+    # Try origin/HEAD first — most authoritative for remote-backed repos
+    try:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            ref = result.stdout.strip()
+            if ref:
+                # Format is "origin/main" → "main"
+                return ref.split("/", 1)[-1]
+    except Exception:
+        pass
+
+    # Check which local branches exist and prefer 'main' over 'master'
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--list"],
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            branches = {
+                line.strip().lstrip("* ")
+                for line in result.stdout.splitlines()
+                if line.strip()
+            }
+            for candidate in ("main", "master"):
+                if candidate in branches:
+                    return candidate
+    except Exception:
+        pass
+
+    return "master"
+
+
 # Cached git version (None = not yet checked, tuple = parsed version)
 _GIT_VERSION: Optional[Tuple[int, ...]] = None
 
@@ -1323,22 +1391,22 @@ def _get_shard_base_ref(worktree_name: str) -> str:
     Get the base reference for diffing a shard's work.
 
     For shards with SQLite metadata, returns the base_commit (where the shard branched).
-    For legacy shards without metadata, falls back to 'master'.
+    For legacy shards without metadata, falls back to the detected default branch.
 
     This ensures file counts and diffs reflect only the agent's actual work,
-    not commits that existed in master before the shard was created.
+    not commits that existed in the base branch before the shard was created.
 
     Args:
         worktree_name: Worktree directory name
 
     Returns:
-        Git ref string (commit SHA or 'master')
+        Git ref string (commit SHA or detected default branch name)
     """
     metadata = _get_shard_metadata(worktree_name)
     if metadata and metadata.get("base_commit"):
         return metadata["base_commit"]
-    # Legacy shard without metadata - fall back to master
-    return "master"
+    # Legacy shard without metadata - detect rather than assume 'master'
+    return _detect_default_branch()
 
 
 def _get_shard_base_branch(worktree_name: str) -> str:
@@ -1346,19 +1414,19 @@ def _get_shard_base_branch(worktree_name: str) -> str:
     Get the base branch name for a shard.
 
     For shards with SQLite metadata, returns the stored base_branch.
-    For legacy shards without the column, falls back to 'master'.
+    For legacy shards without the column, detects the repo's default branch.
 
     Args:
         worktree_name: Worktree directory name
 
     Returns:
-        Branch name string (e.g., 'master', 'feature-branch')
+        Branch name string (e.g., 'main', 'master', 'feature-branch')
     """
     metadata = _get_shard_metadata(worktree_name)
     if metadata and metadata.get("base_branch"):
         return metadata["base_branch"]
-    # Legacy shard without base_branch - fall back to master
-    return "master"
+    # Legacy shard without base_branch - detect rather than assume 'master'
+    return _detect_default_branch()
 
 
 def get_shard_work_diff(worktree_name: str, stat_only: bool = False) -> Optional[str]:
@@ -1379,10 +1447,11 @@ def get_shard_work_diff(worktree_name: str, stat_only: bool = False) -> Optional
     if not shard_info:
         return None
 
-    base_ref = _get_shard_base_ref(worktree_name)
-    if base_ref == "master":
+    metadata = _get_shard_metadata(worktree_name)
+    if not (metadata and metadata.get("base_commit")):
         # No base_commit metadata - fall back to integration diff
         return get_shard_diff(worktree_name, stat_only=stat_only)
+    base_ref = metadata["base_commit"]
 
     try:
         repo = _get_repo()

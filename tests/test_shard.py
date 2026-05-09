@@ -62,6 +62,7 @@ from skein.shard import (
     _get_shard_metadata,
     _get_shard_base_branch,
     _get_shard_base_ref,
+    _detect_default_branch,
 )
 
 
@@ -160,6 +161,74 @@ def shard_env(temp_git_repo: Path, monkeypatch):
     os.chdir(original_cwd)
 
     # Reset module state again for next test
+    shard_module._PROJECT_ROOT = None
+    shard_module._WORKTREES_DIR = None
+
+
+@pytest.fixture
+def temp_git_repo_main(tmp_path: Path) -> Generator[Path, None, None]:
+    """
+    Create a temporary git repository with 'main' as the default branch.
+
+    Mirrors temp_git_repo but uses 'main' instead of 'master'.
+    """
+    repo_path = tmp_path / "test_repo_main"
+    repo_path.mkdir()
+
+    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
+
+    readme = repo_path / "README.md"
+    readme.write_text("# Test Repo (main)\n")
+    subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
+
+    # Use 'main' as default branch
+    subprocess.run(
+        ["git", "branch", "-M", "main"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
+
+    yield repo_path
+
+
+@pytest.fixture
+def shard_env_main(temp_git_repo_main: Path, monkeypatch):
+    """
+    Set up the shard module to use a temporary git repo with 'main' as default branch.
+    """
+    import skein.shard as shard_module
+
+    shard_module._PROJECT_ROOT = None
+    shard_module._WORKTREES_DIR = None
+
+    set_project_root(str(temp_git_repo_main))
+
+    original_cwd = os.getcwd()
+    os.chdir(temp_git_repo_main)
+
+    yield temp_git_repo_main
+
+    os.chdir(original_cwd)
+
     shard_module._PROJECT_ROOT = None
     shard_module._WORKTREES_DIR = None
 
@@ -2834,14 +2903,16 @@ class TestGetShardDiffWithNonMasterBase:
 
 class TestShardStashAutoDetection:
     """
-    Invariant: shard_stash (CLI) always uses master as base_branch.
+    Invariant: shard_stash (CLI) uses the repo's detected default branch.
 
     Since shard_stash lives in the CLI layer (client/cli.py), we test the
-    underlying mechanism: spawn_shard called with base_branch="master".
+    underlying mechanism: spawn_shard called with the detected branch name.
+    On a master-default repo the detected branch is 'master'.
+    On a main-default repo the detected branch is 'main'.
     """
 
-    def test_stash_always_uses_master_base(self, shard_env_with_feature_branch):
-        """WHY: shard_stash should always branch from master, even when on another branch."""
+    def test_stash_on_master_repo_uses_master_base(self, shard_env_with_feature_branch):
+        """WHY: On a master repo, stash should branch from master even when on another branch."""
         repo_path = shard_env_with_feature_branch
 
         # Switch to the feature branch (simulating being on a non-master branch)
@@ -2852,14 +2923,17 @@ class TestShardStashAutoDetection:
             capture_output=True,
         )
 
-        # shard_stash now always passes base_branch="master"
-        info = spawn_shard("stash-test", base_branch="master")
+        import skein.shard as shard_module
+
+        detected = shard_module._detect_default_branch()
+        assert detected == "master"
+
+        info = spawn_shard("stash-test", base_branch=detected)
         try:
             assert info["base_branch"] == "master"
             metadata = _get_shard_metadata(info["worktree_name"])
             assert metadata["base_branch"] == "master"
         finally:
-            # Switch back to master before cleanup (avoid being on feature during cleanup)
             subprocess.run(
                 ["git", "checkout", "master"],
                 cwd=repo_path,
@@ -2869,7 +2943,7 @@ class TestShardStashAutoDetection:
             cleanup_shard(info["worktree_name"])
 
     def test_stash_from_master_uses_master_base(self, shard_env):
-        """WHY: On master, stash should default base_branch to 'master'."""
+        """WHY: On a master-default repo, stash should default base_branch to 'master'."""
         import skein.shard as shard_module
 
         repo = shard_module._get_repo()
@@ -2926,6 +3000,143 @@ class TestDriftDetectionWithNonMasterBase:
             assert drift_info["base_branch"] == "feature"
             # The base_branch evolved by 1 commit after shard was created
             assert drift_info["base_commits_ahead"] >= 1
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+
+# =============================================================================
+# DEFAULT BRANCH DETECTION TESTS
+# =============================================================================
+
+
+class TestDetectDefaultBranch:
+    """
+    Invariant: _detect_default_branch returns the repo's actual default branch,
+    not a hardcoded 'master'.
+    """
+
+    def test_detects_master_on_master_repo(self, shard_env: Path):
+        """WHY: master repos must still work after the detection change."""
+        import skein.shard as shard_module
+
+        detected = shard_module._detect_default_branch()
+        assert detected == "master"
+
+    def test_detects_main_on_main_repo(self, shard_env_main: Path):
+        """WHY: repos with main as default must return 'main', not 'master'."""
+        import skein.shard as shard_module
+
+        detected = shard_module._detect_default_branch()
+        assert detected == "main"
+
+    def test_detects_master_via_repo_arg(self, shard_env: Path):
+        """WHY: passing repo object explicitly should work the same as no arg."""
+        import skein.shard as shard_module
+
+        repo = shard_module._get_repo()
+        detected = shard_module._detect_default_branch(repo)
+        assert detected == "master"
+
+    def test_detects_main_via_repo_arg(self, shard_env_main: Path):
+        """WHY: passing repo object on a main repo should return 'main'."""
+        import skein.shard as shard_module
+
+        repo = shard_module._get_repo()
+        detected = shard_module._detect_default_branch(repo)
+        assert detected == "main"
+
+
+class TestShardOnMainDefaultRepo:
+    """
+    Invariant: shard spawn, merge, and stash work correctly on repos where
+    the default branch is 'main' rather than 'master'.
+    """
+
+    def test_spawn_detects_main_as_base_branch(self, shard_env_main: Path):
+        """WHY: spawn_shard should use 'main' when that's the default branch."""
+        import skein.shard as shard_module
+
+        detected = shard_module._detect_default_branch()
+        info = spawn_shard("main-shard-test", base_branch=detected)
+        try:
+            assert info["base_branch"] == "main"
+            metadata = _get_shard_metadata(info["worktree_name"])
+            assert metadata is not None
+            assert metadata["base_branch"] == "main"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_get_shard_base_branch_fallback_uses_main(self, shard_env_main: Path):
+        """WHY: legacy shards without DB metadata must detect 'main', not assume 'master'."""
+        import skein.shard as shard_module
+
+        # Spawn with explicit main so the shard and branch exist
+        info = spawn_shard("legacy-main-test", base_branch="main")
+        worktree_name = info["worktree_name"]
+        try:
+            # Simulate legacy shard by clearing the base_branch from DB
+            conn = shard_module._get_db_connection()
+            try:
+                conn.execute(
+                    "UPDATE shards SET base_branch = NULL WHERE worktree_name = ?",
+                    (worktree_name,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            # Now _get_shard_base_branch should detect 'main' from the repo
+            detected = _get_shard_base_branch(worktree_name)
+            assert detected == "main", (
+                f"Expected 'main' for legacy shard on main-default repo, got '{detected}'"
+            )
+        finally:
+            cleanup_shard(worktree_name)
+
+    def test_merge_targets_main_on_main_repo(self, shard_env_main: Path):
+        """WHY: merge_shard must check out 'main', not 'master', when merging."""
+        repo_path = shard_env_main
+        import skein.shard as shard_module
+
+        info = spawn_shard("merge-main-test", base_branch="main")
+        worktree_path = Path(info["worktree_path"])
+        worktree_name = info["worktree_name"]
+
+        # Commit something in the shard
+        (worktree_path / "change.txt").write_text("change\n")
+        subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Shard change"],
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
+        )
+
+        result = merge_shard(worktree_name)
+        try:
+            assert result["success"], f"Merge failed: {result['message']}"
+            assert "main" in result["message"]
+            # Verify we're now on main
+            repo = shard_module._get_repo()
+            assert repo.active_branch.name == "main"
+        finally:
+            # If merge succeeded, worktree is already gone; if not, clean up
+            try:
+                cleanup_shard(worktree_name)
+            except Exception:
+                pass
+
+    def test_stash_detects_main_as_base_on_main_repo(self, shard_env_main: Path):
+        """WHY: _detect_default_branch called from stash must yield 'main' on main repos."""
+        import skein.shard as shard_module
+
+        detected = shard_module._detect_default_branch()
+        assert detected == "main"
+
+        # Simulate what shard_stash does: spawn with the detected branch
+        info = spawn_shard("stash-main-test", base_branch=detected)
+        try:
+            assert info["base_branch"] == "main"
         finally:
             cleanup_shard(info["worktree_name"])
 

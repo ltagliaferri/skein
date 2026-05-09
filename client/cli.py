@@ -5272,8 +5272,8 @@ def shard(ctx, project_path):
 @click.option(
     "--base",
     "base_branch",
-    default="master",
-    help="Branch to fork from (default: master)",
+    default=None,
+    help="Branch to fork from (default: auto-detected from repo)",
 )
 @click.pass_context
 def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
@@ -5291,6 +5291,12 @@ def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
     shard_worktree = get_shard_worktree_module()
 
     try:
+        # Detect default branch if not explicitly provided
+        if base_branch is None:
+            from skein import shard as shard_module
+
+            base_branch = shard_module._detect_default_branch()
+
         # Create worktree
         shard_info = shard_worktree.spawn_shard(
             name=spawn_agent,
@@ -5814,7 +5820,13 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
         # First, show drift context
         drift_info = shard_worktree.get_shard_drift_info(worktree_name)
         master_ahead = drift_info.get("base_commits_ahead", 0)
-        base_branch = drift_info.get("base_branch", "master")
+        base_branch = drift_info.get("base_branch")
+        if base_branch is None:
+            try:
+                from skein import shard as shard_module
+                base_branch = shard_module._detect_default_branch()
+            except Exception:
+                base_branch = "unknown"
 
         click.echo(f"Testing integration with current {base_branch}...")
 
@@ -6443,7 +6455,13 @@ def shard_triage(ctx, output_json):
             base_commit = drift_info.get("base_commit_short")
             conflict_status = drift_info.get("conflict_status", "unknown")
             conflict_files = drift_info.get("conflict_files", [])
-            base_branch = drift_info.get("base_branch", "master")
+            base_branch = drift_info.get("base_branch")
+            if base_branch is None:
+                try:
+                    from skein import shard as shard_module
+                    base_branch = shard_module._detect_default_branch()
+                except Exception:
+                    base_branch = "unknown"
 
             # Check if this is a graft
             is_graft = shard_worktree.is_graft(wt_name)
@@ -6515,7 +6533,13 @@ def shard_triage(ctx, output_json):
                 icon = entry["status_icon"]
                 conf = entry["confidence"]
                 base_ahead = entry.get("base_ahead", 0)
-                base_branch = entry.get("base_branch", "master")
+                base_branch = entry.get("base_branch")
+                if base_branch is None:
+                    try:
+                        from skein import shard as shard_module
+                        base_branch = shard_module._detect_default_branch()
+                    except Exception:
+                        base_branch = "unknown"
                 base_commit = entry.get("base_commit")
                 is_graft = entry.get("is_graft", False)
 
@@ -6721,7 +6745,13 @@ def shard_inspect(ctx, worktree_name, output_json):
 
             # Show work info with base commit
             base_commit = drift_info.get("base_commit_short")
-            base_branch = drift_info.get("base_branch", "master")
+            base_branch = drift_info.get("base_branch")
+            if base_branch is None:
+                try:
+                    from skein import shard as shard_module
+                    base_branch = shard_module._detect_default_branch()
+                except Exception:
+                    base_branch = "unknown"
             base_date = drift_info.get("base_commit_date", "")
             commits = git_info.get("commits_ahead", 0)
             uncommitted = git_info.get("uncommitted", [])
@@ -6936,8 +6966,14 @@ def shard_inspect(ctx, worktree_name, output_json):
 @shard.command("stash")
 @click.argument("description")
 @click.option("--agent", "stash_agent", help="Agent ID for the new SHARD")
+@click.option(
+    "--base",
+    "base_branch",
+    default=None,
+    help="Branch to stash onto (default: auto-detected from repo)",
+)
 @click.pass_context
-def shard_stash(ctx, description, stash_agent):
+def shard_stash(ctx, description, stash_agent, base_branch):
     """
     Stash uncommitted changes into a new SHARD.
 
@@ -6946,6 +6982,7 @@ def shard_stash(ctx, description, stash_agent):
 
     Example:
         skein shard stash "WIP: auth refactor"
+        skein shard stash "WIP: auth refactor" --base main
     """
     shard_worktree = get_shard_worktree_module()
 
@@ -6965,12 +7002,16 @@ def shard_stash(ctx, description, stash_agent):
 
             stash_agent = f"stash-{datetime.now().strftime('%m%d')}"
 
-        # Always branch from master HEAD to avoid picking up stale
+        # Detect default branch if not explicitly provided
+        if base_branch is None:
+            base_branch = shard_module._detect_default_branch(repo)
+
+        # Branch from the detected default to avoid picking up stale
         # commits from whatever branch the working tree is on.
         new_shard = shard_worktree.spawn_shard(
             stash_agent,
             description=description,
-            base_branch="master",
+            base_branch=base_branch,
         )
         worktree_path = new_shard["worktree_path"]
         worktree_name = new_shard["worktree_name"]

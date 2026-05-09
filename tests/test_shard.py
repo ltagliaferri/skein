@@ -2956,6 +2956,25 @@ class TestShardStashAutoDetection:
         finally:
             cleanup_shard(info["worktree_name"])
 
+    def test_stash_explicit_base_overrides_detection(self, shard_env_with_feature_branch):
+        """WHY: --base flag must take precedence over auto-detection, not be silently ignored."""
+        import skein.shard as shard_module
+
+        # Repo default is 'master', not 'feature'
+        detected = shard_module._detect_default_branch()
+        assert detected == "master"
+
+        # Simulate `shard stash --base feature`: spawn with explicit non-default branch
+        info = spawn_shard("stash-explicit-base", base_branch="feature")
+        try:
+            assert info["base_branch"] == "feature", (
+                "Explicit --base must be used, not auto-detected branch"
+            )
+            metadata = _get_shard_metadata(info["worktree_name"])
+            assert metadata["base_branch"] == "feature"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
 
 class TestDriftDetectionWithNonMasterBase:
     """

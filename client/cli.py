@@ -5820,7 +5820,13 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
         # First, show drift context
         drift_info = shard_worktree.get_shard_drift_info(worktree_name)
         master_ahead = drift_info.get("base_commits_ahead", 0)
-        base_branch = drift_info.get("base_branch", "master")
+        base_branch = drift_info.get("base_branch")
+        if base_branch is None:
+            try:
+                from skein import shard as shard_module
+                base_branch = shard_module._detect_default_branch()
+            except Exception:
+                base_branch = "unknown"
 
         click.echo(f"Testing integration with current {base_branch}...")
 
@@ -6449,7 +6455,13 @@ def shard_triage(ctx, output_json):
             base_commit = drift_info.get("base_commit_short")
             conflict_status = drift_info.get("conflict_status", "unknown")
             conflict_files = drift_info.get("conflict_files", [])
-            base_branch = drift_info.get("base_branch", "master")
+            base_branch = drift_info.get("base_branch")
+            if base_branch is None:
+                try:
+                    from skein import shard as shard_module
+                    base_branch = shard_module._detect_default_branch()
+                except Exception:
+                    base_branch = "unknown"
 
             # Check if this is a graft
             is_graft = shard_worktree.is_graft(wt_name)
@@ -6521,7 +6533,13 @@ def shard_triage(ctx, output_json):
                 icon = entry["status_icon"]
                 conf = entry["confidence"]
                 base_ahead = entry.get("base_ahead", 0)
-                base_branch = entry.get("base_branch", "master")
+                base_branch = entry.get("base_branch")
+                if base_branch is None:
+                    try:
+                        from skein import shard as shard_module
+                        base_branch = shard_module._detect_default_branch()
+                    except Exception:
+                        base_branch = "unknown"
                 base_commit = entry.get("base_commit")
                 is_graft = entry.get("is_graft", False)
 
@@ -6727,7 +6745,13 @@ def shard_inspect(ctx, worktree_name, output_json):
 
             # Show work info with base commit
             base_commit = drift_info.get("base_commit_short")
-            base_branch = drift_info.get("base_branch", "master")
+            base_branch = drift_info.get("base_branch")
+            if base_branch is None:
+                try:
+                    from skein import shard as shard_module
+                    base_branch = shard_module._detect_default_branch()
+                except Exception:
+                    base_branch = "unknown"
             base_date = drift_info.get("base_commit_date", "")
             commits = git_info.get("commits_ahead", 0)
             uncommitted = git_info.get("uncommitted", [])

@@ -356,13 +356,15 @@ def _detect_default_branch(repo=None) -> str:
     Tries in order:
     1. git symbolic-ref --short refs/remotes/origin/HEAD (origin's stated default)
     2. Check if 'main' or 'master' local branch exists
-    3. Fall back to 'master'
 
     Args:
         repo: Optional git.Repo instance. If None, uses the project repo.
 
     Returns:
         Branch name string, e.g. 'main' or 'master'
+
+    Raises:
+        ShardError: If the default branch cannot be determined
     """
     import subprocess
 
@@ -376,7 +378,10 @@ def _detect_default_branch(repo=None) -> str:
         try:
             working_dir = str(get_project_root())
         except Exception:
-            return "master"
+            raise ShardError(
+                "Cannot determine default branch: project root is not set. "
+                "Run from a git repository or set the project root explicitly."
+            )
 
     # Try origin/HEAD first — most authoritative for remote-backed repos
     try:
@@ -414,7 +419,10 @@ def _detect_default_branch(repo=None) -> str:
     except Exception:
         pass
 
-    return "master"
+    raise ShardError(
+        "Cannot determine default branch: neither 'main' nor 'master' exists locally "
+        "and origin/HEAD is not set. Pass --base explicitly or set up the remote."
+    )
 
 
 # Cached git version (None = not yet checked, tuple = parsed version)
@@ -549,7 +557,7 @@ def spawn_shard(
     brief_id: Optional[str] = None,
     description: Optional[str] = None,
     project_root: Optional[str] = None,
-    base_branch: str = "master",
+    base_branch: Optional[str] = None,
 ) -> Dict[str, str]:
     """
     Create SHARD: git branch + worktree for isolated agent work.
@@ -559,7 +567,7 @@ def spawn_shard(
         brief_id: Optional brief ID this SHARD relates to
         description: Optional work description
         project_root: Optional path to git repo. If not provided, auto-detects.
-        base_branch: Branch to fork from and merge back to. Defaults to 'master'.
+        base_branch: Branch to fork from and merge back to. If None, auto-detected from repo.
 
     Returns:
         {
@@ -582,6 +590,10 @@ def spawn_shard(
     # Set project root if provided
     if project_root:
         set_project_root(project_root)
+
+    # Auto-detect base branch if not explicitly provided
+    if base_branch is None:
+        base_branch = _detect_default_branch()
 
     # Check if spawning from inside a worktree and record parent relationship
     import sys

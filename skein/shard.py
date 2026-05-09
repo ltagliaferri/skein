@@ -93,9 +93,11 @@ def _record_shard_metadata(
     brief_id: Optional[str] = None,
     description: Optional[str] = None,
     parent_worktree: Optional[str] = None,
-    base_branch: str = "master",
+    base_branch: Optional[str] = None,
 ) -> None:
     """Record shard metadata in SQLite database."""
+    if base_branch is None:
+        base_branch = _detect_default_branch()
     conn = _get_db_connection()
     try:
         conn.execute(

@@ -45,6 +45,8 @@ dev = [
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
     "types-requests>=2.31.0",
+    "sigstore>=4.2,<5",
+    "hypothesis>=6.0.0",
 ]
 
 [project.scripts]
@@ -73,6 +75,11 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "conformance_staging: tests that verify against staging Sigstore TUF root (offline, no network needed)",
+    "conformance_online: tests that require live Sigstore staging network access",
+    "staging: live Sigstore staging integration (skipped unless SKEIN_TEST_SIGSTORE_LIVE=1)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::pytest.PytestUnraisableExceptionWarning",

@@ -58,10 +58,10 @@ def test_verify_identity_nfc_vs_nfd_subjects(crypto_factory, monkeypatch):
         crypto_factory, monkeypatch, subject=nfd, issuer=GOOGLE_ISSUER,
     )
 
-    if nfc_result.status == signing.VerifyStatus.VERIFIED:
-        assert nfc_result.subject == nfc
-    if nfd_result.status == signing.VerifyStatus.VERIFIED:
-        assert nfd_result.subject == nfc
+    assert nfc_result.status == signing.VerifyStatus.VERIFIED
+    assert nfc_result.subject == nfc
+    assert nfd_result.status == signing.VerifyStatus.VERIFIED
+    assert nfd_result.subject == nfc
 
 
 # Enforces: oracle actionable #1. Zero-width joiners are not stripped from SAN
@@ -71,8 +71,8 @@ def test_verify_identity_zero_width_joiner_in_subject(crypto_factory, monkeypatc
     result = _verify_identity(
         crypto_factory, monkeypatch, subject=subject, issuer=GOOGLE_ISSUER,
     )
-    if result.status == signing.VerifyStatus.VERIFIED:
-        assert result.subject == subject
+    assert result.status == signing.VerifyStatus.VERIFIED
+    assert result.subject == subject
 
 
 # Enforces: oracle actionable #1. RTL marks are not silently stripped or
@@ -82,8 +82,8 @@ def test_verify_identity_rtl_marks_in_subject(crypto_factory, monkeypatch):
     result = _verify_identity(
         crypto_factory, monkeypatch, subject=subject, issuer=GOOGLE_ISSUER,
     )
-    if result.status == signing.VerifyStatus.VERIFIED:
-        assert result.subject == subject
+    assert result.status == signing.VerifyStatus.VERIFIED
+    assert result.subject == subject
 
 
 # Enforces: oracle actionable #1. X.509 SAN subjects with trailing whitespace

@@ -703,8 +703,8 @@ def test_verify_extracts_non_ascii_subject(
         canon_version="knurl-1.0",
     )
     vr = signing.verify(canonical_bytes_simple, sb)
-    if vr.status == signing.VerifyStatus.VERIFIED:
-        assert vr.subject == "josé@example.com"
+    assert vr.status == signing.VerifyStatus.VERIFIED
+    assert vr.subject == "josé@example.com"
 
 
 # ---------------------------------------------------------------------------

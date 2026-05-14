@@ -54,7 +54,7 @@ class RekorInclusionProof(BaseModel):
     hashes: list[str]
     checkpoint: str
     integrated_time: int = Field(ge=MIN_MICROSECOND_TIMESTAMP)
-    log_id: str
+    log_id: str = Field(min_length=1, max_length=512)
 
     @model_validator(mode="after")
     def _log_index_inside_tree(self) -> "RekorInclusionProof":

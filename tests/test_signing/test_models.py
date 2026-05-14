@@ -196,6 +196,33 @@ def test_rekor_inclusion_proof_fields_are_required(missing_field):
         signing.RekorInclusionProof(**payload)
 
 
+def test_rekor_inclusion_proof_log_id_rejects_empty():
+    with pytest.raises(Exception):
+        signing.RekorInclusionProof(
+            log_index=42, tree_size=999, root_hash="rh", hashes=[],
+            checkpoint="cp", integrated_time=1_715_443_200_000_000,
+            log_id="",
+        )
+
+
+def test_rekor_inclusion_proof_log_id_rejects_over_max_length():
+    with pytest.raises(Exception):
+        signing.RekorInclusionProof(
+            log_index=42, tree_size=999, root_hash="rh", hashes=[],
+            checkpoint="cp", integrated_time=1_715_443_200_000_000,
+            log_id="A" * 513,
+        )
+
+
+def test_rekor_inclusion_proof_log_id_accepts_typical_base64_key_id():
+    proof = signing.RekorInclusionProof(
+        log_index=42, tree_size=999, root_hash="rh", hashes=[],
+        checkpoint="cp", integrated_time=1_715_443_200_000_000,
+        log_id="mQv7r2XxQAE8m4Vxy03Yf0PTrf1LX6Hux4nQ2s6h0Wk=",
+    )
+    assert proof.log_id
+
+
 # Enforces: an independent verifier can use these seven fields to re-run Merkle
 # inclusion without re-querying Rekor. The proof carries (root_hash, hashes,
 # tree_size) for the Merkle path, (log_index) to know which leaf, (checkpoint)

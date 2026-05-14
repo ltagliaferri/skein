@@ -37,6 +37,7 @@ OR raise MultiSignerBundle for multi-signer inputs (caller error).
 from __future__ import annotations
 
 import copy
+import base64
 import json
 
 import pytest
@@ -1065,6 +1066,43 @@ class TestSigstorePublicV1AlgorithmProfile:
         )
         result = signing.verify(canonical_bytes_simple, sb)
         assert result.status == signing.VerifyStatus.VERIFIED
+
+    def test_verify_rejects_digest_length_mismatch_with_algorithm(
+        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+    ):
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        signed = signing.sign(canonical_bytes_simple, google_provider)
+        blob = json.loads(signed.bundle_json)
+        blob["messageSignature"]["messageDigest"]["algorithm"] = "SHA2_256"
+        blob["messageSignature"]["messageDigest"]["digest"] = base64.b64encode(b"x" * 48).decode("ascii")
+        sb = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=[json.dumps(blob, separators=(",", ":"))],
+            canonical_bytes=canonical_bytes_simple,
+            canon_version="knurl-1.0",
+        )
+        result = signing.verify(canonical_bytes_simple, sb)
+        assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
+
+    def test_verify_rejects_simultaneous_set_and_inclusion_proof(
+        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+    ):
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        signed = signing.sign(canonical_bytes_simple, google_provider)
+        blob = json.loads(signed.bundle_json)
+        blob.setdefault("verificationMaterial", {}).setdefault("tlogEntries", [{}])[0]["inclusionPromise"] = {
+            "signedEntryTimestamp": "ZmFrZS1zZXQ="
+        }
+        sb = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=[json.dumps(blob, separators=(",", ":"))],
+            canonical_bytes=canonical_bytes_simple,
+            canon_version="knurl-1.0",
+        )
+        result = signing.verify(canonical_bytes_simple, sb)
+        assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
     # Enforces: finding-20260512-eaft actionable #3. sigstore-public-v1 is
     # pinned to ECDSA P-256 leaf certificates; other key algorithms fail closed.

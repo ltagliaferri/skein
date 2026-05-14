@@ -13,7 +13,6 @@ Mapping table:
 |---|---|---|
 | VerificationError (base)           | n/a                                        | BUNDLE_MALFORMED       |
 | InvalidBundle                      | n/a                                        | BUNDLE_MALFORMED       |
-| InvalidIdentity                    | n/a                                        | IDENTITY_MISMATCH      |
 | InvalidMaterials                   | n/a                                        | CERT_INVALID           |
 | InvalidRekorEntry                  | n/a                                        | INCLUSION_FAILED       |
 | CertificateExpired / cert-validity | SigningUnavailable("cert expired")         | CERT_INVALID           |
@@ -166,25 +165,6 @@ def test_verify_invalid_bundle_maps_to_bundle_malformed(
     )
     vr = signing.verify(canonical_bytes_simple, sb)
     assert vr.status == signing.VerifyStatus.BUNDLE_MALFORMED
-
-
-# Enforces: InvalidIdentity maps to IDENTITY_MISMATCH.
-def test_verify_invalid_identity_maps_to_identity_mismatch(
-    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
-):
-    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
-    crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="InvalidIdentity",
-    )
-    result = signing.sign(canonical_bytes_simple, google_provider)
-    sb = signing.SignatureBundle(
-        identity_scheme="sigstore-public-v1",
-        bundles=[result.bundle_json],
-        canonical_bytes=canonical_bytes_simple,
-        canon_version="knurl-1.0",
-    )
-    vr = signing.verify(canonical_bytes_simple, sb)
-    assert vr.status == signing.VerifyStatus.IDENTITY_MISMATCH
 
 
 # Enforces: InvalidMaterials maps to CERT_INVALID.
@@ -385,14 +365,13 @@ def test_signature_mismatch_skein_specific_path(
 # from clarification 5: "no information loss from the library".)
 #
 # Coverage proxy: confirm each of the 5 documented sigstore-python exception
-# classes (InvalidBundle, InvalidIdentity, InvalidMaterials, InvalidRekorEntry,
-# CertificateExpired) maps to a DIFFERENT VerifyStatus.
+# classes (InvalidBundle, InvalidMaterials, InvalidRekorEntry, CertificateExpired)
+# maps to a DIFFERENT VerifyStatus.
 def test_library_exceptions_map_to_distinct_statuses(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     expected_mapping = {
         "InvalidBundle": signing.VerifyStatus.BUNDLE_MALFORMED,
-        "InvalidIdentity": signing.VerifyStatus.IDENTITY_MISMATCH,
         "InvalidMaterials": signing.VerifyStatus.CERT_INVALID,
         "InvalidRekorEntry": signing.VerifyStatus.INCLUSION_FAILED,
         "CertificateExpired": signing.VerifyStatus.CERT_INVALID,

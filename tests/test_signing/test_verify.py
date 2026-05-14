@@ -667,25 +667,23 @@ def test_verify_prefers_oid_v2_over_legacy(
     assert vr.issuer == "https://accounts.google.com"
 
 
-# Enforces: IDENTITY_MISMATCH is a reachable status. signing.py returns the
-# cert-extracted identity; the authorization layer compares against
-# account_binding and may surface IDENTITY_MISMATCH as a distinct condition.
-def test_verify_identity_mismatch_is_reachable_status(
-    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
-):
-    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
-    crypto_factory.install_verify_monkeypatch(
-        monkeypatch, force_status=signing.VerifyStatus.IDENTITY_MISMATCH,
+def test_verify_does_not_originate_identity_mismatch(crypto_factory, monkeypatch):
+    """Enforces: verify() never returns IDENTITY_MISMATCH directly."""
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    canonical = b"identity-mismatch-negative-pin"
+    blob = crypto_factory.make_bundle_blob(
+        canonical_bytes=canonical,
+        identity="any.subject@example.com",
+        issuer="https://accounts.google.com",
     )
-    result = signing.sign(canonical_bytes_simple, google_provider)
-    sb = signing.SignatureBundle(
+    bundle = signing.SignatureBundle(
         identity_scheme="sigstore-public-v1",
-        bundles=[result.bundle_json],
-        canonical_bytes=canonical_bytes_simple,
+        bundles=[blob],
+        canonical_bytes=canonical,
         canon_version="knurl-1.0",
     )
-    vr = signing.verify(canonical_bytes_simple, sb)
-    assert vr.status == signing.VerifyStatus.IDENTITY_MISMATCH
+    vr = signing.verify(canonical, bundle)
+    assert vr.status != signing.VerifyStatus.IDENTITY_MISMATCH
 
 
 # Enforces: non-ASCII identity in the cert SAN round-trips correctly. Catches

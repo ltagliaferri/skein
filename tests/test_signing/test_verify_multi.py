@@ -11,6 +11,7 @@ bundles in the array MUST return VERIFIED").
 """
 from __future__ import annotations
 
+import itertools
 import random
 
 import pytest
@@ -658,7 +659,6 @@ def test_verify_multi_worst_status_invariant_under_shuffle_with_heterogeneous_fa
         crypto_factory, canonical_bytes_simple,
         identity="carol@example.com", issuer="https://accounts.google.com",
     ), 16)
-    import itertools
     overalls = set()
     permutations = list(itertools.permutations([cert_bad, incl_failed, malformed]))
     for perm in permutations:

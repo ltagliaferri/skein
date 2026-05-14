@@ -41,6 +41,8 @@ pytest.importorskip(
     reason="skein.signing is the phase-3 deliverable; contract collects but skips until then.",
 )
 
+import sigstore as _sigstore  # noqa: E402  (used by the catch-all log test)
+
 from .conftest import HAS_FUNCTIONS, signing  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
@@ -237,8 +239,6 @@ def test_verify_certificate_expired_maps_to_cert_invalid(
 def test_verify_catchall_logs_unrecognized_sigstore_exception(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, caplog
 ):
-    import sigstore as _sigstore  # for __version__ pin below
-
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
         monkeypatch, raise_sigstore_exception="UnrecognizedException",

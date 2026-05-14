@@ -83,10 +83,14 @@ def test_verify_multi_sans_uri_outranks_othername_oid(crypto_factory, monkeypatc
     # 1.3.6.1.4.1.57264.1.24. Second preference edge of the policy ratified
     # by finding-20260514-burb. Fact-pattern is non-hypothetical: Fulcio CI
     # OIDC issues URI + otherName multi-SAN certs.
+    #
+    # otherName value mirrors the Fulcio CI signer-identity shape used by
+    # the single-SAN test at test_verify_extracts_othername_oid_57264_1_24
+    # so the fixture matches real Fulcio wire content.
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     canonical = b"san-uri-vs-othername"
     uri_value = "https://github.com/owner/repo/.github/workflows/ci.yml@refs/heads/main"
-    othername_value = "https://token.actions.githubusercontent.com:owner/repo"
+    othername_value = "repo:owner/repo:ref:refs/heads/main"
     blob = crypto_factory.make_bundle_blob_with_multiple_sans(
         sans=[
             ("otherName_oid_57264_1_24", othername_value),
@@ -109,11 +113,13 @@ def test_verify_multi_sans_three_way_rfc822_wins(crypto_factory, monkeypatch):
     # implementation that prefers rfc822 > URI and URI > otherName but
     # surfaces otherName when all three are present would pass the pairwise
     # tests but fail here.
+    #
+    # otherName value mirrors the Fulcio CI signer-identity shape.
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     canonical = b"san-three-way"
     rfc822 = "alice@example.com"
     uri = "https://example.com/u/alice"
-    othername = "alice-othername-id"
+    othername = "repo:alice/site:ref:refs/heads/main"
     blob = crypto_factory.make_bundle_blob_with_multiple_sans(
         sans=[
             ("otherName_oid_57264_1_24", othername),

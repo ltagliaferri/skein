@@ -270,12 +270,15 @@ def crypto_factory():
             names verify failure modes rekor_unreachable, rekor_timeout,
             tuf_unavailable_no_cached_root, and bundle_parse_error. The
             raise_sigstore_exception option takes a class-name string: real
-            sigstore.errors classes are raised verbatim; names not in the
+            sigstore.errors classes are raised verbatim. Names not in the
             sigstore-python exception hierarchy (e.g. "UnrecognizedException")
-            are synthesized as anonymous classes carrying that name, so
-            tests can exercise the d3u6 §5 catch-all branch in
-            _map_sigstore_exception without depending on a specific upstream
-            class to be unknown.
+            are synthesized as ad-hoc subclasses of Exception (NOT of
+            sigstore.errors.VerificationError) carrying the supplied name,
+            so tests can exercise the d3u6 §5 catch-all branch in
+            _map_sigstore_exception under the broader "unrecognized exception
+            class entirely" rule, not just the "VerificationError subclass we
+            don't know" rule. Phase 3's catch-all must catch Exception (or
+            equivalent), not only sigstore.errors.VerificationError.
 
         factory.make_staging_verifier() -> sigstore.verify.verifier.Verifier
             Returns an unpatched sigstore-python staging verifier configured

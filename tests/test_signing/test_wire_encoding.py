@@ -92,3 +92,24 @@ def test_signature_bundle_round_trip_byte_edge_cases(canonical):
     sb = _bundle(canonical)
     sb2 = signing.SignatureBundle.model_validate_json(sb.model_dump_json())
     assert sb2.canonical_bytes == canonical
+
+
+def test_signature_bundle_json_canonical_serialization():
+    canonical = b"federation-canonical-json"
+    sb = _bundle(canonical)
+    j1 = sb.model_dump_json()
+    sb2 = signing.SignatureBundle.model_validate_json(j1)
+    j2 = sb2.model_dump_json()
+    assert j1 == j2
+
+
+def test_signature_bundle_json_whitespace_variant_canonicalizes():
+    raw = '{  "identity_scheme":"sigstore-public-v1", "bundles":[ "<placeholder-sigstore-bundle-protojson>" ], "canonical_bytes":"YQ==", "canon_version":"knurl-1.0" }'
+    parsed = signing.SignatureBundle.model_validate_json(raw)
+    assert parsed.model_dump_json() == _bundle(b"a").model_dump_json()
+
+
+def test_signature_bundle_json_key_order_variant_canonicalizes():
+    raw = '{"canon_version":"knurl-1.0","canonical_bytes":"YQ==","bundles":["<placeholder-sigstore-bundle-protojson>"],"identity_scheme":"sigstore-public-v1"}'
+    parsed = signing.SignatureBundle.model_validate_json(raw)
+    assert parsed.model_dump_json() == _bundle(b"a").model_dump_json()

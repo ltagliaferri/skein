@@ -258,6 +258,26 @@ def test_verify_uses_caller_canonical_bytes_not_stored(
     assert vr.status == signing.VerifyStatus.SIGNATURE_MISMATCH
 
 
+# Enforces: canonical_bytes are byte-exact; Unicode normalization drift still
+# breaks signature verification.
+def test_canonical_bytes_nfc_nfd_drift_returns_signature_mismatch(
+    crypto_factory, google_provider, monkeypatch
+):
+    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    canonical_nfc = "josé: résumé".encode("utf-8")
+    canonical_nfd = "jose\u0301: re\u0301sume\u0301".encode("utf-8")
+    result = signing.sign(canonical_nfc, google_provider)
+    sb = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1",
+        bundles=[result.bundle_json],
+        canonical_bytes=canonical_nfc,
+        canon_version="knurl-1.0",
+    )
+    vr = signing.verify(canonical_nfd, sb)
+    assert vr.status == signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
 # ---------------------------------------------------------------------------
 # CERT_INVALID — Fulcio cert chain breaks
 # ---------------------------------------------------------------------------
@@ -279,6 +299,75 @@ def test_verify_cert_invalid_on_tampered_cert(
         canon_version="knurl-1.0",
     )
     vr = signing.verify(canonical_bytes_simple, sb)
+    assert vr.status == signing.VerifyStatus.CERT_INVALID
+
+
+def test_verify_accepts_chain_length_1(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    blob = crypto_factory.make_bundle_blob_with_chain_length(
+        chain_length=1,
+        canonical_bytes=canonical_bytes_simple,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
+    )
+    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    assert vr.status == signing.VerifyStatus.VERIFIED
+
+
+def test_verify_accepts_chain_length_2_with_intermediate(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    blob = crypto_factory.make_bundle_blob_with_chain_length(
+        chain_length=2,
+        canonical_bytes=canonical_bytes_simple,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
+    )
+    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    assert vr.status == signing.VerifyStatus.VERIFIED
+
+
+def test_verify_accepts_chain_length_3_with_two_intermediates(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    blob = crypto_factory.make_bundle_blob_with_chain_length(
+        chain_length=3,
+        canonical_bytes=canonical_bytes_simple,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
+    )
+    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    assert vr.status == signing.VerifyStatus.VERIFIED
+
+
+def test_verify_rejects_broken_chain_unchained_to_root(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    blob = crypto_factory.make_bundle_blob_with_broken_chain(
+        canonical_bytes=canonical_bytes_simple,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
+    )
+    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    assert vr.status == signing.VerifyStatus.CERT_INVALID
+
+
+def test_verify_rejects_chain_length_0_self_signed_leaf(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    blob = crypto_factory.make_bundle_blob_with_chain_length(
+        chain_length=0,
+        canonical_bytes=canonical_bytes_simple,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
+    )
+    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 

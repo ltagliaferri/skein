@@ -979,11 +979,7 @@ class TestUnrelatedRekorEntry:
             canon_version="knurl-1.0",
         )
         result = signing.verify(payload_b, sb)
-        assert result.status in (
-            signing.VerifyStatus.INCLUSION_FAILED,
-            signing.VerifyStatus.SIGNATURE_MISMATCH,
-            signing.VerifyStatus.BUNDLE_MALFORMED,
-        )
+        assert result.status == signing.VerifyStatus.INCLUSION_FAILED
 
 
 # ---------------------------------------------------------------------------

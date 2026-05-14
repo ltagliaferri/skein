@@ -11,6 +11,7 @@ bundle_json, issuer, subject, signing_timestamp, evidence).
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -18,6 +19,8 @@ import sys
 import threading
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric import utils
 
 pytest.importorskip(
     "skein.signing",
@@ -203,7 +206,59 @@ def test_sign_is_non_deterministic(
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     a = signing.sign(canonical_bytes_simple, google_provider)
     b = signing.sign(canonical_bytes_simple, google_provider)
-    assert a.bundle_json != b.bundle_json
+    _assert_sign_results_differ_per_field(a.bundle_json, b.bundle_json)
+
+
+def _find_first(node, key):
+    if isinstance(node, dict):
+        if key in node:
+            return node[key]
+        for value in node.values():
+            found = _find_first(value, key)
+            if found is not None:
+                return found
+    if isinstance(node, list):
+        for item in node:
+            found = _find_first(item, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _assert_different(field: str, left, right):
+    assert left != right, f"sign() non-determinism regression: {field} unexpectedly constant"
+
+
+def _assert_sign_results_differ_per_field(bundle_a: str, bundle_b: str) -> None:
+    obj_a = json.loads(bundle_a)
+    obj_b = json.loads(bundle_b)
+
+    sig_a = base64.b64decode(_find_first(obj_a, "signature"))
+    sig_b = base64.b64decode(_find_first(obj_b, "signature"))
+    rs_a = utils.decode_dss_signature(sig_a)
+    rs_b = utils.decode_dss_signature(sig_b)
+    _assert_different("ecdsa_signature_r_s", rs_a, rs_b)
+
+    cert_a = x509.load_der_x509_certificate(base64.b64decode(_find_first(obj_a, "rawBytes")))
+    cert_b = x509.load_der_x509_certificate(base64.b64decode(_find_first(obj_b, "rawBytes")))
+    _assert_different("cert_serial_number", cert_a.serial_number, cert_b.serial_number)
+    _assert_different(
+        "cert_public_key",
+        cert_a.public_key().public_numbers(),
+        cert_b.public_key().public_numbers(),
+    )
+    _assert_different(
+        "cert_validity_window",
+        (cert_a.not_valid_before_utc, cert_a.not_valid_after_utc),
+        (cert_b.not_valid_before_utc, cert_b.not_valid_after_utc),
+    )
+
+    _assert_different("rekor_log_index", _find_first(obj_a, "logIndex"), _find_first(obj_b, "logIndex"))
+    _assert_different(
+        "tsa_timestamp_microseconds",
+        _find_first(obj_a, "timestamp"),
+        _find_first(obj_b, "timestamp"),
+    )
 
 
 # Enforces: both bundles verify against the same canonical_bytes. Non-determinism

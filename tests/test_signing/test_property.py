@@ -46,6 +46,7 @@ from hypothesis import (  # noqa: E402
 )
 
 from .conftest import HAS_FUNCTIONS, signing  # noqa: E402
+from .test_sign import _assert_sign_results_differ_per_field  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     not HAS_FUNCTIONS,
@@ -616,4 +617,4 @@ def test_property_two_signs_produce_different_bundles(
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     a = signing.sign(canonical_bytes, google_provider)
     b = signing.sign(canonical_bytes, google_provider)
-    assert a.bundle_json != b.bundle_json
+    _assert_sign_results_differ_per_field(a.bundle_json, b.bundle_json)

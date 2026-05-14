@@ -117,10 +117,10 @@ def test_verify_identity_punycode_vs_unicode_issuer(crypto_factory, monkeypatch)
         issuer=unicode_issuer,
     )
 
-    if punycode_result.status == signing.VerifyStatus.VERIFIED:
-        assert punycode_result.issuer == punycode_issuer
-    if unicode_result.status == signing.VerifyStatus.VERIFIED:
-        assert unicode_result.issuer == unicode_issuer
+    assert punycode_result.status == signing.VerifyStatus.VERIFIED
+    assert punycode_result.issuer == punycode_issuer
+    assert unicode_result.status == signing.VerifyStatus.VERIFIED
+    assert unicode_result.issuer == unicode_issuer
     assert punycode_result.issuer != unicode_result.issuer
 
 
@@ -140,10 +140,10 @@ def test_verify_identity_confusable_issuer_io_vs_com(crypto_factory, monkeypatch
         issuer="https://oauth.sigstore.com",
     )
 
-    if io_result.status == signing.VerifyStatus.VERIFIED:
-        assert io_result.issuer == "https://oauth.sigstore.io"
-    if com_result.status == signing.VerifyStatus.VERIFIED:
-        assert com_result.issuer == "https://oauth.sigstore.com"
+    assert io_result.status == signing.VerifyStatus.VERIFIED
+    assert io_result.issuer == "https://oauth.sigstore.io"
+    assert com_result.status == signing.VerifyStatus.VERIFIED
+    assert com_result.issuer == "https://oauth.sigstore.com"
     assert io_result.issuer != com_result.issuer
 
 

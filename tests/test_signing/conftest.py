@@ -282,6 +282,29 @@ def crypto_factory():
             Tests may pass cert=factory.make_cert_with_curve(...) to request a
             specific leaf certificate public-key algorithm.
 
+        factory.make_bundle_blob_with_san(
+            *, san_type: str, value: str, canonical_bytes, identity, issuer
+        ) -> str
+            Returns a bundle with a leaf cert SAN extension containing one
+            caller-selected SAN variant. Supported san_type values:
+            "rfc822Name", "uniformResourceIdentifier",
+            "otherName_oid_57264_1_24".
+
+        factory.make_bundle_blob_with_multiple_sans(
+            *, sans: list[tuple[str, str]], canonical_bytes, identity, issuer
+        ) -> str
+            Returns a bundle with multiple SAN entries in one cert.
+
+        factory.make_bundle_blob_with_missing_san(
+            *, canonical_bytes, identity, issuer
+        ) -> str
+            Returns a bundle whose leaf cert has no SAN extension.
+
+        factory.make_bundle_blob_with_malformed_ia5string_san(
+            *, canonical_bytes, identity, issuer
+        ) -> str
+            Returns a bundle whose SAN IA5String bytes are malformed.
+
         factory.make_dsse_envelope_bundle(canonical_bytes) -> str
             Returns a bundle that uses dsseEnvelope (out-of-profile for SKEIN).
 
@@ -310,6 +333,18 @@ def crypto_factory():
             Returns a bundle whose Rekor inclusion proof is exactly the supplied
             Merkle witness. If checkpoint is None, the factory signs a matching
             C2SP signed-note checkpoint with the active test Rekor key.
+
+        factory.make_bundle_blob_with_chain_length(
+            *, chain_length: int, canonical_bytes, identity, issuer
+        ) -> str
+            Returns a bundle with a leaf chain of caller-selected length:
+            0=self-signed leaf, 1=leaf+root, 2+=leaf+intermediates+root.
+
+        factory.make_bundle_blob_with_broken_chain(
+            *, canonical_bytes, identity, issuer
+        ) -> str
+            Returns a bundle whose leaf signs under an intermediate that does
+            not chain to a trusted root.
 
         factory.make_checkpoint(*, tree_size, root_hash, log_id=None) -> str
             Returns a C2SP signed-note checkpoint binding tree_size and

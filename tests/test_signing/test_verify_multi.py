@@ -331,7 +331,11 @@ def test_verify_multi_cross_payload_signer_fails(
     multi = signing.verify_multi(canonical_bytes_simple, sb)
     assert multi.results[0].status == signing.VerifyStatus.VERIFIED
     assert multi.results[1].status == signing.VerifyStatus.SIGNATURE_MISMATCH
-    assert multi.overall != signing.VerifyStatus.VERIFIED
+    # Tightened by finding-20260514-caqj (worst-status aggregation): a
+    # legitimately-VERIFIED first signer does not mask the forgery signal on
+    # the second. overall surfaces the worst per-bundle status, not just
+    # "something failed."
+    assert multi.overall == signing.VerifyStatus.SIGNATURE_MISMATCH
 
 
 # ---------------------------------------------------------------------------
@@ -480,3 +484,215 @@ def test_empty_bundles_raises_at_construction_not_in_verify_multi(
             canonical_bytes=canonical_bytes_simple,
             canon_version="knurl-1.0",
         )
+
+
+# ---------------------------------------------------------------------------
+# Worst-status aggregation with severity ordering (finding-20260514-caqj,
+# closes brief-20260514-k7s1)
+# ---------------------------------------------------------------------------
+#
+# Severity order on VerifyStatus (worst → mildest):
+#
+#   SIGNATURE_MISMATCH > CERT_INVALID > INCLUSION_FAILED > BUNDLE_MALFORMED >
+#       TRUST_ROOT_STALE > OFFLINE_NO_TRUSTED_ROOT > IDENTITY_MISMATCH > VERIFIED
+#
+# overall = max(results[].status, key=severity-rank). All-VERIFIED → VERIFIED.
+# Any failure → the worst failure status present (never VERIFIED).
+#
+# Tested severity coverage in heterogeneous mixtures: SIG_MISMATCH > CERT_INVALID
+# > INCLUSION_FAILED > BUNDLE_MALFORMED. The remaining edges (TRUST_ROOT_STALE,
+# OFFLINE_NO_TRUSTED_ROOT, IDENTITY_MISMATCH) are verifier-state / authorization
+# concerns that apply uniformly across a SignatureBundle, not per-signer; the
+# all-same-status case is already pinned by
+# test_verify_multi_all_fail_same_status_overall_matches.
+
+
+def _good_blob(crypto_factory, canonical_bytes, *, identity, issuer):
+    return crypto_factory.make_bundle_blob(
+        canonical_bytes=canonical_bytes,
+        identity=identity,
+        issuer=issuer,
+    )
+
+
+def _sb(canonical_bytes, blobs):
+    return signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1",
+        bundles=blobs,
+        canonical_bytes=canonical_bytes,
+        canon_version="knurl-1.0",
+    )
+
+
+# Enforces: SIGNATURE_MISMATCH outranks CERT_INVALID. A cross-payload signer
+# (forgery class) wins over an untrusted-cert signer. The strongest adversarial
+# signal — proof that bytes do not match a signature — surfaces as overall.
+def test_verify_multi_worst_status_signature_mismatch_over_cert_invalid(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    cert_bad_seed = _good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="alice@example.com", issuer="https://accounts.google.com",
+    )
+    cert_bad = crypto_factory.tamper_cert(cert_bad_seed)
+    sig_mismatch = _good_blob(
+        crypto_factory, canonical_bytes_simple + b"_other_folio",
+        identity="bob@example.com", issuer="https://github.com/login/oauth",
+    )
+    multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, [cert_bad, sig_mismatch]))
+    assert multi.results[0].status == signing.VerifyStatus.CERT_INVALID
+    assert multi.results[1].status == signing.VerifyStatus.SIGNATURE_MISMATCH
+    assert multi.overall == signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
+# Enforces: SIGNATURE_MISMATCH outranks INCLUSION_FAILED. Bytes-forgery beats
+# stripped Rekor proof.
+def test_verify_multi_worst_status_signature_mismatch_over_inclusion_failed(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    incl_seed = _good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="alice@example.com", issuer="https://accounts.google.com",
+    )
+    incl_failed = crypto_factory.strip_rekor_proof(incl_seed)
+    sig_mismatch = _good_blob(
+        crypto_factory, canonical_bytes_simple + b"_other_folio",
+        identity="bob@example.com", issuer="https://github.com/login/oauth",
+    )
+    multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, [incl_failed, sig_mismatch]))
+    assert multi.results[0].status == signing.VerifyStatus.INCLUSION_FAILED
+    assert multi.results[1].status == signing.VerifyStatus.SIGNATURE_MISMATCH
+    assert multi.overall == signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
+# Enforces: CERT_INVALID outranks INCLUSION_FAILED. Untrusted issuer beats
+# missing transparency-log evidence.
+def test_verify_multi_worst_status_cert_invalid_over_inclusion_failed(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    cert_seed = _good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="alice@example.com", issuer="https://accounts.google.com",
+    )
+    cert_bad = crypto_factory.tamper_cert(cert_seed)
+    incl_seed = _good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="bob@example.com", issuer="https://github.com/login/oauth",
+    )
+    incl_failed = crypto_factory.strip_rekor_proof(incl_seed)
+    multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, [cert_bad, incl_failed]))
+    assert multi.results[0].status == signing.VerifyStatus.CERT_INVALID
+    assert multi.results[1].status == signing.VerifyStatus.INCLUSION_FAILED
+    assert multi.overall == signing.VerifyStatus.CERT_INVALID
+
+
+# Enforces: INCLUSION_FAILED outranks BUNDLE_MALFORMED. A signer with a
+# stripped Rekor proof outranks a signer whose bundle is just unparseable.
+def test_verify_multi_worst_status_inclusion_failed_over_bundle_malformed(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    incl_seed = _good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="alice@example.com", issuer="https://accounts.google.com",
+    )
+    incl_failed = crypto_factory.strip_rekor_proof(incl_seed)
+    malformed_seed = _good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="bob@example.com", issuer="https://github.com/login/oauth",
+    )
+    malformed = crypto_factory.truncate(malformed_seed, max(1, len(malformed_seed) // 2))
+    multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, [malformed, incl_failed]))
+    assert multi.results[0].status == signing.VerifyStatus.BUNDLE_MALFORMED
+    assert multi.results[1].status == signing.VerifyStatus.INCLUSION_FAILED
+    assert multi.overall == signing.VerifyStatus.INCLUSION_FAILED
+
+
+# Enforces: a three-way heterogeneous mixture (CERT_INVALID, INCLUSION_FAILED,
+# SIGNATURE_MISMATCH) surfaces SIGNATURE_MISMATCH as overall. The full
+# top-of-order rule under realistic adversarial mix.
+def test_verify_multi_worst_status_three_way_heterogeneous_picks_signature_mismatch(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    cert_bad = crypto_factory.tamper_cert(_good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="alice@example.com", issuer="https://accounts.google.com",
+    ))
+    incl_failed = crypto_factory.strip_rekor_proof(_good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="bob@example.com", issuer="https://github.com/login/oauth",
+    ))
+    sig_mismatch = _good_blob(
+        crypto_factory, canonical_bytes_simple + b"_other_folio",
+        identity="carol@example.com", issuer="https://accounts.google.com",
+    )
+    multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, [cert_bad, incl_failed, sig_mismatch]))
+    statuses = [r.status for r in multi.results]
+    assert signing.VerifyStatus.CERT_INVALID in statuses
+    assert signing.VerifyStatus.INCLUSION_FAILED in statuses
+    assert signing.VerifyStatus.SIGNATURE_MISMATCH in statuses
+    assert multi.overall == signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
+# Enforces: shuffle-invariance over a heterogeneous failure mixture. The
+# worst-status rule is permutation-invariant by construction — verify it
+# directly against an adversary that reorders bundles to try to change the
+# overall classification.
+def test_verify_multi_worst_status_invariant_under_shuffle_with_heterogeneous_failures(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    cert_bad = crypto_factory.tamper_cert(_good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="alice@example.com", issuer="https://accounts.google.com",
+    ))
+    incl_failed = crypto_factory.strip_rekor_proof(_good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="bob@example.com", issuer="https://github.com/login/oauth",
+    ))
+    malformed = crypto_factory.truncate(_good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="carol@example.com", issuer="https://accounts.google.com",
+    ), 16)
+    blobs = [cert_bad, incl_failed, malformed]
+    overalls = set()
+    permutations = [
+        [cert_bad, incl_failed, malformed],
+        [cert_bad, malformed, incl_failed],
+        [incl_failed, cert_bad, malformed],
+        [incl_failed, malformed, cert_bad],
+        [malformed, cert_bad, incl_failed],
+        [malformed, incl_failed, cert_bad],
+    ]
+    for perm in permutations:
+        multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, perm))
+        overalls.add(multi.overall)
+    assert overalls == {signing.VerifyStatus.CERT_INVALID}, (
+        f"overall must be invariant under shuffle of the same failure multiset; got {overalls}"
+    )
+
+
+# Enforces: a single VERIFIED result among failures does not save overall.
+# overall surfaces the worst failure, NOT a soft-pass on "at least someone
+# verified."
+def test_verify_multi_worst_status_one_verified_does_not_save_overall(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    good = _good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="alice@example.com", issuer="https://accounts.google.com",
+    )
+    cert_bad = crypto_factory.tamper_cert(_good_blob(
+        crypto_factory, canonical_bytes_simple,
+        identity="bob@example.com", issuer="https://github.com/login/oauth",
+    ))
+    multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, [good, cert_bad]))
+    assert multi.results[0].status == signing.VerifyStatus.VERIFIED
+    assert multi.results[1].status == signing.VerifyStatus.CERT_INVALID
+    assert multi.overall == signing.VerifyStatus.CERT_INVALID
+    assert multi.overall != signing.VerifyStatus.VERIFIED

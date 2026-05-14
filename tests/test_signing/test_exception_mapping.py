@@ -224,6 +224,47 @@ def test_verify_certificate_expired_maps_to_cert_invalid(
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 
+# Enforces: when sigstore-python raises an exception that doesn't match a row
+# in the d3u6 §5 mapping table, verify() routes to BUNDLE_MALFORMED AND emits
+# a WARNING-level log. The log lets operators detect upstream library drift
+# before it becomes silent misclassification. Closes brief-20260514-7i3w.
+#
+# Log format requirements (from brief-20260514-7i3w):
+# - WARNING level
+# - Grep-able prefix "signing.exception_catchall"
+# - Includes the exception class name (for triage)
+# - Includes sigstore.__version__ (for version-skew diagnosis)
+def test_verify_catchall_logs_unrecognized_sigstore_exception(
+    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, caplog
+):
+    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+    crypto_factory.install_verify_monkeypatch(
+        monkeypatch, raise_sigstore_exception="UnrecognizedException",
+    )
+    result = signing.sign(canonical_bytes_simple, google_provider)
+    sb = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1",
+        bundles=[result.bundle_json],
+        canonical_bytes=canonical_bytes_simple,
+        canon_version="knurl-1.0",
+    )
+    with caplog.at_level("WARNING"):
+        vr = signing.verify(canonical_bytes_simple, sb)
+    assert vr.status == signing.VerifyStatus.BUNDLE_MALFORMED
+    catchall_records = [
+        r for r in caplog.records
+        if "signing.exception_catchall" in r.getMessage()
+    ]
+    assert catchall_records, (
+        "expected at least one WARNING log with 'signing.exception_catchall' prefix; "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
+    assert any(r.levelname == "WARNING" for r in catchall_records)
+    assert any("UnrecognizedException" in r.getMessage() for r in catchall_records), (
+        "log must include the unrecognized exception class name for triage"
+    )
+
+
 # Enforces: bare VerificationError (no recognized subclass) maps to BUNDLE_MALFORMED
 # (fallback per clarification 5: "If a future library version raises an exception
 # we don't recognize, the verify path treats it as BUNDLE_MALFORMED and logs the

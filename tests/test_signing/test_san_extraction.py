@@ -62,7 +62,10 @@ def test_verify_extracts_othername_oid_57264_1_24(crypto_factory, monkeypatch):
 
 
 def test_verify_multiple_sans_extraction_policy(crypto_factory, monkeypatch):
-    # Policy pin: prefer rfc822Name when present, then URI fallback.
+    # Policy pin per finding-20260514-burb (closes brief-20260514-cw13):
+    # multi-SAN preference order is rfc822Name → uniformResourceIdentifier →
+    # otherName OID 1.3.6.1.4.1.57264.1.24. This test covers the rfc822Name-vs-URI
+    # edge; the full order is normative in the finding.
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     canonical = b"san-multi"
     blob = crypto_factory.make_bundle_blob_with_multiple_sans(

@@ -268,7 +268,14 @@ def crypto_factory():
             Patches the sigstore-python verify boundary. Default is success;
             options drive specific VerifyStatus outcomes for testing. Batch 6
             names verify failure modes rekor_unreachable, rekor_timeout,
-            tuf_unavailable_no_cached_root, and bundle_parse_error.
+            tuf_unavailable_no_cached_root, and bundle_parse_error. The
+            raise_sigstore_exception option takes a class-name string: real
+            sigstore.errors classes are raised verbatim; names not in the
+            sigstore-python exception hierarchy (e.g. "UnrecognizedException")
+            are synthesized as anonymous classes carrying that name, so
+            tests can exercise the d3u6 §5 catch-all branch in
+            _map_sigstore_exception without depending on a specific upstream
+            class to be unknown.
 
         factory.make_staging_verifier() -> sigstore.verify.verifier.Verifier
             Returns an unpatched sigstore-python staging verifier configured

@@ -658,16 +658,9 @@ def test_verify_multi_worst_status_invariant_under_shuffle_with_heterogeneous_fa
         crypto_factory, canonical_bytes_simple,
         identity="carol@example.com", issuer="https://accounts.google.com",
     ), 16)
-    blobs = [cert_bad, incl_failed, malformed]
+    import itertools
     overalls = set()
-    permutations = [
-        [cert_bad, incl_failed, malformed],
-        [cert_bad, malformed, incl_failed],
-        [incl_failed, cert_bad, malformed],
-        [incl_failed, malformed, cert_bad],
-        [malformed, cert_bad, incl_failed],
-        [malformed, incl_failed, cert_bad],
-    ]
+    permutations = list(itertools.permutations([cert_bad, incl_failed, malformed]))
     for perm in permutations:
         multi = signing.verify_multi(canonical_bytes_simple, _sb(canonical_bytes_simple, perm))
         overalls.add(multi.overall)

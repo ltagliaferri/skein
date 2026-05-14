@@ -237,6 +237,8 @@ def test_verify_certificate_expired_maps_to_cert_invalid(
 def test_verify_catchall_logs_unrecognized_sigstore_exception(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, caplog
 ):
+    import sigstore as _sigstore  # for __version__ pin below
+
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
         monkeypatch, raise_sigstore_exception="UnrecognizedException",
@@ -262,6 +264,14 @@ def test_verify_catchall_logs_unrecognized_sigstore_exception(
     assert any(r.levelname == "WARNING" for r in catchall_records)
     assert any("UnrecognizedException" in r.getMessage() for r in catchall_records), (
         "log must include the unrecognized exception class name for triage"
+    )
+    # sigstore.__version__ is the version-skew diagnostic; without it the log
+    # tells operators *what* surface changed but not *which* library version
+    # introduced the change. brief-20260514-7i3w lists this as a required
+    # log payload alongside the exception class name.
+    assert any(_sigstore.__version__ in r.getMessage() for r in catchall_records), (
+        f"log must include sigstore.__version__ ({_sigstore.__version__}) "
+        "for version-skew diagnosis"
     )
 
 

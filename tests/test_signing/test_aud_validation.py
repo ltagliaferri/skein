@@ -114,3 +114,28 @@ def test_sign_does_not_call_fulcio_on_wrong_aud_token(
         signing.sign(canonical_bytes_simple, provider)
 
     assert _fulcio_call_count(crypto_factory, spy) == 0
+
+
+# Enforces: finding-20260513-tx8r fail-closed branch (A8). An allowlisted issuer
+# paired with a token that is not JWT-shaped cannot have its aud validated, so
+# sign() rejects it before Fulcio rather than silently passing it through (the
+# Phase-2 behavior finding-20260513-tx8r replaced). A revert to passthrough —
+# which would pass every other aud test — fails this one.
+def test_sign_rejects_non_jwt_token_from_allowlisted_issuer(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    provider = signing.OIDCProviderConfig(
+        issuer="https://accounts.google.com",
+        token="test-google-token",  # opaque, not header.payload.sig shaped
+        provider_id="google",
+    )
+    spy = crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
+
+    with pytest.raises(
+        signing.SigningUnavailable,
+        match=r"OIDC token is not JWT-shaped, cannot validate aud",
+    ) as exc:
+        signing.sign(canonical_bytes_simple, provider)
+
+    assert exc.value.component == "oidc"
+    assert _fulcio_call_count(crypto_factory, spy) == 0

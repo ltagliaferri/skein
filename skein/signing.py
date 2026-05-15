@@ -682,6 +682,33 @@ def _select_verifier(trust_root_pin: str | None) -> Any:
             raise _TrustRootError(VerifyStatus.OFFLINE_NO_TRUSTED_ROOT)
         for root in trust_roots:
             if getattr(root, "pin", None) == trust_root_pin:
+                # finding-20260513-w5hq §3(a): the era-correct trust root must
+                # validate the chain. If the matched root carries a
+                # materializable sigstore TrustedRoot, build the verifier
+                # around it.
+                materialized = getattr(root, "trusted_root", None)
+                if materialized is None and hasattr(root, "to_trusted_root"):
+                    try:
+                        materialized = root.to_trusted_root()
+                    except Exception:  # noqa: BLE001
+                        materialized = None
+                if materialized is not None:
+                    return Verifier(trusted_root=materialized)
+                # v0 does NOT vendor historical Sigstore trust roots, so an
+                # era root cannot be materialized into a real TrustedRoot
+                # here. v0 sign() never populates trust_root_pin, so no v0
+                # bundle reaches this branch in production; we fall back to
+                # the production/current verifier rather than fail closed
+                # (behavior-(a) requires VERIFIED when the bundle is valid).
+                # Logged, not silent, so the gap is visible until historical
+                # roots are vendored (Phase 4 / brief-20260514-me2x).
+                logger.warning(
+                    "signing.trust_root_pin_era_unmaterialized: pin %s matched "
+                    "a known era root but v0 cannot build an era-specific "
+                    "TrustedRoot; verifying against the production/current "
+                    "trust root instead.",
+                    trust_root_pin,
+                )
                 return _build_production_verifier()
         raise _TrustRootError(VerifyStatus.TRUST_ROOT_STALE)
 
@@ -760,17 +787,25 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
 
 
 def _pre_process_bundle_json(blob: str) -> str:
-    """Soften two sigstore-python 4.2.0 strictnesses that conflict with
-    the v0.3 spec / forward-compat requirement.
+    """Strip unknown top-level fields for forward-compat.
 
-    1. v0.3 spec permits a bundle whose only sign-time witness is an
-       inclusion proof (no inclusionPromise, no timestampVerificationData).
-       sigstore-python's Bundle._verify requires one or the other; insert a
-       synthetic inclusion_promise when neither is present so the bundle
-       parses, then verification proceeds on the inclusion proof.
-    2. Strict pydantic top-level: an extra unknown field — e.g. a future
-       protocol revision adding a sibling key — should not block verify per
-       the conformance test contract.
+    A future protocol revision adding a sibling key to the bundle envelope
+    must not block verify (conformance test contract). Unknown top-level
+    keys are dropped before Bundle.from_json so strict pydantic parsing does
+    not reject the bundle on an additive field alone.
+
+    Note: bundle JSON is NOT byte-stable through verify() — when a field is
+    stripped this re-serializes via json.dumps, which is not the canonical
+    sigstore ProtoJSON encoding. Callers must not assume byte identity of
+    the blob across verify(); the parsed sigstore.models.Bundle is the
+    authoritative form (and round-trips idempotently through to_json()).
+
+    No synthetic inclusion_promise is injected: a v0.3 bundle whose only
+    witness is an inclusion proof (no SET, no TSA) is rejected by
+    sigstore-python 4.2.0's Bundle._verify. That library constraint is
+    documented and tracked by the bundle_v3_no_signed_time corpus xfail
+    (test_conformance.py); fabricating a 64-byte all-zero SET only created
+    invalid material the pipeline then had to reject.
 
     Returns the JSON ready for Bundle.from_json. Falls back to the original
     blob on any pre-processing failure.
@@ -783,31 +818,10 @@ def _pre_process_bundle_json(blob: str) -> str:
         return blob
 
     changed = False
-    # (2) strip unknown top-level fields.
     for key in list(obj):
         if key not in _BUNDLE_TOP_LEVEL_FIELDS:
             del obj[key]
             changed = True
-
-    # (1) add synthetic inclusion_promise when missing for v0.3 bundles.
-    try:
-        vm = obj.get("verificationMaterial") or {}
-        tlogs = vm.get("tlogEntries") or []
-        has_tsa = bool((vm.get("timestampVerificationData") or {}).get("rfc3161Timestamps"))
-        for entry in tlogs:
-            if entry.get("inclusionPromise"):
-                continue
-            if has_tsa:
-                continue
-            if not entry.get("inclusionProof", {}).get("checkpoint"):
-                continue
-            # Inclusion proof present, no SET, no TSA → inject synthetic SET.
-            entry["inclusionPromise"] = {
-                "signedEntryTimestamp": base64.b64encode(b"\x00" * 64).decode("ascii"),
-            }
-            changed = True
-    except Exception:  # noqa: BLE001
-        pass
 
     if changed:
         return json.dumps(obj)

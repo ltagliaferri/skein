@@ -16,7 +16,7 @@ pytest.importorskip(
     reason="skein.signing is the phase-3 deliverable; contract collects but skips until then.",
 )
 
-from hypothesis import assume, given, settings, strategies as st  # noqa: E402
+from hypothesis import HealthCheck, assume, given, settings, strategies as st  # noqa: E402
 
 from .conftest import HAS_FUNCTIONS, signing  # noqa: E402
 
@@ -101,7 +101,11 @@ def _bundle_with_merkle_proof(
     log_index=st.integers(min_value=0, max_value=999),
     tree_size=st.integers(min_value=1, max_value=999),
 )
-@settings(max_examples=50, deadline=None)
+@settings(
+    max_examples=50,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 def test_property_verify_recomputes_merkle_root_from_audit_path(
     crypto_factory, monkeypatch, log_index, tree_size
 ):

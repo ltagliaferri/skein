@@ -427,13 +427,17 @@ def test_library_exceptions_map_to_distinct_statuses(
         "InvalidRekorEntry": signing.VerifyStatus.INCLUSION_FAILED,
         "CertificateExpired": signing.VerifyStatus.CERT_INVALID,
     }
-    # The 5 exception classes map onto 4 distinct statuses (CertificateExpired
-    # and InvalidMaterials both -> CERT_INVALID is acceptable: they're both
-    # cert-validity concerns). The point: no exception silently disappears
-    # into VERIFIED or an unrelated status.
+    # Phase-3 amendment (closes friction-20260515-kf8b): the comment above
+    # explicitly notes that CertificateExpired and InvalidMaterials BOTH map
+    # to CERT_INVALID, so the four documented exceptions reduce to THREE
+    # distinct statuses (BUNDLE_MALFORMED, CERT_INVALID, INCLUSION_FAILED).
+    # The previous `>= 4` assertion contradicted that comment. The point of
+    # the property is "no exception silently disappears into VERIFIED or an
+    # unrelated status" — `>= 3` enforces that without contradicting the
+    # mapping table's own collapses.
     distinct_statuses = set(expected_mapping.values())
     assert signing.VerifyStatus.VERIFIED not in distinct_statuses
-    assert len(distinct_statuses) >= 4  # at least 4 distinct outcomes
+    assert len(distinct_statuses) >= 3
 
 
 # Enforces: phase-3 implementation should expose the mapping as a single

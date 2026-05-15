@@ -283,6 +283,24 @@ def _now_microseconds() -> int:
 
 # ---------------------------------------------------------------------------
 # Exception mapping (d3u6 §5 amended).
+#
+# Matching strategy: by class name only, applied uniformly to every rule.
+# The prior code mixed `name == ...` and `isinstance(...)` per branch, which
+# the fell flagged as inconsistent (finding-20260515 N3). It is resolved in
+# favour of name matching because that is the load-bearing mechanism here:
+#   - sigstore-python 4.2.0 has a flat public error surface; the specific
+#     exceptions d3u6 §5 maps are matched exactly by __class__.__name__.
+#   - The private sigstore._internal.* exceptions (FulcioClientError,
+#     RekorClientError, TimestampError, ExpiredCertificate) do NOT subclass
+#     the public hierarchy, so isinstance against public bases never matched
+#     them — only the name does.
+#   - Synthetic test doubles raised by _synthesize_exception use the real
+#     class for known names (name matches) or an ad-hoc Exception subclass
+#     carrying the canonical name (only the name matches).
+# isinstance was therefore redundant for the classes we map; an unknown real
+# subclass falls to the catch-all (BUNDLE_MALFORMED + WARNING), the d3u6 §5
+# safe default. The one non-class rule is the VerificationError +
+# "signature is invalid"/"digest mismatch" message heuristic, kept explicit.
 # ---------------------------------------------------------------------------
 
 
@@ -312,17 +330,18 @@ def _classify_sign_exception(exc: BaseException) -> tuple[str, str]:
 
     if name in ("TimeoutError", "ConnectionError", "ConnectionRefusedError"):
         return ("network", f"network failure: timeout or connection: {msg}")
-    if isinstance(exc, sigstore.errors.NetworkError) or name == "NetworkError":
+    if name == "NetworkError":
         return ("network", f"network failure: {msg or 'unreachable'}")
 
-    if isinstance(exc, sigstore.errors.CertValidationError) or name == "CertValidationError":
+    if name == "CertValidationError":
         return ("fulcio", f"cert validation failed: {msg}")
 
     return ("fulcio", f"sign failed: {name}: {msg}")
 
 
 def _map_sigstore_exception(exc: BaseException) -> VerifyStatus:
-    """Single point of mapping per d3u6 §5 amended.
+    """Single point of mapping per d3u6 §5 amended. Name-based per the
+    strategy note above.
 
     Catch-all branch emits a WARNING log per brief-20260514-7i3w.
     """
@@ -330,15 +349,16 @@ def _map_sigstore_exception(exc: BaseException) -> VerifyStatus:
     msg = str(exc)
     msg_lower = msg.lower()
 
-    # Local signature-mismatch detection.
-    if isinstance(exc, sigstore.errors.VerificationError) and (
+    # Signature-mismatch: the factory signal _SignatureInvalid, or a
+    # sigstore-python VerificationError whose message names the failure.
+    if name == "_SignatureInvalid":
+        return VerifyStatus.SIGNATURE_MISMATCH
+    if name == "VerificationError" and (
         "signature is invalid" in msg_lower or "digest mismatch" in msg_lower
     ):
         return VerifyStatus.SIGNATURE_MISMATCH
-    if name == "_SignatureInvalid":
-        return VerifyStatus.SIGNATURE_MISMATCH
 
-    if isinstance(exc, sigstore.models.InvalidBundle) or name == "InvalidBundle":
+    if name == "InvalidBundle":
         return VerifyStatus.BUNDLE_MALFORMED
 
     if name == "InvalidMaterials":
@@ -348,20 +368,20 @@ def _map_sigstore_exception(exc: BaseException) -> VerifyStatus:
 
     if name in ("CertificateExpired", "ExpiredCertificate"):
         return VerifyStatus.CERT_INVALID
-    if isinstance(exc, sigstore.errors.CertValidationError):
+    if name == "CertValidationError":
         return VerifyStatus.CERT_INVALID
 
     if name == "RekorClientError":
         return VerifyStatus.INCLUSION_FAILED
-    if isinstance(exc, sigstore.errors.NetworkError) or name == "NetworkError":
+    if name == "NetworkError":
         return VerifyStatus.INCLUSION_FAILED
     if name in ("TimeoutError", "ConnectionError", "ConnectionRefusedError"):
         return VerifyStatus.INCLUSION_FAILED
-    if name in ("FulcioClientError",):
+    if name == "FulcioClientError":
         return VerifyStatus.INCLUSION_FAILED
 
     # TUF-related → OFFLINE if we have no root, else BUNDLE_MALFORMED via catch-all.
-    if isinstance(exc, sigstore.errors.TUFError) or name == "TUFError":
+    if name == "TUFError":
         return VerifyStatus.OFFLINE_NO_TRUSTED_ROOT
 
     # Catch-all per brief-20260514-7i3w.
@@ -473,6 +493,10 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
     if raw is None:
         return None
 
+    # Fail-closed-on-malformed-SAN policy (finding-20260514-burb; oracle
+    # actionable #1): a NUL byte or leading/trailing whitespace in the SAN
+    # is visually ambiguous identity material — return None so the caller
+    # surfaces CERT_INVALID rather than trust an ambiguous subject.
     if "\x00" in raw:
         return None
     if raw != raw.strip():
@@ -500,9 +524,17 @@ def _build_rekor_inclusion_proof(bundle: Bundle) -> RekorInclusionProof | None:
         integrated_time_us = int(integrated_time_s) * 1_000_000
         if integrated_time_us < MIN_MICROSECOND_TIMESTAMP:
             integrated_time_us = MIN_MICROSECOND_TIMESTAMP
+        log_index = int(proof.log_index)
+        tree_size = int(proof.tree_size)
+        # log_index >= tree_size is a malformed proof (a leaf cannot sit at
+        # or past the tree it claims membership in). Fail closed: return None
+        # so Evidence.rekor_inclusion is absent and the malformedness is
+        # surfaced, rather than coercing tree_size to paper over it.
+        if log_index >= tree_size:
+            return None
         return RekorInclusionProof(
-            log_index=int(proof.log_index),
-            tree_size=max(int(proof.tree_size), int(proof.log_index) + 1),
+            log_index=log_index,
+            tree_size=tree_size,
             root_hash=base64.b64encode(proof.root_hash).decode("ascii"),
             hashes=[base64.b64encode(h).decode("ascii") for h in proof.hashes],
             checkpoint=checkpoint or "rekor.sigstore.dev\n0\n\n\n",
@@ -531,6 +563,13 @@ def _build_production_signing_context() -> Any:
     """Build a sigstore SigningContext from the production trust config.
 
     Wrapper so the factory has a single patch target.
+
+    Note: brief-20260514-urdk's canonical example shows
+    `SigningContext.production()`, but that classmethod does not exist in
+    sigstore-python 4.2.0 — the real 4.2.0 API is
+    `SigningContext.from_trust_config(ClientTrustConfig.production())`, used
+    here. The brief example is wrong; see friction-20260515-ij78. (Comment
+    only — the brief is not edited.)
     """
     return SigningContext.from_trust_config(ClientTrustConfig.production())
 
@@ -726,12 +765,10 @@ _BUNDLE_TOP_LEVEL_FIELDS: frozenset[str] = frozenset({
 })
 
 
-_DIGEST_LENGTHS: dict[str, int] = {
-    "SHA2_256": 32,
-    "SHA2_384": 48,
-    "SHA2_512": 64,
-    "sha256": 32,
-}
+# sigstore-public-v1 pins SHA-256. SHA2_256 is the proto HashAlgorithm enum
+# name; "sha256" is the alias some encoders emit. Nothing else is in profile.
+_ALLOWED_DIGEST_ALGORITHMS: frozenset[str] = frozenset({"SHA2_256", "sha256"})
+_SHA256_DIGEST_LEN = 32
 
 
 def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
@@ -742,15 +779,19 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     if not isinstance(obj, dict):
         return VerifyStatus.BUNDLE_MALFORMED
 
-    # 1. digest length must match the declared algorithm.
+    # 1. sigstore-public-v1 pins SHA-256. The declared algorithm must be
+    #    SHA2_256 (or the sha256 alias); SHA1/MD5/SHA2_384/SHA2_512 or any
+    #    other value is out of profile. The digest must also be 32 bytes.
     try:
         msg_sig = obj.get("messageSignature") or {}
         msg_digest = msg_sig.get("messageDigest") or {}
         algo = msg_digest.get("algorithm")
         digest_b64 = msg_digest.get("digest")
-        if algo and digest_b64 and algo in _DIGEST_LENGTHS:
+        if algo is not None and algo not in _ALLOWED_DIGEST_ALGORITHMS:
+            return VerifyStatus.BUNDLE_MALFORMED
+        if algo and digest_b64:
             digest = base64.b64decode(digest_b64)
-            if len(digest) != _DIGEST_LENGTHS[algo]:
+            if len(digest) != _SHA256_DIGEST_LEN:
                 return VerifyStatus.BUNDLE_MALFORMED
     except (binascii.Error, ValueError, TypeError):
         return VerifyStatus.BUNDLE_MALFORMED
@@ -850,7 +891,7 @@ def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pi
         return VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)
-    except BaseException as exc:
+    except Exception as exc:
         return VerifyResult(status=_map_sigstore_exception(exc))
 
     # After parse: validate leaf cert pubkey is ECDSA P-256 (sigstore-public-v1
@@ -872,9 +913,7 @@ def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pi
 
     try:
         verifier.verify_artifact(canonical_bytes, bundle, UnsafeNoOp())
-    except SigningUnavailable:
-        return VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)
-    except BaseException as exc:
+    except Exception as exc:
         status = _map_sigstore_exception(exc)
         if status == VerifyStatus.IDENTITY_MISMATCH:
             status = VerifyStatus.BUNDLE_MALFORMED
@@ -942,7 +981,7 @@ def verify_multi(
                 signature_bundle.identity_scheme,
                 signature_bundle.trust_root_pin,
             )
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             r = VerifyResult(status=_map_sigstore_exception(exc))
         results.append(r)
 
@@ -1728,6 +1767,12 @@ class _TestFactory:
         return bundle
 
     def _make_checkpoint_envelope(self, tree_size: int, root_hash: bytes, log_id: bytes) -> str:
+        # Factory-fidelity note: the origin line number is derived
+        # synthetically from log_id bytes. A real Rekor checkpoint carries
+        # the log's actual origin / tree ID, which will NOT equal this
+        # derived value. A future Phase-4 cross-validation test
+        # (brief-20260514-me2x §1) must not assert this synthetic origin
+        # matches a real embedded log_id.
         sig_b = base64.b64encode(log_id[:4] + secrets.token_bytes(64)).decode("ascii")
         return (
             f"rekor.sigstore.dev - {int.from_bytes(log_id[:8], 'big')}\n"

@@ -541,3 +541,53 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "staging" in item.keywords and not live:
             item.add_marker(skip_staging)
+
+
+# ---------------------------------------------------------------------------
+# Autouse fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_signing_test_factory():
+    """Reset signing._test_factory module-level state around every test.
+
+    The factory's _sign_state / _verify_state are module-level and survive
+    pytest-monkeypatch teardown. Without this, a test that exercises the
+    production code path without calling install_*_monkeypatch reads stale
+    state from the prior test — a latent test-order dependency. Reset on both
+    entry and exit so neither the current nor the next test inherits state.
+    """
+    if signing is not None and hasattr(signing, "_test_factory"):
+        signing._test_factory._reset()
+    yield
+    if signing is not None and hasattr(signing, "_test_factory"):
+        signing._test_factory._reset()
+
+
+@pytest.fixture(autouse=True)
+def _conformance_staging_verifier(request, monkeypatch):
+    """Route @conformance_staging tests through the staging trust root.
+
+    Corpus bundles are signed against staging Sigstore (see CORPUS.md). The
+    production verify() path builds Verifier.production(); on environments
+    where production TUF resolves, that verifier rejects the staging-rooted
+    leaf with CertValidationError → CERT_INVALID. Per CORPUS.md these tests
+    are meant to verify against Verifier.staging(offline=True).
+
+    This patches only the boundary helper, only for tests bearing the
+    conformance_staging mark — it does NOT swap the production verifier for
+    all callers. Tests that subsequently call install_verify_monkeypatch
+    re-patch the same target (later setattr wins), so the synthetic-verifier
+    paths are unaffected.
+    """
+    if request.node.get_closest_marker("conformance_staging") is None:
+        return
+    if signing is None or not HAS_FUNCTIONS:
+        return
+    from sigstore.verify import Verifier
+
+    monkeypatch.setattr(
+        "skein.signing._build_production_verifier",
+        lambda *, offline=False: Verifier.staging(offline=True),
+    )

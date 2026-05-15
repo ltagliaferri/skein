@@ -541,16 +541,14 @@ def _build_production_verifier(*, offline: bool = False) -> Any:  # noqa: ANN401
     Wrapper so the factory has a single patch target. trust_root selection by
     SignatureBundle.trust_root_pin is handled in _select_verifier().
 
-    Production deployments use Verifier.production(); test environments often
-    cannot refresh TUF (read-only cache, no network), so we fall back to
-    Verifier.staging(offline=True), which uses sigstore-python's bundled
-    staging trust root. Both choices verify against UnsafeNoOp() — SKEIN's
-    boundary; identity/account_binding comparison lives in callers.
+    A real production TUF outage propagates as sigstore.errors.TUFError;
+    _map_sigstore_exception maps that to OFFLINE_NO_TRUSTED_ROOT (fail closed).
+    We do NOT fall back to the staging trust root here — doing so would
+    silently verify staging-signed bundles against the staging root during a
+    prod outage. Conformance tests that legitimately need the staging root
+    patch this helper via the _conformance_staging_verifier fixture.
     """
-    try:
-        return Verifier.production(offline=offline)
-    except sigstore.errors.TUFError:
-        return Verifier.staging(offline=True)
+    return Verifier.production(offline=offline)
 
 
 def _build_identity_token(token: str) -> Any:

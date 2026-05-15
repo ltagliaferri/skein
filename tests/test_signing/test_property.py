@@ -354,15 +354,61 @@ def test_property_bundle_bit_flip_breaks_verify(
 
 
 def _bundle_crypto_payload(obj: dict) -> tuple:
-    """Reduce a bundle JSON to its cryptographically-bound payload (cert raw
-    bytes, message signature, message digest). Two bundles equal here are
-    cryptographically indistinguishable for verification purposes."""
+    """Reduce a bundle JSON to its cryptographically-bound payload.
+
+    Captures every region real sigstore-python verify binds: the leaf cert,
+    message signature + digest, and the full Rekor tlog witness — inclusion
+    proof (rootHash, hashes, treeSize, logIndex, checkpoint), logId.keyId,
+    integratedTime, inclusionPromise SET, canonicalizedBody — plus RFC3161
+    TSA timestamps. Base64 byte regions are decoded so a flip that only
+    perturbs base64 padding bits (decoded bytes unchanged) compares equal;
+    that and JSON whitespace / key-order are the only genuinely-empty
+    regions. Two bundles equal here are cryptographically indistinguishable
+    for verification — anything else MUST be rejected by verify().
+    """
+    import base64 as _b64
+
+    def _db64(v):
+        if not v:
+            return b""
+        try:
+            return _b64.b64decode(v)
+        except Exception:  # noqa: BLE001
+            return ("RAW", v)
+
     vm = obj.get("verificationMaterial") or {}
-    cert = (vm.get("certificate") or {}).get("rawBytes", "")
+    cert = _db64((vm.get("certificate") or {}).get("rawBytes", ""))
     msg_sig = obj.get("messageSignature") or {}
-    sig = msg_sig.get("signature", "")
+    sig = _db64(msg_sig.get("signature", ""))
     digest_obj = msg_sig.get("messageDigest") or {}
-    return (cert, sig, digest_obj.get("digest", ""), digest_obj.get("algorithm", ""))
+    digest = _db64(digest_obj.get("digest", ""))
+    algo = digest_obj.get("algorithm", "")
+
+    tlogs = vm.get("tlogEntries") or []
+    te = tlogs[0] if tlogs else {}
+    ip = te.get("inclusionProof") or {}
+    ip_payload = (
+        _db64(ip.get("rootHash", "")),
+        tuple(_db64(h) for h in (ip.get("hashes") or [])),
+        str(ip.get("treeSize", "")),
+        str(ip.get("logIndex", "")),
+        (ip.get("checkpoint") or {}).get("envelope", ""),
+    )
+    log_id = _db64((te.get("logId") or {}).get("keyId", ""))
+    promise = _db64((te.get("inclusionPromise") or {}).get("signedEntryTimestamp", ""))
+    canon_body = _db64(te.get("canonicalizedBody", ""))
+    integrated = str(te.get("integratedTime", ""))
+
+    tvd = vm.get("timestampVerificationData") or {}
+    tsa = tuple(
+        _db64(t.get("signedTimestamp", ""))
+        for t in (tvd.get("rfc3161Timestamps") or [])
+    )
+
+    return (
+        cert, sig, digest, algo,
+        ip_payload, log_id, promise, canon_body, integrated, tsa,
+    )
 
 
 # ---------------------------------------------------------------------------

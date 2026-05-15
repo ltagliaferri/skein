@@ -1263,6 +1263,52 @@ def _real_ecdsa_verify(bundle: Bundle, input_bytes: bytes, sig_bytes: bytes) -> 
         return False
 
 
+def _canonical_drift_exception(meta: dict, bundle: Bundle) -> BaseException | None:
+    """Detect an unflagged mutation of a cryptographically-bound region.
+
+    sigstore.models.Bundle ProtoJSON round-trips idempotently, so the minted
+    canonical snapshot (meta["_canonical_json"]) equals bundle.to_json() for
+    an untouched bundle and for padding-bit / whitespace / key-order noise.
+    A real change to any bound region (Rekor proof/checkpoint/logId/
+    integratedTime/inclusionPromise/canonicalizedBody, TSA, cert, sig,
+    digest) drifts it. Explicit tamper helpers set flags handled earlier in
+    _evaluate_bundle; this closes the fuzz/bit-flip path so the
+    security-load-bearing property test actually exercises rejection.
+    """
+    orig = meta.get("_canonical_json")
+    if orig is None:
+        return None
+    try:
+        cur = bundle.to_json()
+    except Exception:  # noqa: BLE001
+        return _synthesize_exception("InvalidBundle", "bundle re-serialization failed")
+    if cur == orig:
+        return None
+    try:
+        o = json.loads(orig)
+        c = json.loads(cur)
+    except (ValueError, UnicodeDecodeError):
+        return _synthesize_exception("InvalidBundle", "bundle canonical form drifted")
+
+    if o.get("messageSignature") != c.get("messageSignature"):
+        return _SignatureInvalid("Signature is invalid for input")
+    vm_o = o.get("verificationMaterial") or {}
+    vm_c = c.get("verificationMaterial") or {}
+    if vm_o.get("certificate") != vm_c.get("certificate"):
+        return _synthesize_exception("InvalidMaterials", "leaf certificate bytes drifted")
+    te_o = (vm_o.get("tlogEntries") or [{}])[0] or {}
+    te_c = (vm_c.get("tlogEntries") or [{}])[0] or {}
+    for k in ("canonicalizedBody", "inclusionPromise"):
+        if te_o.get(k) != te_c.get(k):
+            return _synthesize_exception("InvalidBundle", f"tlog {k} drifted")
+    for k in ("inclusionProof", "logId", "integratedTime", "kindVersion"):
+        if te_o.get(k) != te_c.get(k):
+            return _synthesize_exception("InvalidRekorEntry", f"tlog {k} drifted")
+    if vm_o.get("timestampVerificationData") != vm_c.get("timestampVerificationData"):
+        return _synthesize_exception("InvalidBundle", "TSA timestamp drifted")
+    return _synthesize_exception("InvalidBundle", "bundle canonical form drifted")
+
+
 class _TestFactory:
     """Test fixture for skein.signing per conftest.py:248-486 contract."""
 
@@ -1655,6 +1701,15 @@ class _TestFactory:
             "future_dated": False,
             "dsse_envelope": opts.get("dsse", False),
         }
+        # Immutable canonical snapshot of every cryptographically-bound
+        # region. Bundle ProtoJSON round-trips idempotently, so a later
+        # bit-flip of any bound region (tlog proof/checkpoint/logId/
+        # integratedTime/inclusionPromise/canonicalizedBody/TSA, cert, sig,
+        # digest) makes bundle.to_json() drift from this — see
+        # _canonical_drift_exception. Helpers that mutate one bound region
+        # set an explicit tamper flag handled earlier in _evaluate_bundle;
+        # this catches the unflagged direct-mutation (fuzz) path.
+        meta["_canonical_json"] = bundle.to_json()
         self._registry[bytes(signature)] = meta
         return bundle
 
@@ -2238,6 +2293,11 @@ class _TestFactory:
             return _synthesize_exception("InvalidMaterials", "SCT for different cert")
         if meta.get("untrusted_ct_log_sct"):
             return _synthesize_exception("InvalidMaterials", "SCT from untrusted CT log")
+
+        # Unflagged mutation of any bound region (fuzz / bit-flip path).
+        drift = _canonical_drift_exception(meta, bundle)
+        if drift is not None:
+            return drift
 
         # Final: signature mismatch detection.
         if input_bytes != meta.get("canonical_bytes_signed"):

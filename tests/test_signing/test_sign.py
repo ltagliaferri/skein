@@ -254,10 +254,13 @@ def _assert_sign_results_differ_per_field(bundle_a: str, bundle_b: str) -> None:
     )
 
     _assert_different("rekor_log_index", _find_first(obj_a, "logIndex"), _find_first(obj_b, "logIndex"))
+    # Phase-3 amendment: bundle v0.3 emits "integratedTime" (not a bare
+    # "timestamp" field) on each tlog entry. The K-A9 property — that
+    # signing-time evidence differs across signings — is unchanged.
     _assert_different(
-        "tsa_timestamp_microseconds",
-        _find_first(obj_a, "timestamp"),
-        _find_first(obj_b, "timestamp"),
+        "tlog_integrated_time",
+        _find_first(obj_a, "integratedTime"),
+        _find_first(obj_b, "integratedTime"),
     )
 
 

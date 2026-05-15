@@ -230,13 +230,17 @@ def test_rekor_inclusion_proof_log_id_accepts_typical_base64_key_id():
 # the validity-window check against the cert, and (log_id) to choose the Rekor key.
 def test_rekor_inclusion_proof_carries_everything_for_independent_verify(crypto_factory):
     checkpoint = crypto_factory.make_checkpoint(
-        tree_size=100000,
+        tree_size=12345679,
         root_hash="AAECAwQFBgcICQ==",
         log_id="rekor-key-id",
     )
+    # Phase-3 amendment: tree_size must be > log_index per the locked
+    # _log_index_inside_tree validator. The original values (log_index=12345678
+    # vs tree_size=100000) violated this. Use a tree_size that comfortably
+    # exceeds log_index.
     proof = signing.RekorInclusionProof(
         log_index=12345678,
-        tree_size=100000,
+        tree_size=12345679,
         root_hash="AAECAwQFBgcICQ==",  # base64
         hashes=["sibling0", "sibling1", "sibling2"],
         checkpoint=checkpoint,

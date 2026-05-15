@@ -570,9 +570,16 @@ def sign(canonical_bytes: bytes, oidc_provider: OIDCProviderConfig) -> SignResul
             component="oidc",
         )
 
+    # finding-20260513-tx8r is normative: sign() MUST validate the aud claim
+    # before Fulcio. A token that is not JWT-shaped cannot have its aud
+    # validated, so it is rejected here — never silently passed through.
     payload = _parse_jwt_payload(oidc_provider.token)
-    if payload is not None:
-        _check_aud(payload)
+    if payload is None:
+        raise SigningUnavailable(
+            "OIDC token is not JWT-shaped, cannot validate aud",
+            component="oidc",
+        )
+    _check_aud(payload)
 
     if oidc_provider.expires_at is not None:
         if oidc_provider.expires_at <= _now_microseconds():
@@ -581,6 +588,17 @@ def sign(canonical_bytes: bytes, oidc_provider: OIDCProviderConfig) -> SignResul
                 component="oidc",
             )
 
+    # TODO(brief-20260514-me2x §2): the K-A9 non-determinism property (two
+    # signings of identical canonical_bytes must yield bit-different bundles —
+    # the test that catches ECDSA nonce reuse) is NOT instrumented offline.
+    # _test_factory.install_sign_monkeypatch replaces this sigstore-python
+    # flow with _FakeSigner, which fabricates a fresh keypair/serial/log_index
+    # /integrated_time every call, so synthetic bundles always differ by
+    # construction regardless of nonce hygiene. Real non-determinism is only
+    # exercised when this real flow runs (SKEIN_TEST_SIGSTORE_LIVE=1); the two
+    # K-A9 tests are therefore @pytest.mark.staging. Phase 4 audits the real
+    # signing pipeline per brief-20260514-me2x §2.
+    #
     # Real sigstore-python flow. Wrap each phase so library exceptions map to
     # SigningUnavailable per d3u6 §5.
     try:

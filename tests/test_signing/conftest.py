@@ -73,7 +73,7 @@ def google_provider():
     """A google OIDCProviderConfig — issuer + token (required), provider_id (optional)."""
     return signing.OIDCProviderConfig(
         issuer="https://accounts.google.com",
-        token="test-google-token",
+        token=make_jwt_token(aud="sigstore", issuer="https://accounts.google.com"),
         provider_id="google",
     )
 
@@ -88,7 +88,7 @@ def github_provider():
     """
     return signing.OIDCProviderConfig(
         issuer="https://github.com/login/oauth",
-        token="test-github-token",
+        token=make_jwt_token(aud="sigstore", issuer="https://github.com/login/oauth"),
         provider_id="github",
     )
 
@@ -102,7 +102,7 @@ def expired_google_provider():
     """
     return signing.OIDCProviderConfig(
         issuer="https://accounts.google.com",
-        token="expired-token",
+        token=make_jwt_token(aud="sigstore", issuer="https://accounts.google.com"),
         provider_id="google",
         expires_at=1_500_000_000_000_000,  # 2017-07-14T02:40:00Z
     )

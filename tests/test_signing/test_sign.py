@@ -27,7 +27,7 @@ pytest.importorskip(
     reason="skein.signing is the phase-3 deliverable; contract collects but skips until then.",
 )
 
-from .conftest import HAS_FUNCTIONS, signing  # noqa: E402
+from .conftest import HAS_FUNCTIONS, make_jwt_token, signing  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     not HAS_FUNCTIONS,
@@ -200,6 +200,15 @@ def test_sign_non_ascii_identity_raises_structured(
 # produce TWO DISTINCT bundles. Sigstore signing is non-deterministic (fresh
 # ephemeral key + ECDSA nonce per call). This is the load-bearing property
 # behind the verify-cache key being (content_hash, bundle_hash).
+#
+# K-A9: staging-only. Under the offline default both signings hit the
+# synthetic _FakeSigner, which fabricates a fresh keypair/serial/log_index
+# every call — bundles always differ by construction, so the mocked form
+# cannot catch real ECDSA nonce reuse. Only real sigstore-python signing
+# (SKEIN_TEST_SIGSTORE_LIVE=1) exercises the actual non-determinism. The
+# synthetic limitation is documented at skein/signing.py sign(); the Phase-4
+# real-signing audit is brief-20260514-me2x §2.
+@pytest.mark.staging
 def test_sign_is_non_deterministic(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
@@ -383,7 +392,7 @@ def test_sign_future_expires_at_proceeds(
     far_future = 4_102_444_800_000_000  # 2100-01-01 UTC microseconds
     provider = signing.OIDCProviderConfig(
         issuer="https://accounts.google.com",
-        token="future-token",
+        token=make_jwt_token(aud="sigstore", issuer="https://accounts.google.com"),
         provider_id="google",
         expires_at=far_future,
     )

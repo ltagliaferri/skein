@@ -636,6 +636,13 @@ def test_property_any_unknown_scheme_fails_closed(
 
 # Property: sign() called twice produces distinct bundle_json. Non-determinism
 # is the basis for the verify-cache key being (content_hash, bundle_hash).
+#
+# K-A9: staging-only — see test_sign.py::test_sign_is_non_deterministic. The
+# synthetic _FakeSigner always produces distinct bundles by construction, so
+# only real sigstore-python signing (SKEIN_TEST_SIGSTORE_LIVE=1) instruments
+# the actual ECDSA nonce property. Limitation documented at
+# skein/signing.py sign(); Phase-4 audit is brief-20260514-me2x §2.
+@pytest.mark.staging
 @given(canonical_bytes=small_canonical_bytes_strategy)
 @_settings
 def test_property_two_signs_produce_different_bundles(

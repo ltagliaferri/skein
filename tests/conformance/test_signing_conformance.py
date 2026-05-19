@@ -195,6 +195,11 @@ class TestKnownGoodBundles:
 # ===========================================================================
 
 
+# Routes corpus tests reaching verify_artifact through the staging trust root
+# (the bundles are staging-signed; without this the production verifier fails
+# the staging TSA chain → spurious CERT_INVALID). Harmless on tests that
+# reject before verifier selection (profile / Bundle.from_json).
+@conformance_staging
 class TestKnownBadBundles:
     """Corpus bundles that SKEIN must reject. Each should produce a specific VerifyStatus."""
 
@@ -302,6 +307,7 @@ class TestKnownBadBundles:
 # ===========================================================================
 
 
+@conformance_staging
 class TestIdentitySchemeRegistry:
     """Conformance against the identity_scheme registry rules from Identity rev 5."""
 
@@ -883,6 +889,7 @@ class TestVerifyResultStructure:
 # ===========================================================================
 
 
+@conformance_staging
 class TestSignatureEdgeCases:
     """Signature mismatch and structural edge cases not in the main corpus."""
 

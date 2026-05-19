@@ -157,20 +157,26 @@ class TestKnownGoodBundles:
         result = verify(artifact, skein_bundle)
         assert result.status == VerifyStatus.VERIFIED
 
-    # Parity with tests/test_signing/test_conformance.py's already-accepted
-    # xfail for the identical case (friction-20260515-goox). This sibling
-    # was masked by the dict/model AttributeError until the consolidation
-    # round (finding-20260519-phqs) un-masked it; marking it xfail keeps the
-    # two conformance files consistent rather than leaving an inconsistency.
-    # Disposition of the v0.3-SET constraint is brief-20260519-zvlq item 4.
+    # Disposition (finding-20260519-syos, Option E1, mechanism refined per the
+    # syos fell cycle): the v0.3 spec arguably permits inclusion-proof-only
+    # bundles, but sigstore-python 4.2.0 Bundle._verify structurally requires
+    # inclusion_promise (SET) OR timestampVerificationData; this corpus has
+    # neither. Accepted as a documented v0 library constraint, NOT gated on an
+    # upgrade. xfail(strict=True) rather than skip: the body runs and asserts
+    # the spec-intended VERIFIED; under the locked library it fails (→ xfail),
+    # but if a future sigstore-python accepts inclusion-proof-only v0.3 it
+    # XPASSes and strict=True fails LOUDLY — the same loud-on-upgrade tripwire
+    # Option A's own rationale demands (a permanent skip would silently absorb
+    # that signal, the exact flaw Option A rejects in loose pins).
     @pytest.mark.xfail(
+        strict=True,
         reason=(
             "sigstore-python 4.2.0 Bundle._verify requires inclusion_promise "
             "(SET) OR timestampVerificationData on v0.3 bundles; this corpus "
-            "has neither. Tracked in brief-20260514-me2x §library-upgrade / "
-            "friction-20260515-goox; disposition in brief-20260519-zvlq item 4."
+            "has neither. Documented v0 library constraint per "
+            "finding-20260519-syos (Option E1). strict=True so a future "
+            "library that accepts inclusion-proof-only v0.3 fails loudly."
         ),
-        strict=False,
     )
     def test_bundle_v3_no_signed_time_verifies(self, bundle_v3_no_signed_time):
         """bundle_v3_no_signed_time: v0.3 bundle with no inclusionPromise (no SET).
@@ -209,9 +215,17 @@ class TestKnownBadBundles:
         CVE-2022-36056 exploited a bundle manipulation where the transparency log
         entry could be swapped for one that doesn't match the signature/cert tuple.
         A correctly-patched verifier (sigstore-python >=3.5.3, >=4.0) raises
-        'transparency log entry is inconsistent with other materials'.
-        SKEIN must reject with INCLUSION_FAILED (the Rekor inclusion proof does
-        not cover the actual signature material presented).
+        'transparency log entry is inconsistent with other materials'. The
+        splice IS rejected (fail-closed) — the security property holds.
+
+        Expected: BUNDLE_MALFORMED. sigstore-python 4.2.0 surfaces the splice
+        as a generic VerificationError (NOT the InvalidRekorEntry subclass that
+        maps to INCLUSION_FAILED), so it falls to the d3u6 §5 catch-all →
+        BUNDLE_MALFORMED. Reaching INCLUSION_FAILED would require string-matching
+        the library message — the brittleness the d3u6 2026-05-14 amendment
+        removed. Status pin amended from INCLUSION_FAILED per
+        finding-20260519-syos (Option A); supersedes finding-20260512-eaft
+        line 213 for this input under the locked library.
 
         Corpus file: test/assets/bundle_cve_2022_36056.txt.sigstore
         Sigstore-python test: test_verifier_inconsistent_log_entry (test/unit/verify/test_verifier.py)
@@ -219,7 +233,7 @@ class TestKnownBadBundles:
         """
         artifact, skein_bundle = bundle_cve_2022_36056
         result = verify(artifact, skein_bundle)
-        assert result.status == VerifyStatus.INCLUSION_FAILED
+        assert result.status == VerifyStatus.BUNDLE_MALFORMED
 
     def test_invalid_media_type_rejected(self, bundle_invalid_version):
         """bundle_invalid_version: mediaType is 'this is completely wrong'.
@@ -243,27 +257,39 @@ class TestKnownBadBundles:
         Per Identity rev 5 registry rules: 'sigstore-public-v1 must accept Rekor v2
         bundles and reject Rekor v1 bundles.' This is the Rekor v1 rejection case.
 
-        Expected: INCLUSION_FAILED (the inclusion proof cannot be verified without
-        a checkpoint — the SET is not trusted under the sigstore-public-v1 scheme).
+        Expected: BUNDLE_MALFORMED. sigstore-python 4.2.0 rejects this Rekor v1
+        shape structurally at Bundle.from_json (InvalidBundle: "entry must
+        contain inclusion proof, with checkpoint"), before any inclusion-proof
+        stage. The honest exception mapping (d3u6 §5: InvalidBundle →
+        BUNDLE_MALFORMED) yields BUNDLE_MALFORMED. The Rekor v1 rejection still
+        holds; only the status code is structural rather than inclusion-stage.
+        Status pin amended from INCLUSION_FAILED per finding-20260519-syos
+        (Option A) — makes this pin consistent with the locked d3u6 §5 table.
 
         Corpus file: test/assets/bundle_no_checkpoint.txt.sigstore
         """
         artifact, skein_bundle = bundle_no_checkpoint
         result = verify(artifact, skein_bundle)
-        assert result.status == VerifyStatus.INCLUSION_FAILED
+        assert result.status == VerifyStatus.BUNDLE_MALFORMED
 
     def test_no_log_entry_rejected(self, bundle_no_log_entry):
         """bundle_no_log_entry: v0.1 bundle with empty tlogEntries array.
 
         Without a transparency log entry, there is no inclusion proof. SKEIN
         cannot verify the Rekor commitment and must reject the bundle.
-        Maps to INCLUSION_FAILED: no Rekor inclusion to verify.
+
+        Expected: BUNDLE_MALFORMED. sigstore-python 4.2.0 rejects this v0.1
+        shape structurally at Bundle.from_json (InvalidBundle: "expected
+        exactly one log entry in bundle"), before any inclusion-proof stage.
+        The honest exception mapping (d3u6 §5: InvalidBundle → BUNDLE_MALFORMED)
+        yields BUNDLE_MALFORMED. Status pin amended from INCLUSION_FAILED per
+        finding-20260519-syos (Option A) — consistent with the locked d3u6 §5.
 
         Corpus file: test/assets/bundle_no_log_entry.txt.sigstore
         """
         artifact, skein_bundle = bundle_no_log_entry
         result = verify(artifact, skein_bundle)
-        assert result.status == VerifyStatus.INCLUSION_FAILED
+        assert result.status == VerifyStatus.BUNDLE_MALFORMED
 
     def test_wrong_canonical_bytes_rejected(self, bundle_v3):
         """Passing canonical_bytes that don't match the stored bundle canonical_bytes.
@@ -380,11 +406,17 @@ class TestIdentitySchemeRegistry:
 
         This test is the explicit registry enforcement check. See also
         TestKnownBadBundles.test_no_checkpoint_rejected for the corpus-driven version.
+
+        Expected: BUNDLE_MALFORMED. The Rekor v1 bundle IS rejected — the
+        registry rule holds — but sigstore-python 4.2.0 rejects it structurally
+        at Bundle.from_json (InvalidBundle), before the inclusion stage. Status
+        pin amended from INCLUSION_FAILED per finding-20260519-syos (Option A);
+        consistent with test_no_checkpoint_rejected and the locked d3u6 §5.
         """
         artifact, skein_bundle = bundle_no_checkpoint
         assert skein_bundle["identity_scheme"] == "sigstore-public-v1"
         result = verify(artifact, skein_bundle)
-        assert result.status == VerifyStatus.INCLUSION_FAILED
+        assert result.status == VerifyStatus.BUNDLE_MALFORMED
 
 
 # ===========================================================================
@@ -522,12 +554,20 @@ class TestProtoJSONShapeConformance:
         determines the bundle is v0.2 / Rekor v1. Per sigstore-public-v1 registry
         rules, this must be rejected (Rekor v1 not accepted under v1 scheme).
 
+        Expected: BUNDLE_MALFORMED. Same corpus and same deterministic path as
+        TestKnownBadBundles.test_no_checkpoint_rejected — sigstore-python 4.2.0
+        rejects at Bundle.from_json (InvalidBundle) → d3u6 §5 → BUNDLE_MALFORMED,
+        marker-independent. Pin tightened from the (INCLUSION_FAILED,
+        BUNDLE_MALFORMED) disjunction to exact per finding-20260519-syos: the
+        INCLUSION_FAILED branch is dead under the locked library; leaving it
+        disjunctive while Option A tightened the other no_checkpoint consumers
+        is internally inconsistent. Surfaced by the knuth rerun.
+
         Corpus file: test/assets/bundle_no_checkpoint.txt.sigstore
         """
         artifact, skein_bundle = bundle_no_checkpoint
         result = verify(artifact, skein_bundle)
-        # v0.2 SET-only bundle is not accepted under sigstore-public-v1 (Rekor v2 required)
-        assert result.status in (VerifyStatus.INCLUSION_FAILED, VerifyStatus.BUNDLE_MALFORMED)
+        assert result.status == VerifyStatus.BUNDLE_MALFORMED
 
 
 # ===========================================================================

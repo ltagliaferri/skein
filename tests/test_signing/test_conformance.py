@@ -35,6 +35,14 @@ pytestmark = pytest.mark.skipif(
 
 
 # Tests that need the staging TUF root. Phase-3 must support staging mode.
+#
+# Footgun: this file applies @conformance_staging at FUNCTION level (no class
+# wrapper), unlike tests/conformance/test_signing_conformance.py which marks at
+# CLASS level. An undecorated function that drives a staging-signed corpus
+# through signing.verify() silently runs the production verifier and fails the
+# staging cert chain → CERT_INVALID. Behind a loose pin (`!= VERIFIED` or a
+# disjunction) that masks the real assertion. Any new staging-corpus test here
+# MUST carry @conformance_staging. (finding-20260519-xsrk / -syos defect class.)
 conformance_staging = pytest.mark.conformance_staging
 
 
@@ -122,21 +130,34 @@ def test_conformance_bundle_tsa_verifies(corpus):
 
 
 # Enforces: bundle_v3_no_signed_time — v0.3 bundle without inclusionPromise (SET).
-# v0.3 spec allows omitting SET when an inclusion proof is present. SKEIN must
-# NOT require the legacy SET field.
+# v0.3 spec arguably allows omitting SET when an inclusion proof is present.
 #
-# Phase-3 amendment: sigstore-python 4.2.0 (the locked library version) DOES
-# require SET or TSA in v0.3 bundles per its Bundle._verify. SKEIN inherits
-# that constraint until the library is upgraded. Marked xfail with the
-# brief-20260514-me2x reference so the limitation is tracked, not hidden.
+# Disposition (finding-20260519-syos, Option E1, mechanism refined per the syos
+# fell cycle): sigstore-python 4.2.0 Bundle._verify structurally requires SET OR
+# timestampVerificationData on v0.3; this corpus has neither. Accepted as a
+# documented v0 library constraint, NOT gated on an upgrade. xfail(strict=True)
+# rather than skip: the body runs and asserts the spec-intended VERIFIED; under
+# the locked library it fails (→ xfail), but a future library that accepts
+# inclusion-proof-only v0.3 XPASSes → strict=True fails loudly. A permanent skip
+# would silently absorb that upgrade signal — the exact flaw Option A rejects.
+#
+# @conformance_staging is REQUIRED here (not optional as it was when this was a
+# skip): the corpus is staging-signed, so for the strict=True tripwire to ever
+# XPASS on a future library, VERIFIED must be reachable — which needs the
+# staging verifier. Without it signing.verify() uses Verifier.production(),
+# the staging cert fails the production trust root → CERT_INVALID, the body
+# never reaches VERIFIED, and strict=True is inert (degrades to permanent-skip,
+# the exact flaw this disposition rejects). See the file-header footgun note.
 @conformance_staging
 @pytest.mark.xfail(
+    strict=True,
     reason=(
         "sigstore-python 4.2.0 Bundle._verify requires inclusion_promise (SET) "
         "OR timestampVerificationData on v0.3 bundles; this corpus has neither. "
-        "Tracked in brief-20260514-me2x §library-upgrade."
+        "Documented v0 library constraint per finding-20260519-syos (Option "
+        "E1). strict=True so a future library accepting inclusion-proof-only "
+        "v0.3 fails loudly."
     ),
-    strict=False,
 )
 def test_conformance_bundle_v3_no_signed_time_verifies(corpus):
     artifact = corpus("bundle_v3_no_signed_time.txt").read_bytes()
@@ -159,7 +180,18 @@ def test_conformance_bundle_v3_no_signed_time_verifies(corpus):
 
 
 # Enforces: CVE-2022-36056 bundle (tlog entry inconsistent with signature
-# material) is rejected. Patched in sigstore-python >=3.5.3.
+# material) is rejected. Patched in sigstore-python >=3.5.3. 4.2.0 surfaces the
+# splice as a generic VerificationError → d3u6 §5 catch-all → BUNDLE_MALFORMED.
+# Pin tightened from `!= VERIFIED` to exact per finding-20260519-syos (Option A;
+# parity with conformance/test_signing_conformance.py::test_cve_2022_36056).
+#
+# Needs @conformance_staging (see file-header footgun note): without the
+# staging redirect this staging-signed corpus hits Verifier.production() →
+# CERT_INVALID, masking the real tlog-inconsistency rejection. This file was
+# outside xsrk's fix; the Option A tightening surfaced this instance. The
+# second instance on this corpus (test_skein_and_sigstore_python_agree_on_cve_
+# bundle) was surfaced by the oracle rerun and fixed in the same fell cycle.
+@conformance_staging
 def test_conformance_cve_2022_36056_rejected(corpus):
     artifact = corpus("bundle_cve_2022_36056.txt").read_bytes()
     blob = corpus("bundle_cve_2022_36056.txt.sigstore").read_text(encoding="utf-8")
@@ -170,7 +202,7 @@ def test_conformance_cve_2022_36056_rejected(corpus):
         canon_version="knurl-1.0",
     )
     result = signing.verify(artifact, sb)
-    assert result.status != signing.VerifyStatus.VERIFIED
+    assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
 
 # Enforces: invalid mediaType is BUNDLE_MALFORMED.
@@ -188,7 +220,9 @@ def test_conformance_invalid_version_rejected(corpus):
 
 
 # Enforces: v0.2 bundle with SET only (no checkpoint) is Rekor v1 — rejected by
-# sigstore-public-v1 scheme which requires Rekor v2 checkpoint-backed proofs.
+# sigstore-public-v1 scheme. 4.2.0 rejects this shape structurally at
+# Bundle.from_json (InvalidBundle) → d3u6 §5 → BUNDLE_MALFORMED. Pin tightened
+# from the disjunction to exact per finding-20260519-syos (Option A).
 def test_conformance_no_checkpoint_rejected(corpus):
     artifact = corpus("bundle_no_checkpoint.txt").read_bytes()
     blob = corpus("bundle_no_checkpoint.txt.sigstore").read_text(encoding="utf-8")
@@ -199,13 +233,13 @@ def test_conformance_no_checkpoint_rejected(corpus):
         canon_version="knurl-1.0",
     )
     result = signing.verify(artifact, sb)
-    assert result.status in (
-        signing.VerifyStatus.INCLUSION_FAILED,
-        signing.VerifyStatus.BUNDLE_MALFORMED,
-    )
+    assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
 
-# Enforces: bundle with no tlog entry returns INCLUSION_FAILED / BUNDLE_MALFORMED.
+# Enforces: v0.1 bundle with no tlog entry is rejected. 4.2.0 rejects this
+# shape structurally at Bundle.from_json (InvalidBundle: "expected exactly one
+# log entry in bundle") → d3u6 §5 → BUNDLE_MALFORMED. Pin tightened from the
+# disjunction to exact per finding-20260519-syos (Option A).
 def test_conformance_no_log_entry_rejected(corpus):
     artifact = corpus("bundle_no_log_entry.txt").read_bytes()
     blob = corpus("bundle_no_log_entry.txt.sigstore").read_text(encoding="utf-8")
@@ -216,14 +250,19 @@ def test_conformance_no_log_entry_rejected(corpus):
         canon_version="knurl-1.0",
     )
     result = signing.verify(artifact, sb)
-    assert result.status in (
-        signing.VerifyStatus.INCLUSION_FAILED,
-        signing.VerifyStatus.BUNDLE_MALFORMED,
-    )
+    assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
 
 # Enforces: v0.1 bundle without leaf certificate (uses x509CertificateChain) is
 # rejected by sigstore-public-v1 (requires cert-in-bundle leaf shape).
+#
+# Pin tightened from `in (CERT_INVALID, BUNDLE_MALFORMED)` to exact per
+# finding-20260519-syos (Option A discipline). sigstore-python 4.2.0 rejects
+# this shape at Bundle.from_json (InvalidBundle: "expected non-empty
+# certificate chain in bundle") → d3u6 §5 → BUNDLE_MALFORMED, deterministically
+# and marker-independent (production == staging). The CERT_INVALID branch is
+# dead under the locked library — the exact dead-disjunction anti-pattern
+# Option A rejects. Surfaced by the knuth rerun (syos-delegated).
 def test_conformance_no_cert_v1_rejected(corpus):
     artifact = corpus("bundle_no_cert_v1.txt").read_bytes()
     blob = corpus("bundle_no_cert_v1.txt.sigstore").read_text(encoding="utf-8")
@@ -234,10 +273,7 @@ def test_conformance_no_cert_v1_rejected(corpus):
         canon_version="knurl-1.0",
     )
     result = signing.verify(artifact, sb)
-    assert result.status in (
-        signing.VerifyStatus.CERT_INVALID,
-        signing.VerifyStatus.BUNDLE_MALFORMED,
-    )
+    assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +318,17 @@ def test_skein_and_sigstore_python_agree_on_good_bundle(corpus):
 
 
 # Enforces: CVE bundle is rejected by both SKEIN and sigstore-python.
+#
+# Needs @conformance_staging for the same reason as
+# test_conformance_cve_2022_36056_rejected: the CVE corpus is staging-signed
+# and parses cleanly, so the SKEIN path (Path 1) reaches verifier selection.
+# Without the staging redirect Path 1 hits Verifier.production() and fails the
+# staging cert chain → CERT_INVALID, which is `!= VERIFIED` and so passed the
+# old loose pin vacuously — the CVE tlog-splice rejection was never exercised
+# on the SKEIN path. Same Group 1 marker-wiring class as
+# finding-20260519-xsrk; this was the fourth instance, surfaced by the
+# oracle rerun (finding-20260519-syos fell cycle) and fixed here.
+@conformance_staging
 def test_skein_and_sigstore_python_agree_on_cve_bundle(corpus):
     from sigstore.errors import VerificationError
     from sigstore.models import Bundle
@@ -297,8 +344,13 @@ def test_skein_and_sigstore_python_agree_on_cve_bundle(corpus):
         canon_version="knurl-1.0",
     )
     skein_result = signing.verify(artifact, sb)
-    assert skein_result.status != signing.VerifyStatus.VERIFIED, (
-        "SKEIN accepted the CVE-2022-36056 bundle — security regression."
+    # Exact pin (was `!= VERIFIED`): under the staging redirect the splice is
+    # reached and surfaces as a generic VerificationError → d3u6 §5 catch-all →
+    # BUNDLE_MALFORMED. Parity with test_conformance_cve_2022_36056_rejected
+    # and Option A's "every pin exact" discipline (finding-20260519-syos).
+    assert skein_result.status == signing.VerifyStatus.BUNDLE_MALFORMED, (
+        "SKEIN must reject the CVE-2022-36056 bundle as BUNDLE_MALFORMED "
+        f"(security regression); got {skein_result.status}."
     )
 
     verifier = Verifier.staging(offline=True)

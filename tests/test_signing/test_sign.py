@@ -544,3 +544,78 @@ def test_sign_against_sigstore_staging(google_provider, canonical_bytes_simple):
     )
     result = signing.sign(canonical_bytes_simple, cfg)
     assert result.subject  # some non-empty cert SAN identity
+
+
+def _extract_rs(bundle_json: str) -> tuple[int, int]:
+    """Decode the ECDSA (r, s) from a signed bundle's signature."""
+    obj = json.loads(bundle_json)
+    sig = base64.b64decode(_find_first(obj, "signature"))
+    return utils.decode_dss_signature(sig)
+
+
+# K-A9: real ECDSA nonce non-reuse. This is the security-load-bearing test the
+# offline suite structurally cannot provide — test_sign_is_non_deterministic
+# always installs _FakeSigner (fabricates a fresh keypair every call, so bundles
+# differ by construction) and therefore cannot observe a real nonce collision.
+# This test deliberately does NOT install any sign monkeypatch: it drives real
+# sigstore-python signing N times and asserts every ECDSA r is distinct.
+#
+# Why r-distinctness and not just (r, s) inequality: the catastrophic
+# nonce-reuse failure mode is a *repeated r with differing s* (two signatures
+# sharing a nonce k → private-key recovery). Pairwise (r, s) inequality passes
+# in that case because s differs; only r-distinctness catches it. r is the
+# x-coordinate of k·G mod n — a function of the per-signature nonce k and the
+# curve alone, independent of the signing key — so r varies across signings
+# precisely because a fresh random k is drawn each time (a fresh ephemeral
+# keypair does not affect r). An r collision over N signings therefore
+# indicates a broken/deterministic nonce RNG — exactly what K-A9 must rule out.
+#
+# Token delivery (brief-20260519-5aa5): SKEIN_TEST_SIGSTORE_TOKEN supplied
+# out-of-band, or ambient CI OIDC (GitHub Actions id-token) feeding the same
+# env var. Issuer/provider default to staging Dex / google, overridable via
+# SKEIN_TEST_SIGSTORE_ISSUER / SKEIN_TEST_SIGSTORE_PROVIDER_ID (same env
+# convention as test_sign_safe_across_processes_with_shared_tuf_cache).
+@pytest.mark.staging
+def test_sign_ecdsa_nonce_not_reused_across_n_signings(canonical_bytes_simple):
+    token = os.environ.get("SKEIN_TEST_SIGSTORE_TOKEN")
+    if not token:
+        pytest.skip(
+            "SKEIN_TEST_SIGSTORE_TOKEN not set; K-A9 real-signing nonce test "
+            "requires an out-of-band or ambient-CI staging OIDC token."
+        )
+
+    try:
+        n = int(os.environ.get("SKEIN_TEST_SIGSTORE_N", "5"))
+    except ValueError:
+        n = 5
+    # Floor at 2 (need a pair to compare) and ceiling at 50: each unit is a
+    # real signing against shared public Sigstore staging, so an operator typo
+    # must not drive unbounded load against shared infrastructure from CI.
+    n = min(max(n, 2), 50)
+
+    provider = signing.OIDCProviderConfig(
+        issuer=os.environ.get(
+            "SKEIN_TEST_SIGSTORE_ISSUER", "https://oauth2.sigstage.dev/auth"
+        ),
+        token=token,
+        provider_id=os.environ.get("SKEIN_TEST_SIGSTORE_PROVIDER_ID", "google"),
+    )
+
+    pairs: list[tuple[int, int]] = []
+    for _ in range(n):
+        result = signing.sign(canonical_bytes_simple, provider)
+        pairs.append(_extract_rs(result.bundle_json))
+
+    r_values = [r for r, _ in pairs]
+    distinct_r = set(r_values)
+    assert len(distinct_r) == n, (
+        f"ECDSA nonce reuse: {n} signings produced only {len(distinct_r)} "
+        f"distinct r values. A repeated r enables private-key recovery (K-A9)."
+    )
+
+    # Corroborating: full (r, s) pairs all distinct. Strictly implied by
+    # r-distinctness above, asserted separately so a regression that somehow
+    # collides (r, s) without colliding r still fails loudly.
+    assert len(set(pairs)) == n, (
+        f"{n} signings produced only {len(set(pairs))} distinct (r, s) pairs."
+    )

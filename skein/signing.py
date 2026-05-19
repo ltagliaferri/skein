@@ -32,10 +32,18 @@ import logging
 import secrets
 import time
 import unicodedata
+from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Iterator
 
-from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 # Sigstore-python imports. signing.py is the ONLY module in skein/ that
 # imports sigstore (per finding-20260511-kn5j boundary).
@@ -941,7 +949,38 @@ def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pi
     )
 
 
-def verify(canonical_bytes: bytes, signature_bundle: SignatureBundle) -> VerifyResult:
+def _coerce_signature_bundle(
+    obj: SignatureBundle | Mapping[str, Any],
+) -> SignatureBundle:
+    """Inflate the persisted/wire signature_bundle into the domain model.
+
+    The wire→domain inflation boundary is owned by verify()/verify_multi(),
+    not the caller: SKEIN's write path persists the signature_bundle as JSON
+    (see tests/conformance/conftest.py::make_skein_bundle docstring), so the
+    read path hands verify() a deserialized Mapping, not a live model. A
+    SignatureBundle instance is accepted unchanged for in-memory callers.
+    This is the spec-alignment decision recorded in finding-20260519-tg40,
+    threaded to the Phase 2 lock (finding-20260514-6078); the locked contract
+    pins it via the dict-passing tests in tests/conformance.
+
+    Pydantic ValidationError (missing required field, non-base64
+    canonical_bytes) is the caller's signal to map BUNDLE_MALFORMED and is
+    handled by the callers. EmptySignatureBundle (bundles=[]) and
+    MultiSignerBundle propagate unwrapped — they are caller programming
+    errors, not domain failures, per finding-20260511-d3u6 §2.
+    """
+    if isinstance(obj, SignatureBundle):
+        return obj
+    return SignatureBundle.model_validate(obj)
+
+
+def verify(
+    canonical_bytes: bytes, signature_bundle: SignatureBundle | Mapping[str, Any]
+) -> VerifyResult:
+    try:
+        signature_bundle = _coerce_signature_bundle(signature_bundle)
+    except ValidationError:
+        return VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)
     n = len(signature_bundle.bundles)
     if n != 1:
         raise MultiSignerBundle(
@@ -963,8 +1002,16 @@ def verify(canonical_bytes: bytes, signature_bundle: SignatureBundle) -> VerifyR
 
 
 def verify_multi(
-    canonical_bytes: bytes, signature_bundle: SignatureBundle
+    canonical_bytes: bytes,
+    signature_bundle: SignatureBundle | Mapping[str, Any],
 ) -> MultiVerifyResult:
+    try:
+        signature_bundle = _coerce_signature_bundle(signature_bundle)
+    except ValidationError:
+        return MultiVerifyResult(
+            results=[VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)],
+            overall=VerifyStatus.BUNDLE_MALFORMED,
+        )
     # Same fail-closed check as verify(): bundle's stored canonical_bytes is
     # its own attestation about what was signed; disagreement with caller's
     # bytes is SIGNATURE_MISMATCH for every signer.

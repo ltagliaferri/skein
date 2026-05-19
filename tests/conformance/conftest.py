@@ -76,6 +76,34 @@ def make_skein_bundle(
 # Pytest fixtures
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _conformance_staging_verifier(request, monkeypatch):
+    """Route @conformance_staging tests through the staging trust root.
+
+    Corpus bundles are signed against staging Sigstore (see CORPUS.md), so
+    the production verify() path (Verifier.production()) rejects the
+    staging-rooted leaf with CERT_INVALID. signing._build_production_verifier
+    is the single patch target the implementation exposes for exactly this
+    (see its docstring, which names this fixture by name).
+
+    This mirrors the autouse fixture in tests/test_signing/conftest.py:
+    that fixture is directory-scoped to tests/test_signing/ and does NOT
+    apply to this sibling directory, which is why the cross-impl corpus
+    suite had no staging redirect at 917ed47. Verifier.staging(offline=True)
+    uses the staging TUF root baked into sigstore-python — no network, no
+    ~/.cache dependency. Patches only when the conformance_staging marker is
+    present, so the offline shape/malformed-input tests are untouched.
+    """
+    if request.node.get_closest_marker("conformance_staging") is None:
+        return
+    from sigstore.verify import Verifier
+
+    monkeypatch.setattr(
+        "skein.signing._build_production_verifier",
+        lambda *, offline=False: Verifier.staging(offline=True),
+    )
+
+
 @pytest.fixture(scope="session")
 def corpus_dir() -> Path:
     return CORPUS_DIR

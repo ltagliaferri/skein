@@ -570,18 +570,20 @@ def _extract_rs(bundle_json: str) -> tuple[int, int]:
 # keypair does not affect r). An r collision over N signings therefore
 # indicates a broken/deterministic nonce RNG — exactly what K-A9 must rule out.
 #
-# Token delivery (brief-20260519-5aa5): SKEIN_TEST_SIGSTORE_TOKEN supplied
-# out-of-band, or ambient CI OIDC (GitHub Actions id-token) feeding the same
-# env var. Issuer/provider default to staging Dex / google, overridable via
-# SKEIN_TEST_SIGSTORE_ISSUER / SKEIN_TEST_SIGSTORE_PROVIDER_ID (same env
-# convention as test_sign_safe_across_processes_with_shared_tuf_cache).
+# Token delivery (brief-20260519-5aa5): SKEIN_TEST_SIGSTORE_TOKEN must be a
+# pre-acquired OIDC token supplied out-of-band. Ambient CI OIDC was explored
+# and rejected — the K-A9 rescope (see test_sign_ecdsa_nonce_not_reused_
+# interactive below) makes the human-driven interactive sibling the primary
+# K-A9 path. SKEIN_TEST_SIGSTORE_ISSUER (the issuer CLAIM passed to
+# OIDCProviderConfig) and SKEIN_TEST_SIGSTORE_PROVIDER_ID are overridable;
+# defaults match test_sign_safe_across_processes_with_shared_tuf_cache.
 @pytest.mark.staging
 def test_sign_ecdsa_nonce_not_reused_across_n_signings(canonical_bytes_simple):
     token = os.environ.get("SKEIN_TEST_SIGSTORE_TOKEN")
     if not token:
         pytest.skip(
             "SKEIN_TEST_SIGSTORE_TOKEN not set; K-A9 real-signing nonce test "
-            "requires an out-of-band or ambient-CI staging OIDC token."
+            "requires a pre-acquired OIDC token supplied out-of-band."
         )
 
     try:
@@ -616,6 +618,103 @@ def test_sign_ecdsa_nonce_not_reused_across_n_signings(canonical_bytes_simple):
     # Corroborating: full (r, s) pairs all distinct. Strictly implied by
     # r-distinctness above, asserted separately so a regression that somehow
     # collides (r, s) without colliding r still fails loudly.
+    assert len(set(pairs)) == n, (
+        f"{n} signings produced only {len(set(pairs))} distinct (r, s) pairs."
+    )
+
+
+# K-A9 (interactive): the launch-readiness empirical companion to the staging
+# test above. This variant deliberately depends on a human-in-the-loop OIDC
+# handshake — sigstore-python's Issuer pops a browser, the user authenticates
+# with Google or GitHub via the Sigstore Dex broker, and the returned
+# IdentityToken drives real signing. Marked @interactive (skipped unless
+# --run-interactive is passed); never runs in CI by design.
+#
+# Run it with:
+#   pytest tests/test_signing/test_sign.py -s --run-interactive \
+#       -k nonce_not_reused_interactive
+# (-s is recommended so the browser-prompt diagnostics aren't captured.)
+#
+# The empirical question this test answers: what does the standard Sigstore
+# interactive flow actually hand back, and does SKEIN's v0 OIDC allowlist
+# admit it? Token issuer (Dex broker URL) and federated identity (the
+# underlying Google/GitHub) are printed to stderr before signing.sign() is
+# invoked, so the run yields diagnostic value even if the allowlist rejects.
+@pytest.mark.interactive
+def test_sign_ecdsa_nonce_not_reused_interactive(canonical_bytes_simple):
+    from sigstore.oidc import Issuer
+
+    # SKEIN_TEST_SIGSTORE_ISSUER_URL is the OIDC PROVIDER base_url consumed by
+    # sigstore.oidc.Issuer (it locates the .well-known/openid-configuration);
+    # distinct from SKEIN_TEST_SIGSTORE_ISSUER in the staging variant above,
+    # which is the issuer CLAIM passed into OIDCProviderConfig.issuer.
+    issuer_url = os.environ.get(
+        "SKEIN_TEST_SIGSTORE_ISSUER_URL", "https://oauth2.sigstage.dev/auth"
+    )
+    # OAuth2 authorization-code flow: localhost-redirect by default (opens
+    # browser, redirects to localhost:<port>?code=...). force_oob=True falls
+    # back to the out-of-band copy/paste flow for headless terminals.
+    force_oob = os.environ.get("SKEIN_TEST_SIGSTORE_OIDC_OOB") == "1"
+
+    print(
+        f"\n[K-A9 interactive] requesting OIDC token from {issuer_url} "
+        f"(force_oob={force_oob}); a browser tab will open — sign in with "
+        f"Google or GitHub.",
+        file=sys.stderr,
+        flush=True,
+    )
+    issuer = Issuer(issuer_url)
+    identity = issuer.identity_token(force_oob=force_oob)
+    raw_token = str(identity)
+
+    # Diagnostics: surface what the Sigstore flow actually returned, so a
+    # subsequent allowlist rejection is interpretable without a second run.
+    # We parse the JWT payload directly rather than relying on IdentityToken
+    # private internals (urlsafe b64, pad to length-mod-4).
+    payload_b64 = raw_token.split(".")[1]
+    payload_b64 += "=" * (-len(payload_b64) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+    jwt_iss = payload.get("iss")
+    federated_issuer = getattr(identity, "federated_issuer", None)
+    print(
+        f"[K-A9 interactive] token iss={jwt_iss!r} aud={payload.get('aud')!r} "
+        f"sub={payload.get('sub')!r} federated_issuer={federated_issuer!r}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    try:
+        n = int(os.environ.get("SKEIN_TEST_SIGSTORE_N", "5"))
+    except ValueError:
+        n = 5
+    n = min(max(n, 2), 50)
+
+    # Pass the literal JWT iss claim as the OIDCProviderConfig.issuer. If the
+    # v0 allowlist rejects it, the failure surfaces exactly what the standard
+    # Sigstore interactive flow actually issues — the empirical answer the
+    # test exists to produce.
+    provider = signing.OIDCProviderConfig(
+        issuer=jwt_iss,
+        token=raw_token,
+        provider_id=os.environ.get("SKEIN_TEST_SIGSTORE_PROVIDER_ID", "sigstore-dex"),
+    )
+
+    pairs: list[tuple[int, int]] = []
+    for i in range(n):
+        print(
+            f"[K-A9 interactive] signing {i + 1}/{n}…",
+            file=sys.stderr,
+            flush=True,
+        )
+        result = signing.sign(canonical_bytes_simple, provider)
+        pairs.append(_extract_rs(result.bundle_json))
+
+    r_values = [r for r, _ in pairs]
+    distinct_r = set(r_values)
+    assert len(distinct_r) == n, (
+        f"ECDSA nonce reuse: {n} signings produced only {len(distinct_r)} "
+        f"distinct r values. A repeated r enables private-key recovery (K-A9)."
+    )
     assert len(set(pairs)) == n, (
         f"{n} signings produced only {len(set(pairs))} distinct (r, s) pairs."
     )

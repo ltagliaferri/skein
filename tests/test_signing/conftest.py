@@ -526,10 +526,20 @@ def corpus():
 
 
 def pytest_configure(config):
+    # --run-interactive is registered at rootdir-level in tests/conftest.py so
+    # the option is recognized regardless of the invocation path.
     config.addinivalue_line(
         "markers",
         "staging: integration test that hits live Sigstore staging "
         "(skipped unless SKEIN_TEST_SIGSTORE_LIVE=1)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "interactive: requires a human-in-the-loop browser-driven OAuth2 "
+        "handshake (localhost-redirect by default; out-of-band copy/paste "
+        "with SKEIN_TEST_SIGSTORE_OIDC_OOB=1). Skipped unless "
+        "--run-interactive is passed. Intended for one-time launch-readiness "
+        "empirical runs, not CI.",
     )
 
 
@@ -537,10 +547,16 @@ def pytest_collection_modifyitems(config, items):
     skip_staging = pytest.mark.skip(
         reason="SKEIN_TEST_SIGSTORE_LIVE not set; live Sigstore staging tests skipped."
     )
+    skip_interactive = pytest.mark.skip(
+        reason="--run-interactive not passed; human-in-the-loop OIDC handshake required."
+    )
     live = os.environ.get("SKEIN_TEST_SIGSTORE_LIVE") == "1"
+    run_interactive = config.getoption("--run-interactive")
     for item in items:
         if "staging" in item.keywords and not live:
             item.add_marker(skip_staging)
+        if "interactive" in item.keywords and not run_interactive:
+            item.add_marker(skip_interactive)
 
 
 # ---------------------------------------------------------------------------

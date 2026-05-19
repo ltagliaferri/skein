@@ -77,6 +77,7 @@ markers = [
     "conformance_staging: tests that verify against staging Sigstore TUF root (offline, no network needed)",
     "conformance_online: tests that require live Sigstore staging network access",
     "staging: live Sigstore staging integration (skipped unless SKEIN_TEST_SIGSTORE_LIVE=1)",
+    "interactive: requires --run-interactive (human-in-the-loop browser-driven OAuth2 handshake; never CI)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

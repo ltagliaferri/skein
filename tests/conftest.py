@@ -14,6 +14,20 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+def pytest_addoption(parser):
+    # Registered at rootdir-level so the option is recognized regardless of
+    # which test path is selected. The @pytest.mark.interactive consumer lives
+    # under tests/test_signing/conftest.py but `pytest tests/conformance
+    # --run-interactive` must still parse the flag without erroring.
+    parser.addoption(
+        "--run-interactive",
+        action="store_true",
+        default=False,
+        help="Run tests marked @pytest.mark.interactive (require a human at the "
+        "terminal to complete an OIDC handshake — never run in CI).",
+    )
+
+
 def pytest_configure(config):
     """Setup test project registry before tests run."""
     # Create test project directory

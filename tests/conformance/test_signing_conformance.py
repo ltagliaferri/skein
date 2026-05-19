@@ -954,9 +954,15 @@ class TestSignatureEdgeCases:
     def test_multiple_tlog_entries_handled(self, bundle_v3):
         """A bundle with two tlogEntries (duplicate) must be handled without crash.
 
-        The sigstore-bundle spec says verifiers handle one tlog entry per bundle.
-        Bundles with multiple entries are unusual but not invalid JSON. SKEIN must
-        either use the first entry or return a well-defined status (not crash).
+        Expected: BUNDLE_MALFORMED, deterministically. sigstore-python 4.2.0
+        Bundle.from_json requires exactly one log entry and raises InvalidBundle
+        ("expected exactly one log entry in bundle") on a multi-entry bundle,
+        before any verifier → d3u6 §5 → BUNDLE_MALFORMED, marker-independent.
+        Pin tightened from the (VERIFIED, BUNDLE_MALFORMED) robustness
+        disjunction to exact per finding-20260519-74o7: the VERIFIED branch is
+        dead under the locked library (verified by direct probe). The intent
+        (must not crash; well-defined status) is still enforced — by an exact
+        pin rather than an either-or.
         """
         artifact, skein_bundle = bundle_v3
         blob = json.loads(skein_bundle["bundles"][0])
@@ -965,9 +971,7 @@ class TestSignatureEdgeCases:
         dup = copy.deepcopy(skein_bundle)
         dup["bundles"] = [json.dumps(blob)]
         result = verify(artifact, dup)
-        # Must not crash; acceptable outcomes: VERIFIED (first entry is good)
-        # or BUNDLE_MALFORMED (implementation rejects multi-entry bundles).
-        assert result.status in (VerifyStatus.VERIFIED, VerifyStatus.BUNDLE_MALFORMED)
+        assert result.status == VerifyStatus.BUNDLE_MALFORMED
 
     def test_dsse_envelope_bundle_rejected_as_bundle_malformed(self, bundle_v3):
         """A bundle using dsseEnvelope instead of messageSignature must be rejected.

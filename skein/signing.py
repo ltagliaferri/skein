@@ -61,12 +61,19 @@ from sigstore.verify import Verifier
 from sigstore.verify.policy import UnsafeNoOp
 
 # cryptography is allowed here for the test factory to mint Fulcio-shaped
-# certificates. Production code path does not call into cryptography directly
-# — sigstore-python handles cert handling for real signing.
+# certificates. The production path delegates cert/crypto handling to
+# sigstore-python, with one deliberate exception: the sigstore-public-v1
+# profile gate uses decode_dss_signature for a strict DER parse of the
+# inclusion-promise SET (finding-20260519-74o7) — a defense-in-depth
+# structural check ahead of sigstore-python's cryptographic SET verification.
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa, padding
-from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
+from cryptography.hazmat.primitives.asymmetric.utils import (
+    Prehashed,
+    decode_dss_signature,
+    encode_dss_signature,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -309,6 +316,15 @@ def _now_microseconds() -> int:
 # subclass falls to the catch-all (BUNDLE_MALFORMED + WARNING), the d3u6 §5
 # safe default. The one non-class rule is the VerificationError +
 # "signature is invalid"/"digest mismatch" message heuristic, kept explicit.
+#
+# Two verify-path rules are deliberate SKEIN narrowings of the literal d3u6 §5
+# table, not transcriptions of it (finding-20260519-74o7): (a) the
+# VerificationError + message heuristic maps to SIGNATURE_MISMATCH instead of
+# the table's BUNDLE_MALFORMED fallback — a contained, fail-closed
+# re-introduction of message-matching solely to surface a more informative
+# non-VERIFIED status; (b) FulcioClientError maps to INCLUSION_FAILED on the
+# verify path, where the table says n/a (Fulcio is a sign-path concern). Both
+# stay fail-closed; they refine, never loosen, the safe default.
 # ---------------------------------------------------------------------------
 
 
@@ -824,10 +840,26 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
                     raw = base64.b64decode(set_b64, validate=True)
                 except (binascii.Error, ValueError):
                     return VerifyStatus.BUNDLE_MALFORMED
-                # DER ECDSA signatures start with 0x30 (SEQUENCE) and are
-                # typically ~70 bytes. Anything shorter than 32 bytes or not
-                # starting with 0x30 is structurally bogus.
-                if len(raw) < 32 or raw[0] != 0x30:
+                # The SET must be a structurally-valid DER ECDSA-Sig-Value
+                # (SEQUENCE { INTEGER r, INTEGER s }). decode_dss_signature is
+                # a strict DER parse: it raises ValueError on a wrong tag,
+                # non-DER length, non-INTEGER contents, indefinite-length form,
+                # trailing garbage, OR a negative INTEGER — all the shapes a
+                # len/0x30-prefix sniff would wave through.
+                #
+                # The explicit r/s check is NOT redundant (verified
+                # empirically, finding-20260519-74o7): decode_dss_signature
+                # raises on negative INTEGERs but RETURNS r=0 / s=0 from a
+                # well-formed SEQUENCE without complaint. r=0 or s=0 is a
+                # trivially-forgeable / invalid ECDSA signature, so this is the
+                # operative guard for the zero case — the library does not
+                # reject it for us. Defense-in-depth ahead of sigstore-python's
+                # cryptographic SET verification; never the sole gate.
+                try:
+                    r, s = decode_dss_signature(raw)
+                except ValueError:
+                    return VerifyStatus.BUNDLE_MALFORMED
+                if r <= 0 or s <= 0:
                     return VerifyStatus.BUNDLE_MALFORMED
         except Exception:  # noqa: BLE001
             pass
@@ -1708,10 +1740,16 @@ class _TestFactory:
         # carry inclusion_proof + a source of signed time. We default to an
         # inclusion_promise (synthetic SET) for that — and omit TSA — so the
         # "must have exactly one" profile rule passes.
-        # Synthetic SET: must look like a DER ECDSA signature so the
-        # sigstore-public-v1 profile pre-check accepts it. Start with 0x30
-        # (SEQUENCE tag), give a plausible length, then random body.
-        synthetic_set = bytes([0x30, 0x44, 0x02, 0x20]) + secrets.token_bytes(32) + bytes([0x02, 0x20]) + secrets.token_bytes(32)
+        # Synthetic SET: a real, valid DER ECDSA-Sig-Value so the
+        # sigstore-public-v1 profile pre-check accepts it. The prior hand-rolled
+        # 0x30/0x44/0x02/0x20 + random bytes was NOT valid DER (random 32-byte
+        # integers are ~half the time negative under DER, and the lengths were
+        # not minimal-form); the strict decode_dss_signature gate
+        # (finding-20260519-74o7) correctly rejected it. encode_dss_signature
+        # emits correct minimal DER; `| 1` keeps r, s positive and non-zero.
+        _set_r = int.from_bytes(secrets.token_bytes(32), "big") | 1
+        _set_s = int.from_bytes(secrets.token_bytes(32), "big") | 1
+        synthetic_set = encode_dss_signature(_set_r, _set_s)
         inclusion_promise = rekor_v1.InclusionPromise(
             signed_entry_timestamp=base64.b64encode(synthetic_set),
         )

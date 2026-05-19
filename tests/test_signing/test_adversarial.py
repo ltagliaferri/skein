@@ -1104,6 +1104,105 @@ class TestSigstorePublicV1AlgorithmProfile:
         result = signing.verify(canonical_bytes_simple, sb)
         assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
+    def test_verify_rejects_der_malformed_0x30_prefixed_set(
+        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+    ):
+        """Regression for finding-20260519-74o7: the SET DER gate is a strict
+        parse, not a len/0x30-prefix sniff.
+
+        A signedEntryTimestamp that is base64-valid, starts with 0x30, and is
+        >=32 bytes but is NOT a valid ECDSA-Sig-Value SEQUENCE{INTEGER,INTEGER}
+        was waved through by the old heuristic (len>=32 and raw[0]==0x30 →
+        accepted). It must now be rejected BUNDLE_MALFORMED by the profile gate.
+        """
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        signed = signing.sign(canonical_bytes_simple, google_provider)
+        blob = json.loads(signed.bundle_json)
+        # 0x30 prefix, 41 bytes (>=32), but not a DER SEQUENCE of two INTEGERs.
+        bogus_set = bytes([0x30]) + bytes(40)
+        blob.setdefault("verificationMaterial", {}).setdefault("tlogEntries", [{}])[0]["inclusionPromise"] = {
+            "signedEntryTimestamp": base64.b64encode(bogus_set).decode("ascii")
+        }
+        sb = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=[json.dumps(blob, separators=(",", ":"))],
+            canonical_bytes=canonical_bytes_simple,
+            canon_version="knurl-1.0",
+        )
+        result = signing.verify(canonical_bytes_simple, sb)
+        assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
+
+    def test_profile_gate_strict_der_parse_discriminates(self):
+        """finding-20260519-74o7: the profile SET check accepts a valid DER
+        ECDSA signature and rejects malformed-but-0x30-prefixed blobs.
+
+        White-box on _check_sigstore_public_v1_profile because black-box verify()
+        cannot distinguish a profile-gate rejection from sigstore-python's
+        downstream SET-signature rejection — both surface as BUNDLE_MALFORMED.
+        This test isolates that the GATE itself no longer over-accepts and does
+        not over-reject a structurally valid SET.
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+
+        def profile_dict(set_bytes: bytes) -> dict:
+            return {
+                "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+                "verificationMaterial": {
+                    "tlogEntries": [
+                        {
+                            "inclusionProof": {"logIndex": "1"},
+                            "inclusionPromise": {
+                                "signedEntryTimestamp": base64.b64encode(
+                                    set_bytes
+                                ).decode("ascii")
+                            },
+                        }
+                    ]
+                },
+            }
+
+        # Valid DER ECDSA-Sig-Value (positive r, s) → gate must NOT reject.
+        valid_der = encode_dss_signature(2 ** 200 + 1, 2 ** 199 + 7)
+        assert signing._check_sigstore_public_v1_profile(profile_dict(valid_der)) is None
+
+        # 0x30-prefixed, >=32 bytes, not a SEQUENCE of two INTEGERs (the gap the
+        # old heuristic missed) → BUNDLE_MALFORMED.
+        assert (
+            signing._check_sigstore_public_v1_profile(
+                profile_dict(bytes([0x30]) + bytes(40))
+            )
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+
+        # Non-0x30 / short blob still rejected (no regression on the old path).
+        assert (
+            signing._check_sigstore_public_v1_profile(profile_dict(b"fake-set"))
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+
+        # Well-formed DER SEQUENCE but r == 0 — decode_dss_signature parses
+        # this WITHOUT raising (verified: it raises on negative INTEGERs but
+        # returns r=0 from a valid SEQUENCE). Exercises the live `r <= 0`
+        # guard, which is the only thing rejecting a trivially-forgeable
+        # zero-component SET (finding-20260519-74o7; closes the knuth-flagged
+        # coverage gap and pins that the explicit check is not redundant).
+        assert (
+            signing._check_sigstore_public_v1_profile(
+                profile_dict(encode_dss_signature(0, 1))
+            )
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+        # And s == 0 symmetrically.
+        assert (
+            signing._check_sigstore_public_v1_profile(
+                profile_dict(encode_dss_signature(1, 0))
+            )
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+
     # Enforces: finding-20260512-eaft actionable #3. sigstore-public-v1 is
     # pinned to ECDSA P-256 leaf certificates; other key algorithms fail closed.
     @pytest.mark.parametrize(

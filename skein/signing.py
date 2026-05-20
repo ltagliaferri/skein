@@ -420,8 +420,16 @@ def _map_sigstore_exception(exc: BaseException) -> VerifyStatus:
     if name == "FulcioClientError":
         return VerifyStatus.INCLUSION_FAILED
 
-    # TUF-related → OFFLINE if we have no root, else BUNDLE_MALFORMED via catch-all.
-    if name == "TUFError":
+    # TUF-class infrastructure outages → OFFLINE_NO_TRUSTED_ROOT. MetadataError
+    # and RootError are NOT subclasses of TUFError in sigstore-python (separate
+    # exception classes in sigstore.errors), so a name-based check on
+    # "TUFError" alone misses them and lets them fall through to the catch-all
+    # WARNING + BUNDLE_MALFORMED. Callers interpret BUNDLE_MALFORMED as a
+    # permanent bundle defect; TUF staleness / root rotation is a transient
+    # infrastructure issue ("retry later, fetch fresh metadata"), not a bundle
+    # defect. The sign path already groups all three in _classify_sign_exception
+    # (signing.py:357); the verify path needs the same grouping.
+    if name in ("TUFError", "MetadataError", "RootError"):
         return VerifyStatus.OFFLINE_NO_TRUSTED_ROOT
 
     # Catch-all per brief-20260514-7i3w.

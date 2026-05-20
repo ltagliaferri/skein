@@ -702,6 +702,13 @@ def _build_rekor_inclusion_proof(bundle: Bundle) -> RekorInclusionProof | None:
         # surfaced, rather than coercing tree_size to paper over it.
         if log_index >= tree_size:
             return None
+        log_id_b64 = base64.b64encode(inner.log_id.key_id).decode("ascii")
+        # Empty key_id means the wire proof has no Rekor instance identifier.
+        # Honor the "return None means no inclusion proof" contract instead of
+        # fabricating a placeholder that satisfies the min_length=1 validator
+        # and masks the missing-data signal from Evidence consumers.
+        if not log_id_b64:
+            return None
         return RekorInclusionProof(
             log_index=log_index,
             tree_size=tree_size,
@@ -709,7 +716,7 @@ def _build_rekor_inclusion_proof(bundle: Bundle) -> RekorInclusionProof | None:
             hashes=[base64.b64encode(h).decode("ascii") for h in proof.hashes],
             checkpoint=checkpoint or "rekor.sigstore.dev\n0\n\n\n",
             integrated_time=integrated_time_us,
-            log_id=base64.b64encode(inner.log_id.key_id).decode("ascii") or "unknown",
+            log_id=log_id_b64,
         )
     except Exception:  # noqa: BLE001
         return None

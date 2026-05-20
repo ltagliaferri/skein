@@ -1,4 +1,5 @@
 """SAN extraction tests for verify() identity extraction policy."""
+
 from __future__ import annotations
 
 import pytest
@@ -27,8 +28,11 @@ def test_verify_extracts_rfc822name_san(crypto_factory, monkeypatch):
     canonical = b"san-rfc822"
     value = "alice@example.com"
     blob = crypto_factory.make_bundle_blob_with_san(
-        san_type="rfc822Name", value=value,
-        canonical_bytes=canonical, identity=value, issuer="https://accounts.google.com",
+        san_type="rfc822Name",
+        value=value,
+        canonical_bytes=canonical,
+        identity=value,
+        issuer="https://accounts.google.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.VERIFIED
@@ -40,8 +44,11 @@ def test_verify_extracts_uri_san(crypto_factory, monkeypatch):
     canonical = b"san-uri"
     value = "https://example.com/identity/alice"
     blob = crypto_factory.make_bundle_blob_with_san(
-        san_type="uniformResourceIdentifier", value=value,
-        canonical_bytes=canonical, identity=value, issuer="https://accounts.google.com",
+        san_type="uniformResourceIdentifier",
+        value=value,
+        canonical_bytes=canonical,
+        identity=value,
+        issuer="https://accounts.google.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.VERIFIED
@@ -53,8 +60,11 @@ def test_verify_extracts_othername_oid_57264_1_24(crypto_factory, monkeypatch):
     canonical = b"san-othername"
     value = "repo:owner/name:ref:refs/heads/main"
     blob = crypto_factory.make_bundle_blob_with_san(
-        san_type="otherName_oid_57264_1_24", value=value,
-        canonical_bytes=canonical, identity=value, issuer="https://token.actions.githubusercontent.com",
+        san_type="otherName_oid_57264_1_24",
+        value=value,
+        canonical_bytes=canonical,
+        identity=value,
+        issuer="https://token.actions.githubusercontent.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.VERIFIED
@@ -70,8 +80,13 @@ def test_verify_multiple_sans_extraction_policy(crypto_factory, monkeypatch):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     canonical = b"san-multi"
     blob = crypto_factory.make_bundle_blob_with_multiple_sans(
-        sans=[("uniformResourceIdentifier", "https://example.com/u/alice"), ("rfc822Name", "alice@example.com")],
-        canonical_bytes=canonical, identity="alice@example.com", issuer="https://accounts.google.com",
+        sans=[
+            ("uniformResourceIdentifier", "https://example.com/u/alice"),
+            ("rfc822Name", "alice@example.com"),
+        ],
+        canonical_bytes=canonical,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.VERIFIED
@@ -96,7 +111,8 @@ def test_verify_multi_sans_uri_outranks_othername_oid(crypto_factory, monkeypatc
             ("otherName_oid_57264_1_24", othername_value),
             ("uniformResourceIdentifier", uri_value),
         ],
-        canonical_bytes=canonical, identity=uri_value,
+        canonical_bytes=canonical,
+        identity=uri_value,
         issuer="https://token.actions.githubusercontent.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
@@ -126,7 +142,9 @@ def test_verify_multi_sans_three_way_rfc822_wins(crypto_factory, monkeypatch):
             ("uniformResourceIdentifier", uri),
             ("rfc822Name", rfc822),
         ],
-        canonical_bytes=canonical, identity=rfc822, issuer="https://accounts.google.com",
+        canonical_bytes=canonical,
+        identity=rfc822,
+        issuer="https://accounts.google.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.VERIFIED
@@ -140,17 +158,23 @@ def test_verify_missing_san_returns_cert_invalid(crypto_factory, monkeypatch):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     canonical = b"san-missing"
     blob = crypto_factory.make_bundle_blob_with_missing_san(
-        canonical_bytes=canonical, identity="alice@example.com", issuer="https://accounts.google.com",
+        canonical_bytes=canonical,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 
-def test_verify_malformed_ia5string_san_returns_cert_invalid(crypto_factory, monkeypatch):
+def test_verify_malformed_ia5string_san_returns_cert_invalid(
+    crypto_factory, monkeypatch
+):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     canonical = b"san-malformed"
     blob = crypto_factory.make_bundle_blob_with_malformed_ia5string_san(
-        canonical_bytes=canonical, identity="alice@example.com", issuer="https://accounts.google.com",
+        canonical_bytes=canonical,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.CERT_INVALID
@@ -180,6 +204,7 @@ class TestExtractSubjectEmptySanRejected:
 
     def _stub_cert_with_san(self, san_objects):
         from unittest.mock import Mock
+
         san_ext_value = Mock()
         san_ext_value.__iter__ = lambda self: iter(san_objects)
         san_ext = Mock()
@@ -190,6 +215,7 @@ class TestExtractSubjectEmptySanRejected:
 
     def test_empty_othername_utf8string_returns_none(self):
         from cryptography import x509
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
         # 0x0c 0x00 = DER UTF8String, length 0 -> decodes to ''
         empty_other = x509.OtherName(type_id=other_oid, value=bytes([0x0C, 0x00]))
@@ -198,6 +224,7 @@ class TestExtractSubjectEmptySanRejected:
 
     def test_whitespace_only_othername_returns_none(self):
         from cryptography import x509
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
         # 0x0c 0x01 0x20 = DER UTF8String containing a single space.
         ws_other = x509.OtherName(type_id=other_oid, value=bytes([0x0C, 0x01, 0x20]))
@@ -208,10 +235,12 @@ class TestExtractSubjectEmptySanRejected:
 
     def test_valid_othername_unchanged(self):
         from cryptography import x509
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
         # 0x0c 0x05 "alice"
         valid_other = x509.OtherName(
-            type_id=other_oid, value=bytes([0x0C, 0x05]) + b"alice",
+            type_id=other_oid,
+            value=bytes([0x0C, 0x05]) + b"alice",
         )
         cert = self._stub_cert_with_san([valid_other])
         assert signing._extract_subject_from_cert(cert) == "alice"
@@ -223,6 +252,7 @@ class TestExtractSubjectEmptySanRejected:
         # raw=''. The same `if not raw: return None` guard that catches
         # the OtherName empty case must catch this too.
         from cryptography import x509
+
         empty_uri = x509.UniformResourceIdentifier("")
         cert = self._stub_cert_with_san([empty_uri])
         assert signing._extract_subject_from_cert(cert) is None
@@ -235,6 +265,7 @@ class TestExtractSubjectEmptySanRejected:
         # slipping past the NUL / strip / NFC guards because \x16 (SYN)
         # is not in str.strip()'s default whitespace set.
         from cryptography import x509
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
         ia5_other = x509.OtherName(type_id=other_oid, value=b"\x16\x05alice")
         cert = self._stub_cert_with_san([ia5_other])
@@ -245,8 +276,11 @@ class TestExtractSubjectEmptySanRejected:
         # not a DER UTF8String. Prior implementation would have returned
         # this garbage as the subject identity.
         from cryptography import x509
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
-        garbage_other = x509.OtherName(type_id=other_oid, value=b"\x16\x0cadmin@corp.com")
+        garbage_other = x509.OtherName(
+            type_id=other_oid, value=b"\x16\x0cadmin@corp.com"
+        )
         cert = self._stub_cert_with_san([garbage_other])
         assert signing._extract_subject_from_cert(cert) is None
 
@@ -265,6 +299,7 @@ class TestExtractIssuerV2DerStrict:
 
     def _stub_cert_with_issuer(self, oid_str, issuer_bytes):
         from unittest.mock import Mock
+
         ext = Mock()
         ext.oid.dotted_string = oid_str
         ext.value.value = issuer_bytes
@@ -275,7 +310,8 @@ class TestExtractIssuerV2DerStrict:
     def test_wrong_tag_v2_returns_none(self):
         # IA5String tag where DER UTF8String was expected.
         cert = self._stub_cert_with_issuer(
-            "1.3.6.1.4.1.57264.1.8", b"\x16\x05alice",
+            "1.3.6.1.4.1.57264.1.8",
+            b"\x16\x05alice",
         )
         assert signing._extract_issuer_from_cert(cert) is None
 
@@ -283,7 +319,8 @@ class TestExtractIssuerV2DerStrict:
         # Arbitrary valid UTF-8 bytes that are not DER UTF8String. Prior
         # implementation returned these as the issuer string.
         cert = self._stub_cert_with_issuer(
-            "1.3.6.1.4.1.57264.1.8", b"\x16\x1bhttps://accounts.google.com",
+            "1.3.6.1.4.1.57264.1.8",
+            b"\x16\x1bhttps://accounts.google.com",
         )
         assert signing._extract_issuer_from_cert(cert) is None
 
@@ -300,7 +337,8 @@ class TestExtractIssuerV2DerStrict:
         # The legacy issuer OID (1.3.6.1.4.1.57264.1.1) IS spec'd as raw
         # UTF-8 bytes (no DER wrapping); preserve that path.
         cert = self._stub_cert_with_issuer(
-            "1.3.6.1.4.1.57264.1.1", b"https://accounts.google.com",
+            "1.3.6.1.4.1.57264.1.1",
+            b"https://accounts.google.com",
         )
         assert signing._extract_issuer_from_cert(cert) == "https://accounts.google.com"
 
@@ -320,6 +358,7 @@ class TestExtractIssuerSubjectParityGuards:
 
     def _stub_cert_with_issuer(self, oid_str, issuer_bytes):
         from unittest.mock import Mock
+
         ext = Mock()
         ext.oid.dotted_string = oid_str
         ext.value.value = issuer_bytes
@@ -340,7 +379,8 @@ class TestExtractIssuerSubjectParityGuards:
         # The legacy issuer OID is raw UTF-8 bytes; .decode("utf-8") succeeds
         # on NUL-bearing input. Post-extraction NUL guard applies here too.
         cert = self._stub_cert_with_issuer(
-            "1.3.6.1.4.1.57264.1.1", b"https://accounts.google.com\x00evil.com",
+            "1.3.6.1.4.1.57264.1.1",
+            b"https://accounts.google.com\x00evil.com",
         )
         assert signing._extract_issuer_from_cert(cert) is None
 
@@ -358,7 +398,8 @@ class TestExtractIssuerSubjectParityGuards:
 
     def test_legacy_leading_whitespace_rejected(self):
         cert = self._stub_cert_with_issuer(
-            "1.3.6.1.4.1.57264.1.1", b" https://accounts.google.com",
+            "1.3.6.1.4.1.57264.1.1",
+            b" https://accounts.google.com",
         )
         assert signing._extract_issuer_from_cert(cert) is None
 
@@ -366,7 +407,8 @@ class TestExtractIssuerSubjectParityGuards:
         # 0x0C 0x00 is a syntactically valid zero-length DER UTF8String, but
         # an empty issuer is not a usable identity.
         cert = self._stub_cert_with_issuer(
-            "1.3.6.1.4.1.57264.1.8", bytes([0x0C, 0x00]),
+            "1.3.6.1.4.1.57264.1.8",
+            bytes([0x0C, 0x00]),
         )
         assert signing._extract_issuer_from_cert(cert) is None
 
@@ -384,6 +426,7 @@ class TestExtractIssuerSubjectParityGuards:
         result = signing._extract_issuer_from_cert(cert)
         assert result is not None
         import unicodedata
+
         assert result == unicodedata.normalize("NFC", "café")
         assert result.encode("utf-8") == body
 
@@ -407,7 +450,9 @@ class TestVerifySingleRejectsMissingIssuer:
     """
 
     def test_verify_with_malformed_issuer_returns_cert_invalid(
-        self, crypto_factory, monkeypatch,
+        self,
+        crypto_factory,
+        monkeypatch,
     ):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         canonical = b"missing-issuer-probe"
@@ -418,8 +463,10 @@ class TestVerifySingleRejectsMissingIssuer:
         # garbage and whose legacy OID is absent — the same condition the
         # repro hits with a real IA5String-tagged V2 extension.
         blob = crypto_factory.make_bundle_blob_with_san(
-            san_type="rfc822Name", value=value,
-            canonical_bytes=canonical, identity=value,
+            san_type="rfc822Name",
+            value=value,
+            canonical_bytes=canonical,
+            identity=value,
             issuer="https://accounts.google.com",
         )
         monkeypatch.setattr(signing, "_extract_issuer_from_cert", lambda cert: None)
@@ -463,6 +510,7 @@ class TestInvisibleIdentityCharsRejected:
 
     def _stub_cert_with_san(self, san_objects):
         from unittest.mock import Mock
+
         san_ext_value = Mock()
         san_ext_value.__iter__ = lambda self: iter(san_objects)
         san_ext = Mock()
@@ -473,6 +521,7 @@ class TestInvisibleIdentityCharsRejected:
 
     def _stub_cert_with_issuer(self, oid_str, issuer_bytes):
         from unittest.mock import Mock
+
         ext = Mock()
         ext.oid.dotted_string = oid_str
         ext.value.value = issuer_bytes
@@ -483,6 +532,7 @@ class TestInvisibleIdentityCharsRejected:
     @pytest.mark.parametrize("label,ch", INVISIBLE_CHARS)
     def test_subject_othername_invisible_char_rejected(self, label, ch):
         from cryptography import x509
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
         val = f"alice{ch}@example.com"
         body = val.encode("utf-8")
@@ -496,6 +546,7 @@ class TestInvisibleIdentityCharsRejected:
         # RFC822Name SAN preference comes first. Confirm the guard fires
         # there too — not only the OtherName path.
         from cryptography import x509
+
         try:
             email = x509.RFC822Name(f"alice{ch}@example.com")
         except (ValueError, TypeError):
@@ -511,6 +562,7 @@ class TestInvisibleIdentityCharsRejected:
         # still produce a URI SAN with these chars on the wire.
         from cryptography import x509
         from unittest.mock import Mock
+
         uri = Mock(spec=x509.UniformResourceIdentifier)
         uri.value = f"https://example.com/alice{ch}"
         cert = self._stub_cert_with_san([uri])
@@ -533,6 +585,7 @@ class TestInvisibleIdentityCharsRejected:
     def test_subject_valid_identity_still_returns(self):
         # Regression: identities with no invisible chars still extract.
         from cryptography import x509
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
         val = "alice@example.com"
         body = val.encode("utf-8")
@@ -554,6 +607,7 @@ class TestInvisibleIdentityCharsRejected:
         # combining chars (decomposed é → precomposed é).
         from cryptography import x509
         import unicodedata
+
         other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
         decomposed = "café@example.com".encode("utf-8")
         der = bytes([0x0C, len(decomposed)]) + decomposed
@@ -586,7 +640,7 @@ class TestDecodeDerUtf8Strict:
     def test_wrong_tag_rejected(self):
         assert signing._decode_der_utf8(bytes([0x0D, 0x01, 0x41])) is None
         assert signing._decode_der_utf8(b"") is None
-        assert signing._decode_der_utf8(b"\x0C") is None
+        assert signing._decode_der_utf8(b"\x0c") is None
 
     def test_ber_indefinite_length_rejected(self):
         # 0x0C 0x80 -> BER indefinite-length, illegal in DER (X.690 §10.1).
@@ -595,24 +649,14 @@ class TestDecodeDerUtf8Strict:
 
     def test_silent_truncation_rejected(self):
         # Claims length 10, supplies only 5. Was decoded as partial 'hello'.
-        assert (
-            signing._decode_der_utf8(bytes([0x0C, 0x0A]) + b"hello") is None
-        )
+        assert signing._decode_der_utf8(bytes([0x0C, 0x0A]) + b"hello") is None
         # Claims length 200, supplies 50.
-        assert (
-            signing._decode_der_utf8(bytes([0x0C, 0x81, 0xC8]) + b"X" * 50)
-            is None
-        )
+        assert signing._decode_der_utf8(bytes([0x0C, 0x81, 0xC8]) + b"X" * 50) is None
 
     def test_non_minimal_long_form_rejected(self):
         # Length < 128 must use short form (X.690 §10.1).
-        assert (
-            signing._decode_der_utf8(bytes([0x0C, 0x81, 0x7F]) + b"X" * 127)
-            is None
-        )
-        assert (
-            signing._decode_der_utf8(bytes([0x0C, 0x81, 0x05]) + b"hello") is None
-        )
+        assert signing._decode_der_utf8(bytes([0x0C, 0x81, 0x7F]) + b"X" * 127) is None
+        assert signing._decode_der_utf8(bytes([0x0C, 0x81, 0x05]) + b"hello") is None
 
     def test_leading_zero_in_long_form_length_rejected(self):
         # Leading zero octet would not be minimal — X.690 §10.1 forbids it.
@@ -625,8 +669,7 @@ class TestDecodeDerUtf8Strict:
         # The encoded value must consume exactly the input — any trailing
         # bytes mean the input is not a single well-formed UTF8String.
         assert (
-            signing._decode_der_utf8(bytes([0x0C, 0x05]) + b"hello" + b"EXTRA")
-            is None
+            signing._decode_der_utf8(bytes([0x0C, 0x05]) + b"hello" + b"EXTRA") is None
         )
 
     def test_insufficient_length_octets_rejected(self):

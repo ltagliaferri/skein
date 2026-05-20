@@ -13,6 +13,7 @@ domain failures — covered in test_models.py / test_verify.py.)
 A wrapper that lets raw FulcioClientError / RekorClientError / TUFError leak
 breaks the sign_queue.py catch-and-defer logic. These tests pin the boundary.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -38,44 +39,61 @@ pytestmark = pytest.mark.skipif(
 # Enforces: any sigstore-python exception during sign() is caught and re-raised
 # as SigningUnavailable. The wrapper is the ONE place these get translated;
 # callers (routes.py, sign_queue.py) MUST NOT need sigstore-python types.
-@pytest.mark.parametrize("simulated_failure", [
-    "fulcio_503",
-    "fulcio_400_unknown_csr",
-    "rekor_502",
-    "rekor_timeout",
-    "rekor_404",
-    "oidc_unreachable",
-    "oidc_token_rejected",
-    "tuf_metadata_stale",
-    "expired_cert",
-    "network_down",
-])
+@pytest.mark.parametrize(
+    "simulated_failure",
+    [
+        "fulcio_503",
+        "fulcio_400_unknown_csr",
+        "rekor_502",
+        "rekor_timeout",
+        "rekor_404",
+        "oidc_unreachable",
+        "oidc_token_rejected",
+        "tuf_metadata_stale",
+        "expired_cert",
+        "network_down",
+    ],
+)
 def test_sign_failure_classes_raise_signing_unavailable(
-    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    google_provider,
+    canonical_bytes_simple,
+    monkeypatch,
     simulated_failure,
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode=simulated_failure,
+        monkeypatch,
+        provider=google_provider,
+        failure_mode=simulated_failure,
     )
     with pytest.raises(signing.SigningUnavailable):
         signing.sign(canonical_bytes_simple, google_provider)
 
 
 # Enforces: SigningUnavailable.component identifies the failing system.
-@pytest.mark.parametrize("failure_mode,expected_component", [
-    ("fulcio_503", "fulcio"),
-    ("fulcio_400_unknown_csr", "fulcio"),
-    ("rekor_502", "rekor"),
-    ("rekor_timeout", "rekor"),
-    ("oidc_unreachable", "oidc"),
-    ("oidc_token_rejected", "oidc"),
-])
+@pytest.mark.parametrize(
+    "failure_mode,expected_component",
+    [
+        ("fulcio_503", "fulcio"),
+        ("fulcio_400_unknown_csr", "fulcio"),
+        ("rekor_502", "rekor"),
+        ("rekor_timeout", "rekor"),
+        ("oidc_unreachable", "oidc"),
+        ("oidc_token_rejected", "oidc"),
+    ],
+)
 def test_signing_unavailable_component_is_correct(
-    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
-    failure_mode, expected_component,
+    crypto_factory,
+    google_provider,
+    canonical_bytes_simple,
+    monkeypatch,
+    failure_mode,
+    expected_component,
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode=failure_mode,
+        monkeypatch,
+        provider=google_provider,
+        failure_mode=failure_mode,
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -84,15 +102,18 @@ def test_signing_unavailable_component_is_correct(
 
 # Enforces: oracle actionable #6. SigningUnavailable.component has a stable
 # operations vocabulary for the systems on call will triage.
-@pytest.mark.parametrize("component", [
-    "tuf",
-    "oidc",
-    "fulcio",
-    "rekor",
-    "tsa",
-    "network",
-    "token_expired_mid_flow",
-])
+@pytest.mark.parametrize(
+    "component",
+    [
+        "tuf",
+        "oidc",
+        "fulcio",
+        "rekor",
+        "tsa",
+        "network",
+        "token_expired_mid_flow",
+    ],
+)
 def test_signing_unavailable_component_vocabulary(component):
     err = signing.SigningUnavailable(f"{component} unavailable", component=component)
     assert err.component == component
@@ -101,14 +122,17 @@ def test_signing_unavailable_component_vocabulary(component):
 
 # Enforces: oracle actionable #6. Named partial-failure cases map to structured
 # SigningUnavailable components instead of collapsing to a generic network error.
-@pytest.mark.parametrize("failure_mode,expected_component,reason_fragment", [
-    ("tuf_unavailable", "tuf", "tuf"),
-    ("oidc_unreachable", "oidc", "oidc"),
-    ("fulcio_503", "fulcio", "fulcio"),
-    ("rekor_after_fulcio_503", "rekor", "rekor"),
-    ("tsa_unavailable_rekor_v2", "tsa", "tsa"),
-    ("oidc_token_expired_mid_flow", "token_expired_mid_flow", "expired"),
-])
+@pytest.mark.parametrize(
+    "failure_mode,expected_component,reason_fragment",
+    [
+        ("tuf_unavailable", "tuf", "tuf"),
+        ("oidc_unreachable", "oidc", "oidc"),
+        ("fulcio_503", "fulcio", "fulcio"),
+        ("rekor_after_fulcio_503", "rekor", "rekor"),
+        ("tsa_unavailable_rekor_v2", "tsa", "tsa"),
+        ("oidc_token_expired_mid_flow", "token_expired_mid_flow", "expired"),
+    ],
+)
 def test_sign_unavailable_partial_failure_matrix(
     crypto_factory,
     google_provider,
@@ -119,7 +143,9 @@ def test_sign_unavailable_partial_failure_matrix(
     reason_fragment,
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode=failure_mode,
+        monkeypatch,
+        provider=google_provider,
+        failure_mode=failure_mode,
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -136,7 +162,9 @@ def test_sign_unavailable_when_rekor_fails_after_fulcio_does_not_leak_cert(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     spy = crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode="rekor_after_fulcio_503",
+        monkeypatch,
+        provider=google_provider,
+        failure_mode="rekor_after_fulcio_503",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -167,7 +195,9 @@ def test_signing_unavailable_reason_is_non_empty(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode="fulcio_503",
+        monkeypatch,
+        provider=google_provider,
+        failure_mode="fulcio_503",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -182,7 +212,9 @@ def test_signing_unavailable_preserves_cause(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode="fulcio_503",
+        monkeypatch,
+        provider=google_provider,
+        failure_mode="fulcio_503",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -194,20 +226,28 @@ def test_signing_unavailable_preserves_cause(
 # Enforces: raw sigstore-python / cryptography / requests exceptions DO NOT
 # leak. The wrapper translates everything. Load-bearing assertion — if it
 # fails, the queue logic is potentially miswired.
-@pytest.mark.parametrize("failure_mode", [
-    "fulcio_503",
-    "rekor_502",
-    "oidc_unreachable",
-    "tuf_metadata_stale",
-    "expired_cert",
-    "network_down",
-])
+@pytest.mark.parametrize(
+    "failure_mode",
+    [
+        "fulcio_503",
+        "rekor_502",
+        "oidc_unreachable",
+        "tuf_metadata_stale",
+        "expired_cert",
+        "network_down",
+    ],
+)
 def test_no_raw_exception_leaks_from_sign(
-    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    google_provider,
+    canonical_bytes_simple,
+    monkeypatch,
     failure_mode,
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode=failure_mode,
+        monkeypatch,
+        provider=google_provider,
+        failure_mode=failure_mode,
     )
     try:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -250,12 +290,18 @@ def test_verify_does_not_raise_signing_unavailable(
 
 # Enforces: oracle actionable #6. Verify maps network/proof failure classes to
 # specific VerifyStatus values; a loose "VerifyResult returned" is insufficient.
-@pytest.mark.parametrize("verify_failure,expected_status", [
-    ("rekor_unreachable", signing.VerifyStatus.INCLUSION_FAILED),
-    ("rekor_timeout", signing.VerifyStatus.INCLUSION_FAILED),
-    ("tuf_unavailable_no_cached_root", signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT),
-    ("bundle_parse_error", signing.VerifyStatus.BUNDLE_MALFORMED),
-])
+@pytest.mark.parametrize(
+    "verify_failure,expected_status",
+    [
+        ("rekor_unreachable", signing.VerifyStatus.INCLUSION_FAILED),
+        ("rekor_timeout", signing.VerifyStatus.INCLUSION_FAILED),
+        (
+            "tuf_unavailable_no_cached_root",
+            signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT,
+        ),
+        ("bundle_parse_error", signing.VerifyStatus.BUNDLE_MALFORMED),
+    ],
+)
 def test_verify_status_specific_per_failure_class(
     crypto_factory,
     google_provider,
@@ -266,7 +312,8 @@ def test_verify_status_specific_per_failure_class(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, failure_mode=verify_failure,
+        monkeypatch,
+        failure_mode=verify_failure,
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -287,7 +334,8 @@ def test_verify_returns_inclusion_failed_when_rekor_unreachable(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, failure_mode="rekor_unreachable",
+        monkeypatch,
+        failure_mode="rekor_unreachable",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -312,7 +360,9 @@ def test_signing_unavailable_caught_by_generic_exception(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode="fulcio_503",
+        monkeypatch,
+        provider=google_provider,
+        failure_mode="fulcio_503",
     )
     try:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -334,7 +384,9 @@ def test_reachable_but_4xx_raises_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode="fulcio_400_unknown_csr",
+        monkeypatch,
+        provider=google_provider,
+        failure_mode="fulcio_400_unknown_csr",
     )
     with pytest.raises(signing.SigningUnavailable):
         signing.sign(canonical_bytes_simple, google_provider)
@@ -347,7 +399,9 @@ def test_unreachable_raises_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, failure_mode="network_down",
+        monkeypatch,
+        provider=google_provider,
+        failure_mode="network_down",
     )
     with pytest.raises(signing.SigningUnavailable):
         signing.sign(canonical_bytes_simple, google_provider)

@@ -5824,6 +5824,7 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
         if base_branch is None:
             try:
                 from skein import shard as shard_module
+
                 base_branch = shard_module._detect_default_branch()
             except Exception:
                 base_branch = "unknown"
@@ -6459,6 +6460,7 @@ def shard_triage(ctx, output_json):
             if base_branch is None:
                 try:
                     from skein import shard as shard_module
+
                     base_branch = shard_module._detect_default_branch()
                 except Exception:
                     base_branch = "unknown"
@@ -6537,6 +6539,7 @@ def shard_triage(ctx, output_json):
                 if base_branch is None:
                     try:
                         from skein import shard as shard_module
+
                         base_branch = shard_module._detect_default_branch()
                     except Exception:
                         base_branch = "unknown"
@@ -6749,6 +6752,7 @@ def shard_inspect(ctx, worktree_name, output_json):
             if base_branch is None:
                 try:
                     from skein import shard as shard_module
+
                     base_branch = shard_module._detect_default_branch()
                 except Exception:
                     base_branch = "unknown"

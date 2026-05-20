@@ -4,6 +4,7 @@ Fulcio leaf certificates must carry a Signed Certificate Timestamp extension
 from a trusted Sigstore CT log. These tests pin the SCT as cryptographic
 evidence, not decorative certificate metadata.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -58,7 +59,9 @@ def test_verify_cert_invalid_when_sct_extension_missing(
         crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
     )
     stripped = crypto_factory.strip_sct(blob)
-    vr = signing.verify(canonical_bytes_simple, _bundle(canonical_bytes_simple, stripped))
+    vr = signing.verify(
+        canonical_bytes_simple, _bundle(canonical_bytes_simple, stripped)
+    )
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 
@@ -71,7 +74,9 @@ def test_verify_cert_invalid_for_sct_from_untrusted_ct_log(
         crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
     )
     untrusted = crypto_factory.untrusted_ct_log_sct(blob)
-    vr = signing.verify(canonical_bytes_simple, _bundle(canonical_bytes_simple, untrusted))
+    vr = signing.verify(
+        canonical_bytes_simple, _bundle(canonical_bytes_simple, untrusted)
+    )
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 
@@ -97,5 +102,7 @@ def test_verify_cert_invalid_for_sct_bound_to_different_certificate(
         crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
     )
     crossed = crypto_factory.cross_sct(blob)
-    vr = signing.verify(canonical_bytes_simple, _bundle(canonical_bytes_simple, crossed))
+    vr = signing.verify(
+        canonical_bytes_simple, _bundle(canonical_bytes_simple, crossed)
+    )
     assert vr.status == signing.VerifyStatus.CERT_INVALID

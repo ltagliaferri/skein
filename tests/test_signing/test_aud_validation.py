@@ -95,7 +95,9 @@ def test_sign_rejects_token_missing_aud_claim(
     provider = make_oidc_provider(include_aud=False)
     spy = crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
 
-    with pytest.raises(signing.SigningUnavailable, match="OIDC token missing aud claim"):
+    with pytest.raises(
+        signing.SigningUnavailable, match="OIDC token missing aud claim"
+    ):
         signing.sign(canonical_bytes_simple, provider)
 
     assert _fulcio_call_count(crypto_factory, spy) == 0

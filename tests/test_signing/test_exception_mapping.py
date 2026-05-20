@@ -32,6 +32,7 @@ Phase 3 implementation should produce a small mapping module / function
 This test file exercises the table from outside, using crypto_factory to inject
 specific sigstore-python exception classes at the seam.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -61,12 +62,17 @@ def test_sign_fulcio_client_error_maps_to_signing_unavailable_fulcio(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, raise_sigstore_exception="FulcioClientError",
+        monkeypatch,
+        provider=google_provider,
+        raise_sigstore_exception="FulcioClientError",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
     assert exc.value.component == "fulcio"
-    assert "fulcio" in exc.value.reason.lower() or "unavailable" in exc.value.reason.lower()
+    assert (
+        "fulcio" in exc.value.reason.lower()
+        or "unavailable" in exc.value.reason.lower()
+    )
 
 
 # Enforces: RekorClientError maps to SigningUnavailable(component="rekor").
@@ -74,7 +80,9 @@ def test_sign_rekor_client_error_maps_to_signing_unavailable_rekor(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, raise_sigstore_exception="RekorClientError",
+        monkeypatch,
+        provider=google_provider,
+        raise_sigstore_exception="RekorClientError",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -87,7 +95,9 @@ def test_sign_identity_error_maps_to_signing_unavailable_oidc(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, raise_sigstore_exception="IdentityError",
+        monkeypatch,
+        provider=google_provider,
+        raise_sigstore_exception="IdentityError",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -101,7 +111,9 @@ def test_sign_certificate_expired_maps_to_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, raise_sigstore_exception="CertificateExpired",
+        monkeypatch,
+        provider=google_provider,
+        raise_sigstore_exception="CertificateExpired",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -115,28 +127,39 @@ def test_sign_network_timeout_maps_to_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, raise_sigstore_exception="TimeoutError",
+        monkeypatch,
+        provider=google_provider,
+        raise_sigstore_exception="TimeoutError",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
-    assert "network" in exc.value.reason.lower() or "timeout" in exc.value.reason.lower()
+    assert (
+        "network" in exc.value.reason.lower() or "timeout" in exc.value.reason.lower()
+    )
 
 
 # Enforces: __cause__ is set to the underlying sigstore-python exception for
 # debugging. Per clarification 5: "SigningUnavailable with a structured reason
 # and the original exception as __cause__."
-@pytest.mark.parametrize("sigstore_exc_name", [
-    "FulcioClientError",
-    "RekorClientError",
-    "IdentityError",
-    "CertificateExpired",
-])
+@pytest.mark.parametrize(
+    "sigstore_exc_name",
+    [
+        "FulcioClientError",
+        "RekorClientError",
+        "IdentityError",
+        "CertificateExpired",
+    ],
+)
 def test_sign_exception_preserves_cause(
-    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    google_provider,
+    canonical_bytes_simple,
+    monkeypatch,
     sigstore_exc_name,
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider,
+        monkeypatch,
+        provider=google_provider,
         raise_sigstore_exception=sigstore_exc_name,
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
@@ -156,7 +179,8 @@ def test_verify_invalid_bundle_maps_to_bundle_malformed(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="InvalidBundle",
+        monkeypatch,
+        raise_sigstore_exception="InvalidBundle",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -175,7 +199,8 @@ def test_verify_invalid_materials_maps_to_cert_invalid(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="InvalidMaterials",
+        monkeypatch,
+        raise_sigstore_exception="InvalidMaterials",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -194,7 +219,8 @@ def test_verify_invalid_rekor_entry_maps_to_inclusion_failed(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="InvalidRekorEntry",
+        monkeypatch,
+        raise_sigstore_exception="InvalidRekorEntry",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -213,7 +239,8 @@ def test_verify_certificate_expired_maps_to_cert_invalid(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="CertificateExpired",
+        monkeypatch,
+        raise_sigstore_exception="CertificateExpired",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -241,7 +268,8 @@ def test_verify_catchall_logs_unrecognized_sigstore_exception(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="UnrecognizedException",
+        monkeypatch,
+        raise_sigstore_exception="UnrecognizedException",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -254,8 +282,7 @@ def test_verify_catchall_logs_unrecognized_sigstore_exception(
         vr = signing.verify(canonical_bytes_simple, sb)
     assert vr.status == signing.VerifyStatus.BUNDLE_MALFORMED
     catchall_records = [
-        r for r in caplog.records
-        if "signing.exception_catchall" in r.getMessage()
+        r for r in caplog.records if "signing.exception_catchall" in r.getMessage()
     ]
     assert catchall_records, (
         "expected at least one WARNING log with 'signing.exception_catchall' prefix; "
@@ -284,7 +311,8 @@ def test_verify_unrecognized_verification_error_maps_to_bundle_malformed(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="VerificationError",
+        monkeypatch,
+        raise_sigstore_exception="VerificationError",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -305,7 +333,8 @@ def test_verify_rekor_client_error_maps_to_inclusion_failed(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="RekorClientError",
+        monkeypatch,
+        raise_sigstore_exception="RekorClientError",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -354,17 +383,23 @@ def test_verify_tuf_class_exceptions_map_to_offline_no_trusted_root():
 def test_verify_signature_invalid_for_input_maps_to_signature_mismatch():
     # Real sigstore-python sig-mismatch phrasing maps correctly.
     exc = signing._synthesize_exception(
-        "VerificationError", "Signature is invalid for input",
+        "VerificationError",
+        "Signature is invalid for input",
     )
-    assert signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+    assert (
+        signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+    )
 
 
 def test_verify_bundle_message_digest_mismatch_maps_to_signature_mismatch():
     # Real sigstore-python digest-mismatch phrasing maps correctly.
     exc = signing._synthesize_exception(
-        "VerificationError", "Bundle message digest mismatch",
+        "VerificationError",
+        "Bundle message digest mismatch",
     )
-    assert signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+    assert (
+        signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+    )
 
 
 def test_verify_cert_chain_signature_invalid_does_not_map_to_signature_mismatch():
@@ -375,7 +410,8 @@ def test_verify_cert_chain_signature_invalid_does_not_map_to_signature_mismatch(
     # (BUNDLE_MALFORMED, the d3u6 §5 safe default for unknown
     # VerificationError shapes).
     exc = signing._synthesize_exception(
-        "VerificationError", "cert chain: signature is invalid for leaf",
+        "VerificationError",
+        "cert chain: signature is invalid for leaf",
     )
     status = signing._map_sigstore_exception(exc)
     assert status != signing.VerifyStatus.SIGNATURE_MISMATCH, (
@@ -387,9 +423,12 @@ def test_verify_cert_chain_signature_invalid_does_not_map_to_signature_mismatch(
 def test_verify_cert_chain_signature_invalid_for_intermediate_does_not_map_to_sig_mismatch():
     # Same R4-4 pattern with intermediate-cert wording.
     exc = signing._synthesize_exception(
-        "VerificationError", "cert chain: signature is invalid for intermediate",
+        "VerificationError",
+        "cert chain: signature is invalid for intermediate",
     )
-    assert signing._map_sigstore_exception(exc) != signing.VerifyStatus.SIGNATURE_MISMATCH
+    assert (
+        signing._map_sigstore_exception(exc) != signing.VerifyStatus.SIGNATURE_MISMATCH
+    )
 
 
 def test_verify_partial_digest_mismatch_string_does_not_map_to_sig_mismatch():
@@ -398,9 +437,12 @@ def test_verify_partial_digest_mismatch_string_does_not_map_to_sig_mismatch():
     # mismatch" (hypothetical, but parallel to the R4-4 shape). Tightened
     # phrase requires the exact "bundle message digest mismatch".
     exc = signing._synthesize_exception(
-        "VerificationError", "user account digest mismatch",
+        "VerificationError",
+        "user account digest mismatch",
     )
-    assert signing._map_sigstore_exception(exc) != signing.VerifyStatus.SIGNATURE_MISMATCH
+    assert (
+        signing._map_sigstore_exception(exc) != signing.VerifyStatus.SIGNATURE_MISMATCH
+    )
 
 
 def test_verify_signature_mismatch_phrasing_is_case_insensitive():
@@ -408,9 +450,12 @@ def test_verify_signature_mismatch_phrasing_is_case_insensitive():
     # phrase still matches. Pin so a future refactor doesn't drop the
     # case fold.
     exc = signing._synthesize_exception(
-        "VerificationError", "SIGNATURE IS INVALID FOR INPUT",
+        "VerificationError",
+        "SIGNATURE IS INVALID FOR INPUT",
     )
-    assert signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+    assert (
+        signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+    )
 
 
 # Enforces: network timeout during verify Rekor proof maps to INCLUSION_FAILED.
@@ -419,7 +464,8 @@ def test_verify_network_timeout_maps_to_inclusion_failed(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_sigstore_exception="TimeoutError",
+        monkeypatch,
+        raise_sigstore_exception="TimeoutError",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -444,7 +490,8 @@ def test_trust_root_stale_skein_specific_path(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, trust_root_predates_bundle=True,
+        monkeypatch,
+        trust_root_predates_bundle=True,
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -464,7 +511,9 @@ def test_offline_no_trusted_root_skein_specific_path(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, offline=True, trust_root_missing=True,
+        monkeypatch,
+        offline=True,
+        trust_root_missing=True,
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(

@@ -9,6 +9,7 @@ Phase 1 q776/qejb/sbal convergent: the polymorphic / unversioned discriminator
 was a load-bearing wrong call in rev 4; rev 5 versioned it. These tests pin
 the versioning contract.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -45,7 +46,10 @@ def test_sigstore_public_v1_is_active_scheme(
         canonical_bytes=canonical_bytes_simple,
         canon_version="knurl-1.0",
     )
-    assert signing.verify(canonical_bytes_simple, sb).status == signing.VerifyStatus.VERIFIED
+    assert (
+        signing.verify(canonical_bytes_simple, sb).status
+        == signing.VerifyStatus.VERIFIED
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -56,11 +60,14 @@ def test_sigstore_public_v1_is_active_scheme(
 # Enforces: ALL reserved registry entries currently fail-closed. A future
 # implementation may flip any of these to active; this test must be updated at
 # THAT spec amendment, not silently.
-@pytest.mark.parametrize("scheme", [
-    "sigstore-public-v2",      # reserved: post-PQC migration
-    "sigstore-private-v1",     # reserved: private Sigstore
-    "did-key-v1",              # reserved: DID-based long-term keypair
-])
+@pytest.mark.parametrize(
+    "scheme",
+    [
+        "sigstore-public-v2",  # reserved: post-PQC migration
+        "sigstore-private-v1",  # reserved: private Sigstore
+        "did-key-v1",  # reserved: DID-based long-term keypair
+    ],
+)
 def test_reserved_schemes_fail_closed(canonical_bytes_simple, make_bundle, scheme):
     sb = make_bundle(
         canonical_bytes=canonical_bytes_simple,
@@ -72,15 +79,18 @@ def test_reserved_schemes_fail_closed(canonical_bytes_simple, make_bundle, schem
 
 
 # Enforces: typo or garbage scheme string is BUNDLE_MALFORMED.
-@pytest.mark.parametrize("scheme", [
-    "",
-    "sigstore-public",                # legacy unversioned — rev 5 explicitly forbids
-    "Sigstore-Public-V1",             # case-sensitive
-    "sigstore_public_v1",             # wrong separator
-    "sigstore-public-v1 ",            # trailing whitespace
-    "https://example.com/scheme",
-    "0",
-])
+@pytest.mark.parametrize(
+    "scheme",
+    [
+        "",
+        "sigstore-public",  # legacy unversioned — rev 5 explicitly forbids
+        "Sigstore-Public-V1",  # case-sensitive
+        "sigstore_public_v1",  # wrong separator
+        "sigstore-public-v1 ",  # trailing whitespace
+        "https://example.com/scheme",
+        "0",
+    ],
+)
 def test_unknown_or_typo_schemes_fail_closed(
     canonical_bytes_simple, make_bundle, scheme
 ):
@@ -95,9 +105,7 @@ def test_unknown_or_typo_schemes_fail_closed(
 
 # Enforces: rev 4 spelling "sigstore-public" is rejected. Rev 5 explicitly
 # invalidates this as too coarse per IETF fully-specified-algorithms lesson.
-def test_unversioned_sigstore_public_fail_closed(
-    canonical_bytes_simple, make_bundle
-):
+def test_unversioned_sigstore_public_fail_closed(canonical_bytes_simple, make_bundle):
     sb = make_bundle(
         canonical_bytes=canonical_bytes_simple,
         bundles=["<irrelevant>"],

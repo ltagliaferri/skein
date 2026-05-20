@@ -34,9 +34,9 @@ verify() MUST NOT: raise unhandled exceptions, panic, hang, or return VERIFIED
 under any of these inputs. It MUST: return a VerifyResult with a defined status,
 OR raise MultiSignerBundle for multi-signer inputs (caller error).
 """
+
 from __future__ import annotations
 
-import copy
 import base64
 import json
 
@@ -87,7 +87,7 @@ class TestCrossPayload:
         sb = signing.SignatureBundle(
             identity_scheme="sigstore-public-v1",
             bundles=[a_result.bundle_json],
-            canonical_bytes=folio_b,        # attacker swapped stored canonical_bytes
+            canonical_bytes=folio_b,  # attacker swapped stored canonical_bytes
             canon_version="knurl-1.0",
         )
         result = signing.verify(folio_b, sb)
@@ -318,9 +318,7 @@ class TestCrossIssuerConfusion:
 
     # Enforces: alice@google and alice@github produce VERIFIED results with
     # DIFFERENT issuer URLs. The (issuer, subject) tuple is the durable identity.
-    def test_identity_disambiguation_across_issuers(
-        self, crypto_factory, monkeypatch
-    ):
+    def test_identity_disambiguation_across_issuers(self, crypto_factory, monkeypatch):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         canonical = b"shared canonical bytes"
         blob_google = crypto_factory.make_bundle_blob(
@@ -385,20 +383,23 @@ class TestMalformedBundle:
     """
 
     # Enforces: random strings in place of bundle JSON return BUNDLE_MALFORMED.
-    @pytest.mark.parametrize("payload", [
-        "",
-        "this is plain text",
-        "\x00" * 64,
-        "\xff" * 64,
-        "{",
-        "{}",
-        "[]",
-        '{"mediaType": "not-sigstore"}',
-        "null",
-        "false",
-        "true",
-        "42",
-    ])
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "",
+            "this is plain text",
+            "\x00" * 64,
+            "\xff" * 64,
+            "{",
+            "{}",
+            "[]",
+            '{"mediaType": "not-sigstore"}',
+            "null",
+            "false",
+            "true",
+            "42",
+        ],
+    )
     def test_malformed_bundle_payload_returns_malformed(self, make_bundle, payload):
         sb = make_bundle(canonical_bytes=b"x", bundles=[payload])
         result = signing.verify(b"x", sb)
@@ -424,7 +425,10 @@ class TestMalformedBundle:
         bundle_dict = {
             "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
             "verificationMaterial": {"extra": deep},
-            "messageSignature": {"messageDigest": {"algorithm": "SHA2_256", "digest": "AA=="}, "signature": "AA=="},
+            "messageSignature": {
+                "messageDigest": {"algorithm": "SHA2_256", "digest": "AA=="},
+                "signature": "AA==",
+            },
         }
         sb = make_bundle(canonical_bytes=b"x", bundles=[json.dumps(bundle_dict)])
         result = signing.verify(b"x", sb)
@@ -434,7 +438,11 @@ class TestMalformedBundle:
     # Enforces: extra unknown JSON fields are silently ignored (forward compat),
     # not BUNDLE_MALFORMED purely due to unknowns.
     def test_extra_unknown_fields_in_bundle_blob(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -454,13 +462,18 @@ class TestMalformedBundle:
 
     # Enforces: a very large signature field doesn't crash but doesn't verify either.
     def test_very_large_signature_field(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         signed = signing.sign(canonical_bytes_simple, google_provider)
         blob = json.loads(signed.bundle_json)
         import base64 as _b64
+
         large_sig = _b64.b64encode(b"A" * (1024 * 1024)).decode()
         blob.setdefault("messageSignature", {})["signature"] = large_sig
         sb = signing.SignatureBundle(
@@ -486,9 +499,7 @@ class TestNonAsciiIdentity:
     """
 
     # Enforces: NFC-combining-form Unicode round-trips through the read path.
-    def test_non_ascii_identity_in_verify(
-        self, crypto_factory, monkeypatch
-    ):
+    def test_non_ascii_identity_in_verify(self, crypto_factory, monkeypatch):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         canonical = b"payload"
         blob = crypto_factory.make_bundle_blob(
@@ -508,12 +519,15 @@ class TestNonAsciiIdentity:
 
     # Enforces: verify() never crashes on Unicode subjects (Cyrillic lookalike,
     # CJK, emoji, etc.). Status may be VERIFIED or fail-closed; never crash.
-    @pytest.mark.parametrize("subject", [
-        "älice@example.com",       # Latin Extended-A
-        "аlice@example.com",       # Cyrillic 'а' lookalike
-        "用户@example.com",         # CJK
-        "\U0001f600@example.com",  # emoji in email
-    ])
+    @pytest.mark.parametrize(
+        "subject",
+        [
+            "älice@example.com",  # Latin Extended-A
+            "аlice@example.com",  # Cyrillic 'а' lookalike
+            "用户@example.com",  # CJK
+            "\U0001f600@example.com",  # emoji in email
+        ],
+    )
     def test_unicode_subject_does_not_crash(
         self, crypto_factory, canonical_bytes_simple, monkeypatch, subject
     ):
@@ -561,15 +575,23 @@ class TestNonAsciiIdentity:
 class TestBundleVersionSkew:
     """Older / newer / malformed mediaType handling."""
 
-    @pytest.mark.parametrize("media_type,must_reject", [
-        ("application/vnd.dev.sigstore.bundle.v9.9.9+json", True),
-        ("application/vnd.dev.sigstore.bundle+json", True),  # missing version
-        ("text/plain", True),  # wrong media type
-        ("", True),  # empty
-    ])
+    @pytest.mark.parametrize(
+        "media_type,must_reject",
+        [
+            ("application/vnd.dev.sigstore.bundle.v9.9.9+json", True),
+            ("application/vnd.dev.sigstore.bundle+json", True),  # missing version
+            ("text/plain", True),  # wrong media type
+            ("", True),  # empty
+        ],
+    )
     def test_unknown_or_garbage_media_type_rejected(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
-        media_type, must_reject,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+        media_type,
+        must_reject,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -588,13 +610,19 @@ class TestBundleVersionSkew:
 
     # Enforces: malformed version string with injection-style content is rejected.
     def test_malformed_version_string_with_injection(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         signed = signing.sign(canonical_bytes_simple, google_provider)
         blob = json.loads(signed.bundle_json)
-        blob["mediaType"] = "application/vnd.dev.sigstore.bundle.v'; DROP TABLE bundles; --+json"
+        blob["mediaType"] = (
+            "application/vnd.dev.sigstore.bundle.v'; DROP TABLE bundles; --+json"
+        )
         sb = signing.SignatureBundle(
             identity_scheme="sigstore-public-v1",
             bundles=[json.dumps(blob)],
@@ -615,11 +643,16 @@ class TestTrustRootStaleness:
 
     # Enforces: stale trust root returns TRUST_ROOT_STALE (recoverable).
     def test_stale_trust_root_returns_trust_root_stale(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(
-            monkeypatch, trust_root_predates_bundle=True,
+            monkeypatch,
+            trust_root_predates_bundle=True,
         )
         signed = signing.sign(canonical_bytes_simple, google_provider)
         sb = signing.SignatureBundle(
@@ -634,13 +667,20 @@ class TestTrustRootStaleness:
     # Enforces: bundle integratedTime past all Rekor key validFor windows is
     # TRUST_ROOT_STALE (or INCLUSION_FAILED), not VERIFIED.
     def test_integrated_time_after_all_key_windows(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(
-            monkeypatch, provider=google_provider, integrated_time="4102444800",
+            monkeypatch,
+            provider=google_provider,
+            integrated_time="4102444800",
         )
         crypto_factory.install_verify_monkeypatch(
-            monkeypatch, trust_root_predates_bundle=True,
+            monkeypatch,
+            trust_root_predates_bundle=True,
         )
         signed = signing.sign(canonical_bytes_simple, google_provider)
         sb = signing.SignatureBundle(
@@ -666,12 +706,19 @@ class TestOfflineNoTrustRoot:
 
     # Enforces: nonexistent trust root path returns OFFLINE_NO_TRUSTED_ROOT.
     def test_nonexistent_trust_root_path(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, tmp_path,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+        tmp_path,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(
-            monkeypatch, trust_root_path=str(tmp_path / "no_such_file.json"),
-            offline=True, trust_root_missing=True,
+            monkeypatch,
+            trust_root_path=str(tmp_path / "no_such_file.json"),
+            offline=True,
+            trust_root_missing=True,
         )
         signed = signing.sign(canonical_bytes_simple, google_provider)
         sb = signing.SignatureBundle(
@@ -685,12 +732,19 @@ class TestOfflineNoTrustRoot:
 
     # Enforces: empty TUF cache directory returns OFFLINE_NO_TRUSTED_ROOT.
     def test_empty_tuf_cache_dir_offline(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, tmp_path,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+        tmp_path,
     ):
         monkeypatch.setenv("SIGSTORE_TUF_CACHE_DIR", str(tmp_path))
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(
-            monkeypatch, offline=True, trust_root_missing=True,
+            monkeypatch,
+            offline=True,
+            trust_root_missing=True,
         )
         signed = signing.sign(canonical_bytes_simple, google_provider)
         sb = signing.SignatureBundle(
@@ -734,6 +788,7 @@ class TestSelectVerifierStateIsolation:
             verifier = signing._select_verifier(None)
             # Production path: returned a real Verifier, no _TrustRootError.
             from sigstore.verify import Verifier
+
             assert isinstance(verifier, Verifier), (
                 f"stale state leaked into production: got {type(verifier).__name__}"
             )
@@ -761,7 +816,9 @@ class TestSelectVerifierStateIsolation:
             factory._test_active = original_active
 
     def test_install_verify_monkeypatch_clears_test_active_on_teardown(
-        self, monkeypatch, crypto_factory,
+        self,
+        monkeypatch,
+        crypto_factory,
     ):
         # End-to-end: install_verify_monkeypatch sets _test_active=True via
         # monkeypatch.setattr, so teardown must restore the False default.
@@ -821,7 +878,12 @@ class TestBitFlipFuzz:
 
     @pytest.mark.parametrize("offset", [0, 1, 7, 31, 63, 255])
     def test_single_byte_flip_in_bundle_is_not_verified(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, offset,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+        offset,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -853,7 +915,12 @@ class TestTruncationFuzz:
 
     @pytest.mark.parametrize("keep_ratio", [0.0, 0.01, 0.1, 0.5, 0.99])
     def test_truncated_bundle_returns_bundle_malformed(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, keep_ratio,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+        keep_ratio,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -882,21 +949,29 @@ class TestTruncationFuzz:
 class TestReplayAcrossCanonicalBytes:
     """Same bundle, intentionally similar but different canonical_bytes."""
 
-    @pytest.mark.parametrize("bytes_a,bytes_b", [
-        # Differ only in folio_id:
-        (
-            b'{"folio_id":"finding-2026-0001","type":"finding","content":"x"}',
-            b'{"folio_id":"finding-2026-0002","type":"finding","content":"x"}',
-        ),
-        # Differ by one character:
-        (b"canonical bytes version A", b"canonical bytes version B"),
-        # Same content, different trailing whitespace:
-        (b'{"content":"hello"}', b'{"content":"hello"} '),
-        # Same content, different JSON key order:
-        (b'{"a":"1","b":"2"}', b'{"b":"2","a":"1"}'),
-    ])
+    @pytest.mark.parametrize(
+        "bytes_a,bytes_b",
+        [
+            # Differ only in folio_id:
+            (
+                b'{"folio_id":"finding-2026-0001","type":"finding","content":"x"}',
+                b'{"folio_id":"finding-2026-0002","type":"finding","content":"x"}',
+            ),
+            # Differ by one character:
+            (b"canonical bytes version A", b"canonical bytes version B"),
+            # Same content, different trailing whitespace:
+            (b'{"content":"hello"}', b'{"content":"hello"} '),
+            # Same content, different JSON key order:
+            (b'{"a":"1","b":"2"}', b'{"b":"2","a":"1"}'),
+        ],
+    )
     def test_similar_but_distinct_canonical_bytes(
-        self, crypto_factory, google_provider, monkeypatch, bytes_a, bytes_b,
+        self,
+        crypto_factory,
+        google_provider,
+        monkeypatch,
+        bytes_a,
+        bytes_b,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -980,7 +1055,11 @@ class TestCveCorpus:
     # Enforces: GHSA-hhfg-fwrw-87w7 pattern — integrated_time trusted without
     # SET backing. SKEIN must NOT replicate this pre-3.6.0 sigstore-python bug.
     def test_ghsa_hhfg_fwrw_87w7_pattern(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -1007,10 +1086,15 @@ class TestDsseConfusion:
     # Enforces: a bundle using dsseEnvelope (out of profile for SKEIN, which
     # signs canonical_bytes via messageSignature) is BUNDLE_MALFORMED.
     def test_dsse_envelope_bundle_is_bundle_malformed(
-        self, crypto_factory, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
-        blob = crypto_factory.make_dsse_envelope_bundle(canonical_bytes=canonical_bytes_simple)
+        blob = crypto_factory.make_dsse_envelope_bundle(
+            canonical_bytes=canonical_bytes_simple
+        )
         sb = signing.SignatureBundle(
             identity_scheme="sigstore-public-v1",
             bundles=[blob],
@@ -1037,7 +1121,10 @@ class TestUnrelatedRekorEntry:
     # Enforces: a bundle that splices document B's signature+cert with
     # document A's Rekor entry fails verification.
     def test_unrelated_rekor_entry_rejected(
-        self, crypto_factory, google_provider, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -1046,7 +1133,8 @@ class TestUnrelatedRekorEntry:
         bundle_a = signing.sign(payload_a, google_provider)
         bundle_b = signing.sign(payload_b, google_provider)
         spliced = crypto_factory.splice_rekor_entry(
-            host=bundle_b.bundle_json, source=bundle_a.bundle_json,
+            host=bundle_b.bundle_json,
+            source=bundle_a.bundle_json,
         )
         sb = signing.SignatureBundle(
             identity_scheme="sigstore-public-v1",
@@ -1071,7 +1159,11 @@ class TestCrossRekorLogId:
     # inclusionProof.log_id and reject proof material signed by a different
     # trusted Rekor instance instead of iterating trusted keys until one works.
     def test_rekor_log_id_substitution_rejected(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -1108,7 +1200,11 @@ class TestSigstorePublicV1AlgorithmProfile:
         ids=["sha1", "md5", "sha384", "sha512"],
     )
     def test_verify_rejects_non_sha256_digest_algorithm(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
         algorithm,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
@@ -1127,7 +1223,11 @@ class TestSigstorePublicV1AlgorithmProfile:
     # Enforces: finding-20260512-eaft actionable #3. SHA-256 is the only digest
     # algorithm accepted for sigstore-public-v1 bundles.
     def test_verify_accepts_sha256_digest_algorithm(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -1153,10 +1253,14 @@ class TestSigstorePublicV1AlgorithmProfile:
         no opinion on the bundle. sigstore-python rejected it downstream,
         but the documented defense-in-depth gate had a hole.
         """
+
         def make(*, message_digest, **extra):
             base = {
                 "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
-                "messageSignature": {"messageDigest": message_digest, "signature": "AA=="},
+                "messageSignature": {
+                    "messageDigest": message_digest,
+                    "signature": "AA==",
+                },
             }
             base.update(extra)
             return base
@@ -1187,8 +1291,13 @@ class TestSigstorePublicV1AlgorithmProfile:
         # messageDigest itself is not a dict.
         assert (
             signing._check_sigstore_public_v1_profile(
-                {"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
-                 "messageSignature": {"messageDigest": "not-a-dict", "signature": "AA=="}}
+                {
+                    "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                    "messageSignature": {
+                        "messageDigest": "not-a-dict",
+                        "signature": "AA==",
+                    },
+                }
             )
             == signing.VerifyStatus.BUNDLE_MALFORMED
         )
@@ -1196,8 +1305,10 @@ class TestSigstorePublicV1AlgorithmProfile:
         # messageSignature itself is not a dict.
         assert (
             signing._check_sigstore_public_v1_profile(
-                {"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
-                 "messageSignature": "not-a-dict"}
+                {
+                    "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                    "messageSignature": "not-a-dict",
+                }
             )
             == signing.VerifyStatus.BUNDLE_MALFORMED
         )
@@ -1215,14 +1326,20 @@ class TestSigstorePublicV1AlgorithmProfile:
         assert signing._check_sigstore_public_v1_profile(case) is None
 
     def test_verify_rejects_digest_length_mismatch_with_algorithm(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         signed = signing.sign(canonical_bytes_simple, google_provider)
         blob = json.loads(signed.bundle_json)
         blob["messageSignature"]["messageDigest"]["algorithm"] = "SHA2_256"
-        blob["messageSignature"]["messageDigest"]["digest"] = base64.b64encode(b"x" * 48).decode("ascii")
+        blob["messageSignature"]["messageDigest"]["digest"] = base64.b64encode(
+            b"x" * 48
+        ).decode("ascii")
         sb = signing.SignatureBundle(
             identity_scheme="sigstore-public-v1",
             bundles=[json.dumps(blob, separators=(",", ":"))],
@@ -1233,15 +1350,19 @@ class TestSigstorePublicV1AlgorithmProfile:
         assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
     def test_verify_rejects_simultaneous_set_and_inclusion_proof(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         signed = signing.sign(canonical_bytes_simple, google_provider)
         blob = json.loads(signed.bundle_json)
-        blob.setdefault("verificationMaterial", {}).setdefault("tlogEntries", [{}])[0]["inclusionPromise"] = {
-            "signedEntryTimestamp": "ZmFrZS1zZXQ="
-        }
+        blob.setdefault("verificationMaterial", {}).setdefault("tlogEntries", [{}])[0][
+            "inclusionPromise"
+        ] = {"signedEntryTimestamp": "ZmFrZS1zZXQ="}
         sb = signing.SignatureBundle(
             identity_scheme="sigstore-public-v1",
             bundles=[json.dumps(blob, separators=(",", ":"))],
@@ -1252,7 +1373,11 @@ class TestSigstorePublicV1AlgorithmProfile:
         assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
 
     def test_verify_rejects_der_malformed_0x30_prefixed_set(
-        self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         """Regression for finding-20260519-74o7: the SET DER gate is a strict
         parse, not a len/0x30-prefix sniff.
@@ -1268,9 +1393,9 @@ class TestSigstorePublicV1AlgorithmProfile:
         blob = json.loads(signed.bundle_json)
         # 0x30 prefix, 41 bytes (>=32), but not a DER SEQUENCE of two INTEGERs.
         bogus_set = bytes([0x30]) + bytes(40)
-        blob.setdefault("verificationMaterial", {}).setdefault("tlogEntries", [{}])[0]["inclusionPromise"] = {
-            "signedEntryTimestamp": base64.b64encode(bogus_set).decode("ascii")
-        }
+        blob.setdefault("verificationMaterial", {}).setdefault("tlogEntries", [{}])[0][
+            "inclusionPromise"
+        ] = {"signedEntryTimestamp": base64.b64encode(bogus_set).decode("ascii")}
         sb = signing.SignatureBundle(
             identity_scheme="sigstore-public-v1",
             bundles=[json.dumps(blob, separators=(",", ":"))],
@@ -1312,8 +1437,10 @@ class TestSigstorePublicV1AlgorithmProfile:
             }
 
         # Valid DER ECDSA-Sig-Value (positive r, s) → gate must NOT reject.
-        valid_der = encode_dss_signature(2 ** 200 + 1, 2 ** 199 + 7)
-        assert signing._check_sigstore_public_v1_profile(profile_dict(valid_der)) is None
+        valid_der = encode_dss_signature(2**200 + 1, 2**199 + 7)
+        assert (
+            signing._check_sigstore_public_v1_profile(profile_dict(valid_der)) is None
+        )
 
         # 0x30-prefixed, >=32 bytes, not a SEQUENCE of two INTEGERs (the gap the
         # old heuristic missed) → BUNDLE_MALFORMED.
@@ -1375,9 +1502,7 @@ class TestSigstorePublicV1AlgorithmProfile:
                     "tlogEntries": [
                         {
                             "inclusionProof": {"logIndex": "1"},
-                            "inclusionPromise": {
-                                "signedEntryTimestamp": bad_set
-                            },
+                            "inclusionPromise": {"signedEntryTimestamp": bad_set},
                         }
                     ]
                 },
@@ -1433,6 +1558,7 @@ class TestSigstorePublicV1AlgorithmProfile:
         from cryptography.hazmat.primitives.asymmetric.utils import (
             encode_dss_signature,
         )
+
         bad_set = base64.b64encode(encode_dss_signature(0, 1)).decode("ascii")
         case = {
             "mediaType": media_type,
@@ -1459,6 +1585,7 @@ class TestSigstorePublicV1AlgorithmProfile:
         from cryptography.hazmat.primitives.asymmetric.utils import (
             encode_dss_signature,
         )
+
         bad_set = base64.b64encode(encode_dss_signature(0, 1)).decode("ascii")
         case = {
             "verificationMaterial": {
@@ -1529,7 +1656,11 @@ class TestSigstorePublicV1AlgorithmProfile:
         ids=["ed25519", "p384", "rsa"],
     )
     def test_verify_rejects_non_p256_cert_pubkey(
-        self, crypto_factory, canonical_bytes_simple, monkeypatch, curve,
+        self,
+        crypto_factory,
+        canonical_bytes_simple,
+        monkeypatch,
+        curve,
     ):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         cert = crypto_factory.make_cert_with_curve(curve)
@@ -1551,7 +1682,10 @@ class TestSigstorePublicV1AlgorithmProfile:
     # Enforces: finding-20260512-eaft actionable #3. ECDSA P-256 is the
     # accepted certificate public-key profile for sigstore-public-v1.
     def test_verify_accepts_p256_cert_pubkey(
-        self, crypto_factory, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         cert = crypto_factory.make_cert_with_curve("P-256")
@@ -1582,7 +1716,10 @@ class TestMultiSignerAttack:
     # Enforces: two-signer with one tampered cert produces partial failure;
     # overall != VERIFIED.
     def test_one_valid_one_tampered_cert(
-        self, crypto_factory, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         good = crypto_factory.make_bundle_blob(
@@ -1609,7 +1746,10 @@ class TestMultiSignerAttack:
 
     # Enforces: both signers tampered — all results CERT_INVALID, overall same.
     def test_both_signers_tampered(
-        self, crypto_factory, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         good = crypto_factory.make_bundle_blob(
@@ -1641,7 +1781,10 @@ class TestRelabelAttack:
     # Enforces: cert SAN is authoritative; relabeling outer metadata can't
     # change verify()'s returned subject.
     def test_relabel_outside_cert_does_not_change_subject(
-        self, crypto_factory, canonical_bytes_simple, monkeypatch,
+        self,
+        crypto_factory,
+        canonical_bytes_simple,
+        monkeypatch,
     ):
         crypto_factory.install_verify_monkeypatch(monkeypatch)
         blob = crypto_factory.make_bundle_blob(

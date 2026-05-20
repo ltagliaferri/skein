@@ -16,7 +16,6 @@ finding-20260511-qejb, brief-20260511-nbz4 (rev 5 spec).
 from __future__ import annotations
 
 import base64
-import json
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +27,7 @@ CORPUS_DIR = Path(__file__).parent / "corpus"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _read_artifact(stem: str, subdir: str = "") -> bytes:
     """Read the signed artifact bytes for a corpus bundle."""
@@ -75,6 +75,7 @@ def make_skein_bundle(
 # ---------------------------------------------------------------------------
 # Pytest fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _conformance_staging_verifier(request, monkeypatch):
@@ -191,7 +192,5 @@ def bundle_v3_no_signed_time():
     SKEIN does not require the legacy SET field.
     """
     artifact = _read_artifact("bundle_v3_no_signed_time")
-    blob = _read_bundle_json(
-        "bundle_v3_no_signed_time", suffix=".sigstore.json"
-    )
+    blob = _read_bundle_json("bundle_v3_no_signed_time", suffix=".sigstore.json")
     return artifact, make_skein_bundle(artifact, [blob])

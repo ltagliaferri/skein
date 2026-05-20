@@ -385,6 +385,19 @@ def _classify_sign_exception(exc: BaseException) -> tuple[str, str]:
     if name == "CertValidationError":
         return ("fulcio", f"cert validation failed: {msg}")
 
+    # Catch-all per brief-20260514-7i3w parity: the verify-side
+    # _map_sigstore_exception already logs unrecognized classes so operators
+    # can spot sigstore-python surface drift before it becomes silent
+    # misclassification. The sign side did the same attribution-to-fulcio
+    # collapse without surfacing the drift signal (Knuth B-review concern 4 /
+    # Oracle B-review zone 3).
+    logger.warning(
+        "signing.classify_sign_exception_unrecognized: %s raised "
+        "(sigstore %s): %s — attributing to fulcio",
+        name,
+        sigstore.__version__,
+        msg,
+    )
     return ("fulcio", f"sign failed: {name}: {msg}")
 
 

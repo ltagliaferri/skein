@@ -168,6 +168,52 @@ def test_sign_exception_preserves_cause(
     assert exc.value.__cause__ is not None
 
 
+# Enforces: when sigstore-python raises an exception during sign() that doesn't
+# match any branch in _classify_sign_exception, the catch-all attributes the
+# failure to "fulcio" AND emits a WARNING-level log. Mirrors the verify-side
+# behavior pinned by test_verify_catchall_logs_unrecognized_sigstore_exception
+# (brief-20260514-7i3w pattern). Without this the sign side would silently
+# collapse every unknown sigstore-python surface drift to component="fulcio"
+# with no observability signal (Knuth B-review concern 4 / Oracle B-review
+# zone 3).
+#
+# Log format requirements (parity with verify-side catch-all):
+# - WARNING level
+# - Grep-able prefix "signing.classify_sign_exception_unrecognized"
+# - Includes the exception class name (for triage)
+# - Includes sigstore.__version__ (for version-skew diagnosis)
+def test_sign_catchall_logs_unrecognized_sigstore_exception(
+    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, caplog
+):
+    crypto_factory.install_sign_monkeypatch(
+        monkeypatch,
+        provider=google_provider,
+        raise_sigstore_exception="UnrecognizedSignException",
+    )
+    with caplog.at_level("WARNING"):
+        with pytest.raises(signing.SigningUnavailable) as exc:
+            signing.sign(canonical_bytes_simple, google_provider)
+    assert exc.value.component == "fulcio"
+    catchall_records = [
+        r
+        for r in caplog.records
+        if "signing.classify_sign_exception_unrecognized" in r.getMessage()
+    ]
+    assert catchall_records, (
+        "expected at least one WARNING log with "
+        "'signing.classify_sign_exception_unrecognized' prefix; "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
+    assert any(r.levelname == "WARNING" for r in catchall_records)
+    assert any(
+        "UnrecognizedSignException" in r.getMessage() for r in catchall_records
+    ), "log must include the unrecognized exception class name for triage"
+    assert any(_sigstore.__version__ in r.getMessage() for r in catchall_records), (
+        f"log must include sigstore.__version__ ({_sigstore.__version__}) "
+        "for version-skew diagnosis"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Verify path: library exception → VerifyStatus
 # ---------------------------------------------------------------------------

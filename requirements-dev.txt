@@ -9,6 +9,7 @@ pytest>=7.0.0
 pytest-asyncio>=0.23.0
 pytest-cov>=4.0.0
 aiohttp>=3.9.0
+httpx>=0.27.0  # required by fastapi.testclient (re-exports starlette TestClient)
 
 # Code quality
 ruff>=0.8.0

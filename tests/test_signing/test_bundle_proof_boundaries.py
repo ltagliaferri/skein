@@ -6,6 +6,9 @@ duplicate signer semantics, and inclusion-proof consistency edges.
 
 from __future__ import annotations
 
+import base64
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip(
@@ -167,3 +170,53 @@ def test_rekor_proof_checkpoint_root_mismatch_with_proof_root(
     result = signing.verify(canonical_bytes_simple, sb)
 
     assert result.status == signing.VerifyStatus.INCLUSION_FAILED
+
+
+# ---------------------------------------------------------------------------
+# _build_rekor_inclusion_proof — empty key_id contract
+# ---------------------------------------------------------------------------
+#
+# When the wire inclusion proof carries a missing/empty Rekor log_id key_id,
+# the builder must honor its "return None means no inclusion proof" contract
+# (already used for missing proof at line 689 and for log_index>=tree_size at
+# line 704). The earlier `or "unknown"` fallback fabricated a literal "unknown"
+# string that satisfies RekorInclusionProof.log_id's min_length=1 validator
+# and survived all the way to Evidence consumers, masking the missing-data
+# signal.
+
+
+def _fake_bundle_with_inclusion(
+    *,
+    key_id: bytes,
+    log_index: int = 5,
+    tree_size: int = 10,
+    integrated_time_s: int = 1_715_443_200,
+) -> SimpleNamespace:
+    """Build a duck-typed Bundle covering the attributes _build_rekor_inclusion_proof reads."""
+    proof = SimpleNamespace(
+        log_index=log_index,
+        tree_size=tree_size,
+        root_hash=b"root-hash-bytes",
+        hashes=[b"sibling-0", b"sibling-1"],
+        checkpoint=SimpleNamespace(envelope="rekor.sigstore.dev\n10\n<root>\n\n— rekor.sigstore.dev <sig>\n"),
+    )
+    inner = SimpleNamespace(
+        inclusion_proof=proof,
+        integrated_time=integrated_time_s,
+        log_id=SimpleNamespace(key_id=key_id),
+    )
+    log_entry = SimpleNamespace(_inner=inner)
+    return SimpleNamespace(log_entry=log_entry)
+
+
+def test_build_rekor_inclusion_proof_returns_none_on_empty_key_id():
+    bundle = _fake_bundle_with_inclusion(key_id=b"")
+    assert signing._build_rekor_inclusion_proof(bundle) is None
+
+
+def test_build_rekor_inclusion_proof_b64_encodes_log_id_when_key_id_present():
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    bundle = _fake_bundle_with_inclusion(key_id=key_id)
+    result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    assert result.log_id == base64.b64encode(key_id).decode("ascii")

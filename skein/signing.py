@@ -331,7 +331,11 @@ def _now_microseconds() -> int:
 # isinstance was therefore redundant for the classes we map; an unknown real
 # subclass falls to the catch-all (BUNDLE_MALFORMED + WARNING), the d3u6 §5
 # safe default. The one non-class rule is the VerificationError +
-# "signature is invalid"/"digest mismatch" message heuristic, kept explicit.
+# "signature is invalid for input"/"bundle message digest mismatch" message
+# heuristic, kept explicit. The phrases are sigstore-python's literal wire
+# strings (verifier.py 4.2.0 @ 483 and 495); loose substrings like
+# "signature is invalid" would also false-match cert-chain wording like
+# "cert chain: signature is invalid for leaf" (F-pass round 4 R4-4).
 #
 # Two verify-path rules are deliberate SKEIN narrowings of the literal d3u6 §5
 # table, not transcriptions of it (finding-20260519-74o7): (a) the
@@ -390,11 +394,25 @@ def _map_sigstore_exception(exc: BaseException) -> VerifyStatus:
     msg_lower = msg.lower()
 
     # Signature-mismatch: the factory signal _SignatureInvalid, or a
-    # sigstore-python VerificationError whose message names the failure.
+    # sigstore-python VerificationError whose message uses one of the two
+    # exact wire phrasings sigstore-python raises for payload/signature
+    # failure (sigstore/verify/verifier.py @ 4.2.0):
+    #   - "Signature is invalid for input" (line 495)
+    #   - "Bundle message digest mismatch" (line 483)
+    #
+    # Match the full phrase, not the loose substring "signature is invalid"
+    # or "digest mismatch" — those would also catch cert-chain wording like
+    # "cert chain: signature is invalid for leaf" and misclassify a cert-
+    # chain failure as SIGNATURE_MISMATCH (F-pass round 4 R4-4). Cert-chain
+    # failures from real sigstore-python come through as CertValidationError
+    # (handled below as CERT_INVALID), but a future sigstore-python rev that
+    # wraps cert-chain errors in plain VerificationError would have hit the
+    # loose substring otherwise.
     if name == "_SignatureInvalid":
         return VerifyStatus.SIGNATURE_MISMATCH
     if name == "VerificationError" and (
-        "signature is invalid" in msg_lower or "digest mismatch" in msg_lower
+        "signature is invalid for input" in msg_lower
+        or "bundle message digest mismatch" in msg_lower
     ):
         return VerifyStatus.SIGNATURE_MISMATCH
 

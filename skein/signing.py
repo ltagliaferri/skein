@@ -444,6 +444,19 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
 
     Prefer OID 1.3.6.1.4.1.57264.1.8 (Issuer V2, DER UTF8 string).
     Fall back to OID 1.3.6.1.4.1.57264.1.1 (legacy, raw UTF8 bytes).
+
+    The V2 path used to fall back to ``v2.decode("utf-8")`` when DER parse
+    rejected the input. That fallback admitted any byte sequence that
+    happened to be valid UTF-8 — including IA5String-tagged values
+    (``b"\\x16\\x05alice"``) where the leading ``0x16`` tag byte and length
+    byte become control characters embedded in the returned identity
+    string. A downstream policy check like ``issuer == "https://accounts.
+    google.com"`` would fail to match, but an attacker could conceivably
+    poison logged identity strings or wedge identity-comparison logic.
+    V2 is spec'd as DER UTF8String; if the parse rejects, the cert is
+    malformed at that extension and we return None. The legacy OID's
+    fallback is preserved because the legacy spec IS raw UTF-8 bytes
+    (not DER-wrapped).
     """
     def _read_ext(oid_str: str) -> bytes | None:
         for ext in cert.extensions:
@@ -455,13 +468,7 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
 
     v2 = _read_ext(_OID_ISSUER_V2)
     if v2 is not None:
-        try:
-            decoded = _decode_der_utf8(v2)
-            if decoded is not None:
-                return decoded
-            return v2.decode("utf-8")
-        except UnicodeDecodeError:
-            return None
+        return _decode_der_utf8(v2)
 
     legacy = _read_ext(_OID_ISSUER_LEGACY)
     if legacy is not None:
@@ -557,13 +564,15 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
     if raw is None:
         for name in san:
             if isinstance(name, x509.OtherName) and name.type_id.dotted_string == _OID_SIGNER_IDENTITY_OTHERNAME:
-                decoded = _decode_der_utf8(name.value)
-                if decoded is None:
-                    try:
-                        decoded = name.value.decode("utf-8")
-                    except UnicodeDecodeError:
-                        decoded = None
-                raw = decoded
+                # The signer-identity OtherName value is spec'd as a DER
+                # UTF8String (tag 0x0C). The prior code fell back to
+                # `name.value.decode("utf-8")` when the DER parse rejected,
+                # which would accept e.g. b"\x16\x05alice" (IA5String tag)
+                # as the identity string "\x16\x05alice" — control-char
+                # prefix slips past the NUL / strip / NFC guards below.
+                # Strict path: if it's not valid DER UTF8String, treat the
+                # SAN entry as malformed.
+                raw = _decode_der_utf8(name.value)
                 break
     if raw is None:
         return None

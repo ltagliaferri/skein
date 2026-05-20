@@ -227,6 +227,83 @@ class TestExtractSubjectEmptySanRejected:
         cert = self._stub_cert_with_san([empty_uri])
         assert signing._extract_subject_from_cert(cert) is None
 
+    def test_othername_with_wrong_der_tag_returns_none(self):
+        # Prior implementation fell back to `name.value.decode("utf-8")`
+        # when _decode_der_utf8 rejected the value. b"\x16\x05alice"
+        # (IA5String tag 0x16 + length 5 + "alice") would round-trip as
+        # the identity string "\x16\x05alice" — leading control chars
+        # slipping past the NUL / strip / NFC guards because \x16 (SYN)
+        # is not in str.strip()'s default whitespace set.
+        from cryptography import x509
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        ia5_other = x509.OtherName(type_id=other_oid, value=b"\x16\x05alice")
+        cert = self._stub_cert_with_san([ia5_other])
+        assert signing._extract_subject_from_cert(cert) is None
+
+    def test_othername_with_garbage_bytes_returns_none(self):
+        # Truly arbitrary bytes that happen to be valid UTF-8 but are
+        # not a DER UTF8String. Prior implementation would have returned
+        # this garbage as the subject identity.
+        from cryptography import x509
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        garbage_other = x509.OtherName(type_id=other_oid, value=b"\x16\x0cadmin@corp.com")
+        cert = self._stub_cert_with_san([garbage_other])
+        assert signing._extract_subject_from_cert(cert) is None
+
+
+class TestExtractIssuerV2DerStrict:
+    """Issuer V2 (OID 1.3.6.1.4.1.57264.1.8) extraction must use strict DER.
+
+    Prior implementation had a raw-UTF-8 fallback that admitted any byte
+    sequence that happened to be valid UTF-8 — including IA5String-tagged
+    values where the leading tag/length bytes become control characters
+    embedded in the returned issuer string. The Issuer V2 path also
+    skips the NUL/strip/NFC post-extraction guards entirely (it returns
+    the decoded value directly), so the V2 raw fallback was an even
+    sharper attack surface than the subject path.
+    """
+
+    def _stub_cert_with_issuer(self, oid_str, issuer_bytes):
+        from unittest.mock import Mock
+        ext = Mock()
+        ext.oid.dotted_string = oid_str
+        ext.value.value = issuer_bytes
+        cert = Mock()
+        cert.extensions = [ext]
+        return cert
+
+    def test_wrong_tag_v2_returns_none(self):
+        # IA5String tag where DER UTF8String was expected.
+        cert = self._stub_cert_with_issuer(
+            "1.3.6.1.4.1.57264.1.8", b"\x16\x05alice",
+        )
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_garbage_v2_returns_none(self):
+        # Arbitrary valid UTF-8 bytes that are not DER UTF8String. Prior
+        # implementation returned these as the issuer string.
+        cert = self._stub_cert_with_issuer(
+            "1.3.6.1.4.1.57264.1.8", b"\x16\x1bhttps://accounts.google.com",
+        )
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_valid_v2_returns_decoded(self):
+        # Regression: a real Fulcio-shaped DER UTF8String issuer round-trips.
+        issuer = "https://accounts.google.com"
+        body = issuer.encode("utf-8")
+        # Short-form DER: 0x0C, length, body.
+        der = bytes([0x0C, len(body)]) + body
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        assert signing._extract_issuer_from_cert(cert) == issuer
+
+    def test_legacy_path_still_uses_raw_utf8(self):
+        # The legacy issuer OID (1.3.6.1.4.1.57264.1.1) IS spec'd as raw
+        # UTF-8 bytes (no DER wrapping); preserve that path.
+        cert = self._stub_cert_with_issuer(
+            "1.3.6.1.4.1.57264.1.1", b"https://accounts.google.com",
+        )
+        assert signing._extract_issuer_from_cert(cert) == "https://accounts.google.com"
+
 
 class TestDecodeDerUtf8Strict:
     """White-box on _decode_der_utf8: strict DER UTF8String parse.

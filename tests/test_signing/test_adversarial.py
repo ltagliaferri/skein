@@ -1203,6 +1203,54 @@ class TestSigstorePublicV1AlgorithmProfile:
             == signing.VerifyStatus.BUNDLE_MALFORMED
         )
 
+    def test_profile_gate_fails_closed_on_structural_weirdness(self):
+        """Adversarial bundle with tlogEntries shapes that trigger an unexpected
+        exception inside the SET-DER defense loop must NOT bypass the gate.
+
+        Before the fix, the loop was wrapped in `except Exception: pass` —
+        any AttributeError / TypeError / KeyError / IndexError from a
+        malformed tlogEntries shape (entry not a dict, set_obj not a dict,
+        etc.) was swallowed and the profile check returned None
+        (passed). That silently disabled the finding-20260519-74o7 SET-DER
+        defense. The fix is fail-closed: unexpected structural shapes now
+        return BUNDLE_MALFORMED.
+        """
+        cases = [
+            # tlogEntries entry is a string -> entry.get(...) raises AttributeError
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {"tlogEntries": ["not-a-dict"]},
+            },
+            # tlogEntries entry is an int -> entry.get(...) raises AttributeError
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {"tlogEntries": [42]},
+            },
+            # inclusionPromise is a string, not a dict -> .get raises AttributeError
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {
+                    "tlogEntries": [
+                        {
+                            "inclusionPromise": "string-not-dict",
+                            "inclusionProof": {"logIndex": "1"},
+                        }
+                    ]
+                },
+            },
+            # tlogEntries itself is a dict, not a list -> iteration over dict
+            # yields keys (strings), then entry.get raises AttributeError
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {"tlogEntries": {"k": "v"}},
+            },
+        ]
+        for case in cases:
+            assert (
+                signing._check_sigstore_public_v1_profile(case)
+                == signing.VerifyStatus.BUNDLE_MALFORMED
+            ), f"profile gate must fail-closed on: {case!r}"
+
     # Enforces: finding-20260512-eaft actionable #3. sigstore-public-v1 is
     # pinned to ECDSA P-256 leaf certificates; other key algorithms fail closed.
     @pytest.mark.parametrize(

@@ -894,7 +894,16 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
                 if r <= 0 or s <= 0:
                     return VerifyStatus.BUNDLE_MALFORMED
         except Exception:  # noqa: BLE001
-            pass
+            # Any unexpected structural shape inside tlogEntries (entry not a
+            # dict, set_obj not a dict, etc.) reaches the SET-DER defense as an
+            # AttributeError / TypeError / KeyError / IndexError. Silently
+            # skipping the check (the prior behavior) bypassed the
+            # finding-20260519-74o7 defense — an adversarial bundle with
+            # tlogEntries=["string"] would let entry.get(...) raise
+            # AttributeError, swallow it, and return None (profile pass) without
+            # the SET ever being DER-validated. Fail closed instead: structural
+            # weirdness in v0.3 tlogEntries is itself a malformedness signal.
+            return VerifyStatus.BUNDLE_MALFORMED
 
     return None
 

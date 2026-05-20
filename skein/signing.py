@@ -794,8 +794,23 @@ class _TrustRootError(Exception):
 
 
 def _select_verifier(trust_root_pin: str | None) -> Any:
-    """Select a Verifier based on trust_root_pin (finding-20260513-w5hq §3)."""
-    factory_state = _test_factory._verify_state
+    """Select a Verifier based on trust_root_pin (finding-20260513-w5hq §3).
+
+    The state-driven branches below (trust_roots, current_root, offline,
+    trust_root_missing, predates) are populated by the test factory via
+    install_verify_monkeypatch() to exercise offline / stale-root / era-
+    pin cases. Production code path must NOT see those values — a test
+    that populated _verify_state and failed to clean up would otherwise
+    influence subsequent production calls in the same process (gremlin
+    finding #5). When _test_factory._test_active is False (production),
+    we substitute an empty factory_state, so the rest of the function
+    evaluates exactly as it would for the never-touched _verify_state == {}
+    case. install_verify_monkeypatch() activates _test_active via
+    monkeypatch.setattr so teardown auto-reverts to False.
+    """
+    factory_state = (
+        _test_factory._verify_state if _test_factory._test_active else {}
+    )
     trust_roots = factory_state.get("trust_roots") or []
     current_root = factory_state.get("current_trust_root")
     offline = factory_state.get("offline", False)
@@ -1543,6 +1558,13 @@ class _TestFactory:
         self._registry: dict[bytes, dict] = {}
         self._sign_state: dict[str, Any] = {}
         self._verify_state: dict[str, Any] = {}
+        # _test_active is the gate _select_verifier consults before reading
+        # _verify_state. Production code sees False and substitutes an empty
+        # factory_state, so stale _verify_state from a prior test cannot
+        # change production behavior (gremlin finding #5).
+        # install_verify_monkeypatch() activates it via monkeypatch.setattr
+        # so the False default is restored on teardown.
+        self._test_active: bool = False
         self._sign_call_count_per_provider: dict[int, int] = {}
         self._verify_time_us: int | None = None
         self.fulcio_call_count: int = 0
@@ -2006,6 +2028,11 @@ class _TestFactory:
     def install_verify_monkeypatch(self, monkeypatch, **opts) -> None:
         self._reset_verify()
         self._verify_state = opts
+        # Activate the test gate via monkeypatch so it auto-reverts to False
+        # on teardown — _select_verifier checks this before reading
+        # _verify_state, and production behavior must not see stale test
+        # state from a prior test (gremlin finding #5).
+        monkeypatch.setattr(self, "_test_active", True)
         fake = _FakeVerifier(self)
         monkeypatch.setattr(
             "skein.signing._build_production_verifier",

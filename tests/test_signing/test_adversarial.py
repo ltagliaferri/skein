@@ -703,6 +703,81 @@ class TestOfflineNoTrustRoot:
         assert result.status == signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT
 
 
+class TestSelectVerifierStateIsolation:
+    """Test-factory state must not influence production code path.
+
+    _select_verifier originally read _test_factory._verify_state
+    unconditionally; a test that populated state keys like
+    `trust_root_missing` and failed to clear them on teardown would alter
+    subsequent production calls in the same process (gremlin finding #5,
+    F-pass on brief-20260520-gdvx). The fix gates state consultation on
+    _test_factory._test_active, which install_verify_monkeypatch toggles
+    via monkeypatch.setattr so the False default is restored on teardown.
+    """
+
+    def test_stale_verify_state_does_not_leak_into_production(self):
+        # Direct dict mutation simulates the worst-case leakage shape: a
+        # prior test poked _verify_state and the dict ref was never cleared.
+        # With _test_active=False (the default), _select_verifier must NOT
+        # consult the dict; it must take the production path regardless.
+        factory = signing._test_factory
+        assert factory._test_active is False, (
+            "test setup precondition: _test_active must default to False"
+        )
+        original_state = dict(factory._verify_state)
+        try:
+            factory._verify_state.clear()
+            factory._verify_state["trust_root_missing"] = True
+            factory._verify_state["offline"] = True
+            factory._verify_state["trust_root_predates_bundle"] = True
+            # All three would raise _TrustRootError if consulted.
+            verifier = signing._select_verifier(None)
+            # Production path: returned a real Verifier, no _TrustRootError.
+            from sigstore.verify import Verifier
+            assert isinstance(verifier, Verifier), (
+                f"stale state leaked into production: got {type(verifier).__name__}"
+            )
+        finally:
+            factory._verify_state.clear()
+            factory._verify_state.update(original_state)
+
+    def test_state_is_consulted_when_test_active(self):
+        # Symmetric: when _test_active is True (the install_verify_monkeypatch
+        # mode), _select_verifier DOES consult _verify_state. Verifies the
+        # gate is on the active flag, not a permanent disablement.
+        factory = signing._test_factory
+        original_state = dict(factory._verify_state)
+        original_active = factory._test_active
+        try:
+            factory._verify_state.clear()
+            factory._verify_state["trust_root_missing"] = True
+            factory._test_active = True
+            with pytest.raises(signing._TrustRootError) as excinfo:
+                signing._select_verifier(None)
+            assert excinfo.value.status == signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT
+        finally:
+            factory._verify_state.clear()
+            factory._verify_state.update(original_state)
+            factory._test_active = original_active
+
+    def test_install_verify_monkeypatch_clears_test_active_on_teardown(
+        self, monkeypatch, crypto_factory,
+    ):
+        # End-to-end: install_verify_monkeypatch sets _test_active=True via
+        # monkeypatch.setattr, so teardown must restore the False default.
+        # We simulate teardown explicitly via monkeypatch.undo() inside the
+        # test body — outside this test, pytest's own teardown handles it.
+        factory = signing._test_factory
+        assert factory._test_active is False
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        assert factory._test_active is True
+        monkeypatch.undo()
+        assert factory._test_active is False, (
+            "monkeypatch teardown did not restore _test_active=False; "
+            "install_verify_monkeypatch must use monkeypatch.setattr"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Attack class 12: identity_scheme mismatch
 # ---------------------------------------------------------------------------

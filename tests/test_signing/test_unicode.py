@@ -64,26 +64,30 @@ def test_verify_identity_nfc_vs_nfd_subjects(crypto_factory, monkeypatch):
     assert nfd_result.subject == nfc
 
 
-# Enforces: oracle actionable #1. Zero-width joiners are not stripped from SAN
-# subjects; preserving them prevents display-equivalent identity substitution.
+# Enforces R4-3 (F-pass round 4): zero-width joiners in extracted SAN
+# subjects are not safe to surface \u2014 they are visually invisible and produce
+# strings that look identical to a trusted identity but compare non-equal.
+# Fail closed at extraction rather than preserving them in a VERIFIED result.
+# Supersedes the earlier "preserve to prevent stripping collision" policy:
+# rejection is strictly stronger than preservation against substitution.
 def test_verify_identity_zero_width_joiner_in_subject(crypto_factory, monkeypatch):
     subject = "alice\u200dops@example.com"
     result = _verify_identity(
         crypto_factory, monkeypatch, subject=subject, issuer=GOOGLE_ISSUER,
     )
-    assert result.status == signing.VerifyStatus.VERIFIED
-    assert result.subject == subject
+    assert result.status != signing.VerifyStatus.VERIFIED
 
 
-# Enforces: oracle actionable #1. RTL marks are not silently stripped or
-# reordered during identity extraction.
+# Enforces R4-3 (F-pass round 4): RTL/bidi-control marks in extracted SAN
+# subjects are rejected at the extraction layer. The mark visually reorders
+# surrounding glyphs without changing byte-level comparison, so a cert with
+# one of these in the identity field is unsafe to surface as VERIFIED.
 def test_verify_identity_rtl_marks_in_subject(crypto_factory, monkeypatch):
     subject = "alice\u202e@example.com"
     result = _verify_identity(
         crypto_factory, monkeypatch, subject=subject, issuer=GOOGLE_ISSUER,
     )
-    assert result.status == signing.VerifyStatus.VERIFIED
-    assert result.subject == subject
+    assert result.status != signing.VerifyStatus.VERIFIED
 
 
 # Enforces: oracle actionable #1. X.509 SAN subjects with trailing whitespace

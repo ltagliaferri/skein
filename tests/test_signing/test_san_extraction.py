@@ -429,6 +429,140 @@ class TestVerifySingleRejectsMissingIssuer:
         assert vr.subject == value
 
 
+class TestInvisibleIdentityCharsRejected:
+    """R4-3: zero-width and bidi directional formatting chars must not
+    survive identity normalization on either subject or issuer paths.
+
+    NFC normalization does not touch these characters, and they have no
+    visible glyph (or, for RLO/LRO, they reorder surrounding text),
+    so they can be smuggled into an identity to produce a string that
+    is visually identical to a trusted identity but compares non-equal
+    against it. Reject the whole set:
+
+      U+200B-U+200F: ZWSP, ZWNJ, ZWJ, LRM, RLM
+      U+202A-U+202E: LRE, RLE, PDF, LRO, RLO  (legacy bidi formatting)
+      U+2066-U+2069: LRI, RLI, FSI, PDI       (modern bidi isolates)
+    """
+
+    INVISIBLE_CHARS = [
+        ("U+200B ZWSP", "​"),
+        ("U+200C ZWNJ", "‌"),
+        ("U+200D ZWJ", "‍"),
+        ("U+200E LRM", "‎"),
+        ("U+200F RLM", "‏"),
+        ("U+202A LRE", "‪"),
+        ("U+202B RLE", "‫"),
+        ("U+202C PDF", "‬"),
+        ("U+202D LRO", "‭"),
+        ("U+202E RLO", "‮"),
+        ("U+2066 LRI", "⁦"),
+        ("U+2067 RLI", "⁧"),
+        ("U+2068 FSI", "⁨"),
+        ("U+2069 PDI", "⁩"),
+    ]
+
+    def _stub_cert_with_san(self, san_objects):
+        from unittest.mock import Mock
+        san_ext_value = Mock()
+        san_ext_value.__iter__ = lambda self: iter(san_objects)
+        san_ext = Mock()
+        san_ext.value = san_ext_value
+        cert = Mock()
+        cert.extensions.get_extension_for_class.return_value = san_ext
+        return cert
+
+    def _stub_cert_with_issuer(self, oid_str, issuer_bytes):
+        from unittest.mock import Mock
+        ext = Mock()
+        ext.oid.dotted_string = oid_str
+        ext.value.value = issuer_bytes
+        cert = Mock()
+        cert.extensions = [ext]
+        return cert
+
+    @pytest.mark.parametrize("label,ch", INVISIBLE_CHARS)
+    def test_subject_othername_invisible_char_rejected(self, label, ch):
+        from cryptography import x509
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        val = f"alice{ch}@example.com"
+        body = val.encode("utf-8")
+        der = bytes([0x0C, len(body)]) + body
+        other = x509.OtherName(type_id=other_oid, value=der)
+        cert = self._stub_cert_with_san([other])
+        assert signing._extract_subject_from_cert(cert) is None, label
+
+    @pytest.mark.parametrize("label,ch", INVISIBLE_CHARS)
+    def test_subject_rfc822_invisible_char_rejected(self, label, ch):
+        # RFC822Name SAN preference comes first. Confirm the guard fires
+        # there too — not only the OtherName path.
+        from cryptography import x509
+        try:
+            email = x509.RFC822Name(f"alice{ch}@example.com")
+        except (ValueError, TypeError):
+            pytest.skip(f"cryptography rejects RFC822Name with {label}")
+        cert = self._stub_cert_with_san([email])
+        assert signing._extract_subject_from_cert(cert) is None, label
+
+    @pytest.mark.parametrize("label,ch", INVISIBLE_CHARS)
+    def test_subject_uri_invisible_char_rejected(self, label, ch):
+        # cryptography.x509.UniformResourceIdentifier(...) rejects non-ASCII
+        # at construction, so we stub the SAN entry directly to exercise the
+        # extraction function's URI branch. A maliciously-encoded cert could
+        # still produce a URI SAN with these chars on the wire.
+        from cryptography import x509
+        from unittest.mock import Mock
+        uri = Mock(spec=x509.UniformResourceIdentifier)
+        uri.value = f"https://example.com/alice{ch}"
+        cert = self._stub_cert_with_san([uri])
+        assert signing._extract_subject_from_cert(cert) is None, label
+
+    @pytest.mark.parametrize("label,ch", INVISIBLE_CHARS)
+    def test_issuer_v2_invisible_char_rejected(self, label, ch):
+        val = f"https://accounts.{ch}google.com"
+        body = val.encode("utf-8")
+        der = bytes([0x0C, len(body)]) + body
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        assert signing._extract_issuer_from_cert(cert) is None, label
+
+    @pytest.mark.parametrize("label,ch", INVISIBLE_CHARS)
+    def test_issuer_legacy_invisible_char_rejected(self, label, ch):
+        val = f"https://accounts.{ch}google.com"
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.1", val.encode("utf-8"))
+        assert signing._extract_issuer_from_cert(cert) is None, label
+
+    def test_subject_valid_identity_still_returns(self):
+        # Regression: identities with no invisible chars still extract.
+        from cryptography import x509
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        val = "alice@example.com"
+        body = val.encode("utf-8")
+        der = bytes([0x0C, len(body)]) + body
+        other = x509.OtherName(type_id=other_oid, value=der)
+        cert = self._stub_cert_with_san([other])
+        assert signing._extract_subject_from_cert(cert) == val
+
+    def test_issuer_valid_identity_still_returns(self):
+        # Regression: real Fulcio-shaped issuer still passes the new guard.
+        val = "https://accounts.google.com"
+        body = val.encode("utf-8")
+        der = bytes([0x0C, len(body)]) + body
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        assert signing._extract_issuer_from_cert(cert) == val
+
+    def test_non_invisible_unicode_still_normalized(self):
+        # Regression: NFC normalization still happens for non-invisible
+        # combining chars (decomposed é → precomposed é).
+        from cryptography import x509
+        import unicodedata
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        decomposed = "café@example.com".encode("utf-8")
+        der = bytes([0x0C, len(decomposed)]) + decomposed
+        other = x509.OtherName(type_id=other_oid, value=der)
+        cert = self._stub_cert_with_san([other])
+        result = signing._extract_subject_from_cert(cert)
+        assert result == unicodedata.normalize("NFC", "café@example.com")
+
+
 class TestDecodeDerUtf8Strict:
     """White-box on _decode_der_utf8: strict DER UTF8String parse.
 

@@ -156,6 +156,65 @@ def test_verify_malformed_ia5string_san_returns_cert_invalid(crypto_factory, mon
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 
+class TestExtractSubjectEmptySanRejected:
+    """Empty SAN must not propagate through _extract_subject_from_cert
+    as the empty string.
+
+    _decode_der_utf8(bytes([0x0c, 0x00])) is a syntactically valid DER
+    encoding of a zero-length UTF8String — it returns ''. Before the
+    fix, _extract_subject_from_cert returned that '' as the subject and
+    verify()'s `if subject is None` guard let it through; the
+    VerifyResult surfaced VERIFIED with subject=''. Empty subject is
+    not a usable identity — any caller comparing result.subject against
+    an expected signer would be misled. The fix rejects empty raw at
+    the extraction layer (returning None so verify() maps to
+    CERT_INVALID) and uses a truthiness check at the verify() guard.
+
+    These tests are white-box on the OtherName path because the
+    cryptography library refuses to construct empty rfc822Name / URI
+    values at the SAN-object boundary, so those paths can't be reached
+    through normal cert construction.
+    """
+
+    def _stub_cert_with_san(self, san_objects):
+        from unittest.mock import Mock
+        san_ext_value = Mock()
+        san_ext_value.__iter__ = lambda self: iter(san_objects)
+        san_ext = Mock()
+        san_ext.value = san_ext_value
+        cert = Mock()
+        cert.extensions.get_extension_for_class.return_value = san_ext
+        return cert
+
+    def test_empty_othername_utf8string_returns_none(self):
+        from cryptography import x509
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        # 0x0c 0x00 = DER UTF8String, length 0 -> decodes to ''
+        empty_other = x509.OtherName(type_id=other_oid, value=bytes([0x0C, 0x00]))
+        cert = self._stub_cert_with_san([empty_other])
+        assert signing._extract_subject_from_cert(cert) is None
+
+    def test_whitespace_only_othername_returns_none(self):
+        from cryptography import x509
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        # 0x0c 0x01 0x20 = DER UTF8String containing a single space.
+        ws_other = x509.OtherName(type_id=other_oid, value=bytes([0x0C, 0x01, 0x20]))
+        cert = self._stub_cert_with_san([ws_other])
+        # `raw != raw.strip()` catches this — pre-existing path; pin the
+        # behavior so the empty-string fix doesn't accidentally weaken it.
+        assert signing._extract_subject_from_cert(cert) is None
+
+    def test_valid_othername_unchanged(self):
+        from cryptography import x509
+        other_oid = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.24")
+        # 0x0c 0x05 "alice"
+        valid_other = x509.OtherName(
+            type_id=other_oid, value=bytes([0x0C, 0x05]) + b"alice",
+        )
+        cert = self._stub_cert_with_san([valid_other])
+        assert signing._extract_subject_from_cert(cert) == "alice"
+
+
 class TestDecodeDerUtf8Strict:
     """White-box on _decode_der_utf8: strict DER UTF8String parse.
 

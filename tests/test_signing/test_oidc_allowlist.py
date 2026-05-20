@@ -55,3 +55,33 @@ def test_sign_accepts_github_personal_oauth(
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
     result = signing.sign(canonical_bytes_simple, provider)
     assert isinstance(result, signing.SignResult)
+
+
+# w5hq §2 amendment (2026-05-19): the Sigstore Dex brokers are admitted as
+# identity intermediaries for the personal-OAuth allowlist. Both staging
+# (oauth2.sigstage.dev) and prod (oauth2.sigstore.dev) Dex are accepted; Dex's
+# connector config constrains the underlying IdP to the original allowlist's
+# set (Google / GitHub-personal / Microsoft). Empirical premise: the K-A9
+# interactive run on 2026-05-19 confirmed sigstore-python's standard
+# human-flow Issuer returns a Dex-issued token (iss=oauth2.sigstage.dev/auth,
+# federated_issuer=accounts.google.com) — see brief-20260519-5aa5.
+def test_sign_accepts_sigstore_staging_dex_broker(
+    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+):
+    provider = make_oidc_provider(
+        issuer="https://oauth2.sigstage.dev/auth", provider_id="sigstore-staging-dex",
+    )
+    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
+    result = signing.sign(canonical_bytes_simple, provider)
+    assert isinstance(result, signing.SignResult)
+
+
+def test_sign_accepts_sigstore_prod_dex_broker(
+    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+):
+    provider = make_oidc_provider(
+        issuer="https://oauth2.sigstore.dev/auth", provider_id="sigstore-prod-dex",
+    )
+    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
+    result = signing.sign(canonical_bytes_simple, provider)
+    assert isinstance(result, signing.SignResult)

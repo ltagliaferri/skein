@@ -226,9 +226,25 @@ _SEVERITY_RANK: dict[VerifyStatus, int] = {
 }
 
 
+# finding-20260513-w5hq §2 (LOCKED) amended 2026-05-19 per finding-20260520-9jc5:
+# the Sigstore Dex brokers are admitted as identity intermediaries for the
+# v0 personal-OAuth allowlist. Empirical premise: every human-flow Sigstore
+# signer (gitsign, cosign, sigstore-python's interactive Issuer) receives a
+# Dex-issued token with iss=oauth2.sig{store|stage}.dev/auth and the underlying
+# IdP appearing only as the federated_issuer / sub claims. Dex's connector
+# config constrains the upstream IdPs to Google/GitHub-personal/Microsoft,
+# preserving the original w5hq §2 intent ("v0 trusts personal-OAuth human
+# identities") at the only layer the ecosystem actually exposes. Direct-IdP
+# token paths exist on Fulcio's side (its /api/v2/configuration trusts
+# accounts.google.com directly) but are not yet reachable for human flows
+# (sigstore-python's client_id="sigstore" default + tx8r's literal aud=
+# "sigstore" lock combine to require the Dex-brokered path today). Revisit
+# when those preconditions change.
 _V0_OIDC_ALLOWLIST: frozenset[str] = frozenset({
     "https://accounts.google.com",
     "https://github.com/login/oauth",
+    "https://oauth2.sigstore.dev/auth",   # Sigstore prod Dex broker
+    "https://oauth2.sigstage.dev/auth",   # Sigstore staging Dex broker
 })
 
 

@@ -225,6 +225,13 @@ _SEVERITY_RANK: dict[VerifyStatus, int] = {
     VerifyStatus.VERIFIED: 7,  # mildest
 }
 
+# Fail-loud at import if a new VerifyStatus member lands without a rank entry;
+# verify_multi's aggregation would otherwise KeyError at runtime.
+assert set(_SEVERITY_RANK.keys()) == set(VerifyStatus), (
+    f"_SEVERITY_RANK is missing VerifyStatus members: "
+    f"{set(VerifyStatus) - set(_SEVERITY_RANK.keys())}"
+)
+
 
 # finding-20260513-w5hq §2 (LOCKED) amended 2026-05-19 per finding-20260520-9jc5:
 # the Sigstore Dex brokers are admitted as identity intermediaries for the

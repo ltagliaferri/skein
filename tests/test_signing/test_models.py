@@ -57,6 +57,16 @@ def test_verifystatus_values_distinct():
     assert len(values) == len(set(values))
 
 
+# Enforces: every VerifyStatus member has a _SEVERITY_RANK entry. verify_multi's
+# overall aggregation lookups would KeyError at runtime if a new member shipped
+# without a rank. The module-level assert is the runtime guarantee; this test
+# makes the contract visible in the suite.
+def test_severity_rank_covers_all_verify_status():
+    from skein.signing import _SEVERITY_RANK
+
+    assert set(_SEVERITY_RANK.keys()) == set(signing.VerifyStatus)
+
+
 # ---------------------------------------------------------------------------
 # VerifyResult shape
 # ---------------------------------------------------------------------------

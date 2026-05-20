@@ -154,3 +154,78 @@ def test_verify_malformed_ia5string_san_returns_cert_invalid(crypto_factory, mon
     )
     vr = signing.verify(canonical, _sb(canonical, blob))
     assert vr.status == signing.VerifyStatus.CERT_INVALID
+
+
+class TestDecodeDerUtf8Strict:
+    """White-box on _decode_der_utf8: strict DER UTF8String parse.
+
+    The function powers issuer/subject extraction from Fulcio cert extensions
+    (OID 1.3.6.1.4.1.57264.1.8 issuer V2 and OID 1.3.6.1.4.1.57264.1.24
+    signer-identity OtherName). Pre-tightening, it accepted BER
+    indefinite-length encoding (data[1] == 0x80, returned empty string) and
+    silently truncated bodies whose claimed length exceeded the buffer
+    (returned partial bytes). Both shapes are now rejected per X.690.
+    """
+
+    def test_happy_path_short_form(self):
+        assert signing._decode_der_utf8(bytes([0x0C, 0x05]) + b"hello") == "hello"
+        assert signing._decode_der_utf8(bytes([0x0C, 0x00])) == ""
+
+    def test_happy_path_long_form_128(self):
+        # Length 128 — smallest legal long-form encoding.
+        data = bytes([0x0C, 0x81, 0x80]) + (b"X" * 128)
+        assert signing._decode_der_utf8(data) == "X" * 128
+
+    def test_wrong_tag_rejected(self):
+        assert signing._decode_der_utf8(bytes([0x0D, 0x01, 0x41])) is None
+        assert signing._decode_der_utf8(b"") is None
+        assert signing._decode_der_utf8(b"\x0C") is None
+
+    def test_ber_indefinite_length_rejected(self):
+        # 0x0C 0x80 -> BER indefinite-length, illegal in DER (X.690 §10.1).
+        # Was decoded as empty string under lenient parser.
+        assert signing._decode_der_utf8(bytes([0x0C, 0x80])) is None
+
+    def test_silent_truncation_rejected(self):
+        # Claims length 10, supplies only 5. Was decoded as partial 'hello'.
+        assert (
+            signing._decode_der_utf8(bytes([0x0C, 0x0A]) + b"hello") is None
+        )
+        # Claims length 200, supplies 50.
+        assert (
+            signing._decode_der_utf8(bytes([0x0C, 0x81, 0xC8]) + b"X" * 50)
+            is None
+        )
+
+    def test_non_minimal_long_form_rejected(self):
+        # Length < 128 must use short form (X.690 §10.1).
+        assert (
+            signing._decode_der_utf8(bytes([0x0C, 0x81, 0x7F]) + b"X" * 127)
+            is None
+        )
+        assert (
+            signing._decode_der_utf8(bytes([0x0C, 0x81, 0x05]) + b"hello") is None
+        )
+
+    def test_leading_zero_in_long_form_length_rejected(self):
+        # Leading zero octet would not be minimal — X.690 §10.1 forbids it.
+        assert (
+            signing._decode_der_utf8(bytes([0x0C, 0x82, 0x00, 0x80]) + b"X" * 128)
+            is None
+        )
+
+    def test_trailing_garbage_rejected(self):
+        # The encoded value must consume exactly the input — any trailing
+        # bytes mean the input is not a single well-formed UTF8String.
+        assert (
+            signing._decode_der_utf8(bytes([0x0C, 0x05]) + b"hello" + b"EXTRA")
+            is None
+        )
+
+    def test_insufficient_length_octets_rejected(self):
+        # 0x82 says "2 length octets follow", but only 1 is present.
+        assert signing._decode_der_utf8(bytes([0x0C, 0x82, 0x00])) is None
+
+    def test_invalid_utf8_body_rejected(self):
+        # 0xFF is never a valid UTF-8 start byte.
+        assert signing._decode_der_utf8(bytes([0x0C, 0x01, 0xFF])) is None

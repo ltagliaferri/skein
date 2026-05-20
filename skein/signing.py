@@ -473,21 +473,56 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
 
 
 def _decode_der_utf8(data: bytes) -> str | None:
-    """Decode a DER UTF8String. Returns None on parse failure."""
+    """Decode a DER UTF8String (tag 0x0C). Returns None on parse failure.
+
+    Strict DER per X.690 §8.1.3 / §10.1:
+      - Tag must be 0x0C (UTF8String).
+      - Length must use minimal encoding: short form (one octet < 0x80) for
+        lengths 0-127; long form (0x80 | n followed by n octets) for larger,
+        with n >= 1, no leading zero octet, and the encoded length > 127.
+      - Indefinite length (0x80) is BER-only and rejected.
+      - Total encoded size must equal tag + length octets + content (no
+        trailing garbage past the encoded value).
+
+    Lenient parsing was a bug surface: BER indefinite-length (data[1] == 0x80)
+    was decoded as length=0 -> empty string, and any short-form length that
+    exceeded the buffer was silently truncated to whatever bytes remained.
+    Both shapes are now rejected.
+    """
     if len(data) < 2 or data[0] != 0x0C:
         return None
     first = data[1]
     if first < 0x80:
+        # Short form. Length is `first`; content starts at offset 2.
         length = first
-        body = data[2 : 2 + length]
+        content_off = 2
+    elif first == 0x80:
+        # Indefinite length: BER, not DER.
+        return None
     else:
+        # Long form: n length octets follow.
         n = first & 0x7F
         if 2 + n > len(data):
             return None
-        length = int.from_bytes(data[2 : 2 + n], "big")
-        body = data[2 + n : 2 + n + length]
+        length_octets = data[2 : 2 + n]
+        # DER §10.1: leading zero octet in long-form length is forbidden
+        # (would not be minimal encoding).
+        if length_octets[0] == 0x00:
+            return None
+        length = int.from_bytes(length_octets, "big")
+        # DER §10.1: short form must be used when length < 128.
+        if length < 128:
+            return None
+        content_off = 2 + n
+    end = content_off + length
+    # Body must be exactly `length` bytes — no silent truncation.
+    if end > len(data):
+        return None
+    # No trailing garbage past the encoded value.
+    if end != len(data):
+        return None
     try:
-        return body.decode("utf-8")
+        return data[content_off:end].decode("utf-8")
     except UnicodeDecodeError:
         return None
 

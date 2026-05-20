@@ -901,8 +901,9 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     #
     #    Only enforce when messageSignature is present in the bundle. DSSE
     #    bundles (dsseEnvelope) have no messageSignature and are rejected
-    #    later by signing.py:2469 (DSSE not supported in v0); the profile
-    #    gate must not pre-reject them here on missing messageDigest.
+    #    later in _evaluate_bundle as "DSSE envelope not supported in v0";
+    #    the profile gate must not pre-reject them here on missing
+    #    messageDigest.
     #
     #    Prior implementation guarded the algorithm check with
     #    `algo is not None and ...` and the digest length check with

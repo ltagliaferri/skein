@@ -945,22 +945,19 @@ def _select_verifier(trust_root_pin: str | None) -> Any:
                         materialized = None
                 if materialized is not None:
                     return Verifier(trusted_root=materialized)
-                # v0 does NOT vendor historical Sigstore trust roots, so an
-                # era root cannot be materialized into a real TrustedRoot
-                # here. v0 sign() never populates trust_root_pin, so no v0
-                # bundle reaches this branch in production; we fall back to
-                # the production/current verifier rather than fail closed
-                # (behavior-(a) requires VERIFIED when the bundle is valid).
-                # Logged, not silent, so the gap is visible until historical
-                # roots are vendored (Phase 4 / brief-20260514-me2x).
+                # finding-20260513-w5hq §3(a) requires VERIFIED only when the
+                # bundle validates *under that era's trust root*. If we cannot
+                # construct that root, we cannot honor the pin — falling back
+                # to the current TUF root would silently verify against a
+                # different root than the bundle pinned, which is §3(c)
+                # territory (fail closed). Oracle B-review O-A6.
                 logger.warning(
                     "signing.trust_root_pin_era_unmaterialized: pin %s matched "
-                    "a known era root but v0 cannot build an era-specific "
-                    "TrustedRoot; verifying against the production/current "
-                    "trust root instead.",
+                    "a known era root but no materializable TrustedRoot is "
+                    "available; failing closed with TRUST_ROOT_STALE.",
                     trust_root_pin,
                 )
-                return _build_production_verifier()
+                raise _TrustRootError(VerifyStatus.TRUST_ROOT_STALE)
         raise _TrustRootError(VerifyStatus.TRUST_ROOT_STALE)
 
     if trust_root_missing or (offline and not trust_roots and not current_root):
@@ -1451,9 +1448,27 @@ _SIGN_FAILURE_MODES: dict[str, tuple[str, str]] = {
 class _TestTrustRoot:
     def __init__(self, era: str = "current", **opts: Any) -> None:
         self.era = era
+        # unmaterializable=True simulates the v0/era-root gap where a pin
+        # matches a known era root but no real sigstore TrustedRoot can be
+        # constructed for it (Oracle B-review O-A6). The default materializes
+        # to a sentinel so _select_verifier's §3(a) branch returns a Verifier
+        # rather than failing closed.
+        self._unmaterializable = opts.pop("unmaterializable", False)
         self.opts = opts
         raw = era + ":" + json.dumps(opts, sort_keys=True, default=str)
         self.pin = "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def to_trusted_root(self) -> Any:
+        if self._unmaterializable:
+            return None
+        return _SentinelTrustedRoot(self.era)
+
+
+class _SentinelTrustedRoot:
+    """Stand-in for sigstore.models.TrustedRoot in the test factory."""
+
+    def __init__(self, era: str) -> None:
+        self.era = era
 
 
 class _TestCertificate:
@@ -2250,6 +2265,13 @@ class _TestFactory:
         monkeypatch.setattr(
             "skein.signing._build_production_verifier",
             lambda *, offline=False: fake,
+        )
+        # _select_verifier's §3(a) branch calls Verifier(trusted_root=...) with
+        # the materialized era root. Route that through the fake too so era
+        # tests don't try to hit the real sigstore Verifier constructor.
+        monkeypatch.setattr(
+            "skein.signing.Verifier",
+            _FakeVerifierClass(self, fake),
         )
 
     def make_staging_verifier(self) -> _FakeVerifier:

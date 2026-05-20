@@ -228,8 +228,9 @@ _SEVERITY_RANK: dict[VerifyStatus, int] = {
 # Fail-loud at import if a new VerifyStatus member lands without a rank entry;
 # verify_multi's aggregation would otherwise KeyError at runtime.
 assert set(_SEVERITY_RANK.keys()) == set(VerifyStatus), (
-    f"_SEVERITY_RANK is missing VerifyStatus members: "
-    f"{set(VerifyStatus) - set(_SEVERITY_RANK.keys())}"
+    f"_SEVERITY_RANK mismatch with VerifyStatus: "
+    f"missing {set(VerifyStatus) - set(_SEVERITY_RANK.keys())}, "
+    f"extra {set(_SEVERITY_RANK.keys()) - set(VerifyStatus)}"
 )
 
 

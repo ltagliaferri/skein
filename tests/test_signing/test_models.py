@@ -64,7 +64,11 @@ def test_verifystatus_values_distinct():
 def test_severity_rank_covers_all_verify_status():
     from skein.signing import _SEVERITY_RANK
 
-    assert set(_SEVERITY_RANK.keys()) == set(signing.VerifyStatus)
+    rank_keys = set(_SEVERITY_RANK.keys())
+    status_members = set(signing.VerifyStatus)
+    assert rank_keys == status_members, (
+        f"missing {status_members - rank_keys}, extra {rank_keys - status_members}"
+    )
 
 
 # ---------------------------------------------------------------------------

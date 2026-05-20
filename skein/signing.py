@@ -572,6 +572,15 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
     # actionable #1): a NUL byte or leading/trailing whitespace in the SAN
     # is visually ambiguous identity material — return None so the caller
     # surfaces CERT_INVALID rather than trust an ambiguous subject.
+    #
+    # Empty SAN (any path producing raw == "") is also not a usable identity.
+    # The OtherName path can legitimately decode an empty UTF8String
+    # (DER 0x0C 0x00 is a syntactically valid zero-length encoding), which
+    # would otherwise propagate through this function as "", escape the
+    # `subject is None` guard in verify(), and surface as a VERIFIED result
+    # whose subject is the empty string.
+    if not raw:
+        return None
     if "\x00" in raw:
         return None
     if raw != raw.strip():
@@ -1093,8 +1102,10 @@ def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pi
     issuer = _extract_issuer_from_cert(leaf_cert)
     subject = _extract_subject_from_cert(leaf_cert)
 
-    if subject is None:
-        # Missing-SAN / malformed-IA5 → CERT_INVALID per finding-20260514-burb.
+    # Falsy subject (None for missing-SAN / malformed-IA5 / empty-SAN policy;
+    # also catches empty string as defense-in-depth in case any future
+    # extraction path returns "") → CERT_INVALID per finding-20260514-burb.
+    if not subject:
         return VerifyResult(status=VerifyStatus.CERT_INVALID, issuer=issuer, subject=None)
 
     nb, na = _cert_validity_window(leaf_cert)

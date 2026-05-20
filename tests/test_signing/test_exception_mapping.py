@@ -321,6 +321,25 @@ def test_verify_rekor_client_error_maps_to_inclusion_failed(
     )
 
 
+# Enforces: TUF-class exceptions during verify (TUFError, MetadataError,
+# RootError) all map to OFFLINE_NO_TRUSTED_ROOT.
+#
+# Pre-fix the verify-side map only matched name == "TUFError"; MetadataError
+# and RootError are SEPARATE classes in sigstore.errors (not subclasses of
+# TUFError) and fell through to the catch-all WARNING + BUNDLE_MALFORMED.
+# That misclassified a transient TUF metadata staleness or root rotation
+# as a permanent bundle defect — callers would reject the bundle instead
+# of retrying after a TUF refresh. The sign-side classifier already groups
+# all three (signing.py:357); the verify side must too.
+def test_verify_tuf_class_exceptions_map_to_offline_no_trusted_root():
+    for name in ("TUFError", "MetadataError", "RootError"):
+        exc = signing._synthesize_exception(name, f"{name} for test")
+        status = signing._map_sigstore_exception(exc)
+        assert status == signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT, (
+            f"{name} mapped to {status.name}, expected OFFLINE_NO_TRUSTED_ROOT"
+        )
+
+
 # Enforces: network timeout during verify Rekor proof maps to INCLUSION_FAILED.
 def test_verify_network_timeout_maps_to_inclusion_failed(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch

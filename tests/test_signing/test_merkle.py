@@ -4,6 +4,7 @@ These tests pin the math that turns (leaf_hash, log_index, tree_size, hashes)
 into root_hash. Shape-only proof checks are not enough: a verifier that accepts
 any non-empty hashes list would miss the core Rekor inclusion guarantee.
 """
+
 from __future__ import annotations
 
 import base64
@@ -48,8 +49,7 @@ def _merkle_root_and_path(
     *, target_leaf: bytes, log_index: int, tree_size: int
 ) -> tuple[bytes, list[bytes], bytes]:
     leaves = [
-        _leaf_hash(_tree_leaf_data(i, log_index, target_leaf))
-        for i in range(tree_size)
+        _leaf_hash(_tree_leaf_data(i, log_index, target_leaf)) for i in range(tree_size)
     ]
     leaf_hash = leaves[log_index]
     path: list[bytes] = []
@@ -135,7 +135,9 @@ def test_property_verify_recomputes_merkle_root_from_audit_path(
         canonical_bytes=canonical,
         canon_version="knurl-1.0",
     )
-    assert signing.verify(canonical, good_bundle).status == signing.VerifyStatus.VERIFIED
+    assert (
+        signing.verify(canonical, good_bundle).status == signing.VerifyStatus.VERIFIED
+    )
 
     bad_root = bytearray(root)
     bad_root[0] ^= 0x01
@@ -154,7 +156,10 @@ def test_property_verify_recomputes_merkle_root_from_audit_path(
         canonical_bytes=canonical,
         canon_version="knurl-1.0",
     )
-    assert signing.verify(canonical, bad_bundle).status == signing.VerifyStatus.INCLUSION_FAILED
+    assert (
+        signing.verify(canonical, bad_bundle).status
+        == signing.VerifyStatus.INCLUSION_FAILED
+    )
 
 
 @pytest.mark.parametrize(

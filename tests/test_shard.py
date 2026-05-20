@@ -62,7 +62,6 @@ from skein.shard import (
     _get_shard_metadata,
     _get_shard_base_branch,
     _get_shard_base_ref,
-    _detect_default_branch,
 )
 
 
@@ -2956,7 +2955,9 @@ class TestShardStashAutoDetection:
         finally:
             cleanup_shard(info["worktree_name"])
 
-    def test_stash_explicit_base_overrides_detection(self, shard_env_with_feature_branch):
+    def test_stash_explicit_base_overrides_detection(
+        self, shard_env_with_feature_branch
+    ):
         """WHY: --base flag must take precedence over auto-detection, not be silently ignored."""
         import skein.shard as shard_module
 
@@ -3114,7 +3115,6 @@ class TestShardOnMainDefaultRepo:
 
     def test_merge_targets_main_on_main_repo(self, shard_env_main: Path):
         """WHY: merge_shard must check out 'main', not 'master', when merging."""
-        repo_path = shard_env_main
         import skein.shard as shard_module
 
         info = spawn_shard("merge-main-test", base_branch="main")

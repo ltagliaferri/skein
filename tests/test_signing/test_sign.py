@@ -9,6 +9,7 @@ binding is the load-bearing property.
 Per clarification 1: sign() returns a SignResult (Pydantic model with
 bundle_json, issuer, subject, signing_timestamp, evidence).
 """
+
 from __future__ import annotations
 
 import base64
@@ -66,7 +67,9 @@ def test_sign_exposes_indexed_identity_fields(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, identity="alice@example.com",
+        monkeypatch,
+        provider=google_provider,
+        identity="alice@example.com",
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     assert result.subject == "alice@example.com"
@@ -114,7 +117,11 @@ def test_sign_does_not_mutate_canonical_bytes(
 # "sign() produces one SignResult (one canonical sigstore-bundle JSON string
 # in result.bundle_json); caller assembles the array."
 def test_sign_produces_one_result_per_call(
-    crypto_factory, google_provider, github_provider, canonical_bytes_simple, monkeypatch
+    crypto_factory,
+    google_provider,
+    github_provider,
+    canonical_bytes_simple,
+    monkeypatch,
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     r1 = signing.sign(canonical_bytes_simple, google_provider)
@@ -180,7 +187,9 @@ def test_sign_non_ascii_identity_raises_structured(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, identity="josé@example.com",
+        monkeypatch,
+        provider=google_provider,
+        identity="josé@example.com",
         fulcio_rejects_non_ascii=True,
     )
     try:
@@ -235,7 +244,9 @@ def _find_first(node, key):
 
 
 def _assert_different(field: str, left, right):
-    assert left != right, f"sign() non-determinism regression: {field} unexpectedly constant"
+    assert left != right, (
+        f"sign() non-determinism regression: {field} unexpectedly constant"
+    )
 
 
 def _assert_sign_results_differ_per_field(bundle_a: str, bundle_b: str) -> None:
@@ -248,8 +259,12 @@ def _assert_sign_results_differ_per_field(bundle_a: str, bundle_b: str) -> None:
     rs_b = utils.decode_dss_signature(sig_b)
     _assert_different("ecdsa_signature_r_s", rs_a, rs_b)
 
-    cert_a = x509.load_der_x509_certificate(base64.b64decode(_find_first(obj_a, "rawBytes")))
-    cert_b = x509.load_der_x509_certificate(base64.b64decode(_find_first(obj_b, "rawBytes")))
+    cert_a = x509.load_der_x509_certificate(
+        base64.b64decode(_find_first(obj_a, "rawBytes"))
+    )
+    cert_b = x509.load_der_x509_certificate(
+        base64.b64decode(_find_first(obj_b, "rawBytes"))
+    )
     _assert_different("cert_serial_number", cert_a.serial_number, cert_b.serial_number)
     _assert_different(
         "cert_public_key",
@@ -262,7 +277,11 @@ def _assert_sign_results_differ_per_field(bundle_a: str, bundle_b: str) -> None:
         (cert_b.not_valid_before_utc, cert_b.not_valid_after_utc),
     )
 
-    _assert_different("rekor_log_index", _find_first(obj_a, "logIndex"), _find_first(obj_b, "logIndex"))
+    _assert_different(
+        "rekor_log_index",
+        _find_first(obj_a, "logIndex"),
+        _find_first(obj_b, "logIndex"),
+    )
     # Phase-3 amendment: bundle v0.3 emits "integratedTime" (not a bare
     # "timestamp" field) on each tlog entry. The K-A9 property — that
     # signing-time evidence differs across signings — is unchanged.
@@ -294,8 +313,14 @@ def test_sign_non_deterministic_both_verify(
         canonical_bytes=canonical_bytes_simple,
         canon_version="knurl-1.0",
     )
-    assert signing.verify(canonical_bytes_simple, sb_a).status == signing.VerifyStatus.VERIFIED
-    assert signing.verify(canonical_bytes_simple, sb_b).status == signing.VerifyStatus.VERIFIED
+    assert (
+        signing.verify(canonical_bytes_simple, sb_a).status
+        == signing.VerifyStatus.VERIFIED
+    )
+    assert (
+        signing.verify(canonical_bytes_simple, sb_b).status
+        == signing.VerifyStatus.VERIFIED
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +335,9 @@ def test_sign_fulcio_failure_raises_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, fulcio_status=503,
+        monkeypatch,
+        provider=google_provider,
+        fulcio_status=503,
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -323,7 +350,9 @@ def test_sign_rekor_failure_raises_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, rekor_status=502,
+        monkeypatch,
+        provider=google_provider,
+        rekor_status=502,
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -336,7 +365,9 @@ def test_sign_oidc_failure_raises_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, oidc_status="unreachable",
+        monkeypatch,
+        provider=google_provider,
+        oidc_status="unreachable",
     )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, google_provider)
@@ -349,7 +380,9 @@ def test_sign_total_network_down_raises_signing_unavailable(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, network="down",
+        monkeypatch,
+        provider=google_provider,
+        network="down",
     )
     with pytest.raises(signing.SigningUnavailable):
         signing.sign(canonical_bytes_simple, google_provider)
@@ -367,7 +400,9 @@ def test_sign_expired_token_raises_signing_unavailable_before_fulcio(
     crypto_factory, expired_google_provider, canonical_bytes_simple, monkeypatch
 ):
     # Even if Fulcio is healthy, the expired token check fires first.
-    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=expired_google_provider)
+    crypto_factory.install_sign_monkeypatch(
+        monkeypatch, provider=expired_google_provider
+    )
     with pytest.raises(signing.SigningUnavailable) as exc:
         signing.sign(canonical_bytes_simple, expired_google_provider)
     assert exc.value.component == "oidc"
@@ -414,7 +449,9 @@ def test_sign_expired_cert_does_not_leak_raw_exception(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, cert_expired_on_second_call=True,
+        monkeypatch,
+        provider=google_provider,
+        cert_expired_on_second_call=True,
     )
     _ = signing.sign(canonical_bytes_simple, google_provider)
     try:
@@ -434,7 +471,9 @@ def test_sign_parallel_calls_within_one_process_are_safe(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, simulate_tuf_race=True,
+        monkeypatch,
+        provider=google_provider,
+        simulate_tuf_race=True,
     )
     results: list = []
     errors: list = []
@@ -532,7 +571,8 @@ print(result.model_dump_json())
         assert json.loads(result.bundle_json)
 
     leftovers = [
-        p for p in cache_dir.rglob("*")
+        p
+        for p in cache_dir.rglob("*")
         if p.name.endswith((".tmp", ".lock")) or ".tmp" in p.name
     ]
     assert leftovers == []

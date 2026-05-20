@@ -29,7 +29,6 @@ import base64
 import copy
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -47,6 +46,7 @@ try:
         verify,
         verify_multi,
     )
+
     _SIGNING_AVAILABLE = True
 except ImportError:
     _SIGNING_AVAILABLE = False
@@ -594,7 +594,9 @@ class TestMultiSignerConformance:
         assert result.results[0].status == VerifyStatus.VERIFIED
         assert result.overall == VerifyStatus.VERIFIED
 
-    def test_multi_verify_two_good_bundles_both_verified(self, bundle_v3, bundle_v3_alt):
+    def test_multi_verify_two_good_bundles_both_verified(
+        self, bundle_v3, bundle_v3_alt
+    ):
         """Two distinct signers of the same canonical_bytes — both must verify.
 
         This is the declare-continuity case: two separate sign() calls produce two
@@ -724,7 +726,9 @@ class TestPortabilityRoundTrip:
             "on the same bundle blob. This is a portability regression."
         )
 
-    def test_skein_and_sigstore_python_agree_on_cve_bundle_via_corpus(self, bundle_cve_2022_36056):
+    def test_skein_and_sigstore_python_agree_on_cve_bundle_via_corpus(
+        self, bundle_cve_2022_36056
+    ):
         """CVE bundle: SKEIN and sigstore-python must both reject it.
 
         If SKEIN returns INCLUSION_FAILED but sigstore-python would accept the same
@@ -766,8 +770,6 @@ class TestPortabilityRoundTrip:
         This test validates SKEIN's handling, not byte equivalence.
         """
         from sigstore.models import Bundle
-        from sigstore.verify import policy as sigstore_policy
-        from sigstore.verify.verifier import Verifier
 
         artifact, skein_bundle = bundle_v3
         blob = skein_bundle["bundles"][0]

@@ -1,4 +1,5 @@
 """Wire encoding contract for folio-level SignatureBundle JSON."""
+
 from __future__ import annotations
 
 import base64
@@ -59,9 +60,7 @@ def test_signature_bundle_accepts_base64_canonical_bytes_on_parse():
 # closed instead of being treated as UTF-8 payload bytes.
 def test_signature_bundle_rejects_non_base64_canonical_bytes():
     with pytest.raises(ValidationError):
-        signing.SignatureBundle.model_validate_json(
-            _json_payload("not base64!!!")
-        )
+        signing.SignatureBundle.model_validate_json(_json_payload("not base64!!!"))
 
 
 # Enforces: finding-20260512-sr0w blocker #1. Every byte value survives the

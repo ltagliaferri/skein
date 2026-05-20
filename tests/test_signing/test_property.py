@@ -29,6 +29,7 @@ Strategies
 - signer_count_strategy: integers in [1, 5].
 - bit_flip_strategy: integer offset + bit index.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -65,13 +66,16 @@ signer_count_strategy = st.integers(min_value=1, max_value=5)
 
 unicode_subject_strategy = st.text(
     alphabet=st.characters(exclude_categories=("Cs",)),
-    min_size=1, max_size=64,
+    min_size=1,
+    max_size=64,
 )
 
-issuer_url_strategy = st.sampled_from([
-    "https://accounts.google.com",
-    "https://github.com/login/oauth",
-])
+issuer_url_strategy = st.sampled_from(
+    [
+        "https://accounts.google.com",
+        "https://github.com/login/oauth",
+    ]
+)
 
 canon_version_strategy = st.text(min_size=1, max_size=32).filter(str.isprintable)
 
@@ -142,8 +146,12 @@ def test_property_roundtrip_identity_populated(
 )
 @_settings
 def test_property_any_perturbation_breaks_verification(
-    crypto_factory, google_provider, monkeypatch,
-    canonical_bytes, flip_offset, flip_bit,
+    crypto_factory,
+    google_provider,
+    monkeypatch,
+    canonical_bytes,
+    flip_offset,
+    flip_bit,
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -156,7 +164,7 @@ def test_property_any_perturbation_breaks_verification(
     )
     perturbed = bytearray(canonical_bytes)
     offset = flip_offset % len(perturbed)
-    perturbed[offset] ^= (1 << flip_bit)
+    perturbed[offset] ^= 1 << flip_bit
     perturbed = bytes(perturbed)
     if perturbed == canonical_bytes:
         return  # bit flip was a no-op
@@ -171,7 +179,11 @@ def test_property_any_perturbation_breaks_verification(
 )
 @_settings
 def test_property_prefix_extension_breaks_verification(
-    crypto_factory, google_provider, monkeypatch, canonical_bytes, extra,
+    crypto_factory,
+    google_provider,
+    monkeypatch,
+    canonical_bytes,
+    extra,
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -193,7 +205,11 @@ def test_property_prefix_extension_breaks_verification(
 )
 @_settings
 def test_property_suffix_extension_breaks_verification(
-    crypto_factory, google_provider, monkeypatch, canonical_bytes, extra,
+    crypto_factory,
+    google_provider,
+    monkeypatch,
+    canonical_bytes,
+    extra,
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -221,7 +237,10 @@ def test_property_suffix_extension_breaks_verification(
 )
 @_settings
 def test_property_signature_bundle_json_roundtrip(
-    crypto_factory, monkeypatch, canonical_bytes, n,
+    crypto_factory,
+    monkeypatch,
+    canonical_bytes,
+    n,
 ):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     blobs = [
@@ -335,6 +354,7 @@ def test_property_bundle_bit_flip_breaks_verify(
     # the test to focus on cryptographically-bound regions: skip if the parsed
     # bundle round-trips to the same content as the original.
     import json as _json
+
     try:
         original_obj = _json.loads(blob)
         munged_obj = _json.loads(munged)
@@ -406,8 +426,16 @@ def _bundle_crypto_payload(obj: dict) -> tuple:
     )
 
     return (
-        cert, sig, digest, algo,
-        ip_payload, log_id, promise, canon_body, integrated, tsa,
+        cert,
+        sig,
+        digest,
+        algo,
+        ip_payload,
+        log_id,
+        promise,
+        canon_body,
+        integrated,
+        tsa,
     )
 
 
@@ -450,9 +478,7 @@ def test_property_bundle_truncation_returns_non_verified(
 # JSON round-trip. All-zero, high-bit, embedded NULs survive.
 @given(canonical_bytes=canonical_bytes_strategy)
 @_settings
-def test_property_signature_bundle_preserves_canonical_bytes(
-    canonical_bytes
-):
+def test_property_signature_bundle_preserves_canonical_bytes(canonical_bytes):
     sb = signing.SignatureBundle(
         identity_scheme="sigstore-public-v1",
         bundles=["<placeholder>"],
@@ -478,8 +504,12 @@ def test_property_signature_bundle_preserves_canonical_bytes(
 )
 @_settings
 def test_property_verify_independent_of_canon_version(
-    crypto_factory, google_provider, monkeypatch,
-    canonical_bytes, version_a, version_b,
+    crypto_factory,
+    google_provider,
+    monkeypatch,
+    canonical_bytes,
+    version_a,
+    version_b,
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(monkeypatch)
@@ -514,7 +544,11 @@ def test_property_verify_independent_of_canon_version(
 )
 @_settings
 def test_property_identity_stable_across_calls(
-    crypto_factory, monkeypatch, canonical_bytes, issuer, subject,
+    crypto_factory,
+    monkeypatch,
+    canonical_bytes,
+    issuer,
+    subject,
 ):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     blob = crypto_factory.make_bundle_blob(
@@ -541,7 +575,10 @@ def test_property_identity_stable_across_calls(
 )
 @_settings
 def test_property_issuer_url_is_exact_match(
-    crypto_factory, monkeypatch, issuer, canonical_bytes,
+    crypto_factory,
+    monkeypatch,
+    issuer,
+    canonical_bytes,
 ):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     blob = crypto_factory.make_bundle_blob(
@@ -574,7 +611,9 @@ class TestVerifyResultFieldInvariants:
     def test_verified_has_issuer_and_subject(self, issuer, subject):
         r = signing.VerifyResult(
             status=signing.VerifyStatus.VERIFIED,
-            issuer=issuer, subject=subject, evidence=None,
+            issuer=issuer,
+            subject=subject,
+            evidence=None,
         )
         assert r.issuer is not None
         assert r.subject is not None
@@ -583,7 +622,9 @@ class TestVerifyResultFieldInvariants:
     def test_bundle_malformed_has_no_identity(self):
         r = signing.VerifyResult(
             status=signing.VerifyStatus.BUNDLE_MALFORMED,
-            issuer=None, subject=None, evidence=None,
+            issuer=None,
+            subject=None,
+            evidence=None,
         )
         assert r.issuer is None
         assert r.subject is None
@@ -593,7 +634,9 @@ class TestVerifyResultFieldInvariants:
     def test_cert_invalid_has_no_identity(self):
         r = signing.VerifyResult(
             status=signing.VerifyStatus.CERT_INVALID,
-            issuer=None, subject=None, evidence=None,
+            issuer=None,
+            subject=None,
+            evidence=None,
         )
         assert r.issuer is None
         assert r.subject is None
@@ -602,7 +645,9 @@ class TestVerifyResultFieldInvariants:
     def test_offline_no_trusted_root_has_no_identity(self):
         r = signing.VerifyResult(
             status=signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT,
-            issuer=None, subject=None, evidence=None,
+            issuer=None,
+            subject=None,
+            evidence=None,
         )
         assert r.issuer is None
         assert r.subject is None
@@ -655,9 +700,7 @@ def test_property_two_bundles_same_content_verify_independently(
     ),
 )
 @_settings
-def test_property_any_unknown_scheme_fails_closed(
-    crypto_factory, monkeypatch, scheme
-):
+def test_property_any_unknown_scheme_fails_closed(crypto_factory, monkeypatch, scheme):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     canonical = b"some-payload"
     blob = crypto_factory.make_bundle_blob(

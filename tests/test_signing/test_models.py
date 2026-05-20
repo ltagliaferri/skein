@@ -9,6 +9,7 @@ federation peer, CLI render layer) reads from them. A wrong-shaped enum value
 or missing required field cascades across the read path. We test the shape
 contract, not the values.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -101,6 +102,7 @@ def test_verify_result_status_must_be_enum():
 # Enforces: VerifyResult is a Pydantic BaseModel (callers use model_dump etc).
 def test_verify_result_is_pydantic_model():
     from pydantic import BaseModel
+
     assert issubclass(signing.VerifyResult, BaseModel)
 
 
@@ -150,6 +152,7 @@ def test_evidence_validity_window_is_microseconds():
 # Enforces: Evidence is a Pydantic model.
 def test_evidence_is_pydantic_model():
     from pydantic import BaseModel
+
     assert issubclass(signing.Evidence, BaseModel)
 
 
@@ -181,14 +184,26 @@ def test_rekor_inclusion_proof_has_seven_fields():
 
 
 # Enforces: every field is required; missing any one is a validation error.
-@pytest.mark.parametrize("missing_field", [
-    "log_index", "tree_size", "root_hash", "hashes", "checkpoint",
-    "integrated_time", "log_id",
-])
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "log_index",
+        "tree_size",
+        "root_hash",
+        "hashes",
+        "checkpoint",
+        "integrated_time",
+        "log_id",
+    ],
+)
 def test_rekor_inclusion_proof_fields_are_required(missing_field):
     payload = dict(
-        log_index=42, tree_size=999, root_hash="rh", hashes=[],
-        checkpoint="cp", integrated_time=1_715_443_200_000_000,
+        log_index=42,
+        tree_size=999,
+        root_hash="rh",
+        hashes=[],
+        checkpoint="cp",
+        integrated_time=1_715_443_200_000_000,
         log_id="rekor-key-id",
     )
     del payload[missing_field]
@@ -199,8 +214,12 @@ def test_rekor_inclusion_proof_fields_are_required(missing_field):
 def test_rekor_inclusion_proof_log_id_rejects_empty():
     with pytest.raises(Exception):
         signing.RekorInclusionProof(
-            log_index=42, tree_size=999, root_hash="rh", hashes=[],
-            checkpoint="cp", integrated_time=1_715_443_200_000_000,
+            log_index=42,
+            tree_size=999,
+            root_hash="rh",
+            hashes=[],
+            checkpoint="cp",
+            integrated_time=1_715_443_200_000_000,
             log_id="",
         )
 
@@ -208,16 +227,24 @@ def test_rekor_inclusion_proof_log_id_rejects_empty():
 def test_rekor_inclusion_proof_log_id_rejects_over_max_length():
     with pytest.raises(Exception):
         signing.RekorInclusionProof(
-            log_index=42, tree_size=999, root_hash="rh", hashes=[],
-            checkpoint="cp", integrated_time=1_715_443_200_000_000,
+            log_index=42,
+            tree_size=999,
+            root_hash="rh",
+            hashes=[],
+            checkpoint="cp",
+            integrated_time=1_715_443_200_000_000,
             log_id="A" * 513,
         )
 
 
 def test_rekor_inclusion_proof_log_id_accepts_typical_base64_key_id():
     proof = signing.RekorInclusionProof(
-        log_index=42, tree_size=999, root_hash="rh", hashes=[],
-        checkpoint="cp", integrated_time=1_715_443_200_000_000,
+        log_index=42,
+        tree_size=999,
+        root_hash="rh",
+        hashes=[],
+        checkpoint="cp",
+        integrated_time=1_715_443_200_000_000,
         log_id="mQv7r2XxQAE8m4Vxy03Yf0PTrf1LX6Hux4nQ2s6h0Wk=",
     )
     assert proof.log_id
@@ -228,7 +255,9 @@ def test_rekor_inclusion_proof_log_id_accepts_typical_base64_key_id():
 # tree_size) for the Merkle path, (log_index) to know which leaf, (checkpoint)
 # as the signed witness binding root_hash to tree_size, (integrated_time) for
 # the validity-window check against the cert, and (log_id) to choose the Rekor key.
-def test_rekor_inclusion_proof_carries_everything_for_independent_verify(crypto_factory):
+def test_rekor_inclusion_proof_carries_everything_for_independent_verify(
+    crypto_factory,
+):
     checkpoint = crypto_factory.make_checkpoint(
         tree_size=12345679,
         root_hash="AAECAwQFBgcICQ==",
@@ -258,8 +287,12 @@ def test_rekor_inclusion_proof_carries_everything_for_independent_verify(crypto_
 # Enforces: integrated_time is microseconds UTC (consistent with validity_window).
 def test_rekor_inclusion_proof_integrated_time_is_microseconds():
     proof = signing.RekorInclusionProof(
-        log_index=0, tree_size=1, root_hash="rh", hashes=[],
-        checkpoint="cp", integrated_time=1_767_225_600_000_000,
+        log_index=0,
+        tree_size=1,
+        root_hash="rh",
+        hashes=[],
+        checkpoint="cp",
+        integrated_time=1_767_225_600_000_000,
         log_id="rekor-key-id",
     )
     # 2026-01-01T00:00:00Z in microseconds is > 1.5e15
@@ -269,8 +302,11 @@ def test_rekor_inclusion_proof_integrated_time_is_microseconds():
 # Enforces: Evidence.rekor_inclusion holds a RekorInclusionProof when present.
 def test_evidence_rekor_inclusion_is_rekor_inclusion_proof():
     proof = signing.RekorInclusionProof(
-        log_index=42, tree_size=999, root_hash="rh",
-        hashes=["s0", "s1"], checkpoint="cp",
+        log_index=42,
+        tree_size=999,
+        root_hash="rh",
+        hashes=["s0", "s1"],
+        checkpoint="cp",
         integrated_time=1_715_443_200_000_000,
         log_id="rekor-key-id",
     )
@@ -326,7 +362,8 @@ def test_multi_verify_result_overall_not_verified_when_any_fail():
         evidence=None,
     )
     multi = signing.MultiVerifyResult(
-        results=[r_ok, r_bad], overall=signing.VerifyStatus.IDENTITY_MISMATCH,
+        results=[r_ok, r_bad],
+        overall=signing.VerifyStatus.IDENTITY_MISMATCH,
     )
     assert multi.overall != signing.VerifyStatus.VERIFIED
 
@@ -342,6 +379,7 @@ def test_multi_verify_result_at_least_one():
 # Enforces: MultiVerifyResult is a Pydantic model.
 def test_multi_verify_result_is_pydantic_model():
     from pydantic import BaseModel
+
     assert issubclass(signing.MultiVerifyResult, BaseModel)
 
 
@@ -390,7 +428,9 @@ def test_signature_bundle_identity_scheme_is_string(make_bundle):
 # wire form for one signer's bundle is canonical sigstore-bundle ProtoJSON
 # (a plain string, no SigstoreBundleBlob alias).
 def test_signature_bundle_bundles_entries_are_strings(make_bundle):
-    sb = make_bundle(canonical_bytes=b"x", bundles=["<bundle-blob-1>", "<bundle-blob-2>"])
+    sb = make_bundle(
+        canonical_bytes=b"x", bundles=["<bundle-blob-1>", "<bundle-blob-2>"]
+    )
     for entry in sb.bundles:
         assert isinstance(entry, str)
 
@@ -472,7 +512,9 @@ def test_sign_result_has_required_fields():
 # type name."
 def test_sign_result_bundle_json_is_str():
     ev = signing.Evidence(
-        validity_window=(1, 2), rekor_inclusion=None, cert_chain_summary=None,
+        validity_window=(1, 2),
+        rekor_inclusion=None,
+        cert_chain_summary=None,
     )
     r = signing.SignResult(
         bundle_json='{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}',
@@ -487,6 +529,7 @@ def test_sign_result_bundle_json_is_str():
 # Enforces: SignResult is a Pydantic model (callers serialize for queue storage).
 def test_sign_result_is_pydantic_model():
     from pydantic import BaseModel
+
     assert issubclass(signing.SignResult, BaseModel)
 
 
@@ -503,7 +546,9 @@ def test_sign_result_naming_parallels_verify_result():
 # inclusion / RFC3161 — not client clock. Sized so a 2026 timestamp fits.
 def test_sign_result_signing_timestamp_is_microseconds():
     ev = signing.Evidence(
-        validity_window=(1, 2), rekor_inclusion=None, cert_chain_summary=None,
+        validity_window=(1, 2),
+        rekor_inclusion=None,
+        cert_chain_summary=None,
     )
     r = signing.SignResult(
         bundle_json="{}",
@@ -552,7 +597,9 @@ def test_oidc_provider_config_issuer_required():
 
 def test_oidc_provider_config_token_required():
     with pytest.raises(Exception):
-        signing.OIDCProviderConfig(issuer="https://accounts.google.com")  # missing token
+        signing.OIDCProviderConfig(
+            issuer="https://accounts.google.com"
+        )  # missing token
 
 
 # Enforces: provider_id is optional (default None).
@@ -577,10 +624,14 @@ def test_oidc_provider_config_expires_at_optional():
 # Enforces: both v0 providers can be expressed with this shape.
 def test_oidc_provider_config_accepts_v0_providers():
     g = signing.OIDCProviderConfig(
-        issuer="https://accounts.google.com", token="g-jwt", provider_id="google",
+        issuer="https://accounts.google.com",
+        token="g-jwt",
+        provider_id="google",
     )
     h = signing.OIDCProviderConfig(
-        issuer="https://github.com/login/oauth", token="gh-jwt", provider_id="github",
+        issuer="https://github.com/login/oauth",
+        token="gh-jwt",
+        provider_id="github",
     )
     assert g.provider_id != h.provider_id
     assert g.issuer != h.issuer
@@ -619,7 +670,8 @@ def test_signing_unavailable_carries_reason():
 # dashboards can render "fulcio" / "rekor" / "oidc" narrowly.
 def test_signing_unavailable_carries_component():
     e = signing.SigningUnavailable(
-        "fulcio unavailable: 503", component="fulcio",
+        "fulcio unavailable: 503",
+        component="fulcio",
     )
     assert e.component == "fulcio"
 
@@ -629,7 +681,9 @@ def test_signing_unavailable_carries_component():
 def test_signing_unavailable_wraps_cause():
     original = RuntimeError("connection refused: fulcio.sigstore.dev:443")
     e = signing.SigningUnavailable(
-        "fulcio unavailable", component="fulcio", cause=original,
+        "fulcio unavailable",
+        component="fulcio",
+        cause=original,
     )
     assert e.__cause__ is original
 

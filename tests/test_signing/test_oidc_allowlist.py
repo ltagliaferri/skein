@@ -1,4 +1,5 @@
 """OIDC issuer allowlist contract (finding-20260513-w5hq section 2)."""
+
 from __future__ import annotations
 
 import pytest
@@ -14,10 +15,14 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_sign_rejects_issuer_not_in_v0_allowlist(
-    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    make_oidc_provider,
+    canonical_bytes_simple,
+    monkeypatch,
 ):
     provider = make_oidc_provider(
-        issuer="https://login.microsoftonline.com/common/v2.0", provider_id="azure",
+        issuer="https://login.microsoftonline.com/common/v2.0",
+        provider_id="azure",
     )
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
     with pytest.raises(signing.SigningUnavailable) as exc:
@@ -27,10 +32,14 @@ def test_sign_rejects_issuer_not_in_v0_allowlist(
 
 
 def test_sign_rejects_github_actions_oidc_issuer(
-    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    make_oidc_provider,
+    canonical_bytes_simple,
+    monkeypatch,
 ):
     provider = make_oidc_provider(
-        issuer="https://token.actions.githubusercontent.com", provider_id="github-actions",
+        issuer="https://token.actions.githubusercontent.com",
+        provider_id="github-actions",
     )
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
     with pytest.raises(signing.SigningUnavailable) as exc:
@@ -40,18 +49,28 @@ def test_sign_rejects_github_actions_oidc_issuer(
 
 
 def test_sign_accepts_google_personal_oauth(
-    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    make_oidc_provider,
+    canonical_bytes_simple,
+    monkeypatch,
 ):
-    provider = make_oidc_provider(issuer="https://accounts.google.com", provider_id="google")
+    provider = make_oidc_provider(
+        issuer="https://accounts.google.com", provider_id="google"
+    )
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
     result = signing.sign(canonical_bytes_simple, provider)
     assert isinstance(result, signing.SignResult)
 
 
 def test_sign_accepts_github_personal_oauth(
-    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    make_oidc_provider,
+    canonical_bytes_simple,
+    monkeypatch,
 ):
-    provider = make_oidc_provider(issuer="https://github.com/login/oauth", provider_id="github")
+    provider = make_oidc_provider(
+        issuer="https://github.com/login/oauth", provider_id="github"
+    )
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
     result = signing.sign(canonical_bytes_simple, provider)
     assert isinstance(result, signing.SignResult)
@@ -66,10 +85,14 @@ def test_sign_accepts_github_personal_oauth(
 # human-flow Issuer returns a Dex-issued token (iss=oauth2.sigstage.dev/auth,
 # federated_issuer=accounts.google.com) — see brief-20260519-5aa5.
 def test_sign_accepts_sigstore_staging_dex_broker(
-    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    make_oidc_provider,
+    canonical_bytes_simple,
+    monkeypatch,
 ):
     provider = make_oidc_provider(
-        issuer="https://oauth2.sigstage.dev/auth", provider_id="sigstore-staging-dex",
+        issuer="https://oauth2.sigstage.dev/auth",
+        provider_id="sigstore-staging-dex",
     )
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
     result = signing.sign(canonical_bytes_simple, provider)
@@ -77,10 +100,14 @@ def test_sign_accepts_sigstore_staging_dex_broker(
 
 
 def test_sign_accepts_sigstore_prod_dex_broker(
-    crypto_factory, make_oidc_provider, canonical_bytes_simple, monkeypatch,
+    crypto_factory,
+    make_oidc_provider,
+    canonical_bytes_simple,
+    monkeypatch,
 ):
     provider = make_oidc_provider(
-        issuer="https://oauth2.sigstore.dev/auth", provider_id="sigstore-prod-dex",
+        issuer="https://oauth2.sigstore.dev/auth",
+        provider_id="sigstore-prod-dex",
     )
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
     result = signing.sign(canonical_bytes_simple, provider)

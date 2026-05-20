@@ -77,7 +77,7 @@ def _make_tender_shard_module(project_name="warp"):
         "last_commit_message": "Add feature X",
         "files_modified": ["foo.py"],
         "commits": 1,
-        "branch_name": f"shard-demo-shard-001",
+        "branch_name": "shard-demo-shard-001",
         "name": "demo-shard-001",
     }
     return m

@@ -15,6 +15,7 @@ for these tests (env var SIGSTORE_TUF_CACHE_DIR or a Verifier.staging path).
 
 See tests/conformance/CORPUS.md for the corpus-to-test mapping.
 """
+
 from __future__ import annotations
 
 import json
@@ -161,9 +162,9 @@ def test_conformance_bundle_tsa_verifies(corpus):
 )
 def test_conformance_bundle_v3_no_signed_time_verifies(corpus):
     artifact = corpus("bundle_v3_no_signed_time.txt").read_bytes()
-    blob = corpus(
-        "bundle_v3_no_signed_time.txt.sigstore.json"
-    ).read_text(encoding="utf-8")
+    blob = corpus("bundle_v3_no_signed_time.txt.sigstore.json").read_text(
+        encoding="utf-8"
+    )
     sb = signing.SignatureBundle(
         identity_scheme="sigstore-public-v1",
         bundles=[blob],
@@ -382,7 +383,9 @@ def test_conformance_bundle_json_round_trip_does_not_corrupt(corpus):
 
 # Enforces: end-to-end SKEIN sign → sigstore-python verify. Requires a real
 # OIDC token; gated by SKEIN_RUN_SIGSTORE_LIVE=1.
-@pytest.mark.skip(reason="requires OIDC: set SKEIN_RUN_SIGSTORE_LIVE=1 and provide token")
+@pytest.mark.skip(
+    reason="requires OIDC: set SKEIN_RUN_SIGSTORE_LIVE=1 and provide token"
+)
 def test_skein_sign_bundle_is_portable_to_sigstore_verify():
     from sigstore.errors import VerificationError
     from sigstore.models import Bundle
@@ -402,9 +405,7 @@ def test_skein_sign_bundle_is_portable_to_sigstore_verify():
     try:
         verifier.verify_artifact(canonical_bytes, bundle, sigstore_policy.UnsafeNoOp())
     except VerificationError as e:
-        pytest.fail(
-            f"sigstore-python rejected a bundle produced by SKEIN.sign(): {e}"
-        )
+        pytest.fail(f"sigstore-python rejected a bundle produced by SKEIN.sign(): {e}")
 
 
 # Enforces: finding-20260512-eaft blocker #3. The CI-safe stand-in for the true
@@ -412,7 +413,9 @@ def test_skein_sign_bundle_is_portable_to_sigstore_verify():
 # Bundle parser + Verifier to accept the produced bundle JSON.
 @conformance_staging
 def test_skein_sign_output_verifies_in_sigstore_python(
-    crypto_factory, google_provider, monkeypatch,
+    crypto_factory,
+    google_provider,
+    monkeypatch,
 ):
     from sigstore.models import Bundle
     from sigstore.verify import policy as sigstore_policy
@@ -430,7 +433,9 @@ def test_skein_sign_output_verifies_in_sigstore_python(
 # sigstore-bundle v0.3 ProtoJSON that sigstore-python parses without repair.
 @conformance_staging
 def test_skein_sign_output_format_matches_sigstore_bundle_v03(
-    crypto_factory, google_provider, monkeypatch,
+    crypto_factory,
+    google_provider,
+    monkeypatch,
 ):
     from sigstore.models import Bundle
 
@@ -447,7 +452,9 @@ def test_skein_sign_output_format_matches_sigstore_bundle_v03(
 # verify through both SKEIN.verify() and sigstore-python's Verifier.
 @conformance_staging
 def test_canonical_bytes_round_trip_through_both_verifiers(
-    crypto_factory, google_provider, monkeypatch,
+    crypto_factory,
+    google_provider,
+    monkeypatch,
 ):
     from sigstore.models import Bundle
     from sigstore.verify import policy as sigstore_policy
@@ -488,7 +495,7 @@ def test_corpus_bundles_are_v03(corpus):
 # (forward-compat).
 @conformance_staging
 def test_conformance_extra_unknown_fields_do_not_break_verify(corpus):
-    import copy
+
     artifact = corpus("bundle_v3.txt").read_bytes()
     blob_str = corpus("bundle_v3.txt.sigstore").read_text(encoding="utf-8")
     blob = json.loads(blob_str)

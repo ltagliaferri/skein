@@ -116,7 +116,9 @@ def test_timestamp_fields_at_2038_seconds_unix_overflow_microseconds_ok(field, f
         ("integrated_time", _make_rekor_proof),
     ],
 )
-def test_timestamp_fields_at_2106_seconds_unsigned_unix_overflow_microseconds_ok(field, factory):
+def test_timestamp_fields_at_2106_seconds_unsigned_unix_overflow_microseconds_ok(
+    field, factory
+):
     assert getattr(factory(**{field: TS_2106_US}), field) == TS_2106_US
 
 
@@ -131,7 +133,9 @@ def test_timestamp_fields_at_2106_seconds_unsigned_unix_overflow_microseconds_ok
         ("integrated_time", _make_rekor_proof, signing.RekorInclusionProof),
     ],
 )
-def test_timestamp_fields_at_2_to_53_js_safe_boundary_round_trip_exact(field, factory, model):
+def test_timestamp_fields_at_2_to_53_js_safe_boundary_round_trip_exact(
+    field, factory, model
+):
     instance = factory(**{field: JS_SAFE_BOUNDARY_US})
     decoded = model.model_validate_json(instance.model_dump_json())
     assert getattr(decoded, field) == JS_SAFE_BOUNDARY_US
@@ -204,7 +208,9 @@ def test_tree_size_one_allowed():
 # timestamps, log_index/tree_size are counters, so JS precision warnings apply
 # but the Python contract is exact preservation.
 @pytest.mark.parametrize("field", ["log_index", "tree_size"])
-@pytest.mark.parametrize("value", [TS_2038_US, TS_2106_US, JS_SAFE_BOUNDARY_US, INT64_MAX])
+@pytest.mark.parametrize(
+    "value", [TS_2038_US, TS_2106_US, JS_SAFE_BOUNDARY_US, INT64_MAX]
+)
 def test_rekor_counter_large_boundaries_round_trip_exact(field, value):
     kwargs = {field: value}
     if field == "log_index":

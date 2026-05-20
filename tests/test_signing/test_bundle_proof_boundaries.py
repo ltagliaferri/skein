@@ -92,7 +92,10 @@ def test_verify_multi_with_duplicate_signer_identity(
     multi = signing.verify_multi(canonical_bytes_simple, sb)
 
     assert len(multi.results) == 2
-    assert [r.subject for r in multi.results] == ["alice@example.com", "alice@example.com"]
+    assert [r.subject for r in multi.results] == [
+        "alice@example.com",
+        "alice@example.com",
+    ]
     assert all(r.status == signing.VerifyStatus.VERIFIED for r in multi.results)
     assert multi.overall == signing.VerifyStatus.VERIFIED
 
@@ -127,7 +130,9 @@ def test_rekor_proof_empty_hashes_when_tree_size_greater_than_one(
 # Enforces: inclusionProof.hashes are base64-encoded Merkle hashes; malformed
 # base64 is a bundle-shape error, not a successful empty proof.
 @phase3_functions
-def test_rekor_proof_malformed_base64_hashes(crypto_factory, canonical_bytes_simple, monkeypatch):
+def test_rekor_proof_malformed_base64_hashes(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     blob = crypto_factory.make_bundle_blob(
         canonical_bytes=canonical_bytes_simple,
@@ -198,7 +203,9 @@ def _fake_bundle_with_inclusion(
         tree_size=tree_size,
         root_hash=b"root-hash-bytes",
         hashes=[b"sibling-0", b"sibling-1"],
-        checkpoint=SimpleNamespace(envelope="rekor.sigstore.dev\n10\n<root>\n\n— rekor.sigstore.dev <sig>\n"),
+        checkpoint=SimpleNamespace(
+            envelope="rekor.sigstore.dev\n10\n<root>\n\n— rekor.sigstore.dev <sig>\n"
+        ),
     )
     inner = SimpleNamespace(
         inclusion_proof=proof,

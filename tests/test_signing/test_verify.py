@@ -11,6 +11,7 @@ load-bearing-wrong failure mode Phase 1 surfaced (rev 5 §verify return shape).
 Per clarification 2: verify() requires len(signature_bundle.bundles) == 1.
 Multi-signer bundles raise MultiSignerBundle.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -59,7 +60,9 @@ def test_verify_returns_verified_for_fresh_bundle(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, identity="alice@example.com",
+        monkeypatch,
+        provider=google_provider,
+        identity="alice@example.com",
     )
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     result = signing.sign(canonical_bytes_simple, google_provider)
@@ -164,7 +167,10 @@ def test_verify_raises_multi_signer_bundle_on_two_signers(
 # Enforces: MultiSignerBundle is raised regardless of N when N > 1.
 @pytest.mark.parametrize("n", [2, 3, 5])
 def test_verify_raises_multi_signer_bundle_for_any_n_greater_than_one(
-    crypto_factory, canonical_bytes_simple, monkeypatch, n,
+    crypto_factory,
+    canonical_bytes_simple,
+    monkeypatch,
+    n,
 ):
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     blobs = [
@@ -312,7 +318,9 @@ def test_verify_accepts_chain_length_1(
         identity="alice@example.com",
         issuer="https://accounts.google.com",
     )
-    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    vr = signing.verify(
+        canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob)
+    )
     assert vr.status == signing.VerifyStatus.VERIFIED
 
 
@@ -326,7 +334,9 @@ def test_verify_accepts_chain_length_2_with_intermediate(
         identity="alice@example.com",
         issuer="https://accounts.google.com",
     )
-    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    vr = signing.verify(
+        canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob)
+    )
     assert vr.status == signing.VerifyStatus.VERIFIED
 
 
@@ -340,7 +350,9 @@ def test_verify_accepts_chain_length_3_with_two_intermediates(
         identity="alice@example.com",
         issuer="https://accounts.google.com",
     )
-    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    vr = signing.verify(
+        canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob)
+    )
     assert vr.status == signing.VerifyStatus.VERIFIED
 
 
@@ -353,7 +365,9 @@ def test_verify_rejects_broken_chain_unchained_to_root(
         identity="alice@example.com",
         issuer="https://accounts.google.com",
     )
-    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    vr = signing.verify(
+        canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob)
+    )
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 
@@ -367,7 +381,9 @@ def test_verify_rejects_chain_length_0_self_signed_leaf(
         identity="alice@example.com",
         issuer="https://accounts.google.com",
     )
-    vr = signing.verify(canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob))
+    vr = signing.verify(
+        canonical_bytes_simple, _signature_bundle(canonical_bytes_simple, blob)
+    )
     assert vr.status == signing.VerifyStatus.CERT_INVALID
 
 
@@ -376,7 +392,9 @@ def test_verify_cert_invalid_on_unknown_ca(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, ca="unknown-ca",
+        monkeypatch,
+        provider=google_provider,
+        ca="unknown-ca",
     )
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     result = signing.sign(canonical_bytes_simple, google_provider)
@@ -423,7 +441,9 @@ def test_verify_cert_invalid_when_integrated_after_not_after(
         issuer="https://accounts.google.com",
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_rekor_integrated_time(blob, CERT_NOT_AFTER + 1)
     sb = _signature_bundle(canonical_bytes_simple, blob)
@@ -444,7 +464,9 @@ def test_verify_succeeds_when_verify_time_after_not_after_but_integrated_inside_
         issuer="https://accounts.google.com",
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_rekor_integrated_time(blob, CERT_NOT_BEFORE + 1)
     crypto_factory.set_verify_time(VERIFY_AFTER_CERT_EXPIRY)
@@ -465,7 +487,9 @@ def test_verify_cert_validity_window_boundary_inclusive_at_not_before(
         issuer="https://accounts.google.com",
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_rekor_integrated_time(blob, CERT_NOT_BEFORE)
     sb = _signature_bundle(canonical_bytes_simple, blob)
@@ -485,7 +509,9 @@ def test_verify_cert_validity_window_boundary_inclusive_at_not_after(
         issuer="https://accounts.google.com",
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_rekor_integrated_time(blob, CERT_NOT_AFTER)
     sb = _signature_bundle(canonical_bytes_simple, blob)
@@ -505,7 +531,9 @@ def test_verify_cert_validity_one_microsecond_before_not_before(
         issuer="https://accounts.google.com",
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_rekor_integrated_time(blob, CERT_NOT_BEFORE - 1)
     sb = _signature_bundle(canonical_bytes_simple, blob)
@@ -525,7 +553,9 @@ def test_verify_cert_validity_one_microsecond_after_not_after(
         issuer="https://accounts.google.com",
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_rekor_integrated_time(blob, CERT_NOT_AFTER + 1)
     sb = _signature_bundle(canonical_bytes_simple, blob)
@@ -607,7 +637,8 @@ def test_verify_extracts_issuer_from_oid_v2_when_present(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider,
+        monkeypatch,
+        provider=google_provider,
         identity="alice@example.com",
         issuer_oid_variant="v2",  # only OID 1.8 present
     )
@@ -629,7 +660,8 @@ def test_verify_falls_back_to_legacy_issuer_oid(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider,
+        monkeypatch,
+        provider=google_provider,
         identity="alice@example.com",
         issuer_oid_variant="legacy",  # only OID 1.1 present
     )
@@ -650,7 +682,8 @@ def test_verify_prefers_oid_v2_over_legacy(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider,
+        monkeypatch,
+        provider=google_provider,
         identity="alice@example.com",
         issuer_oid_v2="https://accounts.google.com",
         issuer_oid_legacy="https://different-provider.example",
@@ -692,7 +725,9 @@ def test_verify_extracts_non_ascii_subject(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(
-        monkeypatch, provider=google_provider, identity="josé@example.com",
+        monkeypatch,
+        provider=google_provider,
+        identity="josé@example.com",
     )
     crypto_factory.install_verify_monkeypatch(monkeypatch)
     result = signing.sign(canonical_bytes_simple, google_provider)
@@ -720,7 +755,8 @@ def test_verify_trust_root_stale(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, trust_root_predates_bundle=True,
+        monkeypatch,
+        trust_root_predates_bundle=True,
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -743,7 +779,8 @@ def test_verify_uses_era_correct_trust_root_when_pin_matches(
     current_root = crypto_factory.make_era_trust_root(era="2026-05")
     pin = crypto_factory.trust_root_pin(old_root)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, trust_roots=[old_root, current_root],
+        monkeypatch,
+        trust_roots=[old_root, current_root],
     )
     blob = crypto_factory.make_bundle_blob(
         canonical_bytes=canonical_bytes_simple,
@@ -764,7 +801,8 @@ def test_verify_falls_back_to_current_tuf_when_pin_missing(
 ):
     current_root = crypto_factory.make_era_trust_root(era="2026-05")
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, current_trust_root=current_root,
+        monkeypatch,
+        current_trust_root=current_root,
     )
     blob = crypto_factory.make_bundle_blob(
         canonical_bytes=canonical_bytes_simple,
@@ -785,7 +823,8 @@ def test_verify_fails_closed_when_pin_mismatched(
 ):
     current_root = crypto_factory.make_era_trust_root(era="2026-05")
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, current_trust_root=current_root,
+        monkeypatch,
+        current_trust_root=current_root,
     )
     blob = crypto_factory.make_bundle_blob(
         canonical_bytes=canonical_bytes_simple,
@@ -794,7 +833,9 @@ def test_verify_fails_closed_when_pin_mismatched(
         trust_root=current_root,
     )
     sb = _signature_bundle(
-        canonical_bytes_simple, blob, trust_root_pin="sha256:missing-trust-root",
+        canonical_bytes_simple,
+        blob,
+        trust_root_pin="sha256:missing-trust-root",
     )
     vr = signing.verify(canonical_bytes_simple, sb)
     assert vr.status == signing.VerifyStatus.TRUST_ROOT_STALE
@@ -808,7 +849,8 @@ def test_verify_fails_closed_when_pin_content_mismatch(
     actual_root = crypto_factory.make_era_trust_root(era="2026-01")
     mismatched_pin = "sha256:" + "0" * 64
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, trust_roots=[actual_root],
+        monkeypatch,
+        trust_roots=[actual_root],
     )
     blob = crypto_factory.make_bundle_blob(
         canonical_bytes=canonical_bytes_simple,
@@ -818,7 +860,9 @@ def test_verify_fails_closed_when_pin_content_mismatch(
     )
     blob = crypto_factory.set_trust_root_pin(blob, mismatched_pin)
     sb = _signature_bundle(
-        canonical_bytes_simple, blob, trust_root_pin=mismatched_pin,
+        canonical_bytes_simple,
+        blob,
+        trust_root_pin=mismatched_pin,
     )
     vr = signing.verify(canonical_bytes_simple, sb)
     assert vr.status == signing.VerifyStatus.TRUST_ROOT_STALE
@@ -831,7 +875,9 @@ def test_verify_offline_no_trusted_root_when_pin_present_but_no_roots_at_all(
     crypto_factory, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, offline=True, trust_roots=[],
+        monkeypatch,
+        offline=True,
+        trust_roots=[],
     )
     blob = crypto_factory.make_bundle_blob(
         canonical_bytes=canonical_bytes_simple,
@@ -839,7 +885,9 @@ def test_verify_offline_no_trusted_root_when_pin_present_but_no_roots_at_all(
         issuer="https://accounts.google.com",
     )
     sb = _signature_bundle(
-        canonical_bytes_simple, blob, trust_root_pin="sha256:missing-trust-root",
+        canonical_bytes_simple,
+        blob,
+        trust_root_pin="sha256:missing-trust-root",
     )
     vr = signing.verify(canonical_bytes_simple, sb)
     assert vr.status == signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT
@@ -851,9 +899,7 @@ def test_verify_offline_no_trusted_root_when_pin_present_but_no_roots_at_all(
 
 
 # Enforces: garbage JSON in bundles[0] returns BUNDLE_MALFORMED.
-def test_verify_bundle_malformed_on_invalid_json(
-    canonical_bytes_simple, make_bundle
-):
+def test_verify_bundle_malformed_on_invalid_json(canonical_bytes_simple, make_bundle):
     sb = make_bundle(
         canonical_bytes=canonical_bytes_simple,
         bundles=["this-is-not-json"],
@@ -933,7 +979,9 @@ def test_verify_offline_no_trusted_root(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
-    crypto_factory.install_verify_monkeypatch(monkeypatch, offline=True, trust_root_missing=True)
+    crypto_factory.install_verify_monkeypatch(
+        monkeypatch, offline=True, trust_root_missing=True
+    )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
         identity_scheme="sigstore-public-v1",
@@ -952,7 +1000,9 @@ def test_verify_offline_no_root_never_returns_verified(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
-    crypto_factory.install_verify_monkeypatch(monkeypatch, offline=True, trust_root_missing=True)
+    crypto_factory.install_verify_monkeypatch(
+        monkeypatch, offline=True, trust_root_missing=True
+    )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
         identity_scheme="sigstore-public-v1",
@@ -978,7 +1028,9 @@ def test_verify_cert_invalid_on_tsa_timestamp_after_cert_not_after(
         rekor_version=2,
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_tsa_timestamp(blob, CERT_NOT_AFTER + 1)
     sb = _signature_bundle(canonical_bytes_simple, blob)
@@ -1000,7 +1052,9 @@ def test_verify_with_multiple_tsa_timestamps_all_valid(
         rekor_version=2,
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_tsa_timestamp(blob, CERT_NOT_BEFORE)
     blob = crypto_factory.add_tsa_timestamp(blob, CERT_NOT_BEFORE + 1)
@@ -1024,7 +1078,9 @@ def test_verify_with_multiple_tsa_timestamps_one_outside_window(
         rekor_version=2,
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_tsa_timestamp(blob, CERT_NOT_BEFORE + 1)
     blob = crypto_factory.add_tsa_timestamp(blob, CERT_NOT_AFTER + 1)
@@ -1066,7 +1122,9 @@ def test_verify_when_rekor_integrated_time_and_rfc3161_disagree(
         rekor_version=2,
     )
     blob = crypto_factory.set_cert_validity(
-        blob, not_before=CERT_NOT_BEFORE, not_after=CERT_NOT_AFTER,
+        blob,
+        not_before=CERT_NOT_BEFORE,
+        not_after=CERT_NOT_AFTER,
     )
     blob = crypto_factory.set_rekor_integrated_time(blob, CERT_NOT_BEFORE + 1)
     blob = crypto_factory.set_tsa_timestamp(blob, CERT_NOT_AFTER + 1)
@@ -1084,12 +1142,15 @@ def test_verify_when_rekor_integrated_time_and_rfc3161_disagree(
 # bundles. The contract is "return a VerifyResult; let the caller switch on
 # status." (Exception: MultiSignerBundle and EmptySignatureBundle are caller
 # errors and DO raise — those are programming errors, not domain failures.)
-@pytest.mark.parametrize("bundle_str", [
-    "",                          # empty
-    "\x00\x00\x00\x00",          # binary garbage as string
-    "{",                         # malformed JSON start
-    '{"mediaType":"unknown"}',   # unknown content
-])
+@pytest.mark.parametrize(
+    "bundle_str",
+    [
+        "",  # empty
+        "\x00\x00\x00\x00",  # binary garbage as string
+        "{",  # malformed JSON start
+        '{"mediaType":"unknown"}',  # unknown content
+    ],
+)
 def test_verify_never_raises_on_single_malformed_bundle(
     canonical_bytes_simple, make_bundle, bundle_str
 ):
@@ -1108,7 +1169,8 @@ def test_verify_returns_result_even_on_verifier_internal_raise(
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(
-        monkeypatch, raise_in_verifier=True,
+        monkeypatch,
+        raise_in_verifier=True,
     )
     result = signing.sign(canonical_bytes_simple, google_provider)
     sb = signing.SignatureBundle(
@@ -1171,11 +1233,22 @@ def test_verify_does_not_recanonicalize_via_canon_version(
 # Enforces: any canon_version value (including empty, future, garbage) does not
 # alter verify outcome. Phase 1 q776/sbal convergent: this is the
 # canonicalization-drift bug class the rev-5 amendment closed.
-@pytest.mark.parametrize("canon_version_value", [
-    "knurl-1.0", "knurl-99.0", "unknown-format", "", "🐱-1.0",
-])
+@pytest.mark.parametrize(
+    "canon_version_value",
+    [
+        "knurl-1.0",
+        "knurl-99.0",
+        "unknown-format",
+        "",
+        "🐱-1.0",
+    ],
+)
 def test_verify_status_independent_of_canon_version(
-    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, canon_version_value,
+    crypto_factory,
+    google_provider,
+    canonical_bytes_simple,
+    monkeypatch,
+    canon_version_value,
 ):
     crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
     crypto_factory.install_verify_monkeypatch(monkeypatch)

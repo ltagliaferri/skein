@@ -215,14 +215,14 @@ class MultiSignerBundle(Exception):
 # ---------------------------------------------------------------------------
 
 _SEVERITY_RANK: dict[VerifyStatus, int] = {
-    VerifyStatus.SIGNATURE_MISMATCH: 0,        # worst
+    VerifyStatus.SIGNATURE_MISMATCH: 0,  # worst
     VerifyStatus.CERT_INVALID: 1,
     VerifyStatus.INCLUSION_FAILED: 2,
     VerifyStatus.BUNDLE_MALFORMED: 3,
     VerifyStatus.TRUST_ROOT_STALE: 4,
     VerifyStatus.OFFLINE_NO_TRUSTED_ROOT: 5,
     VerifyStatus.IDENTITY_MISMATCH: 6,
-    VerifyStatus.VERIFIED: 7,                  # mildest
+    VerifyStatus.VERIFIED: 7,  # mildest
 }
 
 
@@ -240,12 +240,14 @@ _SEVERITY_RANK: dict[VerifyStatus, int] = {
 # (sigstore-python's client_id="sigstore" default + tx8r's literal aud=
 # "sigstore" lock combine to require the Dex-brokered path today). Revisit
 # when those preconditions change.
-_V0_OIDC_ALLOWLIST: frozenset[str] = frozenset({
-    "https://accounts.google.com",
-    "https://github.com/login/oauth",
-    "https://oauth2.sigstore.dev/auth",   # Sigstore prod Dex broker
-    "https://oauth2.sigstage.dev/auth",   # Sigstore staging Dex broker
-})
+_V0_OIDC_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "https://accounts.google.com",
+        "https://github.com/login/oauth",
+        "https://oauth2.sigstore.dev/auth",  # Sigstore prod Dex broker
+        "https://oauth2.sigstage.dev/auth",  # Sigstore staging Dex broker
+    }
+)
 
 
 _OID_ISSUER_V2 = "1.3.6.1.4.1.57264.1.8"
@@ -295,16 +297,19 @@ def _check_aud(payload: dict[str, Any]) -> None:
     if isinstance(aud, str):
         if aud != "sigstore":
             raise SigningUnavailable(
-                f"OIDC token aud is {aud}, expected sigstore", component="oidc",
+                f"OIDC token aud is {aud}, expected sigstore",
+                component="oidc",
             )
     elif isinstance(aud, list):
         if "sigstore" not in aud:
             raise SigningUnavailable(
-                f"OIDC token aud is {aud}, expected sigstore", component="oidc",
+                f"OIDC token aud is {aud}, expected sigstore",
+                component="oidc",
             )
     else:
         raise SigningUnavailable(
-            f"OIDC token aud is {aud!r}, expected sigstore", component="oidc",
+            f"OIDC token aud is {aud!r}, expected sigstore",
+            component="oidc",
         )
 
 
@@ -494,6 +499,7 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
     issuer string is not the trusted issuer. The guard applies to both
     V2 and legacy extraction paths.
     """
+
     def _read_ext(oid_str: str) -> bytes | None:
         for ext in cert.extensions:
             if ext.oid.dotted_string == oid_str:
@@ -638,7 +644,10 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
                 break
     if raw is None:
         for name in san:
-            if isinstance(name, x509.OtherName) and name.type_id.dotted_string == _OID_SIGNER_IDENTITY_OTHERNAME:
+            if (
+                isinstance(name, x509.OtherName)
+                and name.type_id.dotted_string == _OID_SIGNER_IDENTITY_OTHERNAME
+            ):
                 # The signer-identity OtherName value is spec'd as a DER
                 # UTF8String (tag 0x0C). The prior code fell back to
                 # `name.value.decode("utf-8")` when the DER parse rejected,
@@ -910,9 +919,7 @@ def _select_verifier(trust_root_pin: str | None) -> Any:
     case. install_verify_monkeypatch() activates _test_active via
     monkeypatch.setattr so teardown auto-reverts to False.
     """
-    factory_state = (
-        _test_factory._verify_state if _test_factory._test_active else {}
-    )
+    factory_state = _test_factory._verify_state if _test_factory._test_active else {}
     trust_roots = factory_state.get("trust_roots") or []
     current_root = factory_state.get("current_trust_root")
     offline = factory_state.get("offline", False)
@@ -965,12 +972,18 @@ def _select_verifier(trust_root_pin: str | None) -> Any:
     return _build_production_verifier()
 
 
-_BUNDLE_TOP_LEVEL_FIELDS: frozenset[str] = frozenset({
-    "mediaType", "media_type",
-    "verificationMaterial", "verification_material",
-    "messageSignature", "message_signature",
-    "dsseEnvelope", "dsse_envelope",
-})
+_BUNDLE_TOP_LEVEL_FIELDS: frozenset[str] = frozenset(
+    {
+        "mediaType",
+        "media_type",
+        "verificationMaterial",
+        "verification_material",
+        "messageSignature",
+        "message_signature",
+        "dsseEnvelope",
+        "dsse_envelope",
+    }
+)
 
 
 # sigstore-public-v1 pins SHA-256. SHA2_256 is the proto HashAlgorithm enum
@@ -983,10 +996,12 @@ _SHA256_DIGEST_LEN = 32
 # sigstore-python (Bundle.BundleType.BUNDLE_0_3 and BUNDLE_0_3_ALT). Used by
 # the v0.3-specific profile gate; future versions need their own gate, not a
 # substring-broadened match on this set.
-_V0_3_MEDIA_TYPES: frozenset[str] = frozenset({
-    "application/vnd.dev.sigstore.bundle.v0.3+json",
-    "application/vnd.dev.sigstore.bundle+json;version=0.3",
-})
+_V0_3_MEDIA_TYPES: frozenset[str] = frozenset(
+    {
+        "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "application/vnd.dev.sigstore.bundle+json;version=0.3",
+    }
+)
 
 
 def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
@@ -1067,7 +1082,9 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     is_v3 = media_type in _V0_3_MEDIA_TYPES
     if is_v3:
         try:
-            for entry in (obj.get("verificationMaterial") or {}).get("tlogEntries") or []:
+            for entry in (obj.get("verificationMaterial") or {}).get(
+                "tlogEntries"
+            ) or []:
                 set_obj = entry.get("inclusionPromise")
                 if not set_obj or not entry.get("inclusionProof"):
                     continue
@@ -1156,7 +1173,9 @@ def _pre_process_bundle_json(blob: str) -> str:
     return blob
 
 
-def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pin: str | None) -> VerifyResult:
+def _verify_single(
+    canonical_bytes: bytes, blob: str, scheme: str, trust_root_pin: str | None
+) -> VerifyResult:
     if scheme != "sigstore-public-v1":
         return VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)
 
@@ -1185,6 +1204,7 @@ def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pi
     # profile per finding-20260512-eaft actionable #3).
     try:
         from cryptography.hazmat.primitives.asymmetric import ec as _ec
+
         leaf_pub = bundle.signing_certificate.public_key()
         if not isinstance(leaf_pub, _ec.EllipticCurvePublicKey) or not isinstance(
             leaf_pub.curve, _ec.SECP256R1
@@ -1214,14 +1234,18 @@ def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pi
     # also catches empty string as defense-in-depth in case any future
     # extraction path returns "") → CERT_INVALID per finding-20260514-burb.
     if not subject:
-        return VerifyResult(status=VerifyStatus.CERT_INVALID, issuer=issuer, subject=None)
+        return VerifyResult(
+            status=VerifyStatus.CERT_INVALID, issuer=issuer, subject=None
+        )
     # Symmetric guard on issuer: a Fulcio leaf without an extractable OIDC
     # issuer extension (V2 OID 1.3.6.1.4.1.57264.1.8 or legacy 1.3.6.1.4.1.
     # 57264.1.1) is malformed for the sigstore-public-v1 profile. Surfacing
     # this as VERIFIED with issuer=None would let policy comparisons against
     # a None issuer no-op silently downstream.
     if not issuer:
-        return VerifyResult(status=VerifyStatus.CERT_INVALID, issuer=None, subject=subject)
+        return VerifyResult(
+            status=VerifyStatus.CERT_INVALID, issuer=None, subject=subject
+        )
 
     nb, na = _cert_validity_window(leaf_cert)
     evidence = Evidence(
@@ -1373,24 +1397,28 @@ def _synthesize_exception(name: str, msg: str = "") -> BaseException:
     if name == "FulcioClientError":
         try:
             from sigstore._internal.fulcio.client import FulcioClientError
+
             return FulcioClientError(msg)
         except Exception:  # noqa: BLE001
             pass
     if name == "RekorClientError":
         try:
             from sigstore._internal.rekor import RekorClientError
+
             return RekorClientError(msg)
         except Exception:  # noqa: BLE001
             pass
     if name == "ExpiredCertificate":
         try:
             from sigstore._internal.fulcio.client import ExpiredCertificate
+
             return ExpiredCertificate(msg)
         except Exception:  # noqa: BLE001
             pass
     if name == "TimestampError":
         try:
             from sigstore._internal.timestamp import TimestampError
+
             return TimestampError(msg)
         except Exception:  # noqa: BLE001
             pass
@@ -1402,21 +1430,24 @@ def _synthesize_exception(name: str, msg: str = "") -> BaseException:
 
 
 _SIGN_FAILURE_MODES: dict[str, tuple[str, str]] = {
-    "fulcio_503":                  ("FulcioClientError", "fulcio HTTP 503"),
-    "fulcio_400_unknown_csr":      ("FulcioClientError", "fulcio HTTP 400 unknown CSR"),
-    "fulcio_status_503":           ("FulcioClientError", "fulcio HTTP 503"),
-    "rekor_502":                   ("RekorClientError", "rekor HTTP 502"),
-    "rekor_timeout":               ("RekorClientError", "rekor timeout"),
-    "rekor_404":                   ("RekorClientError", "rekor HTTP 404"),
-    "oidc_unreachable":            ("IdentityError", "oidc unreachable"),
-    "oidc_token_rejected":         ("IdentityError", "oidc token rejected"),
-    "tuf_metadata_stale":          ("TUFError", "tuf metadata stale"),
-    "expired_cert":                ("ExpiredCertificate", "cert expired"),
-    "network_down":                ("NetworkError", "network unreachable"),
-    "tuf_unavailable":             ("TUFError", "tuf unavailable"),
-    "rekor_after_fulcio_503":      ("RekorClientError", "rekor unavailable after fulcio"),
-    "tsa_unavailable_rekor_v2":    ("TimestampError", "tsa unavailable"),
-    "oidc_token_expired_mid_flow": ("_TokenExpiredMidFlow", "token expired during signing"),
+    "fulcio_503": ("FulcioClientError", "fulcio HTTP 503"),
+    "fulcio_400_unknown_csr": ("FulcioClientError", "fulcio HTTP 400 unknown CSR"),
+    "fulcio_status_503": ("FulcioClientError", "fulcio HTTP 503"),
+    "rekor_502": ("RekorClientError", "rekor HTTP 502"),
+    "rekor_timeout": ("RekorClientError", "rekor timeout"),
+    "rekor_404": ("RekorClientError", "rekor HTTP 404"),
+    "oidc_unreachable": ("IdentityError", "oidc unreachable"),
+    "oidc_token_rejected": ("IdentityError", "oidc token rejected"),
+    "tuf_metadata_stale": ("TUFError", "tuf metadata stale"),
+    "expired_cert": ("ExpiredCertificate", "cert expired"),
+    "network_down": ("NetworkError", "network unreachable"),
+    "tuf_unavailable": ("TUFError", "tuf unavailable"),
+    "rekor_after_fulcio_503": ("RekorClientError", "rekor unavailable after fulcio"),
+    "tsa_unavailable_rekor_v2": ("TimestampError", "tsa unavailable"),
+    "oidc_token_expired_mid_flow": (
+        "_TokenExpiredMidFlow",
+        "token expired during signing",
+    ),
 }
 
 
@@ -1462,8 +1493,11 @@ class _FakeSigner:
             raise_exc_name, raise_exc_msg = _SIGN_FAILURE_MODES[failure]
 
         pre_fulcio_failures = {
-            "oidc_unreachable", "oidc_token_rejected", "tuf_metadata_stale",
-            "tuf_unavailable", "oidc_token_expired_mid_flow",
+            "oidc_unreachable",
+            "oidc_token_rejected",
+            "tuf_metadata_stale",
+            "tuf_unavailable",
+            "oidc_token_expired_mid_flow",
         }
         if failure in pre_fulcio_failures and raise_exc_name:
             raise _synthesize_exception(raise_exc_name, raise_exc_msg)
@@ -1511,7 +1545,9 @@ class _FakeSigningContext:
         self.spy = spy
 
     @contextlib.contextmanager
-    def signer(self, identity_token: Any, *, cache: bool = True) -> Iterator[_FakeSigner]:
+    def signer(
+        self, identity_token: Any, *, cache: bool = True
+    ) -> Iterator[_FakeSigner]:
         yield _FakeSigner(self.factory, self.spy)
 
 
@@ -1528,10 +1564,13 @@ class _FakeVerifier:
         failure = opts.get("failure_mode")
         if failure:
             verify_failures = {
-                "rekor_unreachable":              ("RekorClientError", "rekor unreachable"),
-                "rekor_timeout":                  ("RekorClientError", "rekor timeout"),
-                "tuf_unavailable_no_cached_root": ("TUFError", "tuf unavailable, no cached root"),
-                "bundle_parse_error":             ("InvalidBundle", "bundle parse error"),
+                "rekor_unreachable": ("RekorClientError", "rekor unreachable"),
+                "rekor_timeout": ("RekorClientError", "rekor timeout"),
+                "tuf_unavailable_no_cached_root": (
+                    "TUFError",
+                    "tuf unavailable, no cached root",
+                ),
+                "bundle_parse_error": ("InvalidBundle", "bundle parse error"),
             }
             if failure in verify_failures:
                 name, msg = verify_failures[failure]
@@ -1539,7 +1578,8 @@ class _FakeVerifier:
 
         if opts.get("raise_in_verifier"):
             raise _synthesize_exception(
-                "VerificationError", "factory-injected verifier internal error",
+                "VerificationError",
+                "factory-injected verifier internal error",
             )
 
         if opts.get("network") == "down":
@@ -1622,10 +1662,15 @@ def _real_ecdsa_verify(bundle: Bundle, input_bytes: bytes, sig_bytes: bytes) -> 
     """
     try:
         from cryptography.hazmat.primitives.asymmetric import ec as _ec
+
         # Check that the bundle's stored message_digest matches the input.
         msg_sig = bundle._inner.message_signature
         digest = hashlib.sha256(input_bytes).digest()
-        if msg_sig and msg_sig.message_digest and msg_sig.message_digest.digest != digest:
+        if (
+            msg_sig
+            and msg_sig.message_digest
+            and msg_sig.message_digest.digest != digest
+        ):
             return False
         leaf = bundle.signing_certificate
         # Cert chain check: validate the leaf's signature against the factory CA.
@@ -1683,7 +1728,9 @@ def _canonical_drift_exception(meta: dict, bundle: Bundle) -> BaseException | No
     vm_o = o.get("verificationMaterial") or {}
     vm_c = c.get("verificationMaterial") or {}
     if vm_o.get("certificate") != vm_c.get("certificate"):
-        return _synthesize_exception("InvalidMaterials", "leaf certificate bytes drifted")
+        return _synthesize_exception(
+            "InvalidMaterials", "leaf certificate bytes drifted"
+        )
     te_o = (vm_o.get("tlogEntries") or [{}])[0] or {}
     te_c = (vm_c.get("tlogEntries") or [{}])[0] or {}
     for k in ("canonicalizedBody", "inclusionPromise"):
@@ -1793,7 +1840,9 @@ class _TestFactory:
         san_value = san_value if san_value is not None else identity
         sans: list[x509.GeneralName] = []
         if include_san:
-            sans.extend(self._build_san_entries(san_type, san_value, extra_sans, malformed_ia5))
+            sans.extend(
+                self._build_san_entries(san_type, san_value, extra_sans, malformed_ia5)
+            )
 
         builder = (
             x509.CertificateBuilder()
@@ -1806,7 +1855,8 @@ class _TestFactory:
         )
         if include_san and sans:
             builder = builder.add_extension(
-                x509.SubjectAlternativeName(sans), critical=True,
+                x509.SubjectAlternativeName(sans),
+                critical=True,
             )
 
         def _utf8string_der(s: str) -> bytes:
@@ -1856,10 +1906,12 @@ class _TestFactory:
                 if malformed_ia5:
                     # Emit a synthetic OtherName with bad IA5 bytes for the
                     # malformed-IA5 SAN test path.
-                    out.append(x509.OtherName(
-                        x509.ObjectIdentifier("1.3.6.1.4.1.11129.2.4.99"),
-                        b"\x16\x05" + b"\xff\xff\xff\xff\xff",
-                    ))
+                    out.append(
+                        x509.OtherName(
+                            x509.ObjectIdentifier("1.3.6.1.4.1.11129.2.4.99"),
+                            b"\x16\x05" + b"\xff\xff\xff\xff\xff",
+                        )
+                    )
                 else:
                     try:
                         out.append(x509.RFC822Name(v))
@@ -1867,17 +1919,21 @@ class _TestFactory:
                         # RFC822Name requires A-label (ASCII). Non-ASCII
                         # identities go in OtherName with the Fulcio
                         # signer-identity OID so verify still recovers them.
-                        out.append(x509.OtherName(
-                            x509.ObjectIdentifier(_OID_SIGNER_IDENTITY_OTHERNAME),
-                            _der_utf8(v.encode("utf-8")),
-                        ))
+                        out.append(
+                            x509.OtherName(
+                                x509.ObjectIdentifier(_OID_SIGNER_IDENTITY_OTHERNAME),
+                                _der_utf8(v.encode("utf-8")),
+                            )
+                        )
             elif t == "uniformResourceIdentifier":
                 out.append(x509.UniformResourceIdentifier(v))
             elif t == "otherName_oid_57264_1_24":
-                out.append(x509.OtherName(
-                    x509.ObjectIdentifier(_OID_SIGNER_IDENTITY_OTHERNAME),
-                    _der_utf8(v.encode("utf-8")),
-                ))
+                out.append(
+                    x509.OtherName(
+                        x509.ObjectIdentifier(_OID_SIGNER_IDENTITY_OTHERNAME),
+                        _der_utf8(v.encode("utf-8")),
+                    )
+                )
             else:
                 out.append(x509.RFC822Name(v))
         return out
@@ -1931,13 +1987,16 @@ class _TestFactory:
         digest = hashlib.sha256(canonical_bytes).digest()
         if isinstance(private_key, ec.EllipticCurvePrivateKey):
             signature = private_key.sign(
-                digest, ec.ECDSA(Prehashed(hashes.SHA256())),
+                digest,
+                ec.ECDSA(Prehashed(hashes.SHA256())),
             )
         elif isinstance(private_key, ed25519.Ed25519PrivateKey):
             signature = private_key.sign(canonical_bytes)
         elif isinstance(private_key, rsa.RSAPrivateKey):
             signature = private_key.sign(
-                digest, padding.PKCS1v15(), Prehashed(hashes.SHA256()),
+                digest,
+                padding.PKCS1v15(),
+                Prehashed(hashes.SHA256()),
             )
         else:
             signature = private_key.sign(canonical_bytes)
@@ -1961,7 +2020,9 @@ class _TestFactory:
         else:
             hashes_list_bytes = [secrets.token_bytes(32)]
         checkpoint = opts.get("checkpoint") or self._make_checkpoint_envelope(
-            tree_size, root_hash_bytes, log_id_bytes,
+            tree_size,
+            root_hash_bytes,
+            log_id_bytes,
         )
         integrated_time_s = opts.get("integrated_time_s")
         if integrated_time_s is None:
@@ -1970,25 +2031,26 @@ class _TestFactory:
             # stay inside the cert validity window — wraparound is fine since
             # the K-A9 test only inspects two consecutive signings.
             self._integrated_time_counter += 1
-            nb_s = int(nb_us / 1_000_000) if (nb_us := opts.get("not_before_us")) else None
             base = int(time.time())
             integrated_time_s = base + (self._integrated_time_counter % 60)
 
-        canonicalized_body = json.dumps({
-            "apiVersion": "0.0.1",
-            "kind": "hashedrekord",
-            "spec": {
-                "data": {"hash": {"algorithm": "sha256", "value": digest.hex()}},
-                "signature": {
-                    "content": base64.b64encode(signature).decode("ascii"),
-                    "publicKey": {
-                        "content": base64.b64encode(
-                            leaf_cert.public_bytes(serialization.Encoding.PEM)
-                        ).decode("ascii"),
+        canonicalized_body = json.dumps(
+            {
+                "apiVersion": "0.0.1",
+                "kind": "hashedrekord",
+                "spec": {
+                    "data": {"hash": {"algorithm": "sha256", "value": digest.hex()}},
+                    "signature": {
+                        "content": base64.b64encode(signature).decode("ascii"),
+                        "publicKey": {
+                            "content": base64.b64encode(
+                                leaf_cert.public_bytes(serialization.Encoding.PEM)
+                            ).decode("ascii"),
+                        },
                     },
                 },
-            },
-        }).encode("utf-8")
+            }
+        ).encode("utf-8")
 
         # Proto fields require base64-encoded bytes for ProtoBytes and string
         # forms for ProtoU64 (sigstore_models._core validators).
@@ -2064,8 +2126,12 @@ class _TestFactory:
             "canonical_bytes_signed": canonical_bytes,
             "identity": identity,
             "issuer": issuer,
-            "cert_not_before_us": int(leaf_cert.not_valid_before_utc.timestamp() * 1_000_000),
-            "cert_not_after_us": int(leaf_cert.not_valid_after_utc.timestamp() * 1_000_000),
+            "cert_not_before_us": int(
+                leaf_cert.not_valid_before_utc.timestamp() * 1_000_000
+            ),
+            "cert_not_after_us": int(
+                leaf_cert.not_valid_after_utc.timestamp() * 1_000_000
+            ),
             "integrated_time_us": int(integrated_time_s) * 1_000_000,
             "leaf_hash_explicit": opts.get("leaf_hash_explicit"),
             "merkle_root_hash": root_hash_bytes,
@@ -2114,7 +2180,9 @@ class _TestFactory:
         self._registry[bytes(signature)] = meta
         return bundle
 
-    def _make_checkpoint_envelope(self, tree_size: int, root_hash: bytes, log_id: bytes) -> str:
+    def _make_checkpoint_envelope(
+        self, tree_size: int, root_hash: bytes, log_id: bytes
+    ) -> str:
         # Factory-fidelity note: the origin line number is derived
         # synthetically from log_id bytes. A real Rekor checkpoint carries
         # the log's actual origin / tree ID, which will NOT equal this
@@ -2134,7 +2202,9 @@ class _TestFactory:
     # Public factory API.
     # ------------------------------------------------------------------
 
-    def install_sign_monkeypatch(self, monkeypatch, *, provider=None, **opts) -> _SignSpy:
+    def install_sign_monkeypatch(
+        self, monkeypatch, *, provider=None, **opts
+    ) -> _SignSpy:
         self._reset_sign()
         opts["provider"] = provider
         # Map several "convenience" kwargs onto failure_mode strings.
@@ -2198,37 +2268,59 @@ class _TestFactory:
         opts.update(identity=identity, issuer=issuer)
         return self._build_bundle(canonical_bytes, opts).to_json()
 
-    def make_bundle_blob_with_san(self, *, san_type, value, canonical_bytes, identity, issuer, **opts) -> str:
+    def make_bundle_blob_with_san(
+        self, *, san_type, value, canonical_bytes, identity, issuer, **opts
+    ) -> str:
         opts = dict(opts)
         opts.update(
-            identity=identity, issuer=issuer,
-            san_type=san_type, san_value=value,
+            identity=identity,
+            issuer=issuer,
+            san_type=san_type,
+            san_value=value,
         )
         return self._build_bundle(canonical_bytes, opts).to_json()
 
-    def make_bundle_blob_with_multiple_sans(self, *, sans, canonical_bytes, identity, issuer, **opts) -> str:
+    def make_bundle_blob_with_multiple_sans(
+        self, *, sans, canonical_bytes, identity, issuer, **opts
+    ) -> str:
         opts = dict(opts)
         opts.update(
-            identity=identity, issuer=issuer,
-            san_type=sans[0][0], san_value=sans[0][1],
+            identity=identity,
+            issuer=issuer,
+            san_type=sans[0][0],
+            san_value=sans[0][1],
             extra_sans=list(sans[1:]),
         )
         return self._build_bundle(canonical_bytes, opts).to_json()
 
-    def make_bundle_blob_with_missing_san(self, *, canonical_bytes, identity, issuer, **opts) -> str:
+    def make_bundle_blob_with_missing_san(
+        self, *, canonical_bytes, identity, issuer, **opts
+    ) -> str:
         opts = dict(opts)
         opts.update(identity=identity, issuer=issuer, include_san=False)
         return self._build_bundle(canonical_bytes, opts).to_json()
 
-    def make_bundle_blob_with_malformed_ia5string_san(self, *, canonical_bytes, identity, issuer, **opts) -> str:
+    def make_bundle_blob_with_malformed_ia5string_san(
+        self, *, canonical_bytes, identity, issuer, **opts
+    ) -> str:
         opts = dict(opts)
         opts.update(identity=identity, issuer=issuer, malformed_ia5=True)
         return self._build_bundle(canonical_bytes, opts).to_json()
 
     def make_bundle_blob_with_rekor_inclusion(
-        self, canonical_bytes, *, log_index, tree_size, leaf_hash=None,
-        root_hash=None, hashes=None, checkpoint=None, log_id=None,
-        identity="alice@example.com", issuer="https://accounts.google.com", **opts,
+        self,
+        canonical_bytes,
+        *,
+        log_index,
+        tree_size,
+        leaf_hash=None,
+        root_hash=None,
+        hashes=None,
+        checkpoint=None,
+        log_id=None,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
+        **opts,
     ) -> str:
         opts = dict(opts)
 
@@ -2253,17 +2345,23 @@ class _TestFactory:
         if leaf_hash is not None:
             opts["leaf_hash_explicit"] = _as_bytes(leaf_hash)
         opts.update(
-            identity=identity, issuer=issuer,
-            log_index=log_index, tree_size=tree_size,
+            identity=identity,
+            issuer=issuer,
+            log_index=log_index,
+            tree_size=tree_size,
         )
         return self._build_bundle(canonical_bytes, opts).to_json()
 
-    def make_bundle_blob_with_chain_length(self, *, chain_length, canonical_bytes, identity, issuer, **opts) -> str:
+    def make_bundle_blob_with_chain_length(
+        self, *, chain_length, canonical_bytes, identity, issuer, **opts
+    ) -> str:
         opts = dict(opts)
         opts.update(identity=identity, issuer=issuer, chain_length=chain_length)
         return self._build_bundle(canonical_bytes, opts).to_json()
 
-    def make_bundle_blob_with_broken_chain(self, *, canonical_bytes, identity, issuer, **opts) -> str:
+    def make_bundle_blob_with_broken_chain(
+        self, *, canonical_bytes, identity, issuer, **opts
+    ) -> str:
         opts = dict(opts)
         opts.update(identity=identity, issuer=issuer, broken_chain=True)
         return self._build_bundle(canonical_bytes, opts).to_json()
@@ -2473,7 +2571,9 @@ class _TestFactory:
     def malformed_checkpoint(self, blob: str, *, kind: str) -> str:
         return self._mark(blob, "checkpoint_malformed", kind)
 
-    def make_checkpoint(self, *, tree_size: int, root_hash: str, log_id: str | None = None) -> str:
+    def make_checkpoint(
+        self, *, tree_size: int, root_hash: str, log_id: str | None = None
+    ) -> str:
         """Build a C2SP signed-note checkpoint.
 
         root_hash and log_id are embedded verbatim — parse_checkpoint_signed_note
@@ -2481,13 +2581,7 @@ class _TestFactory:
         """
         origin = log_id if log_id else "rekor.sigstore.dev"
         sig_b = base64.b64encode(secrets.token_bytes(64)).decode("ascii")
-        return (
-            f"{origin}\n"
-            f"{tree_size}\n"
-            f"{root_hash}\n"
-            f"\n"
-            f"— {origin} {sig_b}\n"
-        )
+        return f"{origin}\n{tree_size}\n{root_hash}\n\n— {origin} {sig_b}\n"
 
     def parse_checkpoint_signed_note(self, checkpoint: str) -> _ParsedCheckpoint:
         lines = checkpoint.strip().split("\n")
@@ -2498,7 +2592,9 @@ class _TestFactory:
             root_hash = lines[2]
         except (ValueError, IndexError) as exc:
             raise ValueError("malformed checkpoint signed note") from exc
-        return _ParsedCheckpoint(tree_size=tree_size, root_hash=root_hash, log_id=lines[0])
+        return _ParsedCheckpoint(
+            tree_size=tree_size, root_hash=root_hash, log_id=lines[0]
+        )
 
     def future_dated_cert(self, blob: str) -> str:
         return self._mark(blob, "future_dated", True)
@@ -2563,15 +2659,15 @@ class _TestFactory:
         if offset >= len(blob):
             return blob
         b = bytearray(blob.encode("utf-8", errors="replace"))
-        b[offset] ^= (1 << bit)
+        b[offset] ^= 1 << bit
         return b.decode("utf-8", errors="replace")
 
     def splice_rekor_entry(self, *, host: str, source: str) -> str:
         host_obj = json.loads(host)
         source_obj = json.loads(source)
-        host_obj["verificationMaterial"]["tlogEntries"] = (
-            source_obj["verificationMaterial"]["tlogEntries"]
-        )
+        host_obj["verificationMaterial"]["tlogEntries"] = source_obj[
+            "verificationMaterial"
+        ]["tlogEntries"]
         sig = self._sig_from_obj(host_obj)
         if sig in self._registry:
             self._registry[sig]["splice_attack"] = True
@@ -2581,7 +2677,11 @@ class _TestFactory:
 
     @staticmethod
     def _recompute_merkle_root(
-        *, leaf: bytes, hashes: list[bytes], log_index: int, tree_size: int,
+        *,
+        leaf: bytes,
+        hashes: list[bytes],
+        log_index: int,
+        tree_size: int,
     ) -> bytes:
         """Recompute Merkle root from leaf + sibling path (RFC 6962 hashing)."""
         node = leaf
@@ -2606,29 +2706,43 @@ class _TestFactory:
             last //= 2
         return node
 
-    def _evaluate_bundle(self, meta: dict, bundle: Bundle, input_bytes: bytes) -> BaseException | None:
+    def _evaluate_bundle(
+        self, meta: dict, bundle: Bundle, input_bytes: bytes
+    ) -> BaseException | None:
         # Digest-algorithm profile (sigstore-public-v1 SHA-256).
         if meta.get("digest_algorithm") not in (None, "sha256", "SHA2_256"):
             return _synthesize_exception("InvalidBundle", "non-SHA256 digest algorithm")
 
         if meta.get("dsse_envelope"):
-            return _synthesize_exception("InvalidBundle", "DSSE envelope not supported in v0")
+            return _synthesize_exception(
+                "InvalidBundle", "DSSE envelope not supported in v0"
+            )
 
         if meta.get("splice_attack"):
             return _synthesize_exception("InvalidRekorEntry", "spliced Rekor entry")
 
         # Tampered cert / unknown CA / broken chain / chain_length 0.
-        if meta.get("tampered_cert") or meta.get("unknown_ca") or meta.get("broken_chain"):
-            return _synthesize_exception("InvalidMaterials", "cert chain validation failed")
+        if (
+            meta.get("tampered_cert")
+            or meta.get("unknown_ca")
+            or meta.get("broken_chain")
+        ):
+            return _synthesize_exception(
+                "InvalidMaterials", "cert chain validation failed"
+            )
         if meta.get("chain_length") == 0:
-            return _synthesize_exception("InvalidMaterials", "self-signed leaf, no chain")
+            return _synthesize_exception(
+                "InvalidMaterials", "self-signed leaf, no chain"
+            )
 
         # Tampered signature.
         if meta.get("tampered_sig"):
             return _SignatureInvalid("Signature is invalid for input")
 
         if meta.get("future_dated"):
-            return _synthesize_exception("InvalidMaterials", "future-dated cert vs integrated time")
+            return _synthesize_exception(
+                "InvalidMaterials", "future-dated cert vs integrated time"
+            )
 
         nb_us = meta.get("cert_not_before_us")
         na_us = meta.get("cert_not_after_us")
@@ -2636,19 +2750,22 @@ class _TestFactory:
         if nb_us is not None and na_us is not None and it_us is not None:
             if it_us < nb_us or it_us > na_us:
                 return _synthesize_exception(
-                    "InvalidMaterials", "integrated time outside cert validity",
+                    "InvalidMaterials",
+                    "integrated time outside cert validity",
                 )
 
         if meta.get("missing_tsa"):
             return _synthesize_exception(
-                "InvalidBundle", "rekor v2 bundle missing TSA timestamp",
+                "InvalidBundle",
+                "rekor v2 bundle missing TSA timestamp",
             )
         tsa_list = meta.get("tsa_timestamps_us") or []
         if tsa_list and nb_us is not None and na_us is not None:
             for ts in tsa_list:
                 if ts < nb_us or ts > na_us:
                     return _synthesize_exception(
-                        "InvalidMaterials", "TSA timestamp outside cert validity",
+                        "InvalidMaterials",
+                        "TSA timestamp outside cert validity",
                     )
         if tsa_list and it_us is not None and na_us is not None:
             for ts in tsa_list:
@@ -2673,29 +2790,45 @@ class _TestFactory:
             )
             if recomputed != (meta.get("merkle_root_hash") or b""):
                 return _synthesize_exception(
-                    "InvalidRekorEntry", "merkle root does not match recomputed path",
+                    "InvalidRekorEntry",
+                    "merkle root does not match recomputed path",
                 )
 
         if meta.get("missing_rekor_proof"):
-            return _synthesize_exception("InvalidRekorEntry", "rekor inclusion proof missing")
+            return _synthesize_exception(
+                "InvalidRekorEntry", "rekor inclusion proof missing"
+            )
         if meta.get("missing_checkpoint"):
-            return _synthesize_exception("InvalidRekorEntry", "rekor checkpoint missing")
+            return _synthesize_exception(
+                "InvalidRekorEntry", "rekor checkpoint missing"
+            )
         if meta.get("tampered_merkle"):
-            return _synthesize_exception("InvalidRekorEntry", "rekor merkle hashes tampered")
+            return _synthesize_exception(
+                "InvalidRekorEntry", "rekor merkle hashes tampered"
+            )
         if meta.get("rekor_log_id_swapped"):
             return _synthesize_exception("InvalidRekorEntry", "rekor log_id mismatch")
         if meta.get("checkpoint_root_mismatch"):
-            return _synthesize_exception("InvalidRekorEntry", "checkpoint root mismatch")
+            return _synthesize_exception(
+                "InvalidRekorEntry", "checkpoint root mismatch"
+            )
         if meta.get("checkpoint_tree_mismatch"):
-            return _synthesize_exception("InvalidRekorEntry", "checkpoint tree size mismatch")
+            return _synthesize_exception(
+                "InvalidRekorEntry", "checkpoint tree size mismatch"
+            )
         if meta.get("checkpoint_old_key"):
             return _synthesize_exception(
-                "InvalidRekorEntry", "checkpoint signed by retired Rekor key",
+                "InvalidRekorEntry",
+                "checkpoint signed by retired Rekor key",
             )
         if meta.get("checkpoint_malformed"):
-            return _synthesize_exception("InvalidBundle", "checkpoint signed note malformed")
+            return _synthesize_exception(
+                "InvalidBundle", "checkpoint signed note malformed"
+            )
         if meta.get("tampered_checkpoint"):
-            return _synthesize_exception("InvalidRekorEntry", "checkpoint signature tampered")
+            return _synthesize_exception(
+                "InvalidRekorEntry", "checkpoint signature tampered"
+            )
 
         if meta.get("missing_sct"):
             return _synthesize_exception("InvalidMaterials", "SCT missing")
@@ -2704,7 +2837,9 @@ class _TestFactory:
         if meta.get("cross_sct"):
             return _synthesize_exception("InvalidMaterials", "SCT for different cert")
         if meta.get("untrusted_ct_log_sct"):
-            return _synthesize_exception("InvalidMaterials", "SCT from untrusted CT log")
+            return _synthesize_exception(
+                "InvalidMaterials", "SCT from untrusted CT log"
+            )
 
         # Unflagged mutation of any bound region (fuzz / bit-flip path).
         drift = _canonical_drift_exception(meta, bundle)

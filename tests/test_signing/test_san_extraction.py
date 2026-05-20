@@ -305,6 +305,130 @@ class TestExtractIssuerV2DerStrict:
         assert signing._extract_issuer_from_cert(cert) == "https://accounts.google.com"
 
 
+class TestExtractIssuerSubjectParityGuards:
+    """Issuer extraction has the same post-extraction guards as subject.
+
+    finding-20260514-burb's policy on _extract_subject_from_cert was missing
+    on the issuer path: NUL bytes, leading/trailing whitespace, and empty
+    strings flowed through unfiltered for both Issuer V2 (DER UTF8String) and
+    legacy (raw UTF-8 bytes) paths. NUL in particular enabled a startswith-
+    prefix split bypass — a downstream
+    ``issuer.startswith("https://accounts.google.com")`` returns True for
+    ``"https://accounts.google.com\\x00bad"`` even though the cert's issuer
+    string is not the trusted issuer. This class enforces parity.
+    """
+
+    def _stub_cert_with_issuer(self, oid_str, issuer_bytes):
+        from unittest.mock import Mock
+        ext = Mock()
+        ext.oid.dotted_string = oid_str
+        ext.value.value = issuer_bytes
+        cert = Mock()
+        cert.extensions = [ext]
+        return cert
+
+    def test_v2_nul_byte_rejected(self):
+        # The V2 DER UTF8String parse admits NUL bytes (X.690 §8.1 allows any
+        # UTF-8 octet sequence in UTF8String content; NUL is valid UTF-8).
+        # Post-extraction NUL guard mirrors subject's burb policy.
+        body = b"https://accounts.google.com\x00bad"
+        der = bytes([0x0C, len(body)]) + body
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_legacy_nul_byte_rejected(self):
+        # The legacy issuer OID is raw UTF-8 bytes; .decode("utf-8") succeeds
+        # on NUL-bearing input. Post-extraction NUL guard applies here too.
+        cert = self._stub_cert_with_issuer(
+            "1.3.6.1.4.1.57264.1.1", b"https://accounts.google.com\x00evil.com",
+        )
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_v2_leading_whitespace_rejected(self):
+        body = b" https://accounts.google.com"
+        der = bytes([0x0C, len(body)]) + body
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_v2_trailing_whitespace_rejected(self):
+        body = b"https://accounts.google.com "
+        der = bytes([0x0C, len(body)]) + body
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_legacy_leading_whitespace_rejected(self):
+        cert = self._stub_cert_with_issuer(
+            "1.3.6.1.4.1.57264.1.1", b" https://accounts.google.com",
+        )
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_v2_empty_string_rejected(self):
+        # 0x0C 0x00 is a syntactically valid zero-length DER UTF8String, but
+        # an empty issuer is not a usable identity.
+        cert = self._stub_cert_with_issuer(
+            "1.3.6.1.4.1.57264.1.8", bytes([0x0C, 0x00]),
+        )
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_legacy_empty_bytes_rejected(self):
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.1", b"")
+        assert signing._extract_issuer_from_cert(cert) is None
+
+    def test_v2_nfc_normalized(self):
+        # Decomposed precomposed-equivalent characters get normalized to NFC,
+        # matching subject normalization behavior.
+        body = "café".encode("utf-8")  # precomposed é (U+00E9)
+        decomposed = "café".encode("utf-8")  # e + combining acute
+        der = bytes([0x0C, len(decomposed)]) + decomposed
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        result = signing._extract_issuer_from_cert(cert)
+        assert result is not None
+        import unicodedata
+        assert result == unicodedata.normalize("NFC", "café")
+        assert result.encode("utf-8") == body
+
+    def test_v2_valid_issuer_still_returns(self):
+        # Regression: the happy path still works after the new guards.
+        issuer = "https://accounts.google.com"
+        body = issuer.encode("utf-8")
+        der = bytes([0x0C, len(body)]) + body
+        cert = self._stub_cert_with_issuer("1.3.6.1.4.1.57264.1.8", der)
+        assert signing._extract_issuer_from_cert(cert) == issuer
+
+
+class TestVerifySingleRejectsMissingIssuer:
+    """R4-1: _verify_single must not return VERIFIED with issuer=None.
+
+    Fix is symmetric to the subject guard introduced by burb. A leaf cert
+    whose issuer extensions are absent or malformed enough to fail
+    _extract_issuer_from_cert is malformed for the sigstore-public-v1
+    profile; surface as CERT_INVALID rather than a VERIFIED result whose
+    issuer is None.
+    """
+
+    def test_verify_with_malformed_issuer_returns_cert_invalid(
+        self, crypto_factory, monkeypatch,
+    ):
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        canonical = b"missing-issuer-probe"
+        value = "alice@example.com"
+        # Use a bundle that VERIFIES through the verifier, but on the cert
+        # introspection side returns issuer=None. We patch
+        # _extract_issuer_from_cert to simulate a leaf whose V2 OID parsed
+        # garbage and whose legacy OID is absent — the same condition the
+        # repro hits with a real IA5String-tagged V2 extension.
+        blob = crypto_factory.make_bundle_blob_with_san(
+            san_type="rfc822Name", value=value,
+            canonical_bytes=canonical, identity=value,
+            issuer="https://accounts.google.com",
+        )
+        monkeypatch.setattr(signing, "_extract_issuer_from_cert", lambda cert: None)
+        vr = signing.verify(canonical, _sb(canonical, blob))
+        assert vr.status == signing.VerifyStatus.CERT_INVALID
+        assert vr.issuer is None
+        assert vr.subject == value
+
+
 class TestDecodeDerUtf8Strict:
     """White-box on _decode_der_utf8: strict DER UTF8String parse.
 

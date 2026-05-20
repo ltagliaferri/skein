@@ -846,31 +846,28 @@ def sign(canonical_bytes: bytes, oidc_provider: OIDCProviderConfig) -> SignResul
         ctx = _build_production_signing_context()
     except SigningUnavailable:
         raise
-    except BaseException as exc:
+    except Exception as exc:
         component, reason = _classify_sign_exception(exc)
-        cause = exc if isinstance(exc, Exception) else None
-        raise SigningUnavailable(reason, component=component, cause=cause) from exc
+        raise SigningUnavailable(reason, component=component, cause=exc) from exc
 
     try:
         identity_token = _build_identity_token(oidc_provider.token)
     except SigningUnavailable:
         raise
-    except BaseException as exc:
+    except Exception as exc:
         component, reason = _classify_sign_exception(exc)
         if component == "fulcio":  # token construction is OIDC-side
             component = "oidc"
-        cause = exc if isinstance(exc, Exception) else None
-        raise SigningUnavailable(reason, component=component, cause=cause) from exc
+        raise SigningUnavailable(reason, component=component, cause=exc) from exc
 
     try:
         with ctx.signer(identity_token) as signer:
             bundle = signer.sign_artifact(canonical_bytes)
     except SigningUnavailable:
         raise
-    except BaseException as exc:
+    except Exception as exc:
         component, reason = _classify_sign_exception(exc)
-        cause = exc if isinstance(exc, Exception) else None
-        raise SigningUnavailable(reason, component=component, cause=cause) from exc
+        raise SigningUnavailable(reason, component=component, cause=exc) from exc
 
     leaf_cert = bundle.signing_certificate
     issuer = _extract_issuer_from_cert(leaf_cert) or oidc_provider.issuer

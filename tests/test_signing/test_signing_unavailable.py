@@ -373,6 +373,46 @@ def test_signing_unavailable_caught_by_generic_exception(
 
 
 # ---------------------------------------------------------------------------
+# BaseException propagation (KeyboardInterrupt / SystemExit)
+# ---------------------------------------------------------------------------
+
+
+# Enforces: sign() catches Exception, NOT BaseException. KeyboardInterrupt must
+# propagate so Ctrl-C during a slow Fulcio call aborts the process rather than
+# being converted into SigningUnavailable. Oracle B-review O-A3.
+def test_keyboard_interrupt_propagates_from_sign(
+    google_provider, canonical_bytes_simple, monkeypatch
+):
+    def _raise_keyboard_interrupt():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        signing,
+        "_build_production_signing_context",
+        _raise_keyboard_interrupt,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        signing.sign(canonical_bytes_simple, google_provider)
+
+
+# Enforces: sign() catches Exception, NOT BaseException. SystemExit must
+# propagate rather than being wrapped in SigningUnavailable. Oracle B-review O-A3.
+def test_system_exit_propagates_from_sign(
+    google_provider, canonical_bytes_simple, monkeypatch
+):
+    def _raise_system_exit():
+        raise SystemExit(2)
+
+    monkeypatch.setattr(
+        signing,
+        "_build_production_signing_context",
+        _raise_system_exit,
+    )
+    with pytest.raises(SystemExit):
+        signing.sign(canonical_bytes_simple, google_provider)
+
+
+# ---------------------------------------------------------------------------
 # Reachable-but-failing distinction
 # ---------------------------------------------------------------------------
 

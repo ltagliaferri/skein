@@ -641,8 +641,21 @@ def test_sign_ecdsa_nonce_not_reused_across_n_signings(canonical_bytes_simple):
 # underlying Google/GitHub) are printed to stderr before signing.sign() is
 # invoked, so the run yields diagnostic value even if the allowlist rejects.
 @pytest.mark.interactive
-def test_sign_ecdsa_nonce_not_reused_interactive(canonical_bytes_simple):
+def test_sign_ecdsa_nonce_not_reused_interactive(canonical_bytes_simple, monkeypatch):
     from sigstore.oidc import Issuer
+
+    # Drive signing.sign() through the staging Sigstore environment rather
+    # than production. The token we obtain via sigstore-python's interactive
+    # flow is issued by staging Dex (oauth2.sigstage.dev); pairing it with
+    # production Fulcio yields a 400 Bad Request because prod Fulcio doesn't
+    # trust the staging issuer. This is NOT a mock of sign() — the underlying
+    # sigstore-python code path is fully real; only the trust config selection
+    # is overridden. Same parametrization shape the verify side uses via
+    # _conformance_staging_verifier.
+    monkeypatch.setattr(
+        "skein.signing._build_production_signing_context",
+        signing._build_staging_signing_context,
+    )
 
     # SKEIN_TEST_SIGSTORE_ISSUER_URL is the OIDC PROVIDER base_url consumed by
     # sigstore.oidc.Issuer (it locates the .well-known/openid-configuration);

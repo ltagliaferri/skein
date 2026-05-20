@@ -614,6 +614,22 @@ def _build_production_signing_context() -> Any:
     return SigningContext.from_trust_config(ClientTrustConfig.production())
 
 
+def _build_staging_signing_context() -> Any:
+    """Build a sigstore SigningContext from the staging trust config.
+
+    Sibling of _build_production_signing_context, used only by tests that
+    drive REAL signing against Sigstore staging (e.g. the K-A9 interactive
+    nonce-reuse test). NOT a production path: sign() always calls the
+    production builder; staging tests substitute via monkeypatch, matching
+    the established pattern used by the test crypto factory at line ~1918.
+
+    Mirrors the verify side's documented behavior at
+    _build_production_verifier: tests opt in to staging; production code
+    never reaches this helper.
+    """
+    return SigningContext.from_trust_config(ClientTrustConfig.staging())
+
+
 def _build_production_verifier(*, offline: bool = False) -> Any:  # noqa: ANN401
     """Build a sigstore Verifier from the production trust config.
 

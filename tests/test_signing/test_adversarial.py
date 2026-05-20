@@ -1408,6 +1408,71 @@ class TestSigstorePublicV1AlgorithmProfile:
                 "v0.3 SET-DER gate via substring overmatch"
             )
 
+    @pytest.mark.parametrize(
+        "media_type",
+        [None, 42, [], {}, True],
+        ids=["null", "int", "list", "dict", "bool"],
+    )
+    def test_profile_gate_rejects_non_string_mediaType(self, media_type):
+        """A non-string mediaType (JSON null, int, list, dict, bool) must be
+        BUNDLE_MALFORMED at the profile gate.
+
+        Pre-fix, ``obj.get("mediaType", "")`` only defaulted on absent keys,
+        not on explicit ``null``. ``mediaType: null`` produced
+        ``media_type = None``; ``None in _V0_3_MEDIA_TYPES`` is False, so the
+        v0.3-specific SET-DER defense (finding-20260519-74o7) was silently
+        skipped — an adversarial v0.3 bundle could ship ``mediaType: null``
+        plus a malformed SET and bypass the documented defense-in-depth gate.
+        Non-string mediaTypes of unhashable types (list, dict) additionally
+        crashed the gate with TypeError instead of failing closed.
+
+        Parity with the messageDigest/algorithm gate added in
+        ``test_profile_gate_rejects_null_or_missing_digest_algorithm``: any
+        non-string-shaped value at a string-typed field is BUNDLE_MALFORMED.
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+        bad_set = base64.b64encode(encode_dss_signature(0, 1)).decode("ascii")
+        case = {
+            "mediaType": media_type,
+            "verificationMaterial": {
+                "tlogEntries": [
+                    {
+                        "inclusionProof": {"logIndex": "1"},
+                        "inclusionPromise": {"signedEntryTimestamp": bad_set},
+                    }
+                ]
+            },
+        }
+        assert (
+            signing._check_sigstore_public_v1_profile(case)
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        ), f"non-string mediaType {media_type!r} should be BUNDLE_MALFORMED"
+
+    def test_profile_gate_passes_absent_mediaType(self):
+        """A bundle that omits mediaType entirely (older bundles legitimately
+        do; only v0.3 needs the SET-DER check) must NOT be rejected by the
+        profile gate. Distinguishes the absent-key path from explicit
+        ``null`` — absent falls through, null is BUNDLE_MALFORMED.
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+        bad_set = base64.b64encode(encode_dss_signature(0, 1)).decode("ascii")
+        case = {
+            "verificationMaterial": {
+                "tlogEntries": [
+                    {
+                        "inclusionProof": {"logIndex": "1"},
+                        "inclusionPromise": {"signedEntryTimestamp": bad_set},
+                    }
+                ]
+            },
+        }
+        # mediaType absent → no v0.3 gate fires → profile gate has no opinion.
+        assert signing._check_sigstore_public_v1_profile(case) is None
+
     def test_profile_gate_fails_closed_on_structural_weirdness(self):
         """Adversarial bundle with tlogEntries shapes that trigger an unexpected
         exception inside the SET-DER defense loop must NOT bypass the gate.

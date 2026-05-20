@@ -1041,7 +1041,22 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     #    bundles need their own profile check, not piggybacking on v0.3's,
     #    and (b) accept attacker-supplied non-canonical mediaTypes that
     #    happen to contain the substring.
-    media_type = obj.get("mediaType", "")
+    #
+    #    Absent mediaType (older bundles legitimately omit it) falls
+    #    through as not-v0.3. Explicit non-string mediaType — most notably
+    #    JSON ``null`` — is BUNDLE_MALFORMED: ``obj.get("mediaType", "")``
+    #    only defaulted on key absence, so ``mediaType: null`` produced
+    #    ``None``, ``None in _V0_3_MEDIA_TYPES`` was False, and the v0.3
+    #    SET-DER defense was silently skipped. Unhashable non-strings
+    #    (list, dict) additionally raised TypeError on the ``in`` check.
+    #    Reject non-string mediaType outright; preserve absent-key
+    #    passthrough by branching on ``in obj`` rather than ``.get``.
+    if "mediaType" in obj:
+        media_type = obj["mediaType"]
+        if not isinstance(media_type, str):
+            return VerifyStatus.BUNDLE_MALFORMED
+    else:
+        media_type = ""
     is_v3 = media_type in _V0_3_MEDIA_TYPES
     if is_v3:
         try:

@@ -340,6 +340,79 @@ def test_verify_tuf_class_exceptions_map_to_offline_no_trusted_root():
         )
 
 
+# Enforces (R4-4, F-pass round 4): the VerificationError-with-message
+# heuristic must use sigstore-python's exact wire phrasings, not loose
+# substrings. sigstore-python's verifier.py raises two literal strings:
+#   - "Signature is invalid for input"  (verifier.py 4.2.0 line 495)
+#   - "Bundle message digest mismatch"  (verifier.py 4.2.0 line 483)
+# A pre-fix loose substring "signature is invalid" also matched cert-chain
+# wording like "cert chain: signature is invalid for leaf" — misclassifying
+# a cert-chain failure as SIGNATURE_MISMATCH. Real cert-chain failures come
+# through as CertValidationError (CERT_INVALID), so the loose substring was
+# only triggered by synthesized exceptions today; a future sigstore-python
+# rev wrapping cert-chain errors in plain VerificationError would hit it.
+def test_verify_signature_invalid_for_input_maps_to_signature_mismatch():
+    # Real sigstore-python sig-mismatch phrasing maps correctly.
+    exc = signing._synthesize_exception(
+        "VerificationError", "Signature is invalid for input",
+    )
+    assert signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
+def test_verify_bundle_message_digest_mismatch_maps_to_signature_mismatch():
+    # Real sigstore-python digest-mismatch phrasing maps correctly.
+    exc = signing._synthesize_exception(
+        "VerificationError", "Bundle message digest mismatch",
+    )
+    assert signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
+def test_verify_cert_chain_signature_invalid_does_not_map_to_signature_mismatch():
+    # R4-4 regression. "cert chain: signature is invalid for leaf" used to
+    # false-match "signature is invalid" and return SIGNATURE_MISMATCH; the
+    # tightened heuristic requires the full phrase "signature is invalid
+    # for input", so cert-chain wording now falls to the catch-all
+    # (BUNDLE_MALFORMED, the d3u6 §5 safe default for unknown
+    # VerificationError shapes).
+    exc = signing._synthesize_exception(
+        "VerificationError", "cert chain: signature is invalid for leaf",
+    )
+    status = signing._map_sigstore_exception(exc)
+    assert status != signing.VerifyStatus.SIGNATURE_MISMATCH, (
+        f"cert-chain wording must not map to SIGNATURE_MISMATCH; got {status.name}"
+    )
+    assert status == signing.VerifyStatus.BUNDLE_MALFORMED
+
+
+def test_verify_cert_chain_signature_invalid_for_intermediate_does_not_map_to_sig_mismatch():
+    # Same R4-4 pattern with intermediate-cert wording.
+    exc = signing._synthesize_exception(
+        "VerificationError", "cert chain: signature is invalid for intermediate",
+    )
+    assert signing._map_sigstore_exception(exc) != signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
+def test_verify_partial_digest_mismatch_string_does_not_map_to_sig_mismatch():
+    # The pre-fix "digest mismatch" loose substring would have matched
+    # any wording mentioning "digest mismatch" — e.g. "user account digest
+    # mismatch" (hypothetical, but parallel to the R4-4 shape). Tightened
+    # phrase requires the exact "bundle message digest mismatch".
+    exc = signing._synthesize_exception(
+        "VerificationError", "user account digest mismatch",
+    )
+    assert signing._map_sigstore_exception(exc) != signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
+def test_verify_signature_mismatch_phrasing_is_case_insensitive():
+    # The heuristic uses msg_lower, so any case spelling of the exact
+    # phrase still matches. Pin so a future refactor doesn't drop the
+    # case fold.
+    exc = signing._synthesize_exception(
+        "VerificationError", "SIGNATURE IS INVALID FOR INPUT",
+    )
+    assert signing._map_sigstore_exception(exc) == signing.VerifyStatus.SIGNATURE_MISMATCH
+
+
 # Enforces: network timeout during verify Rekor proof maps to INCLUSION_FAILED.
 def test_verify_network_timeout_maps_to_inclusion_failed(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch

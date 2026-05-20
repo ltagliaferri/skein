@@ -170,10 +170,12 @@ class TestExtractSubjectEmptySanRejected:
     the extraction layer (returning None so verify() maps to
     CERT_INVALID) and uses a truthiness check at the verify() guard.
 
-    These tests are white-box on the OtherName path because the
-    cryptography library refuses to construct empty rfc822Name / URI
-    values at the SAN-object boundary, so those paths can't be reached
-    through normal cert construction.
+    These tests stub cert objects directly rather than going through
+    the cryptography library's normal cert builder. The library refuses
+    to construct an empty x509.RFC822Name (raises ValueError), but it
+    DOES accept an empty x509.UniformResourceIdentifier, so both the
+    URI and OtherName-UTF8String paths can deliver an empty raw to
+    _extract_subject_from_cert. Both are covered below.
     """
 
     def _stub_cert_with_san(self, san_objects):
@@ -213,6 +215,17 @@ class TestExtractSubjectEmptySanRejected:
         )
         cert = self._stub_cert_with_san([valid_other])
         assert signing._extract_subject_from_cert(cert) == "alice"
+
+    def test_empty_uri_san_returns_none(self):
+        # x509.UniformResourceIdentifier('') constructs without error
+        # (unlike RFC822Name, which rejects empty at construction). An
+        # empty URI SAN therefore reaches _extract_subject_from_cert as
+        # raw=''. The same `if not raw: return None` guard that catches
+        # the OtherName empty case must catch this too.
+        from cryptography import x509
+        empty_uri = x509.UniformResourceIdentifier("")
+        cert = self._stub_cert_with_san([empty_uri])
+        assert signing._extract_subject_from_cert(cert) is None
 
 
 class TestDecodeDerUtf8Strict:

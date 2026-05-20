@@ -868,6 +868,34 @@ def test_verify_fails_closed_when_pin_content_mismatch(
     assert vr.status == signing.VerifyStatus.TRUST_ROOT_STALE
 
 
+# Enforces: finding-20260513-w5hq §3(c) intent + Oracle B-review O-A6. When a
+# trust_root_pin matches a known era root but that root cannot be materialized
+# into a real sigstore TrustedRoot, the pin cannot be honored and verification
+# must fail closed (TRUST_ROOT_STALE) — not silently fall back to the current
+# TUF root, which would verify against a different root than the bundle pinned.
+def test_verify_fails_closed_when_pin_matches_but_root_unmaterializable(
+    crypto_factory, canonical_bytes_simple, monkeypatch
+):
+    unmaterializable_root = crypto_factory.make_era_trust_root(
+        era="2026-01", unmaterializable=True
+    )
+    pin = crypto_factory.trust_root_pin(unmaterializable_root)
+    crypto_factory.install_verify_monkeypatch(
+        monkeypatch,
+        trust_roots=[unmaterializable_root],
+    )
+    blob = crypto_factory.make_bundle_blob(
+        canonical_bytes=canonical_bytes_simple,
+        identity="alice@example.com",
+        issuer="https://accounts.google.com",
+        trust_root=unmaterializable_root,
+    )
+    blob = crypto_factory.set_trust_root_pin(blob, pin)
+    sb = _signature_bundle(canonical_bytes_simple, blob, trust_root_pin=pin)
+    vr = signing.verify(canonical_bytes_simple, sb)
+    assert vr.status == signing.VerifyStatus.TRUST_ROOT_STALE
+
+
 # Enforces: finding-20260513-w5hq §3(c). If a pin is present and the verifier
 # has no local trust roots at all, the more precise offline status is
 # OFFLINE_NO_TRUSTED_ROOT.

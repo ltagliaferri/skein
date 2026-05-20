@@ -504,7 +504,33 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
         return None
     if raw != raw.strip():
         return None
+    if _has_invisible_identity_char(raw):
+        return None
     return unicodedata.normalize("NFC", raw)
+
+
+# Zero-width and directional formatting characters that survive NFC
+# normalization and produce visually-identical (or invisible) identity
+# strings. Reject in extracted identity material on both subject and
+# issuer paths so a homograph identity like "alice‮@example.com"
+# can't be smuggled past comparison logic that treats the string as
+# an opaque identifier.
+#
+#   U+200B-U+200F: ZWSP, ZWNJ, ZWJ, LRM, RLM
+#   U+202A-U+202E: LRE, RLE, PDF, LRO, RLO  (legacy bidi)
+#   U+2066-U+2069: LRI, RLI, FSI, PDI       (modern bidi isolates)
+_INVISIBLE_IDENTITY_CHARS: frozenset[str] = frozenset(
+    chr(c)
+    for c in (
+        *range(0x200B, 0x2010),
+        *range(0x202A, 0x202F),
+        *range(0x2066, 0x206A),
+    )
+)
+
+
+def _has_invisible_identity_char(s: str) -> bool:
+    return any(c in _INVISIBLE_IDENTITY_CHARS for c in s)
 
 
 def _decode_der_utf8(data: bytes) -> str | None:
@@ -572,6 +598,9 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
       - NFC normalize Unicode.
       - Reject identities with leading/trailing whitespace (visual ambiguity).
       - Reject identities containing NUL bytes.
+      - Reject identities containing zero-width or directional bidi
+        formatting characters (see _INVISIBLE_IDENTITY_CHARS) — they
+        survive NFC and produce visually-identical strings.
     """
     try:
         san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
@@ -621,6 +650,8 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
     if "\x00" in raw:
         return None
     if raw != raw.strip():
+        return None
+    if _has_invisible_identity_char(raw):
         return None
     return unicodedata.normalize("NFC", raw)
 

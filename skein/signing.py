@@ -827,6 +827,16 @@ _ALLOWED_DIGEST_ALGORITHMS: frozenset[str] = frozenset({"SHA2_256", "sha256"})
 _SHA256_DIGEST_LEN = 32
 
 
+# Exactly the two canonical sigstore-bundle v0.3 mediaType strings emitted by
+# sigstore-python (Bundle.BundleType.BUNDLE_0_3 and BUNDLE_0_3_ALT). Used by
+# the v0.3-specific profile gate; future versions need their own gate, not a
+# substring-broadened match on this set.
+_V0_3_MEDIA_TYPES: frozenset[str] = frozenset({
+    "application/vnd.dev.sigstore.bundle.v0.3+json",
+    "application/vnd.dev.sigstore.bundle+json;version=0.3",
+})
+
+
 def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     """Enforce sigstore-public-v1 profile constraints on the raw bundle JSON.
 
@@ -857,8 +867,17 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     #    DER signature (sigstore-public-v1 profile per
     #    finding-20260512-eaft actionable #3). A short or non-DER SET is the
     #    injection-style attack that the profile rejects.
+    #
+    #    mediaType match is exact equality against the two canonical v0.3
+    #    strings emitted by sigstore-python (Bundle.BundleType.BUNDLE_0_3
+    #    and BUNDLE_0_3_ALT). A substring match here would (a) trigger this
+    #    v0.3-specific SET check on future versions whose mediaType contains
+    #    "v0.3" or "version=0.3" as a substring (e.g. v0.30, v0.3.1) — those
+    #    bundles need their own profile check, not piggybacking on v0.3's,
+    #    and (b) accept attacker-supplied non-canonical mediaTypes that
+    #    happen to contain the substring.
     media_type = obj.get("mediaType", "")
-    is_v3 = "v0.3" in media_type or "version=0.3" in media_type
+    is_v3 = media_type in _V0_3_MEDIA_TYPES
     if is_v3:
         try:
             for entry in (obj.get("verificationMaterial") or {}).get("tlogEntries") or []:

@@ -1203,6 +1203,64 @@ class TestSigstorePublicV1AlgorithmProfile:
             == signing.VerifyStatus.BUNDLE_MALFORMED
         )
 
+    def test_profile_gate_v3_mediaType_match_is_exact(self):
+        """The v0.3 SET-DER defense fires only on the two canonical v0.3
+        mediaType strings emitted by sigstore-python (BUNDLE_0_3,
+        BUNDLE_0_3_ALT). A substring matcher (the prior implementation:
+        ``"v0.3" in mt or "version=0.3" in mt``) would (a) fire on future
+        versions like v0.30 or v0.3.1 whose mediaType contains "v0.3" as a
+        substring — those need their own profile check, not this one — and
+        (b) fire on attacker-supplied mediaTypes that happen to embed the
+        substring (e.g. "NOTHING_v0.3_HERE").
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+
+        # Bad SET (r == 0) — gate must reject under the v0.3 path, ignore
+        # otherwise. Isolates whether is_v3 latched onto the mediaType.
+        bad_set = base64.b64encode(encode_dss_signature(0, 1)).decode("ascii")
+
+        def make(media_type: str) -> dict:
+            return {
+                "mediaType": media_type,
+                "verificationMaterial": {
+                    "tlogEntries": [
+                        {
+                            "inclusionProof": {"logIndex": "1"},
+                            "inclusionPromise": {
+                                "signedEntryTimestamp": bad_set
+                            },
+                        }
+                    ]
+                },
+            }
+
+        # Canonical v0.3 mediaTypes — gate fires, bad SET rejected.
+        for canonical in (
+            "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "application/vnd.dev.sigstore.bundle+json;version=0.3",
+        ):
+            assert (
+                signing._check_sigstore_public_v1_profile(make(canonical))
+                == signing.VerifyStatus.BUNDLE_MALFORMED
+            ), f"canonical v0.3 mediaType {canonical!r} did not engage SET defense"
+
+        # Substring overmatchers — must NOT engage the v0.3-specific gate.
+        # The bad SET goes unchecked here; those bundles may still be
+        # rejected elsewhere on their own merits, but not by the v0.3 gate.
+        for not_v3 in (
+            "application/vnd.dev.sigstore.bundle+json;version=0.30",
+            "application/vnd.dev.sigstore.bundle+json;version=0.3.1",
+            "NOTHING_v0.3_HERE",
+            "v0.3x",
+            "",
+        ):
+            assert signing._check_sigstore_public_v1_profile(make(not_v3)) is None, (
+                f"non-v0.3 mediaType {not_v3!r} unexpectedly engaged the "
+                "v0.3 SET-DER gate via substring overmatch"
+            )
+
     def test_profile_gate_fails_closed_on_structural_weirdness(self):
         """Adversarial bundle with tlogEntries shapes that trigger an unexpected
         exception inside the SET-DER defense loop must NOT bypass the gate.

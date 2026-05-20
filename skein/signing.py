@@ -465,6 +465,16 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
     malformed at that extension and we return None. The legacy OID's
     fallback is preserved because the legacy spec IS raw UTF-8 bytes
     (not DER-wrapped).
+
+    Post-extraction sanitization mirrors _extract_subject_from_cert's
+    fail-closed-on-malformed policy (finding-20260514-burb): a NUL byte,
+    leading/trailing whitespace, or empty string is ambiguous identity
+    material and yields None so the caller surfaces CERT_INVALID. NUL
+    in particular enables a startswith-prefix split bypass — a downstream
+    ``issuer.startswith("https://accounts.google.com")`` returns True for
+    ``"https://accounts.google.com\\x00bad"`` even though the cert's
+    issuer string is not the trusted issuer. The guard applies to both
+    V2 and legacy extraction paths.
     """
     def _read_ext(oid_str: str) -> bytes | None:
         for ext in cert.extensions:
@@ -474,17 +484,27 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
                     return bytes(value)
         return None
 
+    raw: str | None = None
     v2 = _read_ext(_OID_ISSUER_V2)
     if v2 is not None:
-        return _decode_der_utf8(v2)
+        raw = _decode_der_utf8(v2)
+    else:
+        legacy = _read_ext(_OID_ISSUER_LEGACY)
+        if legacy is not None:
+            try:
+                raw = legacy.decode("utf-8")
+            except UnicodeDecodeError:
+                return None
 
-    legacy = _read_ext(_OID_ISSUER_LEGACY)
-    if legacy is not None:
-        try:
-            return legacy.decode("utf-8")
-        except UnicodeDecodeError:
-            return None
-    return None
+    if raw is None:
+        return None
+    if not raw:
+        return None
+    if "\x00" in raw:
+        return None
+    if raw != raw.strip():
+        return None
+    return unicodedata.normalize("NFC", raw)
 
 
 def _decode_der_utf8(data: bytes) -> str | None:
@@ -1124,6 +1144,13 @@ def _verify_single(canonical_bytes: bytes, blob: str, scheme: str, trust_root_pi
     # extraction path returns "") → CERT_INVALID per finding-20260514-burb.
     if not subject:
         return VerifyResult(status=VerifyStatus.CERT_INVALID, issuer=issuer, subject=None)
+    # Symmetric guard on issuer: a Fulcio leaf without an extractable OIDC
+    # issuer extension (V2 OID 1.3.6.1.4.1.57264.1.8 or legacy 1.3.6.1.4.1.
+    # 57264.1.1) is malformed for the sigstore-public-v1 profile. Surfacing
+    # this as VERIFIED with issuer=None would let policy comparisons against
+    # a None issuer no-op silently downstream.
+    if not issuer:
+        return VerifyResult(status=VerifyStatus.CERT_INVALID, issuer=None, subject=subject)
 
     nb, na = _cert_validity_window(leaf_cert)
     evidence = Evidence(

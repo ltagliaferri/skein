@@ -1142,6 +1142,78 @@ class TestSigstorePublicV1AlgorithmProfile:
         result = signing.verify(canonical_bytes_simple, sb)
         assert result.status == signing.VerifyStatus.VERIFIED
 
+    def test_profile_gate_rejects_null_or_missing_digest_algorithm(self):
+        """A messageSignature whose messageDigest.algorithm is None, missing,
+        or non-string must be BUNDLE_MALFORMED at the profile gate.
+
+        Pre-fix, the algorithm-allowlist check was guarded with
+        ``if algo is not None and algo not in _ALLOWED_DIGEST_ALGORITHMS``,
+        and the digest-length check with ``if algo and digest_b64`` — both
+        short-circuited when algo was None, leaving the profile gate with
+        no opinion on the bundle. sigstore-python rejected it downstream,
+        but the documented defense-in-depth gate had a hole.
+        """
+        def make(*, message_digest, **extra):
+            base = {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "messageSignature": {"messageDigest": message_digest, "signature": "AA=="},
+            }
+            base.update(extra)
+            return base
+
+        # algorithm=None
+        assert (
+            signing._check_sigstore_public_v1_profile(
+                make(message_digest={"algorithm": None, "digest": "AA=="})
+            )
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+        # algorithm key absent
+        assert (
+            signing._check_sigstore_public_v1_profile(
+                make(message_digest={"digest": "AA=="})
+            )
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+        # algorithm is not a string (int, dict, list)
+        for non_str in (42, {}, [], True):
+            assert (
+                signing._check_sigstore_public_v1_profile(
+                    make(message_digest={"algorithm": non_str, "digest": "AA=="})
+                )
+                == signing.VerifyStatus.BUNDLE_MALFORMED
+            ), f"non-string algorithm {non_str!r} should be BUNDLE_MALFORMED"
+
+        # messageDigest itself is not a dict.
+        assert (
+            signing._check_sigstore_public_v1_profile(
+                {"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                 "messageSignature": {"messageDigest": "not-a-dict", "signature": "AA=="}}
+            )
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+
+        # messageSignature itself is not a dict.
+        assert (
+            signing._check_sigstore_public_v1_profile(
+                {"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                 "messageSignature": "not-a-dict"}
+            )
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        )
+
+    def test_profile_gate_passes_dsse_envelope_with_no_messageSignature(self):
+        """DSSE bundles legitimately have no messageSignature; the profile
+        gate must not reject them on missing-messageDigest. They are caught
+        later by signing.py's 'DSSE envelope not supported in v0' path.
+        """
+        case = {
+            "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+            "dsseEnvelope": {"payload": "AA==", "signatures": []},
+        }
+        # Profile gate must not reject — None means "no opinion at this layer."
+        assert signing._check_sigstore_public_v1_profile(case) is None
+
     def test_verify_rejects_digest_length_mismatch_with_algorithm(
         self, crypto_factory, google_provider, canonical_bytes_simple, monkeypatch,
     ):

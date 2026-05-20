@@ -898,19 +898,39 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     # 1. sigstore-public-v1 pins SHA-256. The declared algorithm must be
     #    SHA2_256 (or the sha256 alias); SHA1/MD5/SHA2_384/SHA2_512 or any
     #    other value is out of profile. The digest must also be 32 bytes.
-    try:
-        msg_sig = obj.get("messageSignature") or {}
-        msg_digest = msg_sig.get("messageDigest") or {}
-        algo = msg_digest.get("algorithm")
-        digest_b64 = msg_digest.get("digest")
-        if algo is not None and algo not in _ALLOWED_DIGEST_ALGORITHMS:
+    #
+    #    Only enforce when messageSignature is present in the bundle. DSSE
+    #    bundles (dsseEnvelope) have no messageSignature and are rejected
+    #    later in _evaluate_bundle as "DSSE envelope not supported in v0";
+    #    the profile gate must not pre-reject them here on missing
+    #    messageDigest.
+    #
+    #    Prior implementation guarded the algorithm check with
+    #    `algo is not None and ...` and the digest length check with
+    #    `if algo and digest_b64`. That meant a messageSignature whose
+    #    messageDigest.algorithm was None (or absent) bypassed both checks
+    #    silently — a defense-in-depth gap; sigstore-python still rejects
+    #    downstream, but the documented profile gate had no opinion. The
+    #    presence-of-messageSignature now bifurcates the enforcement.
+    msg_sig_raw = obj.get("messageSignature")
+    if msg_sig_raw is not None:
+        if not isinstance(msg_sig_raw, dict):
             return VerifyStatus.BUNDLE_MALFORMED
-        if algo and digest_b64:
+        msg_digest = msg_sig_raw.get("messageDigest")
+        if not isinstance(msg_digest, dict):
+            return VerifyStatus.BUNDLE_MALFORMED
+        algo = msg_digest.get("algorithm")
+        if not isinstance(algo, str) or algo not in _ALLOWED_DIGEST_ALGORITHMS:
+            return VerifyStatus.BUNDLE_MALFORMED
+        digest_b64 = msg_digest.get("digest")
+        if not isinstance(digest_b64, str):
+            return VerifyStatus.BUNDLE_MALFORMED
+        try:
             digest = base64.b64decode(digest_b64)
-            if len(digest) != _SHA256_DIGEST_LEN:
-                return VerifyStatus.BUNDLE_MALFORMED
-    except (binascii.Error, ValueError, TypeError):
-        return VerifyStatus.BUNDLE_MALFORMED
+        except (binascii.Error, ValueError):
+            return VerifyStatus.BUNDLE_MALFORMED
+        if len(digest) != _SHA256_DIGEST_LEN:
+            return VerifyStatus.BUNDLE_MALFORMED
 
     # 2. v0.3 bundles: when an inclusion_promise (SET) is supplied alongside
     #    the mandatory inclusion_proof, the SET must be a structurally-valid

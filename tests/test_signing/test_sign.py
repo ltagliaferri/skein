@@ -467,10 +467,20 @@ def test_sign_safe_across_processes_with_shared_tuf_cache(tmp_path):
         pytest.skip("SKEIN_TEST_SIGSTORE_TOKEN not set for live staging sign test.")
 
     cache_dir = tmp_path / "shared-tuf-cache"
+    # Subprocesses route signing.sign() through the staging Sigstore environment
+    # by rebinding the production-context builder to its staging sibling before
+    # the call. The parent-process monkeypatch fixture would not propagate here
+    # — each subprocess imports skein.signing fresh — so the patch lives inside
+    # the script body. Same shape as the in-process K-A9 interactive variant
+    # (test_sign_ecdsa_nonce_not_reused_interactive). Not a mock: only trust
+    # config selection is overridden; sigstore-python's signing path runs in
+    # full.
     script = """
 import json
 import os
 from skein import signing
+
+signing._build_production_signing_context = signing._build_staging_signing_context
 
 provider = signing.OIDCProviderConfig(
     issuer=os.environ["SKEIN_TEST_SIGSTORE_ISSUER"],
@@ -528,24 +538,6 @@ print(result.model_dump_json())
     assert leftovers == []
 
 
-# ---------------------------------------------------------------------------
-# Staging integration (skipped unless SKEIN_TEST_SIGSTORE_LIVE=1)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.staging
-def test_sign_against_sigstore_staging(google_provider, canonical_bytes_simple):
-    # Live integration. Requires SKEIN_TEST_SIGSTORE_LIVE=1 and a human at the
-    # terminal to complete the OIDC flow.
-    cfg = signing.OIDCProviderConfig(
-        issuer="https://oauth2.sigstage.dev/auth",
-        token="staging-token-acquired-out-of-band",
-        provider_id="google",
-    )
-    result = signing.sign(canonical_bytes_simple, cfg)
-    assert result.subject  # some non-empty cert SAN identity
-
-
 def _extract_rs(bundle_json: str) -> tuple[int, int]:
     """Decode the ECDSA (r, s) from a signed bundle's signature."""
     obj = json.loads(bundle_json)
@@ -553,12 +545,12 @@ def _extract_rs(bundle_json: str) -> tuple[int, int]:
     return utils.decode_dss_signature(sig)
 
 
-# K-A9: real ECDSA nonce non-reuse. This is the security-load-bearing test the
-# offline suite structurally cannot provide — test_sign_is_non_deterministic
-# always installs _FakeSigner (fabricates a fresh keypair every call, so bundles
-# differ by construction) and therefore cannot observe a real nonce collision.
-# This test deliberately does NOT install any sign monkeypatch: it drives real
-# sigstore-python signing N times and asserts every ECDSA r is distinct.
+# K-A9: real ECDSA nonce non-reuse. Security-load-bearing — the offline suite
+# structurally cannot provide it (test_sign_is_non_deterministic installs
+# _FakeSigner, which fabricates a fresh keypair every call, so bundles differ
+# by construction and a real nonce collision cannot be observed). This test
+# drives real sigstore-python signing N times against staging Sigstore and
+# asserts every ECDSA r is distinct.
 #
 # Why r-distinctness and not just (r, s) inequality: the catastrophic
 # nonce-reuse failure mode is a *repeated r with differing s* (two signatures
@@ -570,76 +562,24 @@ def _extract_rs(bundle_json: str) -> tuple[int, int]:
 # keypair does not affect r). An r collision over N signings therefore
 # indicates a broken/deterministic nonce RNG — exactly what K-A9 must rule out.
 #
-# Token delivery (brief-20260519-5aa5): SKEIN_TEST_SIGSTORE_TOKEN must be a
-# pre-acquired OIDC token supplied out-of-band. Ambient CI OIDC was explored
-# and rejected — the K-A9 rescope (see test_sign_ecdsa_nonce_not_reused_
-# interactive below) makes the human-driven interactive sibling the primary
-# K-A9 path. SKEIN_TEST_SIGSTORE_ISSUER (the issuer CLAIM passed to
-# OIDCProviderConfig) and SKEIN_TEST_SIGSTORE_PROVIDER_ID are overridable;
-# defaults match test_sign_safe_across_processes_with_shared_tuf_cache.
-@pytest.mark.staging
-def test_sign_ecdsa_nonce_not_reused_across_n_signings(canonical_bytes_simple):
-    token = os.environ.get("SKEIN_TEST_SIGSTORE_TOKEN")
-    if not token:
-        pytest.skip(
-            "SKEIN_TEST_SIGSTORE_TOKEN not set; K-A9 real-signing nonce test "
-            "requires a pre-acquired OIDC token supplied out-of-band."
-        )
-
-    try:
-        n = int(os.environ.get("SKEIN_TEST_SIGSTORE_N", "5"))
-    except ValueError:
-        n = 5
-    # Floor at 2 (need a pair to compare) and ceiling at 50: each unit is a
-    # real signing against shared public Sigstore staging, so an operator typo
-    # must not drive unbounded load against shared infrastructure from CI.
-    n = min(max(n, 2), 50)
-
-    provider = signing.OIDCProviderConfig(
-        issuer=os.environ.get(
-            "SKEIN_TEST_SIGSTORE_ISSUER", "https://oauth2.sigstage.dev/auth"
-        ),
-        token=token,
-        provider_id=os.environ.get("SKEIN_TEST_SIGSTORE_PROVIDER_ID", "google"),
-    )
-
-    pairs: list[tuple[int, int]] = []
-    for _ in range(n):
-        result = signing.sign(canonical_bytes_simple, provider)
-        pairs.append(_extract_rs(result.bundle_json))
-
-    r_values = [r for r, _ in pairs]
-    distinct_r = set(r_values)
-    assert len(distinct_r) == n, (
-        f"ECDSA nonce reuse: {n} signings produced only {len(distinct_r)} "
-        f"distinct r values. A repeated r enables private-key recovery (K-A9)."
-    )
-
-    # Corroborating: full (r, s) pairs all distinct. Strictly implied by
-    # r-distinctness above, asserted separately so a regression that somehow
-    # collides (r, s) without colliding r still fails loudly.
-    assert len(set(pairs)) == n, (
-        f"{n} signings produced only {len(set(pairs))} distinct (r, s) pairs."
-    )
-
-
-# K-A9 (interactive): the launch-readiness empirical companion to the staging
-# test above. This variant deliberately depends on a human-in-the-loop OIDC
-# handshake — sigstore-python's Issuer pops a browser, the user authenticates
-# with Google or GitHub via the Sigstore Dex broker, and the returned
-# IdentityToken drives real signing. Marked @interactive (skipped unless
-# --run-interactive is passed); never runs in CI by design.
+# Execution shape: human-in-the-loop OIDC — sigstore-python's Issuer pops a
+# browser, the user authenticates with Google or GitHub via the Sigstore Dex
+# broker, and the returned IdentityToken drives real signing. Marked
+# @interactive (skipped unless --run-interactive is passed); never runs in CI
+# by design. K-A9 was rescoped from CI nightly to a one-time launch-readiness
+# empirical artifact (closure: finding-20260520-gidv); a prior non-interactive
+# @pytest.mark.staging sibling was removed in the cleanup that consolidated
+# K-A9 onto this path (finding-20260520-16nx).
 #
 # Run it with:
 #   pytest tests/test_signing/test_sign.py -s --run-interactive \
 #       -k nonce_not_reused_interactive
 # (-s is recommended so the browser-prompt diagnostics aren't captured.)
 #
-# The empirical question this test answers: what does the standard Sigstore
-# interactive flow actually hand back, and does SKEIN's v0 OIDC allowlist
-# admit it? Token issuer (Dex broker URL) and federated identity (the
+# Secondary value: token issuer (Dex broker URL) and federated identity (the
 # underlying Google/GitHub) are printed to stderr before signing.sign() is
-# invoked, so the run yields diagnostic value even if the allowlist rejects.
+# invoked, so the run yields diagnostic value about what the standard Sigstore
+# interactive flow returns and whether SKEIN's v0 OIDC allowlist admits it.
 @pytest.mark.interactive
 def test_sign_ecdsa_nonce_not_reused_interactive(canonical_bytes_simple, monkeypatch):
     from sigstore.oidc import Issuer

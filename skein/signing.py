@@ -29,6 +29,7 @@ import datetime
 import hashlib
 import json
 import logging
+import re
 import secrets
 import time
 import unicodedata
@@ -1853,17 +1854,248 @@ def _real_ecdsa_verify(bundle: Bundle, input_bytes: bytes, sig_bytes: bytes) -> 
         return False
 
 
+def _set_is_verified_time_source(canonical_obj: dict) -> bool:
+    """Mirror sigstore.verify.verifier.Verifier._establish_time's SET clause.
+
+    SET (Signed Entry Timestamp) counts as a verified time source iff all of:
+        inclusion_promise.signed_entry_timestamp is truthy
+        integrated_time is truthy
+        kindVersion.kind in {"hashedrekord", "dsse"}
+        kindVersion.version == "0.0.1"
+    See sigstore/verify/verifier.py:228-232. The kindVersion clause matters:
+    an exotic kindVersion raises at verifier.py:233 BEFORE SET counts, so a
+    looser gate would over-loosen on that case.
+    """
+    vm = canonical_obj.get("verificationMaterial") or {}
+    tlogs = vm.get("tlogEntries") or [{}]
+    te = tlogs[0] or {}
+    promise = (te.get("inclusionPromise") or {}).get("signedEntryTimestamp")
+    integrated = te.get("integratedTime")
+    kv = te.get("kindVersion") or {}
+    return (
+        bool(promise)
+        and bool(integrated)
+        and kv.get("kind") in ("hashedrekord", "dsse")
+        and kv.get("version") == "0.0.1"
+    )
+
+
+_CHECKPOINT_SIG_LINE_RE = re.compile(r"— (\S+) (\S+)")
+
+
+def _checkpoint_envelope_drift_is_benign(env_o: str, env_c: str) -> bool:
+    """True iff env_o vs env_c differ only in the decorative signer-name spans.
+
+    Mirrors SignedNote.from_text at sigstore/_internal/rekor/checkpoint.py:128-164:
+    the signed prefix is text up to and including the '\\n' before the
+    '\\n\\n' separator. The signature block is one or more
+    '\\u2014 NAME b64sig\\n' lines. Verification at checkpoint.py:166-187
+    binds (a) the signed prefix bytes against the decoded signature body,
+    (b) the em-dash + line structure (the regex must parse), and (c) the
+    decoded sig_hash (first 4 bytes) against key_id[:4]. The NAME token
+    is never fed into verify — it may drift.
+    """
+    sep = "\n\n"
+    if env_o.count(sep) != 1 or env_c.count(sep) != 1:
+        return False
+    split_o = env_o.index(sep)
+    split_c = env_c.index(sep)
+    if env_o[: split_o + 1] != env_c[: split_c + 1]:
+        return False
+    sig_block_o = env_o[split_o + len(sep):]
+    sig_block_c = env_c[split_c + len(sep):]
+    if not sig_block_o or not sig_block_c:
+        return False
+    if sig_block_o[-1] != "\n" or sig_block_c[-1] != "\n":
+        return False
+    lines_o = sig_block_o.split("\n")
+    lines_c = sig_block_c.split("\n")
+    if len(lines_o) != len(lines_c):
+        return False
+    for lo, lc in zip(lines_o, lines_c):
+        if lo == lc:
+            continue
+        mo = _CHECKPOINT_SIG_LINE_RE.fullmatch(lo)
+        mc = _CHECKPOINT_SIG_LINE_RE.fullmatch(lc)
+        if not mo or not mc:
+            return False
+        try:
+            sig_o = base64.b64decode(mo.group(2))
+            sig_c = base64.b64decode(mc.group(2))
+        except (binascii.Error, ValueError):
+            return False
+        if len(sig_o) < 4 or len(sig_c) < 4:
+            return False
+        if sig_o != sig_c:
+            return False
+    return True
+
+
+def _inclusion_proof_drift_exception(
+    ip_o: dict, ip_c: dict
+) -> BaseException | None:
+    """Reject inclusionProof drift outside the checkpoint envelope signer-name.
+
+    rootHash/hashes/treeSize/logIndex are bound by Merkle inclusion verify; any
+    drift fails real verify. Within checkpoint, only envelope's decorative
+    signer-name token may drift (see _checkpoint_envelope_drift_is_benign).
+    Unknown subfields stay strict.
+    """
+    for k in ("rootHash", "hashes", "treeSize", "logIndex"):
+        if ip_o.get(k) != ip_c.get(k):
+            return _synthesize_exception(
+                "InvalidRekorEntry", f"tlog inclusionProof.{k} drifted"
+            )
+    known = {"rootHash", "hashes", "treeSize", "logIndex", "checkpoint"}
+    extra_o = {k: v for k, v in ip_o.items() if k not in known}
+    extra_c = {k: v for k, v in ip_c.items() if k not in known}
+    if extra_o != extra_c:
+        return _synthesize_exception(
+            "InvalidRekorEntry", "tlog inclusionProof drifted"
+        )
+    cp_o = ip_o.get("checkpoint") or {}
+    cp_c = ip_c.get("checkpoint") or {}
+    if cp_o == cp_c:
+        return None
+    for k in set(cp_o.keys()) | set(cp_c.keys()):
+        if k == "envelope":
+            continue
+        if cp_o.get(k) != cp_c.get(k):
+            return _synthesize_exception(
+                "InvalidRekorEntry",
+                f"tlog inclusionProof.checkpoint.{k} drifted",
+            )
+    env_o = cp_o.get("envelope") or ""
+    env_c = cp_c.get("envelope") or ""
+    if env_o != env_c and not _checkpoint_envelope_drift_is_benign(env_o, env_c):
+        return _synthesize_exception(
+            "InvalidRekorEntry", "tlog inclusionProof.checkpoint.envelope drifted"
+        )
+    return None
+
+
+def _tsa_decodes_cleanly_for_real_verify(bundle: Bundle) -> BaseException | None:
+    """Reject if the bundle's TSA bytes would propagate a non-silent exception
+    out of sigstore-python's real verify path.
+
+    The brief's TSA-with-SET loosening (finding-20260521-33nj) only holds when
+    real verify silently *drops* the failed TSA result. That silent drop is
+    keyed on Rfc3161VerificationError at sigstore/verify/verifier.py:147; the
+    list comprehension at verifier.py:192-196 then filters out the None
+    return. But several deeper rejections surface as other exception classes
+    that propagate out of verify_artifact and reject the bundle outright:
+
+    - ASN.1 parse failure → TimestampVerificationData._verify raises
+      VerificationError, instantiated via the bundle's lazy property
+      (sigstore/models.py:254-269).
+    - PKIStatus invalid → rfc3161_client/verify.py:210 dereferences
+      PKIStatus(status); an out-of-range int raises ValueError, not
+      Rfc3161VerificationError.
+    - Lazy tst_info ASN.1 parse failure → verify_message touches
+      ``timestamp_response.tst_info.message_imprint`` etc.
+      (rfc3161_client/verify.py:186); a malformed inner structure surfaces
+      as ValueError.
+
+    Mirror all of them, so the factory rejects exactly the same set real does.
+    """
+    try:
+        tvd = bundle.verification_material.timestamp_verification_data
+    except Exception:  # noqa: BLE001
+        return _synthesize_exception(
+            "InvalidBundle", "TSA timestamp bytes unparseable"
+        )
+    if tvd is None:
+        return None
+    try:
+        from rfc3161_client import PKIStatus  # transitive via sigstore-python
+    except ImportError:
+        return None
+    for tsr in tvd.rfc3161_timestamps:
+        try:
+            PKIStatus(tsr.status)
+        except ValueError:
+            return _synthesize_exception(
+                "InvalidBundle", "TSA timestamp status enum invalid"
+            )
+        try:
+            # Touch the same lazy ASN.1 surface verify_message reaches into
+            # (rfc3161_client/verify.py:186) so malformed inner tokens raise
+            # here rather than slipping past the factory's drift detector.
+            _ = tsr.tst_info.message_imprint.hash_algorithm
+        except Exception:  # noqa: BLE001
+            return _synthesize_exception(
+                "InvalidBundle", "TSA timestamp tst_info malformed"
+            )
+    return None
+
+
+def _residual_canonical_drift(o: dict, c: dict) -> bool:
+    """True if any region we don't explicitly bind has drifted.
+
+    Used as a conservative backstop after the per-region checks accept any
+    benign-loosened drift: surfaces drift in mediaType, tlogEntries[1+], or
+    schema fields we don't recognize.
+    """
+    def _stripped(d: dict) -> dict:
+        out = dict(d)
+        out.pop("messageSignature", None)
+        vm = dict(out.get("verificationMaterial") or {})
+        vm.pop("certificate", None)
+        vm.pop("timestampVerificationData", None)
+        tlogs = list(vm.get("tlogEntries") or [])
+        if tlogs:
+            te = dict(tlogs[0] or {})
+            for k in (
+                "canonicalizedBody",
+                "inclusionPromise",
+                "logId",
+                "integratedTime",
+                "kindVersion",
+                "inclusionProof",
+            ):
+                te.pop(k, None)
+            tlogs[0] = te
+        vm["tlogEntries"] = tlogs
+        out["verificationMaterial"] = vm
+        return out
+
+    return _stripped(o) != _stripped(c)
+
+
 def _canonical_drift_exception(meta: dict, bundle: Bundle) -> BaseException | None:
     """Detect an unflagged mutation of a cryptographically-bound region.
 
     sigstore.models.Bundle ProtoJSON round-trips idempotently, so the minted
     canonical snapshot (meta["_canonical_json"]) equals bundle.to_json() for
     an untouched bundle and for padding-bit / whitespace / key-order noise.
-    A real change to any bound region (Rekor proof/checkpoint/logId/
-    integratedTime/inclusionPromise/canonicalizedBody, TSA, cert, sig,
-    digest) drifts it. Explicit tamper helpers set flags handled earlier in
-    _evaluate_bundle; this closes the fuzz/bit-flip path so the
-    security-load-bearing property test actually exercises rejection.
+    A real change to a bound region drifts it. Explicit tamper helpers set
+    flags handled earlier in _evaluate_bundle; this closes the fuzz/bit-flip
+    path so the security-load-bearing property test actually exercises
+    rejection.
+
+    Per-region behavior mirrors real sigstore-python's empirical bit-flip
+    rejection set (finding-20260521-33nj):
+
+    - messageSignature, verificationMaterial.certificate,
+      tlogEntries[0].{canonicalizedBody, inclusionPromise, logId,
+      integratedTime, kindVersion}: strict reject on any drift.
+    - tlogEntries[0].inclusionProof.{rootHash, hashes, treeSize, logIndex}:
+      strict reject (bound by Merkle inclusion verify).
+    - tlogEntries[0].inclusionProof.checkpoint.envelope: signed prefix +
+      em-dash bytes + decoded sig_hash (first 4 bytes, matched against
+      key_id[:4] at sigstore/_internal/rekor/checkpoint.py:174) + decoded
+      sig body are strict; the decorative signer-name token between
+      '\\u2014 ' and the b64 signature is NOT bound by real verify (see
+      SignedNote.from_text/verify at checkpoint.py:128-187) and may drift.
+    - timestampVerificationData: strict reject only when SET is NOT the
+      verified time source. Per sigstore-python verifier.py:228-232 SET
+      counts when inclusion_promise + integrated_time are set AND
+      kindVersion is hashedrekord/dsse 0.0.1; in that case failed TSA
+      results are silently dropped at verifier.py:192-196 while SET still
+      meets VERIFIED_TIME_THRESHOLD=1 (verifier.py:67). When SET is not the
+      time source, TSA is the only time anchor and must bind.
+    - Drift in any region not explicitly validated above: conservative
+      reject via _residual_canonical_drift.
     """
     orig = meta.get("_canonical_json")
     if orig is None:
@@ -1893,12 +2125,32 @@ def _canonical_drift_exception(meta: dict, bundle: Bundle) -> BaseException | No
     for k in ("canonicalizedBody", "inclusionPromise"):
         if te_o.get(k) != te_c.get(k):
             return _synthesize_exception("InvalidBundle", f"tlog {k} drifted")
-    for k in ("inclusionProof", "logId", "integratedTime", "kindVersion"):
+    for k in ("logId", "integratedTime", "kindVersion"):
         if te_o.get(k) != te_c.get(k):
             return _synthesize_exception("InvalidRekorEntry", f"tlog {k} drifted")
+    ip_o = te_o.get("inclusionProof") or {}
+    ip_c = te_c.get("inclusionProof") or {}
+    if ip_o != ip_c:
+        ip_exc = _inclusion_proof_drift_exception(ip_o, ip_c)
+        if ip_exc is not None:
+            return ip_exc
     if vm_o.get("timestampVerificationData") != vm_c.get("timestampVerificationData"):
-        return _synthesize_exception("InvalidBundle", "TSA timestamp drifted")
-    return _synthesize_exception("InvalidBundle", "bundle canonical form drifted")
+        if not _set_is_verified_time_source(o):
+            return _synthesize_exception("InvalidBundle", "TSA timestamp drifted")
+        # SET is the verified time source — real verify silently drops TSA
+        # failures that surface as Rfc3161VerificationError (verifier.py:147,
+        # 192-196). But several deeper checks raise OTHER exceptions that
+        # propagate out of verify_artifact and reject the bundle: ASN.1 parse
+        # failure inside TimestampVerificationData._verify (models.py:254-269)
+        # and PKIStatus enum validation inside Rfc3161 verify_message
+        # (rfc3161_client/verify.py:210). Mirror both — anything beyond a
+        # silently-dropped Rfc3161VerificationError must reject.
+        tsr_exc = _tsa_decodes_cleanly_for_real_verify(bundle)
+        if tsr_exc is not None:
+            return tsr_exc
+    if _residual_canonical_drift(o, c):
+        return _synthesize_exception("InvalidBundle", "bundle canonical form drifted")
+    return None
 
 
 class _TestFactory:

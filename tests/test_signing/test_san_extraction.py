@@ -477,18 +477,34 @@ class TestVerifySingleRejectsMissingIssuer:
 
 
 class TestInvisibleIdentityCharsRejected:
-    """R4-3: zero-width and bidi directional formatting chars must not
-    survive identity normalization on either subject or issuer paths.
+    """R4-3 + Shard FEFF: default-ignorable / visually-invisible chars
+    (zero-width, BOM, word-joiner, bidi directional formatting, variation
+    selectors, HANGUL fillers) must not survive identity normalization on
+    either subject or issuer paths.
 
     NFC normalization does not touch these characters, and they have no
     visible glyph (or, for RLO/LRO, they reorder surrounding text),
     so they can be smuggled into an identity to produce a string that
     is visually identical to a trusted identity but compares non-equal
-    against it. Reject the whole set:
+    against it.
 
-      U+200B-U+200F: ZWSP, ZWNJ, ZWJ, LRM, RLM
-      U+202A-U+202E: LRE, RLE, PDF, LRO, RLO  (legacy bidi formatting)
-      U+2066-U+2069: LRI, RLI, FSI, PDI       (modern bidi isolates)
+    Coverage: the whole Cf (Format) and Cc (Control) categories, plus an
+    explicit allowlist of default-ignorable chars that fall outside those
+    categories (variation selectors are Mn; HANGUL fillers are Lo) and
+    would slip past a category-only check.
+
+      U+200B-U+200F : ZWSP, ZWNJ, ZWJ, LRM, RLM           (Cf)
+      U+202A-U+202E : LRE, RLE, PDF, LRO, RLO             (Cf, legacy bidi)
+      U+2066-U+2069 : LRI, RLI, FSI, PDI                  (Cf, modern bidi)
+      U+FEFF        : ZERO WIDTH NO-BREAK SPACE / BOM     (Cf, Shard FEFF)
+      U+2060        : WORD JOINER                         (Cf, Shard FEFF)
+      U+061C        : ARABIC LETTER MARK                  (Cf)
+      U+180E        : MONGOLIAN VOWEL SEPARATOR           (Cf)
+      U+FE00-U+FE0F : Variation Selectors VS-1..VS-16     (Mn, FEFF r1 follow-up)
+      U+E0100       : Variation Selector VS-17            (Mn, supplementary)
+      U+180B        : Mongolian Free Variation Selector 1 (Mn)
+      U+115F        : HANGUL CHOSEONG FILLER              (Lo)
+      U+3164        : HANGUL FILLER                       (Lo)
     """
 
     INVISIBLE_CHARS = [
@@ -506,6 +522,29 @@ class TestInvisibleIdentityCharsRejected:
         ("U+2067 RLI", "⁧"),
         ("U+2068 FSI", "⁨"),
         ("U+2069 PDI", "⁩"),
+        # Shard FEFF / j4w4 round 7 + oracle pass: empirically-confirmed
+        # gaps in the ad-hoc enumerated set. Both are Cf-category, visually
+        # invisible, and survive NFC.
+        ("U+FEFF BOM", "﻿"),
+        ("U+2060 WJ", "⁠"),
+        # Additional Cf-category chars added in recent Unicode versions —
+        # caught by the category-based check, would slip past an enumerated
+        # ad-hoc set. Pin so a regression to an ad-hoc set fails here.
+        ("U+061C ALM", "؜"),
+        ("U+180E MVS", "᠎"),
+        # Shard FEFF r1 fell follow-up: variation selectors are Mn, not
+        # Cf — a category-only check (Cf ∪ Cc) misses them. Pin three
+        # representatives spanning the standard, supplementary, and
+        # Mongolian ranges so a regression to a category-only predicate
+        # surfaces here.
+        ("U+FE00 VS-1", chr(0xFE00)),
+        ("U+FE0F VS-16", chr(0xFE0F)),
+        ("U+E0100 VS-17", chr(0xE0100)),
+        ("U+180B Mongolian FVS-1", chr(0x180B)),
+        # HANGUL fillers are Lo (Other_Letter), not Cf or Cc — same gap
+        # in a category-only check. They render as zero-width placeholders.
+        ("U+115F HANGUL CHOSEONG FILLER", chr(0x115F)),
+        ("U+3164 HANGUL FILLER", chr(0x3164)),
     ]
 
     def _stub_cert_with_san(self, san_objects):

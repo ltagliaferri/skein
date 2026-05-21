@@ -103,6 +103,37 @@ def test_verify_identity_rtl_marks_in_subject(crypto_factory, monkeypatch):
     assert result.status != signing.VerifyStatus.VERIFIED
 
 
+# Enforces Shard FEFF (j4w4 round 7 + oracle pass): U+FEFF (BOM /
+# ZERO WIDTH NO-BREAK SPACE) is visually invisible, survives NFC, and was
+# absent from the historical ad-hoc invisible-char set. A SAN whose URI
+# is "https://accounts.google.com﻿x" looks identical to a whitelisted
+# issuer but compares non-equal, defeating downstream string-equality
+# policy checks (e.g., issuer-allowlist membership / identity pinning).
+# Reject at extraction.
+def test_verify_identity_bom_in_issuer_visual_equivalence(crypto_factory, monkeypatch):
+    smuggled_issuer = "https://accounts.google.com﻿x"
+    result = _verify_identity(
+        crypto_factory,
+        monkeypatch,
+        subject="alice@example.com",
+        issuer=smuggled_issuer,
+    )
+    assert result.status != signing.VerifyStatus.VERIFIED
+
+
+# Enforces Shard FEFF: U+2060 (WORD JOINER) has the same shape as the BOM
+# attack — invisible, NFC-stable, not in the legacy enumerated set.
+def test_verify_identity_word_joiner_in_subject(crypto_factory, monkeypatch):
+    subject = "alice⁠ops@example.com"
+    result = _verify_identity(
+        crypto_factory,
+        monkeypatch,
+        subject=subject,
+        issuer=GOOGLE_ISSUER,
+    )
+    assert result.status != signing.VerifyStatus.VERIFIED
+
+
 # Enforces: oracle actionable #1. X.509 SAN subjects with trailing whitespace
 # fail closed instead of being trimmed into a different identity.
 def test_verify_identity_trailing_whitespace_subject(crypto_factory, monkeypatch):

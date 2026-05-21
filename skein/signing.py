@@ -1125,11 +1125,67 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
                 "tlogEntries"
             ) or []:
                 set_obj = entry.get("inclusionPromise")
-                if not set_obj or not entry.get("inclusionProof"):
+                # Absent inclusionPromise (key missing or JSON ``null``)
+                # is the legitimate v0.3 shape for a tlog entry without
+                # a SET — Rekor v2 RFC3161 TSA timestamps replace the
+                # SET, and intermediate Rekor states may legitimately
+                # carry an inclusionProof without one. Continue past:
+                # no SET to DER-validate.
+                if set_obj is None:
                     continue
+                # Present-but-falsy non-dict shapes (``{}``, ``[]``,
+                # ``False``, ``0``, ``""``) and present non-dict
+                # truthy shapes (ints, strings, lists) are malformed.
+                # Pre-fix, ``if not set_obj`` short-circuited on every
+                # falsy value — including ``{}`` and ``[]`` — and
+                # ``continue``d, silently skipping the
+                # finding-20260519-74o7 SET-DER defense. Truthy non-
+                # dicts (strings, ints) reached ``set_obj.get(...)`` and
+                # raised AttributeError, caught by the outer
+                # ``except Exception`` → BUNDLE_MALFORMED; the explicit
+                # ``isinstance`` check here makes the typing rule the
+                # primary gate. ``not set_obj`` covers the empty-dict
+                # case: ``{}`` is a dict but content-less, and an
+                # inclusionPromise object with no fields is malformed —
+                # absence is expressed via key-missing / JSON ``null``,
+                # not via empty-object.
+                if not isinstance(set_obj, dict) or not set_obj:
+                    return VerifyStatus.BUNDLE_MALFORMED
+                proof_obj = entry.get("inclusionProof")
+                # Mirror the inclusionPromise logic. The SET-DER guard
+                # needs BOTH inclusionPromise and inclusionProof to be
+                # well-formed dicts before it can run; absent
+                # inclusionProof (None / key missing) skips the check
+                # (sigstore-python handles missing proof downstream),
+                # but a present-but-malformed inclusionProof is itself
+                # a bundle-malformedness signal. Pre-fix,
+                # ``not entry.get("inclusionProof")`` ``continue``d on
+                # ``{}``, ``[]``, ``False``, ``0``, ``""`` and silently
+                # disabled the SET-DER defense.
+                if proof_obj is None:
+                    continue
+                if not isinstance(proof_obj, dict) or not proof_obj:
+                    return VerifyStatus.BUNDLE_MALFORMED
                 set_b64 = set_obj.get("signedEntryTimestamp")
-                if not set_b64:
+                # Absent signedEntryTimestamp (None) is legitimate —
+                # caller may have constructed an inclusionPromise dict
+                # for a non-SET field (e.g. future proto growth) and
+                # the SET-DER check has nothing to do.
+                if set_b64 is None:
                     continue
+                # signedEntryTimestamp must be a non-empty string. Pre-
+                # fix, ``if not set_b64: continue`` skipped on falsy
+                # non-string values (``{}``, ``[]``, ``0``, ``False``)
+                # and the empty string, silently disabling the SET-DER
+                # defense. Truthy non-string values (dict, list, int)
+                # reached ``base64.b64decode(set_b64, validate=True)``
+                # and raised TypeError — not caught by the inner
+                # ``except (binascii.Error, ValueError)``, so it
+                # propagated to the outer ``except Exception`` →
+                # BUNDLE_MALFORMED (right outcome, wrong path). Make
+                # the type+non-empty rule the primary gate.
+                if not isinstance(set_b64, str) or not set_b64:
+                    return VerifyStatus.BUNDLE_MALFORMED
                 try:
                     raw = base64.b64decode(set_b64, validate=True)
                 except (binascii.Error, ValueError):

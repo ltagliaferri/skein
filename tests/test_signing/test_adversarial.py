@@ -1781,6 +1781,272 @@ class TestSigstorePublicV1AlgorithmProfile:
                 == signing.VerifyStatus.BUNDLE_MALFORMED
             ), f"profile gate must fail-closed on: {case!r}"
 
+    @pytest.mark.parametrize(
+        "inclusion_promise",
+        [{}, [], False, 0, ""],
+        ids=["empty_dict", "empty_list", "false", "zero", "empty_string"],
+    )
+    def test_profile_gate_rejects_falsy_non_None_inclusionPromise(
+        self, inclusion_promise
+    ):
+        """A v0.3 bundle with a falsy non-None inclusionPromise (``{}``,
+        ``[]``, ``False``, ``0``, ``""``) must be BUNDLE_MALFORMED.
+
+        Pre-fix, ``set_obj = entry.get("inclusionPromise")`` followed by
+        ``if not set_obj: continue`` short-circuited on every falsy
+        value — including ``{}`` and ``[]`` — silently skipping the
+        finding-20260519-74o7 SET-DER defense. An adversarial v0.3
+        bundle could ship ``inclusionPromise: {}`` (or ``[]``, ``False``,
+        ``0``, ``""``) alongside a malformed SET-bearing entry and bypass
+        the documented defense-in-depth gate.
+
+        Companion to ``test_profile_gate_rejects_non_string_mediaType``
+        (the same falsy-non-None shape on a different field). Same
+        ``obj.get(K) → falsy → continue`` bug class as Shard L
+        (mediaType=null).
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+
+        bad_set = base64.b64encode(encode_dss_signature(0, 1)).decode("ascii")
+        case = {
+            "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+            "verificationMaterial": {
+                "tlogEntries": [
+                    {
+                        "inclusionProof": {"logIndex": "1"},
+                        "inclusionPromise": inclusion_promise,
+                    }
+                ],
+                # Encode the bad SET somewhere observable in case future
+                # debugging needs it — the gate must reject before
+                # touching this field.
+                "_bad_set_encoded_for_debugging": bad_set,
+            },
+        }
+        assert (
+            signing._check_sigstore_public_v1_profile(case)
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        ), (
+            f"falsy non-None inclusionPromise {inclusion_promise!r} must "
+            "be BUNDLE_MALFORMED — pre-fix this silently passed the gate "
+            "and skipped the SET-DER defense"
+        )
+
+    def test_profile_gate_passes_absent_inclusionPromise(self):
+        """A v0.3 tlog entry that omits inclusionPromise entirely (or
+        sets it to ``null``) must NOT be rejected by the profile gate.
+
+        Confirms the fix did not over-tighten: ``inclusionPromise``
+        absence is legitimate (Rekor v2 RFC3161 TSA timestamps replace
+        SETs; intermediate Rekor states may carry an inclusionProof
+        without a SET). Only present-but-malformed shapes get rejected.
+        """
+        cases = [
+            # Key absent.
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {
+                    "tlogEntries": [{"inclusionProof": {"logIndex": "1"}}]
+                },
+            },
+            # Key present, value None (JSON null).
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {
+                    "tlogEntries": [
+                        {
+                            "inclusionProof": {"logIndex": "1"},
+                            "inclusionPromise": None,
+                        }
+                    ]
+                },
+            },
+        ]
+        for case in cases:
+            assert signing._check_sigstore_public_v1_profile(case) is None, (
+                "absent / null inclusionPromise must remain a profile-gate "
+                "pass: "
+                f"{case!r}"
+            )
+
+    @pytest.mark.parametrize(
+        "inclusion_proof",
+        [{}, [], False, 0, "", 42, "string"],
+        ids=[
+            "empty_dict",
+            "empty_list",
+            "false",
+            "zero",
+            "empty_string",
+            "int",
+            "nonempty_string",
+        ],
+    )
+    def test_profile_gate_rejects_malformed_inclusionProof(self, inclusion_proof):
+        """A v0.3 tlog entry whose inclusionPromise is well-formed but
+        whose inclusionProof is present-but-malformed must be
+        BUNDLE_MALFORMED.
+
+        Same bug class as inclusionPromise: pre-fix,
+        ``not entry.get("inclusionProof")`` short-circuited on every
+        falsy value (``{}``, ``[]``, ``False``, ``0``, ``""``) and the
+        SET-DER check was silently skipped. Non-dict truthy values
+        (ints, strings) likewise must not pass the gate — the
+        inclusionProof slot is structurally a sigstore-bundle proto
+        ``InclusionProof`` message, never a scalar.
+
+        Companion to ``test_profile_gate_passes_absent_inclusionProof``:
+        the test pair distinguishes "field absent" (legitimate) from
+        "field present but malformed" (rejected).
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+
+        good_set = base64.b64encode(encode_dss_signature(0xCAFE, 0xBABE)).decode(
+            "ascii"
+        )
+        case = {
+            "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+            "verificationMaterial": {
+                "tlogEntries": [
+                    {
+                        "inclusionProof": inclusion_proof,
+                        "inclusionPromise": {"signedEntryTimestamp": good_set},
+                    }
+                ]
+            },
+        }
+        assert (
+            signing._check_sigstore_public_v1_profile(case)
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        ), (
+            f"malformed inclusionProof {inclusion_proof!r} must be "
+            "BUNDLE_MALFORMED — pre-fix the falsy values silently passed "
+            "and the SET-DER defense was skipped"
+        )
+
+    def test_profile_gate_passes_absent_inclusionProof(self):
+        """A v0.3 tlog entry that omits inclusionProof entirely (or
+        sets it to ``null``) must NOT be rejected by the profile gate.
+
+        The SET-DER guard is gated on BOTH inclusionPromise and
+        inclusionProof being present. Absent inclusionProof legitimately
+        skips the v0.3 SET-DER check (sigstore-python handles missing
+        proof downstream); only present-but-malformed shapes get rejected
+        here. Confirms the fix did not over-tighten.
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+
+        good_set = base64.b64encode(encode_dss_signature(0xCAFE, 0xBABE)).decode(
+            "ascii"
+        )
+        cases = [
+            # inclusionProof key absent.
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {
+                    "tlogEntries": [
+                        {
+                            "inclusionPromise": {"signedEntryTimestamp": good_set},
+                        }
+                    ]
+                },
+            },
+            # inclusionProof present, value None.
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+                "verificationMaterial": {
+                    "tlogEntries": [
+                        {
+                            "inclusionProof": None,
+                            "inclusionPromise": {"signedEntryTimestamp": good_set},
+                        }
+                    ]
+                },
+            },
+        ]
+        for case in cases:
+            assert signing._check_sigstore_public_v1_profile(case) is None, (
+                "absent / null inclusionProof must remain a profile-gate "
+                "pass: "
+                f"{case!r}"
+            )
+
+    def test_profile_gate_passes_well_formed_inclusionProof(self):
+        """Sanity: a non-empty inclusionProof dict alongside a
+        well-formed inclusionPromise dict (with a valid DER SET) must
+        pass the profile gate. Guards against over-tightening of the
+        falsy-rejection rule that would inadvertently reject the happy
+        path.
+        """
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+
+        good_set = base64.b64encode(encode_dss_signature(0xCAFE, 0xBABE)).decode(
+            "ascii"
+        )
+        case = {
+            "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+            "verificationMaterial": {
+                "tlogEntries": [
+                    {
+                        "inclusionProof": {
+                            "logIndex": "1",
+                            "treeSize": "42",
+                            "rootHash": "abc",
+                        },
+                        "inclusionPromise": {"signedEntryTimestamp": good_set},
+                    }
+                ]
+            },
+        }
+        assert signing._check_sigstore_public_v1_profile(case) is None
+
+    @pytest.mark.parametrize(
+        "bad_set",
+        [{}, [], 42, {"nested": "dict"}, ["nested", "list"]],
+        ids=["empty_dict", "empty_list", "int", "nested_dict", "nested_list"],
+    )
+    def test_profile_gate_rejects_non_string_signedEntryTimestamp(self, bad_set):
+        """A v0.3 entry whose ``signedEntryTimestamp`` is not a string
+        (dict, list, int) must be BUNDLE_MALFORMED.
+
+        Pre-fix, ``set_b64 = set_obj.get("signedEntryTimestamp")`` then
+        ``base64.b64decode(set_b64, validate=True)`` raised TypeError on
+        non-bytes/str input, which was NOT caught by the inner
+        ``except (binascii.Error, ValueError)`` — it propagated to the
+        outer ``except Exception`` and returned BUNDLE_MALFORMED
+        (the right outcome, by the wrong path). Falsy non-string
+        values (``{}``, ``[]``) additionally took the ``not set_b64``
+        ``continue`` path and silently skipped the check.
+
+        Post-fix, the explicit ``isinstance(set_b64, str) or not set_b64``
+        check rejects every non-string shape directly, before any base64
+        call. This test verifies that type-confusion on the SET field
+        itself is not a new bypass surface.
+        """
+        case = {
+            "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+            "verificationMaterial": {
+                "tlogEntries": [
+                    {
+                        "inclusionProof": {"logIndex": "1"},
+                        "inclusionPromise": {"signedEntryTimestamp": bad_set},
+                    }
+                ]
+            },
+        }
+        assert (
+            signing._check_sigstore_public_v1_profile(case)
+            == signing.VerifyStatus.BUNDLE_MALFORMED
+        ), f"non-string signedEntryTimestamp {bad_set!r} must be BUNDLE_MALFORMED"
+
     # Enforces: finding-20260512-eaft actionable #3. sigstore-public-v1 is
     # pinned to ECDSA P-256 leaf certificates; other key algorithms fail closed.
     @pytest.mark.parametrize(

@@ -739,12 +739,21 @@ def _build_rekor_inclusion_proof(bundle: Bundle) -> RekorInclusionProof | None:
         # and masks the missing-data signal from Evidence consumers.
         if not log_id_b64:
             return None
+        # Pass the wire envelope through verbatim — including the empty string
+        # when the wire proof has no signed-note. Shard P (residual from
+        # finding-20260520-j4w4): the prior `or "rekor.sigstore.dev\n0\n\n\n"`
+        # fallback fabricated a signed-note whose tree-size line is "0",
+        # silently contradicting RekorInclusionProof.tree_size (which carries
+        # the real value from proof.tree_size). Consumers that parsed the
+        # checkpoint saw 0; consumers that read the struct saw the real tree
+        # size. Empty string is a clean absence signal — RekorInclusionProof
+        # .checkpoint has no min_length validator, so it round-trips fine.
         return RekorInclusionProof(
             log_index=log_index,
             tree_size=tree_size,
             root_hash=base64.b64encode(proof.root_hash).decode("ascii"),
             hashes=[base64.b64encode(h).decode("ascii") for h in proof.hashes],
-            checkpoint=checkpoint or "rekor.sigstore.dev\n0\n\n\n",
+            checkpoint=checkpoint,
             integrated_time=integrated_time_us,
             log_id=log_id_b64,
         )

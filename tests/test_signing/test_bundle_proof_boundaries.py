@@ -190,22 +190,37 @@ def test_rekor_proof_checkpoint_root_mismatch_with_proof_root(
 # signal.
 
 
+_DEFAULT_CHECKPOINT_ENVELOPE = (
+    "rekor.sigstore.dev\n10\n<root>\n\n— rekor.sigstore.dev <sig>\n"
+)
+
+
 def _fake_bundle_with_inclusion(
     *,
     key_id: bytes,
     log_index: int = 5,
     tree_size: int = 10,
     integrated_time_s: int = 1_715_443_200,
+    checkpoint_envelope: str | None = _DEFAULT_CHECKPOINT_ENVELOPE,
 ) -> SimpleNamespace:
-    """Build a duck-typed Bundle covering the attributes _build_rekor_inclusion_proof reads."""
+    """Build a duck-typed Bundle covering the attributes _build_rekor_inclusion_proof reads.
+
+    checkpoint_envelope:
+        - non-empty string: wrapped in a checkpoint SimpleNamespace (normal path).
+        - "" (empty string): wrapped in a checkpoint SimpleNamespace with empty envelope
+          (wire path delivered a checkpoint object whose envelope is missing).
+        - None: proof.checkpoint itself is None (wire path delivered no checkpoint object).
+    """
+    if checkpoint_envelope is None:
+        checkpoint = None
+    else:
+        checkpoint = SimpleNamespace(envelope=checkpoint_envelope)
     proof = SimpleNamespace(
         log_index=log_index,
         tree_size=tree_size,
         root_hash=b"root-hash-bytes",
         hashes=[b"sibling-0", b"sibling-1"],
-        checkpoint=SimpleNamespace(
-            envelope="rekor.sigstore.dev\n10\n<root>\n\n— rekor.sigstore.dev <sig>\n"
-        ),
+        checkpoint=checkpoint,
     )
     inner = SimpleNamespace(
         inclusion_proof=proof,
@@ -227,3 +242,71 @@ def test_build_rekor_inclusion_proof_b64_encodes_log_id_when_key_id_present():
     result = signing._build_rekor_inclusion_proof(bundle)
     assert result is not None
     assert result.log_id == base64.b64encode(key_id).decode("ascii")
+
+
+# ---------------------------------------------------------------------------
+# _build_rekor_inclusion_proof — empty checkpoint envelope contract (Shard P,
+# residual from F-closure finding-20260520-j4w4)
+# ---------------------------------------------------------------------------
+#
+# When the wire inclusion proof carries a missing/empty checkpoint envelope, the
+# builder previously fabricated the literal string "rekor.sigstore.dev\n0\n\n\n"
+# as a fallback. That fabricated string is a signed-note whose tree-size line is
+# "0", which contradicts RekorInclusionProof.tree_size (the struct field, which
+# reflects the real proof.tree_size). Consumers that parse the checkpoint string
+# read tree_size=0 while consumers that read the struct field read the real
+# number — silent inconsistency. The fix passes the empty string through so
+# absence is observable rather than masked.
+
+
+def test_build_rekor_inclusion_proof_passes_empty_envelope_through():
+    """Wire delivers checkpoint object with empty envelope: surface "" instead
+    of fabricating a tree_size=0 signed-note that contradicts the struct field.
+    """
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    bundle = _fake_bundle_with_inclusion(key_id=key_id, checkpoint_envelope="")
+    result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    assert result.checkpoint == ""
+
+
+def test_build_rekor_inclusion_proof_passes_missing_checkpoint_through():
+    """Wire delivers no checkpoint object at all: same contract as empty envelope —
+    surface "" instead of fabricating tree_size=0."""
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    bundle = _fake_bundle_with_inclusion(key_id=key_id, checkpoint_envelope=None)
+    result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    assert result.checkpoint == ""
+
+
+def test_build_rekor_inclusion_proof_struct_tree_size_matches_parsed_envelope(
+    crypto_factory,
+):
+    """When a checkpoint is present, parsing it must yield a tree_size that
+    matches RekorInclusionProof.tree_size — the bug was silent disagreement
+    between the struct field (real tree_size) and the embedded signed-note line
+    (fabricated "0")."""
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    real_tree_size = 10
+    envelope = (
+        f"rekor.sigstore.dev\n{real_tree_size}\n<root>\n\n"
+        "— rekor.sigstore.dev <sig>\n"
+    )
+    bundle = _fake_bundle_with_inclusion(
+        key_id=key_id, checkpoint_envelope=envelope, tree_size=real_tree_size
+    )
+    result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    parsed = crypto_factory.parse_checkpoint_signed_note(result.checkpoint)
+    assert parsed.tree_size == result.tree_size
+
+
+def test_build_rekor_inclusion_proof_passes_real_envelope_verbatim():
+    """Non-empty wire envelope must flow through unmodified (sanity)."""
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    envelope = "rekor.sigstore.dev\n10\n<root>\n\n— rekor.sigstore.dev <sig>\n"
+    bundle = _fake_bundle_with_inclusion(key_id=key_id, checkpoint_envelope=envelope)
+    result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    assert result.checkpoint == envelope

@@ -503,10 +503,7 @@ class TestSignPathSubjectExtractionFailsClosed:
         with pytest.raises(signing.SigningUnavailable) as exc:
             signing.sign(canonical_bytes_simple, google_provider)
         assert exc.value.component == "fulcio"
-        assert (
-            exc.value.reason
-            == "Fulcio issued cert with empty or malformed SAN"
-        )
+        assert exc.value.reason == "Fulcio issued cert with empty or malformed SAN"
 
     def test_normal_subject_still_signs(
         self,

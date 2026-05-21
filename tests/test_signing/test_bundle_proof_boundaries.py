@@ -290,8 +290,7 @@ def test_build_rekor_inclusion_proof_struct_tree_size_matches_parsed_envelope(
     key_id = b"\x01\x02\x03\x04rekor-key"
     real_tree_size = 10
     envelope = (
-        f"rekor.sigstore.dev\n{real_tree_size}\n<root>\n\n"
-        "— rekor.sigstore.dev <sig>\n"
+        f"rekor.sigstore.dev\n{real_tree_size}\n<root>\n\n— rekor.sigstore.dev <sig>\n"
     )
     bundle = _fake_bundle_with_inclusion(
         key_id=key_id, checkpoint_envelope=envelope, tree_size=real_tree_size

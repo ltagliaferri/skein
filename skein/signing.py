@@ -891,8 +891,23 @@ def sign(canonical_bytes: bytes, oidc_provider: OIDCProviderConfig) -> SignResul
         raise SigningUnavailable(reason, component=component, cause=exc) from exc
 
     leaf_cert = bundle.signing_certificate
-    issuer = _extract_issuer_from_cert(leaf_cert) or oidc_provider.issuer
-    subject = _extract_subject_from_cert(leaf_cert) or ""
+    # Mirror the verify-side identity guards (lines 1245-1263). Falling back
+    # to oidc_provider.issuer would surface the token's *claimed* issuer
+    # rather than what is embedded in the cert; emitting subject="" would
+    # diverge from the verify path, which rejects the same cert as
+    # CERT_INVALID per finding-20260514-burb. Both fail closed.
+    issuer = _extract_issuer_from_cert(leaf_cert)
+    if not issuer:
+        raise SigningUnavailable(
+            "Fulcio issued cert without extractable OIDC issuer extension",
+            component="fulcio",
+        )
+    subject = _extract_subject_from_cert(leaf_cert)
+    if not subject:
+        raise SigningUnavailable(
+            "Fulcio issued cert with empty or malformed SAN",
+            component="fulcio",
+        )
 
     nb, na = _cert_validity_window(leaf_cert)
     rekor_proof = _build_rekor_inclusion_proof(bundle)

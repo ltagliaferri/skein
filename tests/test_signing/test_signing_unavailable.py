@@ -460,3 +460,128 @@ def test_signing_unavailable_is_distinct_from_caller_errors():
     assert not issubclass(signing.MultiSignerBundle, signing.SigningUnavailable)
     assert not issubclass(signing.SigningUnavailable, signing.EmptySignatureBundle)
     assert not issubclass(signing.SigningUnavailable, signing.MultiSignerBundle)
+
+
+# ---------------------------------------------------------------------------
+# Sign-path identity extraction must fail closed (residuals N + O from
+# F-closure finding-20260520-j4w4 / brief-20260520-x2nj).
+#
+# The verify path at signing.py:1245-1263 rejects a leaf cert whose issuer
+# or subject extraction returns falsy with VerifyStatus.CERT_INVALID. The
+# sign path was emitting SignResult.subject="" (N) or SignResult.issuer
+# falling back to oidc_provider.issuer (O) — the token's *claimed* issuer
+# rather than what is embedded in the cert. Same cert that makes verify()
+# reject was producing a successful sign(): sign/verify semantic divergence.
+# Both paths now fail closed at the cert-extraction boundary by raising
+# SigningUnavailable with component="fulcio".
+# ---------------------------------------------------------------------------
+
+
+class TestSignPathSubjectExtractionFailsClosed:
+    """N: empty or unextractable subject on the sign path must raise
+    SigningUnavailable, not return SignResult with subject=''.
+
+    Same shape as test_san_extraction.py::TestVerifySingleRejectsMissingIssuer
+    on the verify side — patch the extraction helper to simulate a leaf cert
+    whose SAN extraction policy yields a falsy value (missing-SAN, malformed
+    IA5String, empty-SAN per finding-20260514-burb).
+    """
+
+    @pytest.mark.parametrize("falsy_value", [None, ""])
+    def test_falsy_subject_raises_signing_unavailable(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+        falsy_value,
+    ):
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        monkeypatch.setattr(
+            signing, "_extract_subject_from_cert", lambda cert: falsy_value
+        )
+        with pytest.raises(signing.SigningUnavailable) as exc:
+            signing.sign(canonical_bytes_simple, google_provider)
+        assert exc.value.component == "fulcio"
+        assert (
+            exc.value.reason
+            == "Fulcio issued cert with empty or malformed SAN"
+        )
+
+    def test_normal_subject_still_signs(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+    ):
+        crypto_factory.install_sign_monkeypatch(
+            monkeypatch,
+            provider=google_provider,
+            identity="alice@example.com",
+        )
+        result = signing.sign(canonical_bytes_simple, google_provider)
+        assert isinstance(result, signing.SignResult)
+        assert result.subject == "alice@example.com"
+
+
+class TestSignPathIssuerExtractionFailsClosed:
+    """O: unextractable issuer on the sign path must raise
+    SigningUnavailable, not silently fall back to oidc_provider.issuer
+    (the token's *claimed* issuer rather than the cert-embedded one).
+
+    Same shape as the V2/legacy OID extraction tests in test_san_extraction
+    — patch _extract_issuer_from_cert to simulate a cert where both V2
+    OID 1.3.6.1.4.1.57264.1.8 and legacy 1.3.6.1.4.1.57264.1.1 are absent,
+    empty, or malformed (the shapes hardened by R4-1 / R4-2 / F-fix-#9 on
+    the verify side).
+    """
+
+    @pytest.mark.parametrize("falsy_value", [None, ""])
+    def test_falsy_issuer_raises_signing_unavailable(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+        falsy_value,
+    ):
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        monkeypatch.setattr(
+            signing, "_extract_issuer_from_cert", lambda cert: falsy_value
+        )
+        with pytest.raises(signing.SigningUnavailable) as exc:
+            signing.sign(canonical_bytes_simple, google_provider)
+        assert exc.value.component == "fulcio"
+        assert (
+            exc.value.reason
+            == "Fulcio issued cert without extractable OIDC issuer extension"
+        )
+
+    def test_falsy_issuer_does_not_fall_back_to_token_claim(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+    ):
+        # Pre-fix behavior: SignResult.issuer = oidc_provider.issuer when
+        # cert extraction returned falsy. Downstream policy comparing against
+        # an allowlist would see unverified data. After fix: sign() raises
+        # and never returns a SignResult at all.
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        monkeypatch.setattr(signing, "_extract_issuer_from_cert", lambda cert: None)
+        with pytest.raises(signing.SigningUnavailable):
+            signing.sign(canonical_bytes_simple, google_provider)
+
+    def test_normal_issuer_still_signs(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+    ):
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        result = signing.sign(canonical_bytes_simple, google_provider)
+        assert isinstance(result, signing.SignResult)
+        assert result.issuer == "https://accounts.google.com"

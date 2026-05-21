@@ -2455,12 +2455,24 @@ def frictions(ctx, site_id, output_json):
                 click.echo()
 
 
+# Threshold above which the folio command prints a fallback header for
+# harness-level truncation. Most agent harnesses cap bash tool output between
+# 16K-64K characters; below that, the header is just noise.
+FOLIO_FALLBACK_HINT_THRESHOLD = 8000
+
+
 @cli.command()
 @click.argument("folio_id")
 @click.option("--no-pager", is_flag=True, help="Disable pager")
 @click.option("--json", "output_json", is_flag=True)
+@click.option(
+    "--raw",
+    is_flag=True,
+    help="Print only the raw content (no metadata, no formatting). Use to bypass "
+    "harness output caps: skein folio ID --raw > /tmp/folio.md",
+)
 @click.pass_context
-def folio(ctx, folio_id, no_pager, output_json):
+def folio(ctx, folio_id, no_pager, output_json, raw):
     """Read a folio by ID. Supports cross-project addressing.
 
     FOLIO_ID can be bare or project-qualified:
@@ -2468,6 +2480,7 @@ def folio(ctx, folio_id, no_pager, output_json):
     \b
       skein folio brief-20251226-n1br              # current project, cascades if not found
       skein folio speakbot:brief-20251226-n1br     # look in speakbot project
+      skein folio brief-20251226-n1br --raw        # raw content only (escape harness truncation)
     """
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
@@ -2478,6 +2491,11 @@ def folio(ctx, folio_id, no_pager, output_json):
         click.echo(json.dumps(folio_data, indent=2))
         return
 
+    if raw:
+        # Bypass all formatting; just emit content. Designed for `> file.md`.
+        click.echo(folio_data.get("content", ""), nl=False)
+        return
+
     # Detect TTY for pager
     is_tty = sys.stdout.isatty()
 
@@ -2485,14 +2503,27 @@ def folio(ctx, folio_id, no_pager, output_json):
     yellow = "\033[33m"
     reset = "\033[0m"
 
-    # Build output
-    output_lines = []
     fid = folio_data.get("folio_id", "unknown")
     ftype = folio_data.get("type", "folio")
     site = folio_data.get("site") or ""
     site_str = f" ({site})" if site else ""
     source_project = folio_data.get("source_project")
     source_str = f" [{source_project}]" if source_project else ""
+    content = folio_data.get("content", "") or ""
+
+    # Build output
+    output_lines = []
+
+    # Truncation-fallback header. Placed before the title so it survives
+    # harness-level output caps (which typically cut from the end). Only
+    # shown for folios long enough to plausibly trip a cap.
+    if len(content) >= FOLIO_FALLBACK_HINT_THRESHOLD:
+        output_lines.append(
+            f"[folio {fid}: {len(content)} chars. "
+            f"If output below appears truncated, run: "
+            f"skein folio {fid} --raw > /tmp/{fid}.md]"
+        )
+        output_lines.append("")
 
     output_lines.append(
         f"{yellow}folio {ftype}-{fid.split('-', 1)[-1]}{site_str}{source_str}{reset}"
@@ -2506,7 +2537,6 @@ def folio(ctx, folio_id, no_pager, output_json):
     output_lines.append("")
 
     # Full content with indentation
-    content = folio_data.get("content", "")
     for line in content.split("\n"):
         output_lines.append(f"    {line}")
 
@@ -2542,10 +2572,17 @@ def folio(ctx, folio_id, no_pager, output_json):
 @click.argument("folio_id")
 @click.option("--no-pager", is_flag=True, help="Disable pager")
 @click.option("--json", "output_json", is_flag=True)
+@click.option("--raw", is_flag=True, help="Print only the raw content")
 @click.pass_context
-def show(ctx, folio_id, no_pager, output_json):
+def show(ctx, folio_id, no_pager, output_json, raw):
     """Read a single folio by ID (alias for 'folio')."""
-    ctx.invoke(folio, folio_id=folio_id, no_pager=no_pager, output_json=output_json)
+    ctx.invoke(
+        folio,
+        folio_id=folio_id,
+        no_pager=no_pager,
+        output_json=output_json,
+        raw=raw,
+    )
 
 
 @cli.command()

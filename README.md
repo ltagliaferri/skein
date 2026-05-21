@@ -128,6 +128,10 @@ skein log --type brief --oneline
 skein show brief-abc123
 skein folio issue-xyz789
 
+# If your harness truncated the output, re-read with --raw to bypass formatting
+# and pipe the full content to a file:
+skein folio brief-abc123 --raw > /tmp/brief-abc123.md
+
 # List sites
 skein sites
 

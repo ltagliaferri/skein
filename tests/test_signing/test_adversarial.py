@@ -488,6 +488,139 @@ class TestMalformedBundle:
 
 
 # ---------------------------------------------------------------------------
+# Single-parse refactor invariants (Shard Q / finding-20260520-j4w4 residual)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleParseInvariant:
+    """Profile check and Bundle.from_json must agree on the parsed bundle.
+
+    Pre-refactor: _verify_single re-parsed the JSON blob up to three times
+    (profile check, strip helper, Bundle.from_json). The three-parse seam was
+    a TOCTOU-shaped hazard — any future divergence between parser passes
+    (e.g., a different JSON library, or a profile check that grew to inspect
+    unknown fields) would let an attacker craft a bundle where profile check
+    sees one shape and Bundle.from_json sees another.
+
+    Post-refactor: a single json.loads feeds both the profile check and the
+    strip; Bundle.from_json then sees the re-serialized stripped dict. These
+    tests lock in observable behaviour that the single-parse path preserves
+    — they pass against the multi-parse code today (the divergence is
+    latent), and they must still pass after the refactor.
+    """
+
+    def test_duplicate_top_level_keys_resolve_deterministically(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+    ):
+        # Per the JSON spec duplicate keys are implementation-defined; Python's
+        # stdlib json.loads keeps the last value. The invariant we lock in: the
+        # *outcome* of verify() on a fixed blob with duplicate keys is
+        # deterministic across invocations. With the post-refactor single-parse
+        # path, profile check and Bundle.from_json look at the same parsed dict,
+        # so any duplicate-key resolution is consistent across the boundary.
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        signed = signing.sign(canonical_bytes_simple, google_provider)
+        # Inject a duplicate mediaType literal into the JSON text — json.dumps
+        # would dedup, so we splice the string.
+        original = signed.bundle_json
+        assert original.startswith("{")
+        with_dup = (
+            "{"
+            + '"mediaType": "application/vnd.dev.sigstore.bundle.v0.2+json", '
+            + original[1:]
+        )
+        sb = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=[with_dup],
+            canonical_bytes=canonical_bytes_simple,
+            canon_version="knurl-1.0",
+        )
+        statuses = {signing.verify(canonical_bytes_simple, sb).status for _ in range(5)}
+        # Repeated verification of the *same* blob yields one status (not a flap).
+        assert len(statuses) == 1
+
+    def test_profile_failure_takes_precedence_over_unknown_field_strip(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+    ):
+        # A bundle whose mediaType is JSON null fails the profile check
+        # (mediaType must be a string when present). Adding an unknown
+        # top-level field must NOT rescue the bundle by reaching the
+        # strip-and-Bundle.from_json path: profile check runs first, and
+        # BUNDLE_MALFORMED is returned before the strip ever considers the
+        # unknown field.
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        signed = signing.sign(canonical_bytes_simple, google_provider)
+        blob = json.loads(signed.bundle_json)
+        blob["mediaType"] = None
+        blob["__unknown_future_field__"] = {"some": "value"}
+        sb = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=[json.dumps(blob)],
+            canonical_bytes=canonical_bytes_simple,
+            canon_version="knurl-1.0",
+        )
+        result = signing.verify(canonical_bytes_simple, sb)
+        assert result.status == signing.VerifyStatus.BUNDLE_MALFORMED
+
+    def test_unknown_top_level_field_strip_preserves_known_alias_fields(
+        self,
+        crypto_factory,
+        google_provider,
+        canonical_bytes_simple,
+        monkeypatch,
+    ):
+        # Forward-compat: an unknown top-level field is stripped silently. The
+        # post-refactor single-parse path must preserve the existing
+        # _BUNDLE_TOP_LEVEL_FIELDS filter (both camelCase and snake_case
+        # aliases). We assert that injecting an unknown field, alongside the
+        # bundle's normal camelCase fields, still verifies — i.e. all
+        # known-alias fields survive the strip and reach Bundle.from_json.
+        crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+        crypto_factory.install_verify_monkeypatch(monkeypatch)
+        signed = signing.sign(canonical_bytes_simple, google_provider)
+        blob = json.loads(signed.bundle_json)
+        blob["__sigstore_future_extension__"] = ["a", "b", "c"]
+        sb = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=[json.dumps(blob)],
+            canonical_bytes=canonical_bytes_simple,
+            canon_version="knurl-1.0",
+        )
+        result = signing.verify(canonical_bytes_simple, sb)
+        # The unknown field is stripped silently; the surviving known fields
+        # verify successfully under the test monkeypatch.
+        assert result.status == signing.VerifyStatus.VERIFIED
+
+    def test_top_level_field_filter_set_covers_documented_aliases(self):
+        # The strip-filter set must cover every alias the bundle envelope
+        # accepts. If a future change drops a snake_case alias the strip would
+        # silently corrupt bundles that use that alias. Lock the membership in.
+        from skein.signing import _BUNDLE_TOP_LEVEL_FIELDS
+
+        for required in (
+            "mediaType",
+            "media_type",
+            "verificationMaterial",
+            "verification_material",
+            "messageSignature",
+            "message_signature",
+            "dsseEnvelope",
+            "dsse_envelope",
+        ):
+            assert required in _BUNDLE_TOP_LEVEL_FIELDS
+
+
+# ---------------------------------------------------------------------------
 # Attack class 8: Non-ASCII identity claims
 # ---------------------------------------------------------------------------
 

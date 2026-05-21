@@ -1146,65 +1146,43 @@ def _check_sigstore_public_v1_profile(obj: object) -> VerifyStatus | None:
     return None
 
 
-def _pre_process_bundle_json(blob: str) -> str:
-    """Strip unknown top-level fields for forward-compat.
-
-    A future protocol revision adding a sibling key to the bundle envelope
-    must not block verify (conformance test contract). Unknown top-level
-    keys are dropped before Bundle.from_json so strict pydantic parsing does
-    not reject the bundle on an additive field alone.
-
-    Note: bundle JSON is NOT byte-stable through verify() — when a field is
-    stripped this re-serializes via json.dumps, which is not the canonical
-    sigstore ProtoJSON encoding. Callers must not assume byte identity of
-    the blob across verify(); the parsed sigstore.models.Bundle is the
-    authoritative form (and round-trips idempotently through to_json()).
-
-    No synthetic inclusion_promise is injected: a v0.3 bundle whose only
-    witness is an inclusion proof (no SET, no TSA) is rejected by
-    sigstore-python 4.2.0's Bundle._verify. That library constraint is
-    documented and tracked by the bundle_v3_no_signed_time corpus xfail
-    (test_conformance.py); fabricating a 64-byte all-zero SET only created
-    invalid material the pipeline then had to reject.
-
-    Returns the JSON ready for Bundle.from_json. Falls back to the original
-    blob on any pre-processing failure.
-    """
-    try:
-        obj = json.loads(blob)
-    except (ValueError, UnicodeDecodeError):
-        return blob
-    if not isinstance(obj, dict):
-        return blob
-
-    changed = False
-    for key in list(obj):
-        if key not in _BUNDLE_TOP_LEVEL_FIELDS:
-            del obj[key]
-            changed = True
-
-    if changed:
-        return json.dumps(obj)
-    return blob
-
-
 def _verify_single(
     canonical_bytes: bytes, blob: str, scheme: str, trust_root_pin: str | None
 ) -> VerifyResult:
     if scheme != "sigstore-public-v1":
         return VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)
 
-    # Profile pre-checks operate on the raw JSON (cheaper than parsing the
-    # full Bundle and lets us reject before invoking sigstore-python).
+    # Single-parse: profile check and the unknown-top-level-field strip both
+    # operate on this one parsed dict; Bundle.from_json then sees the
+    # re-serialized stripped blob. Eliminating the multi-parse seam closes
+    # the latent TOCTOU shape where a profile-check pass on one parse could
+    # diverge from Bundle.from_json's view on a second parse (Shard Q residual
+    # from finding-20260520-j4w4).
     try:
         raw_obj = json.loads(blob)
-        profile_status = _check_sigstore_public_v1_profile(raw_obj)
-        if profile_status is not None:
-            return VerifyResult(status=profile_status)
     except (ValueError, UnicodeDecodeError):
         return VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)
 
-    blob = _pre_process_bundle_json(blob)
+    profile_status = _check_sigstore_public_v1_profile(raw_obj)
+    if profile_status is not None:
+        return VerifyResult(status=profile_status)
+
+    # Strip unknown top-level fields for forward-compat. A future protocol
+    # revision adding a sibling key to the bundle envelope must not block
+    # verify (conformance test contract); strict pydantic parsing in
+    # Bundle.from_json would otherwise reject the bundle on an additive field
+    # alone. Bundle JSON is NOT byte-stable through verify() when a strip
+    # occurs — re-serialization via json.dumps is not canonical sigstore
+    # ProtoJSON; the parsed sigstore.models.Bundle is the authoritative form.
+    # raw_obj is guaranteed to be a dict here (the profile check rejects
+    # non-dict above), but keep the isinstance guard so the strip is
+    # robust against future refactors of the profile check.
+    if isinstance(raw_obj, dict):
+        stripped_obj = {
+            k: v for k, v in raw_obj.items() if k in _BUNDLE_TOP_LEVEL_FIELDS
+        }
+        if len(stripped_obj) != len(raw_obj):
+            blob = json.dumps(stripped_obj)
 
     try:
         bundle = Bundle.from_json(blob)

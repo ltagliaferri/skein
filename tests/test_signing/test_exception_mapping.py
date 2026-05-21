@@ -504,6 +504,106 @@ def test_verify_signature_mismatch_phrasing_is_case_insensitive():
     )
 
 
+# ---------------------------------------------------------------------------
+# A4 (j4w4 round-7): sigstore-python wire-string version pin
+# ---------------------------------------------------------------------------
+#
+# _map_sigstore_exception's VerificationError-with-message heuristic relies on
+# two literal wire strings raised from sigstore-python's verifier.py @ 4.2.0:
+#
+#   - "Signature is invalid for input"   (verifier.py line 495)
+#   - "Bundle message digest mismatch"   (verifier.py line 483)
+#
+# The pyproject pin is `sigstore>=4.2,<5`, so any 4.x version is admitted at
+# install time. If a future sigstore-python 4.x release rewrites these messages
+# without bumping the major version (e.g. "Invalid signature for payload"),
+# _map_sigstore_exception silently falls through to the catch-all and
+# misclassifies SIGNATURE_MISMATCH as BUNDLE_MALFORMED — losing diagnostic
+# precision with no test signal.
+#
+# These tests defend against that by introspecting the installed
+# sigstore-python source and asserting the wire strings are still present.
+# A future upgrade that changes the strings will fail loudly with a clear
+# pointer at what to update in _map_sigstore_exception.
+
+_SIGSTORE_VERIFIED_VERSIONS = ("4.2",)
+
+
+def _sigstore_verifier_source() -> str:
+    """Return the source of sigstore.verify.verifier, or skip if unavailable.
+
+    Source-introspection is the cheapest robust defense: it requires no real
+    sigstore-python verifier call (which would need a full trust root + bundle
+    set-up) and it directly anchors the contract to the installed library's
+    actual source.
+    """
+    import inspect
+
+    import sigstore.verify.verifier as _verifier
+
+    try:
+        return inspect.getsource(_verifier)
+    except (OSError, TypeError):  # pragma: no cover - source not readable
+        pytest.skip(
+            "sigstore.verify.verifier source not introspectable in this env; "
+            "wire-string pin requires source access."
+        )
+
+
+def test_sigstore_python_signature_invalid_wire_string_unchanged():
+    """Pin the SIGNATURE_MISMATCH wire string against silent precision loss.
+
+    If sigstore-python rewrites the literal "Signature is invalid for input",
+    the substring match in _map_sigstore_exception falls through to the
+    BUNDLE_MALFORMED catch-all and SIGNATURE_MISMATCH classification silently
+    degrades. Verified against sigstore-python 4.2.x; bump
+    _SIGSTORE_VERIFIED_VERSIONS and update the substring if a future release
+    changes the wording.
+    """
+    source = _sigstore_verifier_source()
+    # The substring match in _map_sigstore_exception lowercases the message
+    # ("signature is invalid for input"); the source itself uses sentence case
+    # ("Signature is invalid for input"). Pin the verbatim source spelling so
+    # this test fails on any wording shift, not just case folds.
+    assert "Signature is invalid for input" in source, (
+        "sigstore-python wire string for SIGNATURE_MISMATCH changed; "
+        "update skein.signing._map_sigstore_exception's substring match or "
+        "VerifyStatus.SIGNATURE_MISMATCH will silently degrade to "
+        f"BUNDLE_MALFORMED. Verified versions: {_SIGSTORE_VERIFIED_VERSIONS}; "
+        f"installed: {_sigstore.__version__}."
+    )
+
+
+def test_sigstore_python_digest_mismatch_wire_string_unchanged():
+    """Pin the second SIGNATURE_MISMATCH wire string ("bundle message digest
+    mismatch") against silent precision loss. Same rationale as the
+    signature-invalid pin."""
+    source = _sigstore_verifier_source()
+    assert "Bundle message digest mismatch" in source, (
+        "sigstore-python wire string for bundle digest mismatch changed; "
+        "update skein.signing._map_sigstore_exception's substring match or "
+        "VerifyStatus.SIGNATURE_MISMATCH will silently degrade to "
+        f"BUNDLE_MALFORMED. Verified versions: {_SIGSTORE_VERIFIED_VERSIONS}; "
+        f"installed: {_sigstore.__version__}."
+    )
+
+
+def test_sigstore_python_installed_version_in_verified_range():
+    """Sanity: the installed sigstore-python version is in the range these
+    wire strings were verified against. If the installed version is outside
+    that range the wire-string checks above are still correct (they introspect
+    the live source), but this test surfaces the version drift independently
+    so the operator can re-verify _map_sigstore_exception against the new
+    surface and bump _SIGSTORE_VERIFIED_VERSIONS."""
+    installed = _sigstore.__version__
+    assert any(installed.startswith(v) for v in _SIGSTORE_VERIFIED_VERSIONS), (
+        f"sigstore-python {installed} installed, but _map_sigstore_exception "
+        f"wire strings were only verified against {_SIGSTORE_VERIFIED_VERSIONS}. "
+        "Re-verify the substring match against the new surface and add the "
+        "new version to _SIGSTORE_VERIFIED_VERSIONS."
+    )
+
+
 # Enforces: network timeout during verify Rekor proof maps to INCLUSION_FAILED.
 def test_verify_network_timeout_maps_to_inclusion_failed(
     crypto_factory, google_provider, canonical_bytes_simple, monkeypatch

@@ -723,6 +723,18 @@ def _build_rekor_inclusion_proof(bundle: Bundle) -> RekorInclusionProof | None:
         integrated_time_s = inner.integrated_time or 0
         integrated_time_us = int(integrated_time_s) * 1_000_000
         if integrated_time_us < MIN_MICROSECOND_TIMESTAMP:
+            # j4w4 round-7 oracle A3: silent floor substitution masked upstream
+            # drift. RekorInclusionProof.integrated_time would carry the sentinel
+            # floor with no signal that the wire value was below it. Mirror the
+            # warning style used by classify_sign_exception_unrecognized / the
+            # _map_sigstore_exception catch-all so operators have a single
+            # grep-able prefix for sigstore-surface drift.
+            logger.warning(
+                "signing.rekor_integrated_time_below_floor: "
+                "Rekor returned integrated_time=%s below "
+                "MIN_MICROSECOND_TIMESTAMP; substituting floor value",
+                integrated_time_s,
+            )
             integrated_time_us = MIN_MICROSECOND_TIMESTAMP
         log_index = int(proof.log_index)
         tree_size = int(proof.tree_size)
@@ -924,6 +936,15 @@ def sign(canonical_bytes: bytes, oidc_provider: OIDCProviderConfig) -> SignResul
     integrated_time = bundle.log_entry._inner.integrated_time or 0
     signing_timestamp = int(integrated_time) * 1_000_000
     if signing_timestamp < MIN_MICROSECOND_TIMESTAMP:
+        # j4w4 round-7 oracle A3 (parallel to _build_rekor_inclusion_proof):
+        # falling back to cert notBefore here was silent. Surface the drift so
+        # operators can see Rekor returned a below-floor (or zero) integrated_time.
+        logger.warning(
+            "signing.sign_integrated_time_below_floor: "
+            "Rekor returned integrated_time=%s below "
+            "MIN_MICROSECOND_TIMESTAMP; substituting cert notBefore",
+            integrated_time,
+        )
         signing_timestamp = nb
 
     evidence = Evidence(

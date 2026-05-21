@@ -242,7 +242,7 @@ def _query_project(
         resp = requests.request(method, url, headers=headers, params=params)
         resp.raise_for_status()
         return resp.json() if resp.text else {}
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
         click.echo(
             f"warning: skipping project '{project_id}' ({e.__class__.__name__})",
             err=True,

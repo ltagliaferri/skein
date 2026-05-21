@@ -294,6 +294,36 @@ class TestFindAll:
         assert "broken" not in result.output
 
 
+# Failure mode: a registered project endpoint returns 2xx with non-JSON body
+# (e.g. a reverse-proxy health page in front of a missing route). resp.json()
+# raises json.JSONDecodeError, which is NOT a RequestException — without an
+# explicit catch the whole --all invocation crashes instead of skipping the
+# project.
+class TestQueryProjectFailSoft:
+    def test_skips_project_with_non_json_2xx_response(self):
+        from unittest.mock import MagicMock
+
+        from client.cli import _query_project
+
+        fake_response = MagicMock()
+        fake_response.text = "not json"
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.side_effect = json.JSONDecodeError(
+            "Expecting value", "not json", 0
+        )
+
+        with patch("client.cli.requests.request", return_value=fake_response):
+            result = _query_project(
+                project_id="malformed",
+                method="GET",
+                endpoint="/find",
+                base_url="http://localhost:8000",
+                agent_id=None,
+            )
+
+        assert result is None
+
+
 class TestActivityAll:
     def test_aggregates_with_project_tags(self):
         runner = CliRunner()

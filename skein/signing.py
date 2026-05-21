@@ -18,6 +18,10 @@ Spec:
     finding-20260514-caqj worst-status aggregation + severity order
     finding-20260514-burb SAN extraction policy
     finding-20260514-09eb IDENTITY_MISMATCH semantics (Option B)
+
+Operational notes:
+    docs/SIGSTORE_OPERATIONS.md — TUF cache per-worker isolation,
+    OFFLINE_NO_TRUSTED_ROOT troubleshooting.
 """
 
 from __future__ import annotations

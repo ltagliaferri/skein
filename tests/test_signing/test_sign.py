@@ -99,6 +99,79 @@ def test_sign_evidence_populated(
     assert result.evidence is not None
 
 
+# Enforces (j4w4 round-7 oracle A3, sign-path parallel): when Rekor returns an
+# integrated_time at or below the MIN_MICROSECOND_TIMESTAMP floor, sign() falls
+# back to cert notBefore for SignResult.signing_timestamp. The fallback used
+# to be silent — operators could not tell whether a low signing_timestamp was
+# a Rekor anomaly or a legitimate cert notBefore. The fix emits a WARNING
+# with a grep-able prefix so the substitution is observable. Mirrors
+# test_build_rekor_inclusion_proof_warns_on_zero_integrated_time in
+# test_bundle_proof_boundaries.py for the verify-side inclusion proof builder.
+def test_sign_warns_on_zero_integrated_time(
+    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, caplog
+):
+    crypto_factory.install_sign_monkeypatch(
+        monkeypatch,
+        provider=google_provider,
+        integrated_time_s=0,
+    )
+    with caplog.at_level("WARNING"):
+        result = signing.sign(canonical_bytes_simple, google_provider)
+    # Floor substitution kicked in: signing_timestamp is now cert notBefore
+    # (the (nb, na) tuple from _cert_validity_window), which is non-zero.
+    assert result.signing_timestamp > 0
+    assert result.signing_timestamp == result.evidence.validity_window[0]
+    sign_floor_records = [
+        r
+        for r in caplog.records
+        if "signing.sign_integrated_time_below_floor" in r.getMessage()
+    ]
+    assert sign_floor_records, (
+        "expected at least one WARNING log with "
+        "'signing.sign_integrated_time_below_floor' prefix; "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
+    assert any(r.levelname == "WARNING" for r in sign_floor_records)
+    # Log must include the below-floor value for triage.
+    assert any("0" in r.getMessage() for r in sign_floor_records)
+    # Pin the intentional dual-fire contract (see signing.sign() comment at
+    # the sign-side floor substitution): one below-floor integrated_time from
+    # Rekor produces TWO distinct WARNs — one from _build_rekor_inclusion_proof
+    # (proof-side substitution to MIN_MICROSECOND_TIMESTAMP) and one from
+    # sign() itself (sign-side substitution to cert notBefore). The fell
+    # observed this contract was not test-enforced; without this assertion a
+    # future de-dup that collapsed the two into one would pass silently and
+    # erase the distinction between the two substitutions.
+    rekor_floor_records = [
+        r
+        for r in caplog.records
+        if "signing.rekor_integrated_time_below_floor" in r.getMessage()
+    ]
+    assert len(rekor_floor_records) == 1, (
+        "expected exactly one 'signing.rekor_integrated_time_below_floor' "
+        "WARNING (proof-side floor substitution); "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
+    assert len(sign_floor_records) == 1, (
+        "expected exactly one 'signing.sign_integrated_time_below_floor' "
+        "WARNING (sign-side floor substitution); "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
+
+
+# Sanity: when integrated_time is in the normal range, no warning fires.
+def test_sign_does_not_warn_on_normal_integrated_time(
+    crypto_factory, google_provider, canonical_bytes_simple, monkeypatch, caplog
+):
+    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+    with caplog.at_level("WARNING"):
+        signing.sign(canonical_bytes_simple, google_provider)
+    assert not any(
+        "signing.sign_integrated_time_below_floor" in r.getMessage()
+        for r in caplog.records
+    )
+
+
 # Enforces: sign() preserves canonical_bytes byte-exactly. No re-canonicalization,
 # re-normalization, or re-encoding. The signature binds to the bytes the caller
 # passed.

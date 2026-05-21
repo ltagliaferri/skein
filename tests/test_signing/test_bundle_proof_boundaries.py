@@ -309,3 +309,69 @@ def test_build_rekor_inclusion_proof_passes_real_envelope_verbatim():
     result = signing._build_rekor_inclusion_proof(bundle)
     assert result is not None
     assert result.checkpoint == envelope
+
+
+# ---------------------------------------------------------------------------
+# _build_rekor_inclusion_proof — timestamp-floor substitution warning
+# (j4w4 round-7 oracle A3)
+# ---------------------------------------------------------------------------
+#
+# When Rekor's integrated_time is 0 or otherwise lands below
+# MIN_MICROSECOND_TIMESTAMP, the builder substitutes the floor value. Before
+# the A3 fix, that substitution was silent and the resulting
+# RekorInclusionProof.integrated_time would report the sentinel-like floor
+# with no signal that the wire value was anomalous. The fix logs a WARNING
+# with a grep-able prefix so the substitution is observable.
+
+
+def test_build_rekor_inclusion_proof_warns_on_zero_integrated_time(caplog):
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    bundle = _fake_bundle_with_inclusion(key_id=key_id, integrated_time_s=0)
+    with caplog.at_level("WARNING"):
+        result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    assert result.integrated_time == signing.MIN_MICROSECOND_TIMESTAMP
+    floor_records = [
+        r
+        for r in caplog.records
+        if "signing.rekor_integrated_time_below_floor" in r.getMessage()
+    ]
+    assert floor_records, (
+        "expected at least one WARNING log with "
+        "'signing.rekor_integrated_time_below_floor' prefix; "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
+    assert any(r.levelname == "WARNING" for r in floor_records)
+    # The log must include the original below-floor value for triage.
+    assert any("0" in r.getMessage() for r in floor_records)
+
+
+def test_build_rekor_inclusion_proof_warns_on_below_floor_integrated_time(caplog):
+    """Any non-zero below-floor value also warns — not only the 0 sentinel."""
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    # 1 second since epoch → 1_000_000 us, well below MIN_MICROSECOND_TIMESTAMP.
+    bundle = _fake_bundle_with_inclusion(key_id=key_id, integrated_time_s=1)
+    with caplog.at_level("WARNING"):
+        result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    assert result.integrated_time == signing.MIN_MICROSECOND_TIMESTAMP
+    assert any(
+        "signing.rekor_integrated_time_below_floor" in r.getMessage()
+        and r.levelname == "WARNING"
+        for r in caplog.records
+    )
+
+
+def test_build_rekor_inclusion_proof_does_not_warn_on_normal_integrated_time(
+    caplog,
+):
+    """No warning when integrated_time is well above the floor (sanity)."""
+    key_id = b"\x01\x02\x03\x04rekor-key"
+    bundle = _fake_bundle_with_inclusion(key_id=key_id, integrated_time_s=1_715_443_200)
+    with caplog.at_level("WARNING"):
+        result = signing._build_rekor_inclusion_proof(bundle)
+    assert result is not None
+    assert not any(
+        "signing.rekor_integrated_time_below_floor" in r.getMessage()
+        for r in caplog.records
+    )

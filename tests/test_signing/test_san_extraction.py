@@ -477,18 +477,25 @@ class TestVerifySingleRejectsMissingIssuer:
 
 
 class TestInvisibleIdentityCharsRejected:
-    """R4-3: zero-width and bidi directional formatting chars must not
-    survive identity normalization on either subject or issuer paths.
+    """R4-3 + Shard FEFF: zero-width, BOM, word-joiner, and bidi directional
+    formatting chars must not survive identity normalization on either subject
+    or issuer paths.
 
     NFC normalization does not touch these characters, and they have no
     visible glyph (or, for RLO/LRO, they reorder surrounding text),
     so they can be smuggled into an identity to produce a string that
     is visually identical to a trusted identity but compares non-equal
-    against it. Reject the whole set:
+    against it. Reject the whole Cf (Format) category — covers the
+    historically-enumerated set plus BOM (U+FEFF), WORD JOINER (U+2060),
+    ARABIC LETTER MARK (U+061C), MONGOLIAN VOWEL SEPARATOR (U+180E), and
+    future Unicode additions automatically:
 
       U+200B-U+200F: ZWSP, ZWNJ, ZWJ, LRM, RLM
       U+202A-U+202E: LRE, RLE, PDF, LRO, RLO  (legacy bidi formatting)
       U+2066-U+2069: LRI, RLI, FSI, PDI       (modern bidi isolates)
+      U+FEFF       : ZERO WIDTH NO-BREAK SPACE / BOM (Shard FEFF, j4w4 r7)
+      U+2060       : WORD JOINER                    (Shard FEFF, j4w4 r7)
+      plus other Cf-category formatters
     """
 
     INVISIBLE_CHARS = [
@@ -506,6 +513,16 @@ class TestInvisibleIdentityCharsRejected:
         ("U+2067 RLI", "⁧"),
         ("U+2068 FSI", "⁨"),
         ("U+2069 PDI", "⁩"),
+        # Shard FEFF / j4w4 round 7 + oracle pass: empirically-confirmed
+        # gaps in the ad-hoc enumerated set. Both are Cf-category, visually
+        # invisible, and survive NFC.
+        ("U+FEFF BOM", "﻿"),
+        ("U+2060 WJ", "⁠"),
+        # Additional Cf-category chars added in recent Unicode versions —
+        # caught by the category-based check, would slip past an enumerated
+        # ad-hoc set. Pin so a regression to an ad-hoc set fails here.
+        ("U+061C ALM", "؜"),
+        ("U+180E MVS", "᠎"),
     ]
 
     def _stub_cert_with_san(self, san_objects):

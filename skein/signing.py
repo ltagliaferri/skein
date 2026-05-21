@@ -554,28 +554,29 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
     return unicodedata.normalize("NFC", raw)
 
 
-# Zero-width and directional formatting characters that survive NFC
-# normalization and produce visually-identical (or invisible) identity
-# strings. Reject in extracted identity material on both subject and
-# issuer paths so a homograph identity like "alice‮@example.com"
-# can't be smuggled past comparison logic that treats the string as
-# an opaque identifier.
+# Reject any Unicode Format (Cf) or Control (Cc) character in extracted
+# identity material on both subject and issuer paths. These categories
+# cover:
 #
-#   U+200B-U+200F: ZWSP, ZWNJ, ZWJ, LRM, RLM
-#   U+202A-U+202E: LRE, RLE, PDF, LRO, RLO  (legacy bidi)
-#   U+2066-U+2069: LRI, RLI, FSI, PDI       (modern bidi isolates)
-_INVISIBLE_IDENTITY_CHARS: frozenset[str] = frozenset(
-    chr(c)
-    for c in (
-        *range(0x200B, 0x2010),
-        *range(0x202A, 0x202F),
-        *range(0x2066, 0x206A),
-    )
-)
-
-
+#   Cf (Format): ZWSP/ZWNJ/ZWJ/LRM/RLM (U+200B-U+200F), legacy bidi
+#       LRE/RLE/PDF/LRO/RLO (U+202A-U+202E), modern bidi isolates
+#       LRI/RLI/FSI/PDI (U+2066-U+2069), WORD JOINER (U+2060), BOM /
+#       ZERO WIDTH NO-BREAK SPACE (U+FEFF), ARABIC LETTER MARK (U+061C),
+#       MONGOLIAN VOWEL SEPARATOR (U+180E), variation selectors,
+#       deprecated format chars, language tags, and any future Cf
+#       additions in a later Unicode release.
+#   Cc (Control): C0/C1 control bytes that the upstream \x00 / strip
+#       guards do not fully cover (e.g., interior \t, \n, \r, \x16 SYN).
+#
+# All survive NFC normalization. Cf chars have no visible glyph (or, for
+# RLO/LRO, they reorder surrounding glyphs without changing byte-level
+# comparison), so they can be smuggled into an identity to produce a
+# string visually identical to a trusted identity but compares non-equal.
+# A category-based check is strictly stronger and future-proof versus an
+# ad-hoc enumerated set (Shard FEFF / j4w4 round 7: U+FEFF and U+2060
+# were both absent from the prior enumeration).
 def _has_invisible_identity_char(s: str) -> bool:
-    return any(c in _INVISIBLE_IDENTITY_CHARS for c in s)
+    return any(unicodedata.category(c) in ("Cf", "Cc") for c in s)
 
 
 def _decode_der_utf8(data: bytes) -> str | None:
@@ -643,8 +644,8 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
       - NFC normalize Unicode.
       - Reject identities with leading/trailing whitespace (visual ambiguity).
       - Reject identities containing NUL bytes.
-      - Reject identities containing zero-width or directional bidi
-        formatting characters (see _INVISIBLE_IDENTITY_CHARS) — they
+      - Reject identities containing any Unicode Cf (Format) or Cc
+        (Control) characters (see _has_invisible_identity_char) — they
         survive NFC and produce visually-identical strings.
     """
     try:

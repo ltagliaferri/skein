@@ -134,6 +134,29 @@ def test_sign_warns_on_zero_integrated_time(
     assert any(r.levelname == "WARNING" for r in sign_floor_records)
     # Log must include the below-floor value for triage.
     assert any("0" in r.getMessage() for r in sign_floor_records)
+    # Pin the intentional dual-fire contract (see signing.sign() comment at
+    # the sign-side floor substitution): one below-floor integrated_time from
+    # Rekor produces TWO distinct WARNs — one from _build_rekor_inclusion_proof
+    # (proof-side substitution to MIN_MICROSECOND_TIMESTAMP) and one from
+    # sign() itself (sign-side substitution to cert notBefore). The fell
+    # observed this contract was not test-enforced; without this assertion a
+    # future de-dup that collapsed the two into one would pass silently and
+    # erase the distinction between the two substitutions.
+    rekor_floor_records = [
+        r
+        for r in caplog.records
+        if "signing.rekor_integrated_time_below_floor" in r.getMessage()
+    ]
+    assert len(rekor_floor_records) == 1, (
+        "expected exactly one 'signing.rekor_integrated_time_below_floor' "
+        "WARNING (proof-side floor substitution); "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
+    assert len(sign_floor_records) == 1, (
+        "expected exactly one 'signing.sign_integrated_time_below_floor' "
+        "WARNING (sign-side floor substitution); "
+        f"got: {[r.getMessage() for r in caplog.records]}"
+    )
 
 
 # Sanity: when integrated_time is in the normal range, no warning fires.

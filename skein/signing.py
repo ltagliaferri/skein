@@ -939,6 +939,15 @@ def sign(canonical_bytes: bytes, oidc_provider: OIDCProviderConfig) -> SignResul
         # j4w4 round-7 oracle A3 (parallel to _build_rekor_inclusion_proof):
         # falling back to cert notBefore here was silent. Surface the drift so
         # operators can see Rekor returned a below-floor (or zero) integrated_time.
+        #
+        # Dual-fire is intentional: _build_rekor_inclusion_proof above will
+        # already have logged 'signing.rekor_integrated_time_below_floor' for
+        # the proof-side floor substitution (wire value -> MIN_MICROSECOND_TIMESTAMP).
+        # This WARN records the *distinct* sign-side substitution (wire value ->
+        # cert notBefore) into SignResult.signing_timestamp. Two distinct
+        # substitutions for one upstream anomaly deserve two distinct prefixes;
+        # future readers seeing both warns from one sign() call should treat
+        # that as designed, not as a duplicate-log bug.
         logger.warning(
             "signing.sign_integrated_time_below_floor: "
             "Rekor returned integrated_time=%s below "

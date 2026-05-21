@@ -539,7 +539,27 @@ def _sigstore_verifier_source() -> str:
     """
     import inspect
 
-    import sigstore.verify.verifier as _verifier
+    # sigstore-python has reshuffled its `_internal` / verify paths between
+    # releases. A bare ModuleNotFoundError here would surface as a noisy
+    # collection error with no actionable signal; pytest.fail with a pointed
+    # message tells the operator exactly which knobs to turn. pytest.fail
+    # (not pytest.skip) is deliberate — silently skipping the wire-string pin
+    # would re-introduce the silent-precision-loss risk these tests defend
+    # against.
+    try:
+        import sigstore.verify.verifier as _verifier
+    except ImportError as exc:
+        pytest.fail(
+            f"sigstore-python module structure changed (installed: "
+            f"{_sigstore.__version__}): could not import "
+            "'sigstore.verify.verifier'. The A4 wire-string pin's "
+            "introspection target moved. Update the import path in "
+            "_sigstore_verifier_source() and re-verify "
+            "skein.signing._map_sigstore_exception's substring matches "
+            "('Signature is invalid for input', 'Bundle message digest "
+            f"mismatch') against the new module surface. Original "
+            f"ImportError: {exc}"
+        )
 
     try:
         return inspect.getsource(_verifier)

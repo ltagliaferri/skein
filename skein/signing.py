@@ -85,6 +85,7 @@ logger = logging.getLogger(__name__)
 
 
 MIN_MICROSECOND_TIMESTAMP = 1_000_000_000_000_000
+MAX_CANONICAL_BYTES_LENGTH = 2 * 1024 * 1024  # 2 MiB
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +162,7 @@ class SignResult(BaseModel):
 class SignatureBundle(BaseModel):
     identity_scheme: str
     bundles: list[str] = Field(max_length=256)
-    canonical_bytes: bytes
+    canonical_bytes: bytes = Field(max_length=MAX_CANONICAL_BYTES_LENGTH)
     canon_version: str = "knurl-1.0"
     trust_root_pin: str | None = None
 

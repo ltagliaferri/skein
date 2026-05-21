@@ -493,6 +493,32 @@ def test_signature_bundle_trust_root_pin_default():
     assert sb.trust_root_pin is None
 
 
+# Enforces: canonical_bytes accepts exactly MAX_CANONICAL_BYTES_LENGTH bytes.
+def test_canonical_bytes_accepts_max_length():
+    from skein.signing import MAX_CANONICAL_BYTES_LENGTH
+
+    sb = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1",
+        bundles=["<blob>"],
+        canonical_bytes=b"\x00" * MAX_CANONICAL_BYTES_LENGTH,
+    )
+    assert len(sb.canonical_bytes) == MAX_CANONICAL_BYTES_LENGTH
+
+
+# Enforces: canonical_bytes rejects inputs exceeding MAX_CANONICAL_BYTES_LENGTH.
+def test_canonical_bytes_rejects_over_max_length():
+    from pydantic import ValidationError
+
+    from skein.signing import MAX_CANONICAL_BYTES_LENGTH
+
+    with pytest.raises(ValidationError):
+        signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=["<blob>"],
+            canonical_bytes=b"\x00" * (MAX_CANONICAL_BYTES_LENGTH + 1),
+        )
+
+
 # ---------------------------------------------------------------------------
 # SignResult shape (clarification 1)
 # ---------------------------------------------------------------------------

@@ -373,6 +373,73 @@ def test_property_bundle_bit_flip_breaks_verify(
     assert vr.status != signing.VerifyStatus.VERIFIED
 
 
+def _checkpoint_envelope_payload(env: str) -> tuple:
+    """Extract checkpoint envelope's cryptographically-bound parts.
+
+    Mirrors SignedNote.from_text / SignedNote.verify
+    (sigstore/_internal/rekor/checkpoint.py:128-187). Real verify binds:
+    (a) the signed prefix (text up to and including the '\\n' before the
+    '\\n\\n' separator), (b) the em-dash + line structure (the regex must
+    parse), (c) the decoded sig_hash (first 4 bytes, matched against
+    key_id[:4] at checkpoint.py:174), (d) the decoded sig body. The
+    decorative signer-name token between '\\u2014 ' and the b64 signature is
+    NOT bound — it may drift without real verify caring (finding-20260521-33nj).
+
+    Returns a ("UNPARSEABLE", env) sentinel when the envelope does not match
+    the SignedNote grammar; such flips also cause real verify to reject.
+    """
+    import base64 as _b64
+    import re as _re
+
+    sep = "\n\n"
+    if env.count(sep) != 1:
+        return ("UNPARSEABLE", env)
+    split = env.index(sep)
+    prefix = env[: split + 1]
+    sig_block = env[split + len(sep):]
+    if not sig_block or sig_block[-1] != "\n":
+        return ("UNPARSEABLE", env)
+    lines = sig_block.split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    sig_re = _re.compile(r"— (\S+) (\S+)")
+    sigs = []
+    for line in lines:
+        m = sig_re.fullmatch(line)
+        if not m:
+            return ("UNPARSEABLE", env)
+        try:
+            raw = _b64.b64decode(m.group(2))
+        except Exception:  # noqa: BLE001
+            return ("UNPARSEABLE", env)
+        if len(raw) < 4:
+            return ("UNPARSEABLE", env)
+        sigs.append((raw[:4], raw[4:]))
+    return ("PARSED", prefix, tuple(sigs))
+
+
+def _set_is_verified_time_source(obj: dict) -> bool:
+    """Mirror sigstore.verify.verifier.Verifier._establish_time SET clause.
+
+    SET counts when inclusion_promise.signed_entry_timestamp + integrated_time
+    are present AND kindVersion is hashedrekord/dsse 0.0.1 — see verifier.py:228-232.
+    The kindVersion clause matters: exotic kindVersions raise BEFORE SET
+    counts (verifier.py:233), so the gate must check it explicitly.
+    """
+    vm = obj.get("verificationMaterial") or {}
+    tlogs = vm.get("tlogEntries") or [{}]
+    te = tlogs[0] or {}
+    promise = (te.get("inclusionPromise") or {}).get("signedEntryTimestamp")
+    integrated = te.get("integratedTime")
+    kv = te.get("kindVersion") or {}
+    return (
+        bool(promise)
+        and bool(integrated)
+        and kv.get("kind") in ("hashedrekord", "dsse")
+        and kv.get("version") == "0.0.1"
+    )
+
+
 def _bundle_crypto_payload(obj: dict) -> tuple:
     """Reduce a bundle JSON to its cryptographically-bound payload.
 
@@ -380,11 +447,14 @@ def _bundle_crypto_payload(obj: dict) -> tuple:
     message signature + digest, and the full Rekor tlog witness — inclusion
     proof (rootHash, hashes, treeSize, logIndex, checkpoint), logId.keyId,
     integratedTime, inclusionPromise SET, canonicalizedBody — plus RFC3161
-    TSA timestamps. Base64 byte regions are decoded so a flip that only
-    perturbs base64 padding bits (decoded bytes unchanged) compares equal;
-    that and JSON whitespace / key-order are the only genuinely-empty
-    regions. Two bundles equal here are cryptographically indistinguishable
-    for verification — anything else MUST be rejected by verify().
+    TSA timestamps when SET is not the verified time source. Base64 byte
+    regions are decoded so a flip that only perturbs base64 padding bits
+    (decoded bytes unchanged) compares equal. The checkpoint envelope's
+    decorative signer-name token and (when SET binds time) the TSA bytes are
+    excluded — both are empirically not bound by real verify
+    (finding-20260521-33nj). Two bundles equal here are cryptographically
+    indistinguishable for verification — anything else MUST be rejected
+    by verify().
     """
     import base64 as _b64
 
@@ -407,12 +477,17 @@ def _bundle_crypto_payload(obj: dict) -> tuple:
     tlogs = vm.get("tlogEntries") or []
     te = tlogs[0] if tlogs else {}
     ip = te.get("inclusionProof") or {}
+    cp = ip.get("checkpoint") or {}
+    cp_subfields = tuple(
+        (k, cp.get(k)) for k in sorted(cp.keys()) if k != "envelope"
+    )
     ip_payload = (
         _db64(ip.get("rootHash", "")),
         tuple(_db64(h) for h in (ip.get("hashes") or [])),
         str(ip.get("treeSize", "")),
         str(ip.get("logIndex", "")),
-        (ip.get("checkpoint") or {}).get("envelope", ""),
+        cp_subfields,
+        _checkpoint_envelope_payload(cp.get("envelope", "")),
     )
     log_id = _db64((te.get("logId") or {}).get("keyId", ""))
     promise = _db64((te.get("inclusionPromise") or {}).get("signedEntryTimestamp", ""))
@@ -420,10 +495,13 @@ def _bundle_crypto_payload(obj: dict) -> tuple:
     integrated = str(te.get("integratedTime", ""))
 
     tvd = vm.get("timestampVerificationData") or {}
-    tsa = tuple(
-        _db64(t.get("signedTimestamp", ""))
-        for t in (tvd.get("rfc3161Timestamps") or [])
-    )
+    if _set_is_verified_time_source(obj):
+        tsa: tuple = ()
+    else:
+        tsa = tuple(
+            _db64(t.get("signedTimestamp", ""))
+            for t in (tvd.get("rfc3161Timestamps") or [])
+        )
 
     return (
         cert,
@@ -436,6 +514,186 @@ def _bundle_crypto_payload(obj: dict) -> tuple:
         canon_body,
         integrated,
         tsa,
+    )
+
+
+# Property: a bit-flip inside the checkpoint envelope's decorative signer-name
+# span is not bound by real sigstore-python verify
+# (sigstore/_internal/rekor/checkpoint.py:166-187 — only sig_hash + decoded
+# sig body bind, NAME is decorative), so the factory MUST accept it. Pins
+# the §D loosening of _canonical_drift_exception (finding-20260521-33nj).
+@given(
+    flip_bit=st.integers(min_value=0, max_value=7),
+    name_byte_offset=st.integers(min_value=0, max_value=63),
+)
+@_settings
+def test_property_checkpoint_signer_name_drift_accepts(
+    crypto_factory, google_provider, monkeypatch, flip_bit, name_byte_offset
+):
+    import json as _json
+    import re as _re
+
+    crypto_factory.install_sign_monkeypatch(monkeypatch, provider=google_provider)
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    canonical = b"signer-name-drift-payload"
+    result = signing.sign(canonical, google_provider)
+    obj = _json.loads(result.bundle_json)
+    ip = obj["verificationMaterial"]["tlogEntries"][0]["inclusionProof"]
+    cp = ip.get("checkpoint") or {}
+    envelope = cp.get("envelope", "")
+    sep = "\n\n"
+    if envelope.count(sep) != 1:
+        return
+    split = envelope.index(sep)
+    sig_block_start = split + len(sep)
+    sig_block = envelope[sig_block_start:]
+    m = _re.search(r"— (\S+) (\S+)\n", sig_block)
+    if not m:
+        return
+    name = m.group(1)
+    if name_byte_offset >= len(name):
+        return
+    original_ch = name[name_byte_offset]
+    flipped_ord = ord(original_ch) ^ (1 << flip_bit)
+    if flipped_ord > 0x7E or flipped_ord < 0x21:
+        # Stay inside printable ASCII non-space so the \S+ regex still parses.
+        return
+    new_ch = chr(flipped_ord)
+    if new_ch == original_ch:
+        return
+    new_name = name[:name_byte_offset] + new_ch + name[name_byte_offset + 1:]
+    name_start = sig_block_start + m.start(1)
+    name_end = sig_block_start + m.end(1)
+    new_envelope = envelope[:name_start] + new_name + envelope[name_end:]
+    if new_envelope == envelope:
+        return
+    cp["envelope"] = new_envelope
+    ip["checkpoint"] = cp
+    obj["verificationMaterial"]["tlogEntries"][0]["inclusionProof"] = ip
+    munged = _json.dumps(obj)
+    sb = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1",
+        bundles=[munged],
+        canonical_bytes=canonical,
+        canon_version="knurl-1.0",
+    )
+    vr = signing.verify(canonical, sb)
+    assert vr.status == signing.VerifyStatus.VERIFIED, (
+        f"factory rejected checkpoint signer-name drift that real sigstore-python "
+        f"accepts; status={vr.status}"
+    )
+
+
+# Property: when SET is the verified time source (inclusion_promise +
+# integrated_time present AND kindVersion hashedrekord/dsse 0.0.1, per
+# sigstore-python verifier.py:228-232), a bit-flip in TSA bytes is silently
+# tolerated by real verify as long as the bytes still ASN.1-parse as a
+# TimeStampResponse (verifier.py:192-196 drops failed TSA results;
+# SET still meets VERIFIED_TIME_THRESHOLD=1 at verifier.py:67). Pins the §D
+# loosening of _canonical_drift_exception (finding-20260521-33nj).
+def _real_corpus_tsa_bytes() -> bytes:
+    """Real RFC3161 TimeStampResponse bytes lifted from the corpus TSA bundle.
+
+    We need ASN.1-parseable bytes so the factory's TVD-parse boundary
+    (mirroring sigstore.models.TimestampVerificationData._verify) accepts
+    the minted bundle; arbitrary garbage would trip that early.
+    """
+    import base64 as _b64
+    import json as _json
+    from pathlib import Path
+
+    corpus = Path(__file__).resolve().parents[1] / "conformance" / "corpus" / "tsa" / "bundle.txt.sigstore"
+    obj = _json.loads(corpus.read_bytes())
+    ts = obj["verificationMaterial"]["timestampVerificationData"]["rfc3161Timestamps"][0]["signedTimestamp"]
+    return _b64.b64decode(ts)
+
+
+@given(
+    flip_bit=st.integers(min_value=0, max_value=7),
+    b64_offset=st.integers(min_value=0),
+)
+@_settings
+def test_property_tsa_drift_with_set_time_source_accepts(
+    crypto_factory, google_provider, monkeypatch, flip_bit, b64_offset
+):
+    import base64 as _b64
+    import json as _json
+
+    real_tsa = _real_corpus_tsa_bytes()
+    crypto_factory.install_sign_monkeypatch(
+        monkeypatch, provider=google_provider, tsa_timestamps=[real_tsa]
+    )
+    crypto_factory.install_verify_monkeypatch(monkeypatch)
+    canonical = b"tsa-drift-payload"
+    result = signing.sign(canonical, google_provider)
+    obj = _json.loads(result.bundle_json)
+    tvd = obj.get("verificationMaterial", {}).get("timestampVerificationData") or {}
+    rfc = tvd.get("rfc3161Timestamps") or []
+    if not rfc:
+        return
+    ts_b64 = rfc[0].get("signedTimestamp", "")
+    if not ts_b64:
+        return
+    # SET-as-time-source predicate must hold; the factory's default minting
+    # gives us inclusion_promise + integrated_time + hashedrekord/0.0.1.
+    te = obj["verificationMaterial"]["tlogEntries"][0]
+    promise = (te.get("inclusionPromise") or {}).get("signedEntryTimestamp")
+    integrated = te.get("integratedTime")
+    kv = te.get("kindVersion") or {}
+    if not (
+        promise
+        and integrated
+        and kv.get("kind") in ("hashedrekord", "dsse")
+        and kv.get("version") == "0.0.1"
+    ):
+        return
+    offset = b64_offset % len(ts_b64)
+    original_ch = ts_b64[offset]
+    flipped_ord = ord(original_ch) ^ (1 << flip_bit)
+    new_ch = chr(flipped_ord)
+    # Keep the result inside the b64 alphabet so the JSON re-parses cleanly.
+    if not (new_ch.isalnum() or new_ch in "+/="):
+        return
+    new_ts_b64 = ts_b64[:offset] + new_ch + ts_b64[offset + 1:]
+    if new_ts_b64 == ts_b64:
+        return
+    try:
+        new_raw = _b64.b64decode(new_ts_b64)
+        if new_raw == _b64.b64decode(ts_b64):
+            return  # padding-bit no-op
+    except Exception:  # noqa: BLE001
+        return
+    # Real sigstore-python's deeper TSA checks (ASN.1 parse, PKIStatus enum
+    # validation, lazy tst_info access) propagate exceptions that surface as
+    # real-verify rejections. The factory mirrors this. Skip flips that
+    # trigger any of those — those are case-2 (both reject), not the
+    # case-3-becomes-accept we're pinning.
+    try:
+        from rfc3161_client import PKIStatus as _PKIStatus
+        from rfc3161_client import decode_timestamp_response as _decode_ts
+    except ImportError:
+        return
+    try:
+        _new_tsr = _decode_ts(new_raw)
+        _PKIStatus(_new_tsr.status)
+        _ = _new_tsr.tst_info.message_imprint.hash_algorithm
+    except Exception:  # noqa: BLE001
+        return
+    rfc[0]["signedTimestamp"] = new_ts_b64
+    obj["verificationMaterial"]["timestampVerificationData"][
+        "rfc3161Timestamps"
+    ] = rfc
+    munged = _json.dumps(obj)
+    sb = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1",
+        bundles=[munged],
+        canonical_bytes=canonical,
+        canon_version="knurl-1.0",
+    )
+    vr = signing.verify(canonical, sb)
+    assert vr.status == signing.VerifyStatus.VERIFIED, (
+        f"factory rejected TSA drift while SET counts as time source; real "
+        f"sigstore-python silently tolerates this. status={vr.status}"
     )
 
 

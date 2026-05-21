@@ -554,29 +554,62 @@ def _extract_issuer_from_cert(cert: Any) -> str | None:
     return unicodedata.normalize("NFC", raw)
 
 
-# Reject any Unicode Format (Cf) or Control (Cc) character in extracted
-# identity material on both subject and issuer paths. These categories
-# cover:
+# Default-ignorable / visually-invisible chars outside the Cf and Cc
+# categories. See _has_invisible_identity_char for rationale.
+_EXTRA_INVISIBLE_IDENTITY_CHARS: frozenset[str] = frozenset(
+    chr(c)
+    for c in (
+        *range(0xFE00, 0xFE10),  # VS-1..VS-16
+        *range(0xE0100, 0xE01F0),  # VS-17..VS-256
+        *range(0x180B, 0x180E),  # Mongolian FVS-1..FVS-3
+        0x115F,  # HANGUL CHOSEONG FILLER
+        0x1160,  # HANGUL JUNGSEONG FILLER
+        0x3164,  # HANGUL FILLER
+        0xFFA0,  # HALFWIDTH HANGUL FILLER
+    )
+)
+
+
+# Reject any default-ignorable / visually-invisible character in extracted
+# identity material on both subject and issuer paths. All survive NFC
+# normalization and have no visible glyph (or, for RLO/LRO, they reorder
+# surrounding glyphs without changing byte-level comparison), so they can
+# be smuggled into an identity to produce a string visually identical to
+# a trusted identity but that compares non-equal.
 #
-#   Cf (Format): ZWSP/ZWNJ/ZWJ/LRM/RLM (U+200B-U+200F), legacy bidi
-#       LRE/RLE/PDF/LRO/RLO (U+202A-U+202E), modern bidi isolates
-#       LRI/RLI/FSI/PDI (U+2066-U+2069), WORD JOINER (U+2060), BOM /
-#       ZERO WIDTH NO-BREAK SPACE (U+FEFF), ARABIC LETTER MARK (U+061C),
-#       MONGOLIAN VOWEL SEPARATOR (U+180E), variation selectors,
-#       deprecated format chars, language tags, and any future Cf
-#       additions in a later Unicode release.
+# Coverage:
+#
+#   Cf (Format): all format chars — covers ZWSP/ZWNJ/ZWJ/LRM/RLM
+#       (U+200B-U+200F), legacy bidi LRE/RLE/PDF/LRO/RLO (U+202A-U+202E),
+#       modern bidi isolates LRI/RLI/FSI/PDI (U+2066-U+2069), WORD JOINER
+#       (U+2060), BOM / ZERO WIDTH NO-BREAK SPACE (U+FEFF), ARABIC LETTER
+#       MARK (U+061C), MONGOLIAN VOWEL SEPARATOR (U+180E), deprecated
+#       format chars, language tags, and any future Cf additions in a
+#       later Unicode release.
 #   Cc (Control): C0/C1 control bytes that the upstream \x00 / strip
 #       guards do not fully cover (e.g., interior \t, \n, \r, \x16 SYN).
-#
-# All survive NFC normalization. Cf chars have no visible glyph (or, for
-# RLO/LRO, they reorder surrounding glyphs without changing byte-level
-# comparison), so they can be smuggled into an identity to produce a
-# string visually identical to a trusted identity but compares non-equal.
-# A category-based check is strictly stronger and future-proof versus an
-# ad-hoc enumerated set (Shard FEFF / j4w4 round 7: U+FEFF and U+2060
-# were both absent from the prior enumeration).
+#   Plus explicit coverage of default-ignorable chars that are NOT in
+#   Cf or Cc (see _EXTRA_INVISIBLE_IDENTITY_CHARS above):
+#     - Variation selectors (Mn / Nonspacing_Mark):
+#         U+FE00-U+FE0F   VS-1..VS-16 (standard)
+#         U+E0100-U+E01EF VS-17..VS-256 (supplement)
+#         U+180B-U+180D   Mongolian Free Variation Selectors 1-3
+#     - HANGUL fillers (Lo / Other_Letter):
+#         U+115F HANGUL CHOSEONG FILLER
+#         U+1160 HANGUL JUNGSEONG FILLER
+#         U+3164 HANGUL FILLER
+#         U+FFA0 HALFWIDTH HANGUL FILLER
+#   These have empty glyphs (variation selectors are visually invisible
+#   on their own; HANGUL fillers render as zero-width placeholders) and
+#   would slip past a Cf/Cc-only category check (Shard FEFF r1 fell
+#   follow-up).
 def _has_invisible_identity_char(s: str) -> bool:
-    return any(unicodedata.category(c) in ("Cf", "Cc") for c in s)
+    for c in s:
+        if unicodedata.category(c) in ("Cf", "Cc"):
+            return True
+        if c in _EXTRA_INVISIBLE_IDENTITY_CHARS:
+            return True
+    return False
 
 
 def _decode_der_utf8(data: bytes) -> str | None:
@@ -644,9 +677,11 @@ def _extract_subject_from_cert(cert: Any) -> str | None:
       - NFC normalize Unicode.
       - Reject identities with leading/trailing whitespace (visual ambiguity).
       - Reject identities containing NUL bytes.
-      - Reject identities containing any Unicode Cf (Format) or Cc
-        (Control) characters (see _has_invisible_identity_char) — they
-        survive NFC and produce visually-identical strings.
+      - Reject identities containing any default-ignorable / visually-
+        invisible character (see _has_invisible_identity_char): Unicode
+        Cf (Format) and Cc (Control) categories, plus variation selectors
+        and HANGUL fillers — they survive NFC and produce visually-
+        identical strings.
     """
     try:
         san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)

@@ -184,6 +184,82 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
         raise click.ClickException(f"Connection error: {str(e)}")
 
 
+# Breadcrumb hints — one-line footers pointing at cross-project layer.
+FIND_BREADCRUMB = (
+    "(searched current project only — `skein find PATTERN --all` to search all projects)"
+)
+FOLIO_NOT_FOUND_BREADCRUMB = (
+    "(not found in current project — try `skein folio --all ID` or `skein folio PROJECT:ID`)"
+)
+ACTIVITY_BREADCRUMB = (
+    "(current project only — `skein activity --all` to include all projects)"
+)
+
+
+def _load_projects_registry() -> Dict[str, Any]:
+    """Load registered projects from ~/.skein/projects.json. Returns {} if missing."""
+    projects_file = Path.home() / ".skein" / "projects.json"
+    if not projects_file.exists():
+        return {}
+    try:
+        with open(projects_file) as f:
+            data = json.load(f)
+        return data.get("projects", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _current_project_id() -> Optional[str]:
+    """Return the project_id for the current working directory, if any."""
+    project_id = os.environ.get("SKEIN_PROJECT")
+    if project_id:
+        return project_id
+    cfg = get_project_config()
+    if cfg:
+        return cfg.get("project_id")
+    return None
+
+
+def _query_project(
+    project_id: str,
+    method: str,
+    endpoint: str,
+    base_url: str,
+    agent_id: Optional[str],
+    params: Optional[Dict[str, Any]] = None,
+) -> Optional[Any]:
+    """
+    Query a specific project's data by overriding X-Project-Id.
+
+    Returns parsed JSON on success, None on failure (skipped).
+    Failures are logged to stderr as a single warning line.
+    """
+    url = f"{base_url}/skein{endpoint}"
+    headers: Dict[str, str] = {"X-Project-Id": project_id}
+    if agent_id is not None:
+        headers["X-Agent-Id"] = agent_id
+    try:
+        resp = requests.request(method, url, headers=headers, params=params)
+        resp.raise_for_status()
+        return resp.json() if resp.text else {}
+    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
+        click.echo(
+            f"warning: skipping project '{project_id}' ({e.__class__.__name__})",
+            err=True,
+        )
+        return None
+
+
+def sites_breadcrumb(current_project_id: Optional[str]) -> str:
+    """Build the sites breadcrumb showing count of other registered projects."""
+    registry = _load_projects_registry()
+    other = sum(1 for pid in registry if pid != current_project_id)
+    return (
+        f"({other} other project(s) registered — "
+        f"`skein projects` to list, `skein sites --all` to include them)"
+    )
+
+
 def make_title_from_content(content: str, max_length: int = 100) -> str:
     """
     Generate a clean title from content.
@@ -883,9 +959,15 @@ def site_reopen(ctx, site_id):
 
 @cli.command()
 @click.option("--tag", help="Filter by tag")
+@click.option(
+    "--all",
+    "all_projects",
+    is_flag=True,
+    help="List sites across all registered projects",
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
-def sites(ctx, tag, output_json):
+def sites(ctx, tag, all_projects, output_json):
     """List all sites."""
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
@@ -894,22 +976,67 @@ def sites(ctx, tag, output_json):
     if tag:
         params["tag"] = tag
 
-    sites_list = make_request("GET", "/sites", base_url, agent_id, params=params)
+    if all_projects:
+        registry = _load_projects_registry()
+        if not registry:
+            click.echo("No projects registered.")
+            return
 
-    if output_json:
-        click.echo(json.dumps(sites_list, indent=2))
-    else:
-        if not sites_list:
-            click.echo("No sites found")
-        else:
-            click.echo(f"Found {len(sites_list)} site(s):\n")
-            for s in sites_list:
+        per_project: Dict[str, list] = {}
+        total = 0
+        for project_id in sorted(registry.keys()):
+            data = _query_project(
+                project_id, "GET", "/sites", base_url, agent_id, params=params
+            )
+            if data is None:
+                continue
+            per_project[project_id] = data
+            total += len(data)
+
+        if output_json:
+            click.echo(json.dumps(per_project, indent=2, default=str))
+            return
+
+        if total == 0:
+            click.echo("No sites found in any project")
+            return
+
+        click.echo(
+            f"Found {total} site(s) across {len(per_project)} project(s):\n"
+        )
+        for project_id in sorted(per_project.keys()):
+            project_sites = per_project[project_id]
+            if not project_sites:
+                continue
+            click.echo(f"{project_id} ({len(project_sites)} site(s)):")
+            for s in project_sites:
                 status_indicator = (
                     "" if s.get("status", "active") == "active" else f" [{s['status']}]"
                 )
                 click.echo(f"  {s['site_id']}{status_indicator}")
-                click.echo(f"    {s['purpose']}")
-                click.echo()
+                click.echo(f"    {s.get('purpose', '')}")
+            click.echo()
+        return
+
+    sites_list = make_request("GET", "/sites", base_url, agent_id, params=params)
+
+    if output_json:
+        click.echo(json.dumps(sites_list, indent=2))
+        return
+
+    if not sites_list:
+        click.echo("No sites found")
+    else:
+        click.echo(f"Found {len(sites_list)} site(s):\n")
+        for s in sites_list:
+            status_indicator = (
+                "" if s.get("status", "active") == "active" else f" [{s['status']}]"
+            )
+            click.echo(f"  {s['site_id']}{status_indicator}")
+            click.echo(f"    {s['purpose']}")
+            click.echo()
+
+    click.echo(sites_breadcrumb(_current_project_id()))
 
 
 # ============================================================================
@@ -1244,7 +1371,13 @@ def resume(ctx, brief_id):
 )
 @click.option("--sort", help="Sort by: created (default), created_asc, relevance")
 @click.option("--limit", type=int, default=50, help="Max results (default: 50)")
-@click.option("--all", "show_all", is_flag=True, help="Include archived folios")
+@click.option("--archived", "show_archived", is_flag=True, help="Include archived folios")
+@click.option(
+    "--all",
+    "all_projects",
+    is_flag=True,
+    help="Search across all registered projects",
+)
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
 def find(
@@ -1257,7 +1390,8 @@ def find(
     since,
     sort,
     limit,
-    show_all,
+    show_archived,
+    all_projects,
     output_json,
 ):
     """
@@ -1311,8 +1445,68 @@ def find(
     if limit:
         params["limit"] = limit
 
-    if show_all:
+    if show_archived:
         params["archived"] = True
+
+    if all_projects:
+        registry = _load_projects_registry()
+        if not registry:
+            click.echo("No projects registered.")
+            return
+
+        per_project: Dict[str, list] = {}
+        grand_total = 0
+        for project_id in sorted(registry.keys()):
+            response = _query_project(
+                project_id, "GET", "/search", base_url, agent_id, params=params
+            )
+            if response is None:
+                continue
+            folios_data = response.get("results", {}).get("folios", {})
+            items = folios_data.get("items", [])
+            if items:
+                per_project[project_id] = items
+                grand_total += folios_data.get("total", len(items))
+
+        if output_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "all_projects": True,
+                        "results_by_project": per_project,
+                        "total": grand_total,
+                    },
+                    indent=2,
+                    default=str,
+                )
+            )
+            return
+
+        if grand_total == 0:
+            if pattern:
+                click.echo(f"No folios found matching '{pattern}' in any project")
+            else:
+                click.echo("No folios found in any project")
+            return
+
+        if pattern:
+            click.echo(
+                f"Found {grand_total} folio(s) matching '{pattern}' across "
+                f"{len(per_project)} project(s):\n"
+            )
+        else:
+            click.echo(
+                f"Found {grand_total} folio(s) across {len(per_project)} project(s):\n"
+            )
+
+        for project_id in sorted(per_project.keys()):
+            project_folios = per_project[project_id]
+            click.echo(f"{'=' * 60}")
+            click.echo(f"Project: {project_id} ({len(project_folios)} folio(s))")
+            click.echo(f"{'=' * 60}")
+            _print_find_folios_grouped(project_folios)
+            click.echo()
+        return
 
     response = make_request("GET", "/search", base_url, agent_id, params=params)
 
@@ -1333,6 +1527,7 @@ def find(
             click.echo("No folios found")
         if site:
             click.echo(f"  (searched sites: {', '.join(site)})")
+        click.echo(FIND_BREADCRUMB)
         return
 
     # Group by site for display
@@ -1355,47 +1550,7 @@ def find(
         click.echo(f"{'=' * 60}")
         click.echo(f"Site: {site_id} ({len(site_folios)} folio(s))")
         click.echo(f"{'=' * 60}")
-
-        # Group by type within site
-        by_type = {}
-        for f in site_folios:
-            folio_type = f["type"]
-            if folio_type not in by_type:
-                by_type[folio_type] = []
-            by_type[folio_type].append(f)
-
-        for folio_type in sorted(by_type.keys()):
-            click.echo(
-                f"\n  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):"
-            )
-            for f in by_type[folio_type]:
-                status_str = f"[{f.get('status', 'open')}]"
-                # Format created_at date
-                created_at = f.get("created_at", "")
-                if created_at:
-                    try:
-                        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                        date_str = dt.strftime("%Y-%m-%d")
-                    except (ValueError, AttributeError):
-                        date_str = (
-                            created_at[:10] if len(created_at) >= 10 else created_at
-                        )
-                else:
-                    date_str = ""
-
-                click.echo(f"    {f['folio_id']} {status_str} {date_str}")
-                click.echo(
-                    f"      {f.get('title', 'No title')[:80]}{'...' if len(f.get('title', '')) > 80 else ''}"
-                )
-
-                # Show content preview
-                content = f.get("content", "")
-                if content:
-                    preview = " ".join(content.split())[:100]
-                    if len(content) > 100:
-                        preview += "..."
-                    click.echo(f"      {preview}")
-
+        _print_find_folios_by_type(site_folios)
         click.echo()
 
     # Summary
@@ -1405,6 +1560,49 @@ def find(
     exec_time = response.get("execution_time_ms", 0)
     if exec_time:
         click.echo(f"(Search completed in {exec_time}ms)")
+
+    click.echo(FIND_BREADCRUMB)
+
+
+def _format_folio_date(created_at: str) -> str:
+    if not created_at:
+        return ""
+    try:
+        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d")
+    except (ValueError, AttributeError):
+        return created_at[:10] if len(created_at) >= 10 else created_at
+
+
+def _print_find_folios_by_type(folios):
+    by_type: Dict[str, list] = {}
+    for f in folios:
+        by_type.setdefault(f["type"], []).append(f)
+
+    for folio_type in sorted(by_type.keys()):
+        click.echo(f"\n  {folio_type.upper()} ({len(by_type[folio_type])} item(s)):")
+        for f in by_type[folio_type]:
+            status_str = f"[{f.get('status', 'open')}]"
+            date_str = _format_folio_date(f.get("created_at", ""))
+            click.echo(f"    {f['folio_id']} {status_str} {date_str}")
+            title = f.get("title", "No title")
+            click.echo(f"      {title[:80]}{'...' if len(title) > 80 else ''}")
+            content = f.get("content", "")
+            if content:
+                preview = " ".join(content.split())[:100]
+                if len(content) > 100:
+                    preview += "..."
+                click.echo(f"      {preview}")
+
+
+def _print_find_folios_grouped(folios):
+    """Print folios grouped by site, then by type. Used for --all output."""
+    by_site: Dict[str, list] = {}
+    for f in folios:
+        by_site.setdefault(f.get("site_id", "unknown"), []).append(f)
+    for site_id in sorted(by_site.keys()):
+        click.echo(f"\n  Site: {site_id}")
+        _print_find_folios_by_type(by_site[site_id])
 
 
 @cli.command(hidden=True)
@@ -1785,9 +1983,15 @@ def status(ctx, output_json):
 
 @cli.command()
 @click.option("--since", help="Time filter (1hour, 2days, or ISO timestamp)")
+@click.option(
+    "--all",
+    "all_projects",
+    is_flag=True,
+    help="Aggregate activity across all registered projects",
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
-def activity(ctx, since, output_json):
+def activity(ctx, since, all_projects, output_json):
     """Get recent activity."""
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
@@ -1795,6 +1999,60 @@ def activity(ctx, since, output_json):
     params = {}
     if since:
         params["since"] = since
+
+    if all_projects:
+        registry = _load_projects_registry()
+        if not registry:
+            click.echo("No projects registered.")
+            return
+
+        events = []
+        agents: Set[str] = set()
+        per_project: Dict[str, Any] = {}
+        for project_id in sorted(registry.keys()):
+            data = _query_project(
+                project_id, "GET", "/activity", base_url, agent_id, params=params
+            )
+            if data is None:
+                continue
+            per_project[project_id] = data
+            for f in data.get("new_folios", []) or []:
+                tagged = dict(f)
+                tagged["project"] = project_id
+                events.append(tagged)
+            for a in data.get("active_agents", []) or []:
+                agents.add(a)
+
+        events.sort(key=lambda f: f.get("created_at", ""), reverse=True)
+
+        if output_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "all_projects": True,
+                        "events": events,
+                        "active_agents": sorted(agents),
+                        "per_project": per_project,
+                    },
+                    indent=2,
+                    default=str,
+                )
+            )
+            return
+
+        click.echo(
+            f"Recent activity across {len(per_project)} project(s):\n"
+        )
+        click.echo(f"New folios: {len(events)}")
+        click.echo(f"Active agents: {len(agents)}")
+        if events:
+            click.echo("\nRecent folios:")
+            for f in events[:20]:
+                proj = f.get("project", "?")
+                click.echo(
+                    f"  [{proj}] {f['type'].upper()}: {f.get('title', '')} ({f['folio_id']})"
+                )
+        return
 
     activity_data = make_request("GET", "/activity", base_url, agent_id, params=params)
 
@@ -1809,6 +2067,8 @@ def activity(ctx, since, output_json):
             click.echo("\nRecent folios:")
             for f in activity_data["new_folios"][:10]:
                 click.echo(f"  {f['type'].upper()}: {f['title']} ({f['folio_id']})")
+
+        click.echo(ACTIVITY_BREADCRUMB)
 
 
 # ============================================================================
@@ -2464,6 +2724,12 @@ FOLIO_FALLBACK_HINT_THRESHOLD = 8000
 @cli.command()
 @click.argument("folio_id")
 @click.option("--no-pager", is_flag=True, help="Disable pager")
+@click.option(
+    "--all",
+    "all_projects",
+    is_flag=True,
+    help="Search all registered projects for this folio",
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.option(
     "--raw",
@@ -2472,7 +2738,7 @@ FOLIO_FALLBACK_HINT_THRESHOLD = 8000
     "harness output caps: skein folio ID --raw > /tmp/folio.md",
 )
 @click.pass_context
-def folio(ctx, folio_id, no_pager, output_json, raw):
+def folio(ctx, folio_id, no_pager, all_projects, output_json, raw):
     """Read a folio by ID. Supports cross-project addressing.
 
     FOLIO_ID can be bare or project-qualified:
@@ -2480,12 +2746,47 @@ def folio(ctx, folio_id, no_pager, output_json, raw):
     \b
       skein folio brief-20251226-n1br              # current project, cascades if not found
       skein folio speakbot:brief-20251226-n1br     # look in speakbot project
+      skein folio --all brief-20251226-n1br        # explicitly search all projects
       skein folio brief-20251226-n1br --raw        # raw content only (escape harness truncation)
     """
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+    if all_projects:
+        registry = _load_projects_registry()
+        if not registry:
+            raise click.ClickException("No projects registered.")
+        hits = []
+        for project_id in sorted(registry.keys()):
+            data = _query_project(
+                project_id, "GET", f"/folios/{folio_id}", base_url, agent_id
+            )
+            if data and isinstance(data, dict) and data.get("folio_id"):
+                data["source_project"] = project_id
+                hits.append(data)
+
+        if output_json:
+            click.echo(json.dumps({"results": hits}, indent=2, default=str))
+            return
+
+        if not hits:
+            raise click.ClickException(
+                f"Folio '{folio_id}' not found in any registered project"
+            )
+
+        for i, data in enumerate(hits):
+            if i > 0:
+                click.echo()
+            _render_folio(data, base_url, agent_id, no_pager and i < len(hits) - 1)
+        return
+
+    try:
+        folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+    except click.ClickException as e:
+        msg = str(e)
+        if not output_json and ("404" in msg or "not found" in msg.lower()):
+            raise click.ClickException(f"{msg}\n{FOLIO_NOT_FOUND_BREADCRUMB}")
+        raise
 
     if output_json:
         click.echo(json.dumps(folio_data, indent=2))
@@ -2496,10 +2797,12 @@ def folio(ctx, folio_id, no_pager, output_json, raw):
         click.echo(folio_data.get("content", ""), nl=False)
         return
 
-    # Detect TTY for pager
-    is_tty = sys.stdout.isatty()
+    _render_folio(folio_data, base_url, agent_id, no_pager)
 
-    # Colors
+
+def _render_folio(folio_data, base_url, agent_id, no_pager):
+    """Render a single folio for human-readable output."""
+    is_tty = sys.stdout.isatty()
     yellow = "\033[33m"
     reset = "\033[0m"
 
@@ -2536,11 +2839,9 @@ def folio(ctx, folio_id, no_pager, output_json, raw):
         output_lines.append(f"Status: {folio_data.get('status')}")
     output_lines.append("")
 
-    # Full content with indentation
     for line in content.split("\n"):
         output_lines.append(f"    {line}")
 
-    # Get thread connections
     try:
         all_threads = make_request("GET", "/threads", base_url, agent_id)
         related_threads = [t for t in all_threads if fid in [t["from_id"], t["to_id"]]]
@@ -2553,7 +2854,6 @@ def folio(ctx, folio_id, no_pager, output_json, raw):
     except Exception:
         pass
 
-    # Output with pager for TTY
     output_text = "\n".join(output_lines)
     if is_tty and not no_pager:
         import subprocess
@@ -2571,15 +2871,19 @@ def folio(ctx, folio_id, no_pager, output_json, raw):
 @cli.command("show")
 @click.argument("folio_id")
 @click.option("--no-pager", is_flag=True, help="Disable pager")
+@click.option(
+    "--all", "all_projects", is_flag=True, help="Search all registered projects"
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.option("--raw", is_flag=True, help="Print only the raw content")
 @click.pass_context
-def show(ctx, folio_id, no_pager, output_json, raw):
+def show(ctx, folio_id, no_pager, all_projects, output_json, raw):
     """Read a single folio by ID (alias for 'folio')."""
     ctx.invoke(
         folio,
         folio_id=folio_id,
         no_pager=no_pager,
+        all_projects=all_projects,
         output_json=output_json,
         raw=raw,
     )

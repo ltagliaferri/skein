@@ -250,26 +250,67 @@ class SkeinNextStore:
         rows = self.conn.execute("\n".join(sql), params).fetchall()
         return [dict(r) for r in rows]
 
-    def folio_site_slugs(self) -> Dict[str, str]:
-        """Map every member folio's content hash to its site's slug.
+    def folio_site_slug(self, content_hash: str) -> Optional[str]:
+        """The site slug of a single member folio (alphabetically-first if many).
 
-        One join over ``within`` edges. If a folio belongs to more than one site
-        (unusual), the alphabetically-first slug wins so the result is
-        deterministic. Used by the web index to label folios with their site
-        without an N+1 per-folio lookup.
+        Indexed single-row lookup via ``idx_threads_from`` — for the folio-detail
+        hot path, where building the whole corpus map (``folio_site_slugs``) just
+        to read one entry is a full scan that grows with the corpus.
         """
-        rows = self.conn.execute(
+        row = self.conn.execute(
             """
-            SELECT t.from_id AS folio, s.slug AS slug
+            SELECT s.slug AS slug
             FROM threads t
             JOIN slugs s ON s.content_hash = t.to_id
-            WHERE t.type = 'within'
+            WHERE t.type = 'within' AND t.from_id = ?
             ORDER BY s.slug
-            """
-        ).fetchall()
+            LIMIT 1
+            """,
+            (content_hash,),
+        ).fetchone()
+        return row["slug"] if row else None
+
+    def folio_site_slugs(
+        self, content_hashes: Optional[List[str]] = None
+    ) -> Dict[str, str]:
+        """Map member folio content hashes to their site slugs.
+
+        With ``content_hashes`` given, the join is restricted to those folios (a
+        chunked IN-list) — for labelling a bounded result set such as search hits.
+        With ``None``, the whole corpus is mapped in one join (the web index, which
+        labels every folio). If a folio belongs to more than one site (unusual),
+        the alphabetically-first slug wins so the result is deterministic.
+        """
         mapping: Dict[str, str] = {}
-        for r in rows:
-            mapping.setdefault(r["folio"], r["slug"])
+        if content_hashes is None:
+            rows = self.conn.execute(
+                """
+                SELECT t.from_id AS folio, s.slug AS slug
+                FROM threads t
+                JOIN slugs s ON s.content_hash = t.to_id
+                WHERE t.type = 'within'
+                ORDER BY s.slug
+                """
+            ).fetchall()
+            for r in rows:
+                mapping.setdefault(r["folio"], r["slug"])
+            return mapping
+        hashes = list(content_hashes)
+        for i in range(0, len(hashes), 900):
+            chunk = hashes[i:i + 900]
+            placeholders = ",".join("?" * len(chunk))
+            rows = self.conn.execute(
+                f"""
+                SELECT t.from_id AS folio, s.slug AS slug
+                FROM threads t
+                JOIN slugs s ON s.content_hash = t.to_id
+                WHERE t.type = 'within' AND t.from_id IN ({placeholders})
+                ORDER BY s.slug
+                """,
+                chunk,
+            ).fetchall()
+            for r in rows:
+                mapping.setdefault(r["folio"], r["slug"])
         return mapping
 
     def latest_statuses(self, folio_hashes: List[str]) -> Dict[str, str]:
@@ -291,11 +332,14 @@ class SkeinNextStore:
                 f"""
                 SELECT to_id, content FROM threads
                 WHERE type = 'status' AND to_id IN ({placeholders})
-                ORDER BY created_at
+                ORDER BY created_at, thread_hash
                 """,
                 chunk,
             ).fetchall()
-            # ascending created_at → the last row written for each folio is newest
+            # Ascending (created_at, thread_hash) → the last row written for each
+            # folio is the newest; thread_hash breaks ties deterministically when
+            # two statuses share a normalized created_at (the bridge collapses
+            # whole-second legacy timestamps), so the winner can't flip per query.
             for r in rows:
                 out[r["to_id"]] = r["content"]
         return out

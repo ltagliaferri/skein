@@ -147,13 +147,14 @@ class ContentHashAdapter:
         if row is None:
             return None
         content_hash = row["content_hash"]
-        slug = self.store.folio_site_slugs().get(content_hash, "")
+        slug = self.store.folio_site_slug(content_hash) or ""
         status = self.store.latest_statuses([content_hash]).get(content_hash, "open")
         return FolioView(row, site_id=slug, status=status)
 
     def search_folios(self, query: str, limit: int = 100) -> List[FolioView]:
         rows = self.store.search_folios(query, limit=limit)
-        slug_of = self.store.folio_site_slugs()
+        # Label only the result hashes, not the whole corpus.
+        slug_of = self.store.folio_site_slugs([r["content_hash"] for r in rows])
         return [FolioView(r, site_id=slug_of.get(r["content_hash"], "")) for r in rows]
 
     # --- cross-references (rebuilt for hash identity) -----------------------
@@ -180,7 +181,9 @@ class ContentHashAdapter:
             if not peer or peer == content_hash:
                 continue
             target = peer if self.store.get_folio(peer) else self.store.resolve_alias(peer)
-            if not target or target in seen:
+            # Guard the *resolved* target too: a legacy-id endpoint can alias back
+            # to this same folio, which would otherwise list it as its own ref.
+            if not target or target == content_hash or target in seen:
                 continue
             row = self.store.get_folio(target)
             if row:

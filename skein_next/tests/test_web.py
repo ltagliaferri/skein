@@ -120,6 +120,37 @@ def test_adapter_cross_refs_resolves_alias_endpoint(seeded):
         ad.close()
 
 
+def test_adapter_cross_refs_excludes_alias_self_loop(seeded):
+    # fell-r1 MINOR: an edge to a legacy id that aliases back to THIS folio must
+    # not list the folio as its own reference (guard the resolved target).
+    ad = ContentHashAdapter(seeded["data_dir"])
+    try:
+        ad.store.set_alias("finding-20260101-self", seeded["a"])
+        ad.store.save_thread(from_id=seeded["a"], to_id="finding-20260101-self",
+                             type="relates", created_at="2026-01-06T00:00:00Z")
+        assert seeded["a"] not in [r.content_hash for r in ad.cross_refs(seeded["a"])]
+    finally:
+        ad.close()
+
+
+def test_latest_statuses_tiebreak_is_deterministic(seeded):
+    # fell-r1 MINOR: two status threads sharing a created_at must resolve to a
+    # stable winner (ORDER BY created_at, thread_hash), not flip per query.
+    ad = ContentHashAdapter(seeded["data_dir"])
+    try:
+        b = seeded["b"]
+        ts = "2026-02-02T00:00:00+00:00"
+        h_open = ad.store.save_thread(to_id=b, type="status", content="reopened", created_at=ts)
+        h_closed = ad.store.save_thread(to_id=b, type="status", content="archived", created_at=ts)
+        # ascending (created_at, thread_hash) -> the greater thread_hash wins
+        winner = "reopened" if h_open > h_closed else "archived"
+        first = ad.store.latest_statuses([b])[b]
+        second = ad.store.latest_statuses([b])[b]
+        assert first == second == winner
+    finally:
+        ad.close()
+
+
 # --- routes -----------------------------------------------------------------
 
 
@@ -166,3 +197,17 @@ def test_search_route(client):
     assert "Finding A" in r.text and "Brief B" in r.text
     r = client.get("/search", params={"q": "no-such-text-anywhere"})
     assert r.status_code == 200 and "No matches" in r.text
+
+
+def test_concurrent_requests_isolated_connections(client):
+    # Per-request adapter + check_same_thread=False must serve concurrent
+    # requests across threads with no connection errors (regression guard for
+    # the store's single-shared-connection hazard).
+    import concurrent.futures
+
+    def hit(_):
+        return client.get("/").status_code
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        codes = list(ex.map(hit, range(40)))
+    assert codes == [200] * 40

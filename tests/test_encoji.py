@@ -696,6 +696,19 @@ class TestPositionalDecode:
             streams[n] = s
         assert len(set(streams.values())) == 3
 
+    def test_C5c_route_sits_immediately_after_brand(self, codec):
+        # The wire layout is [brand][route?][station][type][identity x5] (finding
+        # C1): a present route is positionally right after the brand, before the
+        # station. This pins route POSITION (a wire-layout fact), distinct from
+        # route NAME semantics (opaque/Phase 3). Without it, a self-consistent
+        # [brand][station][route]... layout round-trips but is cross-incompatible
+        # (fell-r4b observation).
+        with_route = codec.encode(station="auth", identity=7, type=TYPE_WORD, route=ROUTE_NAME)
+        routeless = codec.encode(station="auth", identity=7, type=TYPE_WORD)
+        assert with_route[0] == routeless[0]                 # same brand at position 0
+        assert with_route[1] == route_glyph(ROUTE_NAME)      # route immediately after brand
+        assert with_route[2:] == routeless[1:]               # station+type+identity unchanged
+
     def test_C5_reject_wrong_subrole_in_route_slot(self, codec):
         # A control glyph that is NOT a route (a type code, or the brand code) in
         # the route slot (right after brand) must reject — mirrors C3 for the type

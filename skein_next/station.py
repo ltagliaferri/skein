@@ -80,8 +80,12 @@ def _title_line(text: Optional[str], limit: int = 100) -> str:
 class Station:
     """The daily-verb service over a content-hash store. Context-manageable."""
 
-    def __init__(self, data_dir: Optional[Union[str, Path]] = None):
-        self.store = SkeinNextStore(data_dir)
+    def __init__(
+        self,
+        data_dir: Optional[Union[str, Path]] = None,
+        check_same_thread: bool = True,
+    ):
+        self.store = SkeinNextStore(data_dir, check_same_thread=check_same_thread)
 
     def close(self) -> None:
         self.store.close()

@@ -71,11 +71,27 @@ CREATE INDEX IF NOT EXISTS idx_folios_created_at ON folios(created_at);
 class SkeinNextStore:
     """Content-hash-native folio/thread/alias store backed by SQLite."""
 
-    def __init__(self, data_dir: Optional[Union[str, Path]] = None):
+    def __init__(
+        self,
+        data_dir: Optional[Union[str, Path]] = None,
+        check_same_thread: bool = True,
+    ):
+        """Open (creating if needed) the store under ``data_dir``.
+
+        ``check_same_thread`` defaults to SQLite's safe single-thread mode, which
+        suits the import bridge and CLI. The web server (Slice 4) opens one store
+        per request and may touch its connection from a different threadpool
+        thread than the one that created it, so it passes ``check_same_thread=
+        False``. That is safe here because a request uses its connection serially
+        (no concurrent access to the same connection); a separate connection per
+        request keeps writers/readers isolated.
+        """
         self.data_dir = Path(data_dir) if data_dir is not None else DEFAULT_DATA_DIR
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / DB_FILENAME
-        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn = sqlite3.connect(
+            str(self.db_path), check_same_thread=check_same_thread
+        )
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
@@ -233,6 +249,56 @@ class SkeinNextStore:
             params.append(limit)
         rows = self.conn.execute("\n".join(sql), params).fetchall()
         return [dict(r) for r in rows]
+
+    def folio_site_slugs(self) -> Dict[str, str]:
+        """Map every member folio's content hash to its site's slug.
+
+        One join over ``within`` edges. If a folio belongs to more than one site
+        (unusual), the alphabetically-first slug wins so the result is
+        deterministic. Used by the web index to label folios with their site
+        without an N+1 per-folio lookup.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT t.from_id AS folio, s.slug AS slug
+            FROM threads t
+            JOIN slugs s ON s.content_hash = t.to_id
+            WHERE t.type = 'within'
+            ORDER BY s.slug
+            """
+        ).fetchall()
+        mapping: Dict[str, str] = {}
+        for r in rows:
+            mapping.setdefault(r["folio"], r["slug"])
+        return mapping
+
+    def latest_statuses(self, folio_hashes: List[str]) -> Dict[str, str]:
+        """Map each given folio hash to its most recent status-thread content.
+
+        Status is thread-derived (there is no status column): a ``type=status``
+        thread points ``to_id`` at the folio, and the latest one by ``created_at``
+        wins. One batched query instead of one per folio. Folios with no status
+        thread are simply absent from the result.
+        """
+        out: Dict[str, str] = {}
+        # Chunk the IN-list to stay well under SQLITE_MAX_VARIABLE_NUMBER (as low
+        # as 999 on older SQLite); a busy project can have far more folios.
+        hashes = list(folio_hashes)
+        for i in range(0, len(hashes), 900):
+            chunk = hashes[i:i + 900]
+            placeholders = ",".join("?" * len(chunk))
+            rows = self.conn.execute(
+                f"""
+                SELECT to_id, content FROM threads
+                WHERE type = 'status' AND to_id IN ({placeholders})
+                ORDER BY created_at
+                """,
+                chunk,
+            ).fetchall()
+            # ascending created_at → the last row written for each folio is newest
+            for r in rows:
+                out[r["to_id"]] = r["content"]
+        return out
 
     # --- threads ------------------------------------------------------------
 

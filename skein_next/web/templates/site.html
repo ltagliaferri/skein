@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ site.site_id }} — SKEIN{% endblock %}
+{% block content %}
+  <p><small><a href="/">{{ project_id }}</a> / {{ site.site_id }}</small></p>
+  <h1>{{ site.site_id }}</h1>
+  <p>{{ site.purpose }}</p>
+
+  <p><small>
+    Filter:
+    <a href="/site/{{ site.site_id }}">all</a>
+    {% for t in available_types %}
+      · <a href="/site/{{ site.site_id }}?type={{ t }}">{{ t }}</a>
+    {% endfor %}
+  </small></p>
+
+  <ul class="folios">
+    {% for f in folios %}
+      <li>
+        [{{ f.type }}] <a href="/folio/{{ f.folio_id }}">{{ f.title | clean_title(f.folio_id) }}</a>
+        <small>{{ f.folio_id }} · {{ f.created_by }} · {{ f.created_at.strftime('%Y-%m-%d') }} · {{ f.status }}</small>
+      </li>
+    {% else %}
+      <li>No folios{% if current_type %} of type {{ current_type }}{% endif %}.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

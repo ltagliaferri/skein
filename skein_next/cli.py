@@ -288,6 +288,24 @@ def site(
         click.echo(f"site {verb}: {slug}  {site_hash}")
 
 
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Bind host.")
+@click.option("--port", default=9001, type=int, help="Bind port (default 9001).")
+@click.pass_context
+def serve(ctx: click.Context, host: str, port: int) -> None:
+    """Serve the read-only web surface (default http://127.0.0.1:9001).
+
+    The web app reads the same station data dir; pass it via --data-dir or
+    $SKEIN_NEXT_DATA_DIR. FastAPI/uvicorn are imported only when this runs.
+    """
+    data_dir = ctx.obj.get("data_dir")
+    if data_dir:
+        os.environ[ENV_DATA_DIR] = data_dir
+    from .web.app import run_server  # lazy: keep the heavy web deps off other verbs
+
+    run_server(host=host, port=port)
+
+
 def main() -> None:
     """Entry point for the ``skein-next`` console script."""
     cli()

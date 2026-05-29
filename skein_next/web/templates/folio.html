@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ folio.title | clean_title(folio.folio_id) }} — SKEIN{% endblock %}
+{% block content %}
+  <p class="meta">
+    <a href="/">{{ project_id }}</a> /
+    <a href="/site/{{ folio.site_id }}">{{ folio.site_id }}</a> /
+    {{ folio.folio_id }}
+  </p>
+
+  <h1>[{{ folio.type }}] {{ folio.title | clean_title(folio.folio_id) }}</h1>
+  <p>
+    <small>{{ folio.created_by }} · {{ folio.created_at.strftime('%Y-%m-%d %H:%M') }} · status: {{ folio.status }}
+    {% if folio.assigned_to %} · assigned: {{ folio.assigned_to }}{% endif %}</small>
+  </p>
+
+  <hr>
+  <p>
+    <strong>Provenance</strong><br>
+    content hash: {% if provenance.content_hash %}<code>{{ provenance.content_hash }}</code>{% else %}(none){% endif %}<br>
+    signature: {{ provenance.signature_note }}
+  </p>
+  <hr>
+
+  <article>
+    {{ body_html | safe }}
+  </article>
+
+  {% if cross_refs %}
+    <h2>References</h2>
+    <ul class="folios">
+      {% for r in cross_refs %}
+        <li>
+          [{{ r.type }}] <a href="/folio/{{ r.folio_id }}">{{ r.title | clean_title(r.folio_id) }}</a>
+          <small>{{ r.folio_id }}</small>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}

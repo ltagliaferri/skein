@@ -41,7 +41,7 @@ from .storage import (
     get_project_store as get_named_project_store,
     get_project_last_activity_timestamps,
 )
-from .address import parse as parse_address
+from .address_legacy import parse as parse_address
 from .utils import (
     generate_folio_id,
     generate_thread_id,

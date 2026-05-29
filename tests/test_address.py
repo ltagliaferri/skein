@@ -1,6 +1,6 @@
 """Tests for SKEIN address parser."""
 
-from skein.address import parse, ParsedAddress
+from skein.address_legacy import parse, ParsedAddress
 
 
 class TestParse:

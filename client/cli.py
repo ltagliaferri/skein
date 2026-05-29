@@ -26,7 +26,7 @@ except ImportError:
     # Fallback if skein package not installed
     generate_agent_name = None
 
-from skein.address import parse as parse_address
+from skein.address_legacy import parse as parse_address
 
 
 def parse_post_site_id(site_id_arg: str) -> tuple:

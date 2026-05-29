@@ -353,6 +353,298 @@ def test_report_counts_merged_duplicate_edges(tmp_path, store):
     assert report.threads_merged == 1
 
 
+# --- actor<->actor edge preservation (FINDING 1) ----------------------------
+
+
+def test_actor_to_actor_succession_keeps_both_endpoints(tmp_path, store):
+    """A session-handoff succession A->B must retain from=A, to=B — not be nulled.
+
+    Both endpoints are distinct actors (sessions), so neither folds into the
+    weaver; the relationship survives instead of becoming a from=None,to=None husk.
+    Type stays ``succession`` (it links sessions, not folios).
+    """
+    db = tmp_path / "legacy.db"
+    threads = [
+        dict(thread_id="s1", from_id="qm-20260105-201613",
+             to_id="goblin-20260106-090000", type="succession",
+             content="handoff", weaver=None,
+             created_at="2026-01-10T00:00:00+00:00"),
+    ]
+    make_legacy_db(db, [], threads)
+    sites_dir = make_sites_dir(tmp_path / "d", [])
+    report = import_project(db, sites_dir, store)
+
+    succ = store.get_threads(type="succession")
+    assert len(succ) == 1
+    assert succ[0]["from_id"] == "qm-20260105-201613"
+    assert succ[0]["to_id"] == "goblin-20260106-090000"
+    # not renamed to supersedes (endpoints are actors, not folios)
+    assert store.get_threads(type="supersedes") == []
+    # both actor identities preserved on the edge; nothing folded, nothing lost
+    assert report.actor_to_actor_edges == 1
+    assert report.actor_endpoints_kept == 2
+    assert report.actor_endpoints_to_weaver == 0
+    assert report.actor_endpoints_dropped == 0
+
+
+def test_actor_to_actor_with_distinct_weaver_preserves_all_three(tmp_path, store):
+    """from=A, to=B, weaver=C (three distinct actors) — all three survive."""
+    db = tmp_path / "legacy.db"
+    threads = [
+        dict(thread_id="m1", from_id="agent-a", to_id="agent-b", type="message",
+             content="hi", weaver="agent-c",
+             created_at="2026-01-11T00:00:00+00:00"),
+    ]
+    make_legacy_db(db, [], threads)
+    sites_dir = make_sites_dir(tmp_path / "d", [])
+    report = import_project(db, sites_dir, store)
+
+    msgs = store.get_threads(type="message")
+    assert len(msgs) == 1
+    assert msgs[0]["from_id"] == "agent-a"
+    assert msgs[0]["to_id"] == "agent-b"
+    assert msgs[0]["weaver"] == "agent-c"
+    assert report.actor_endpoints_dropped == 0
+
+
+def test_no_husks_and_no_dropped_identities(legacy, store):
+    """No thread ends up from=None,to=None,weaver=None, and zero identities drop."""
+    db, sites_dir = legacy
+    report = import_project(db, sites_dir, store)
+    for t in store.get_threads():
+        assert not (t["from_id"] is None
+                    and t["to_id"] is None
+                    and t["weaver"] is None), f"husk thread: {t}"
+    assert report.actor_endpoints_dropped == 0
+    assert report.dropped_examples == []
+
+
+def test_classify_actor_with_folio_type_prefix_guarded_by_known_actors():
+    """FINDING 3: a session id whose prefix is a real folio type is an actor.
+
+    Without the guard, ``brief-20260105-201613`` matches the folio-id shape and
+    'brief' is a folio type, so it would misclassify as an unresolved folio ref.
+    Passing it in known_actors (it appears as a weaver) fixes the classification.
+    """
+    sessionish = "brief-20260105-201613"
+    # unguarded: misreads as unresolved
+    kind, _ = classify_endpoint(sessionish, FOLIO_IDS, FOLIO_TYPES)
+    assert kind == "unresolved"
+    # guarded by the known-actor set: correctly an actor
+    kind, _ = classify_endpoint(sessionish, FOLIO_IDS, FOLIO_TYPES,
+                                known_actors={sessionish})
+    assert kind == "actor"
+
+
+def test_folio_type_prefixed_actor_not_minted_as_bogus_edge(tmp_path, store):
+    """End to end: a folio-type-prefixed session that wove a thread stays an actor."""
+    db = tmp_path / "legacy.db"
+    folios = [
+        dict(folio_id="brief-20260101-aaaa", type="brief", site_id=None,
+             created_at="2026-01-01T10:00:00.111111+00:00", created_by="x",
+             title="t", content="c", status="open", content_hash=None),
+    ]
+    threads = [
+        # 'brief-20260201-120000' is a session (also the weaver), not a folio ref
+        dict(thread_id="x1", from_id="brief-20260201-120000",
+             to_id="brief-20260101-aaaa", type="message", content="m",
+             weaver="brief-20260201-120000",
+             created_at="2026-02-01T12:00:00+00:00"),
+    ]
+    make_legacy_db(db, folios, threads)
+    sites_dir = make_sites_dir(tmp_path / "d", [])
+    report = import_project(db, sites_dir, store)
+    # the session folded to weaver; it was NOT counted as an unresolved folio ref
+    assert report.unresolved_refs == 0
+    m = store.get_threads(type="message")[0]
+    assert m["weaver"] == "brief-20260201-120000"
+    assert m["from_id"] is None
+    assert m["to_id"] == store.resolve_alias("brief-20260101-aaaa")
+
+
+# --- dropped-column accounting (FINDING 2) ----------------------------------
+
+_LEGACY_SCHEMA_WITH_EXTRAS = """
+CREATE TABLE folios (
+    folio_id     TEXT PRIMARY KEY,
+    type         TEXT,
+    site_id      TEXT,
+    created_at   TEXT,
+    created_by   TEXT,
+    title        TEXT,
+    content      TEXT,
+    status       TEXT,
+    content_hash TEXT,
+    metadata     TEXT,
+    target_agent TEXT
+);
+CREATE TABLE threads (
+    thread_id  TEXT PRIMARY KEY,
+    from_id    TEXT,
+    to_id      TEXT,
+    type       TEXT,
+    content    TEXT,
+    weaver     TEXT,
+    created_at TEXT
+);
+"""
+
+
+def test_dropped_legacy_columns_are_counted(tmp_path, store):
+    """metadata / target_agent are not carried, but the loss must be visible."""
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(_LEGACY_SCHEMA_WITH_EXTRAS)
+    rows = [
+        # populated metadata + target_agent
+        ("brief-20260101-aaaa", "brief", None, "2026-01-01T10:00:00.1+00:00",
+         "x", "t1", "c1", "open", None, '{"k":"v"}', "agent-z"),
+        # populated metadata, no target_agent
+        ("brief-20260102-bbbb", "brief", None, "2026-01-02T10:00:00.2+00:00",
+         "x", "t2", "c2", "open", None, '{"a":1}', None),
+        # trivial-empty metadata ({}) and empty target_agent -> not counted
+        ("brief-20260103-cccc", "brief", None, "2026-01-03T10:00:00.3+00:00",
+         "x", "t3", "c3", "open", None, "{}", ""),
+    ]
+    for r in rows:
+        conn.execute(
+            "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,"
+            "title,content,status,content_hash,metadata,target_agent) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)", r,
+        )
+    conn.commit()
+    conn.close()
+    sites_dir = make_sites_dir(tmp_path / "d", [])
+    report = import_project(db, sites_dir, store)
+
+    assert report.dropped_folio_columns.get("metadata") == 2
+    assert report.dropped_folio_columns.get("target_agent") == 1
+    # and the loss shows up in the rendered report
+    rendered = report.render()
+    assert "metadata populated in 2 folios" in rendered
+    assert "target_agent populated in 1 folios" in rendered
+
+
+_LEGACY_SCHEMA_WITH_FLAG = """
+CREATE TABLE folios (
+    folio_id     TEXT PRIMARY KEY,
+    type         TEXT,
+    site_id      TEXT,
+    created_at   TEXT,
+    created_by   TEXT,
+    title        TEXT,
+    content      TEXT,
+    status       TEXT,
+    content_hash TEXT,
+    archived     INTEGER
+);
+CREATE TABLE threads (
+    thread_id  TEXT PRIMARY KEY, from_id TEXT, to_id TEXT, type TEXT,
+    content TEXT, weaver TEXT, created_at TEXT
+);
+"""
+
+
+def test_all_zero_flag_column_not_reported_as_loss(tmp_path, store):
+    """A default-0 boolean flag (every row 0) carries no info and is not flagged;
+    a flag with real 1 values surfaces the count of set rows."""
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(_LEGACY_SCHEMA_WITH_FLAG)
+    rows = [
+        ("brief-20260101-aaaa", "brief", None, "2026-01-01T10:00:00.1+00:00",
+         "x", "t", "c", "open", None, 0),
+        ("brief-20260102-bbbb", "brief", None, "2026-01-02T10:00:00.2+00:00",
+         "x", "t", "c", "open", None, 0),
+    ]
+    for r in rows:
+        conn.execute(
+            "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,"
+            "title,content,status,content_hash,archived) VALUES (?,?,?,?,?,?,?,?,?,?)", r,
+        )
+    conn.commit(); conn.close()
+    sites_dir = make_sites_dir(tmp_path / "d", [])
+    report = import_project(db, sites_dir, store)
+    assert "archived" not in report.dropped_folio_columns
+
+    # now one row archived=1 -> surfaced with count 1
+    db2 = tmp_path / "legacy2.db"
+    conn = sqlite3.connect(str(db2))
+    conn.executescript(_LEGACY_SCHEMA_WITH_FLAG)
+    conn.execute(
+        "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,"
+        "title,content,status,content_hash,archived) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        ("brief-20260103-cccc", "brief", None, "2026-01-03T10:00:00.3+00:00",
+         "x", "t", "c", "open", None, 1),
+    )
+    conn.commit(); conn.close()
+    store2 = SkeinNextStore(data_dir=tmp_path / ".skein-next2")
+    report2 = import_project(db2, sites_dir, store2)
+    assert report2.dropped_folio_columns.get("archived") == 1
+    store2.close()
+
+
+def test_succession_self_loop_folds_to_weaver_no_husk(tmp_path, store):
+    """A self-succession (from==to, same session) has no distinct second party.
+
+    It folds to weaver (identity preserved) rather than nulling into a husk; it is
+    not an actor<->actor edge and nothing is dropped.
+    """
+    db = tmp_path / "legacy.db"
+    threads = [
+        dict(thread_id="ss", from_id="cc-session-20251107",
+             to_id="cc-session-20251107", type="succession", content="self",
+             weaver=None, created_at="2026-01-12T00:00:00+00:00"),
+    ]
+    make_legacy_db(db, [], threads)
+    sites_dir = make_sites_dir(tmp_path / "d", [])
+    report = import_project(db, sites_dir, store)
+    succ = store.get_threads(type="succession")
+    assert len(succ) == 1
+    assert succ[0]["from_id"] is None and succ[0]["to_id"] is None
+    assert succ[0]["weaver"] == "cc-session-20251107"  # identity preserved
+    assert report.actor_to_actor_edges == 0
+    assert report.actor_endpoints_dropped == 0
+
+
+def test_no_dropped_columns_when_schema_is_canonical(legacy, store):
+    """The plain legacy schema (no extra columns) reports zero dropped columns."""
+    db, sites_dir = legacy
+    report = import_project(db, sites_dir, store)
+    assert report.dropped_folio_columns == {}
+    assert report.dropped_thread_columns == {}
+
+
+# --- unresolved occurrences vs distinct -------------------------------------
+
+
+def test_unresolved_refs_tracks_distinct(tmp_path, store):
+    """The same dangling ref used twice is 2 occurrences but 1 distinct id."""
+    db = tmp_path / "legacy.db"
+    folios = [
+        dict(folio_id="brief-20260101-aaaa", type="brief", site_id=None,
+             created_at="2026-01-01T10:00:00.1+00:00", created_by="x",
+             title="t", content="c", status="open", content_hash=None),
+        dict(folio_id="finding-20260102-bbbb", type="finding", site_id=None,
+             created_at="2026-01-02T10:00:00.2+00:00", created_by="x",
+             title="t", content="c", status="open", content_hash=None),
+    ]
+    threads = [
+        dict(thread_id="u1", from_id="brief-20260101-aaaa",
+             to_id="brief-29991231-zzzz", type="mention", content="a",
+             weaver="x", created_at="2026-01-05T00:00:00+00:00"),
+        dict(thread_id="u2", from_id="finding-20260102-bbbb",
+             to_id="brief-29991231-zzzz", type="mention", content="b",
+             weaver="x", created_at="2026-01-06T00:00:00+00:00"),
+    ]
+    make_legacy_db(db, folios, threads)
+    sites_dir = make_sites_dir(tmp_path / "d", [])
+    report = import_project(db, sites_dir, store)
+    assert report.unresolved_refs == 2
+    assert len(report.unresolved_distinct) == 1
+    assert "2 occurrences (1 distinct" in report.render()
+
+
 # --- read-only safety -------------------------------------------------------
 
 

@@ -16,13 +16,31 @@ What it does, and the decisions behind each step:
 2. **Thread endpoints** are classified three ways (open-call #2):
    - a folio id present in this project -> resolved to its content hash;
    - an actor (agent name, shard hex, session string — anything that is not a
-     folio id here) -> this is the *weaver*, not an edge endpoint, so it is
-     routed to the thread's weaver and the edge position is cleared;
+     folio id here);
    - a folio-id-shaped reference that is not present in this project (dangling or
      cross-project ``proj:id``) -> kept verbatim as the legacy id so it resolves
      lazily through the alias table if the target ever imports.
-   Thread types pass through untouched; the sole rename is
-   ``succession -> supersedes`` when the link actually joins two folios.
+
+   Actor endpoints are handled by *meaning*, not by a blanket "actors are
+   weavers" rule (the from/to columns are untyped TEXT and already hold non-hash
+   strings — that is exactly how unresolved/cross-project refs are kept):
+
+   - **Actor relates to a folio** (the other endpoint is a folio/unresolved/none):
+     the actor folds into the thread's ``weaver`` and its edge slot clears. This
+     is the lossless case — the actor's identity survives as the weaver.
+   - **Actor relates to an actor** (both endpoints are *distinct* actors, e.g. a
+     ``succession`` session-handoff A->B, or agent-to-agent message/mention):
+     both actor strings are kept verbatim on the edge, same as an unresolved ref.
+     Nulling them would produce ``from=None,to=None`` husks that erase the
+     relationship; instead the new store keeps ``from=A,to=B``.
+
+   There are three identity slots (from, to, weaver) and at most three legacy
+   identities (from-actor, to-actor, legacy weaver), so no actor identity is ever
+   dropped: each endpoint ends up a resolved folio hash, a kept actor/unresolved
+   string, or folded into a weaver that holds that same identity. Thread types
+   pass through untouched; the sole rename is ``succession -> supersedes`` when
+   the link actually joins two folios (session-to-session succession stays
+   ``succession`` with both endpoints intact).
 
 3. **Sites** (filesystem JSON under ``.skein/data/sites/``) each become a
    ``type=site`` folio (content = its purpose); every member folio gets a
@@ -33,9 +51,12 @@ What it does, and the decisions behind each step:
    twice against a frozen source yields an identical store.
 
 5. **No silent loss.** :class:`ImportReport` accounts for what carried, what was
-   reclassified (actors->weaver, unresolved refs kept), and anything dropped or
-   merged — including genuinely-distinct edges the thread hash collapses
-   (a Slice 1 fell note).
+   reclassified (actors->weaver, actor<->actor edges kept, unresolved refs kept),
+   and anything merged — including genuinely-distinct edges the thread hash
+   collapses (a Slice 1 fell note). It also counts populated legacy *columns* the
+   new model does not carry (e.g. ``metadata``, ``target_agent``) so that loss is
+   visible and the carry-or-drop decision is informed, not silent. Whether to
+   carry those into the new model is a separate product call.
 """
 
 from __future__ import annotations
@@ -66,6 +87,12 @@ def open_legacy(db_path: Union[str, Path]) -> sqlite3.Connection:
     filesystem). Falls back to ``immutable=1`` when the database sits on a
     read-only mount, where ``mode=ro`` cannot create the shared-memory/journal
     files SQLite wants. Both modes are read-only; neither writes the source.
+
+    Caveat: ``immutable=1`` tells SQLite the file cannot change, so it does not
+    consult the ``-wal`` sidecar. If the source db has uncommitted WAL frames
+    (an open writer mid-transaction), the immutable fallback can read a slightly
+    stale snapshot that omits them. This is fine for a frozen cutover (the source
+    is quiescent and checkpointed); ``mode=ro``, tried first, is WAL-aware.
     """
     p = str(Path(db_path))
     last_err: Optional[Exception] = None
@@ -104,6 +131,7 @@ def classify_endpoint(
     endpoint: Optional[str],
     folio_ids: Set[str],
     folio_types: Set[str],
+    known_actors: Optional[Set[str]] = None,
 ) -> Tuple[str, Optional[str]]:
     """Classify a legacy thread endpoint.
 
@@ -112,12 +140,25 @@ def classify_endpoint(
     - ``"folio"``       — a folio present in this project (resolve via alias);
     - ``"unresolved"``  — a folio-id-shaped ref not present here (dangling or
                           cross-project); ``value`` is the legacy id to keep;
-    - ``"actor"``       — anything else (agent/session/shard); route to weaver.
+    - ``"actor"``       — anything else (agent/session/shard).
+
+    ``known_actors`` is an optional set of strings already known to be actors —
+    in the bridge it is every distinct ``threads.weaver`` value. It guards the
+    one ambiguous shape (FINDING 3): an actor id like ``<type>-<8digits>-<suffix>``
+    whose prefix happens to coincide with a real folio type (e.g. a session named
+    ``brief-20260105-201613``) would otherwise be misread as an unresolved folio
+    ref and minted as a bogus edge. Checking it against the actor set first
+    classifies it correctly. Residual assumption: an actor with a folio-type
+    prefix that *never* appears as a weaver anywhere in the corpus is not covered
+    by this guard (zero such occurrences observed); the shape heuristic would
+    still mark it unresolved.
     """
     if endpoint is None:
         return ("none", None)
     if endpoint in folio_ids:
         return ("folio", endpoint)
+    if known_actors and endpoint in known_actors:
+        return ("actor", endpoint)
     base = endpoint.split(":", 1)[1] if ":" in endpoint else endpoint
     m = _FOLIO_ID_SHAPE.match(base)
     if m and m.group(1).lower() in folio_types:
@@ -147,13 +188,22 @@ class ImportReport:
     within_threads: int = 0          # synthesized folio->site membership edges
     within_unresolved: int = 0       # member folios whose site had no JSON
 
-    actor_endpoints_to_weaver: int = 0   # endpoint occurrences routed off the edge
-    actor_endpoints_dropped: int = 0     # actor identities lost (weaver holds only one)
+    actor_endpoints_to_weaver: int = 0   # actor endpoint occurrences folded to weaver (lossless)
+    actor_endpoints_kept: int = 0        # actor endpoint occurrences kept verbatim on the edge
+    actor_to_actor_edges: int = 0        # threads kept as a distinct actor<->actor relationship
+    actor_endpoints_dropped: int = 0     # actor identities that could not be represented (must stay 0)
     dropped_examples: List[str] = field(default_factory=list)
 
-    unresolved_refs: int = 0         # folio-shaped endpoints kept as legacy ids
+    unresolved_refs: int = 0         # folio-shaped endpoint occurrences kept as legacy ids
+    unresolved_distinct: Set[str] = field(default_factory=set)  # distinct legacy ids kept
     cross_project_refs: int = 0      # subset of unresolved with a ``proj:`` prefix
     dangling_refs: int = 0           # subset of unresolved without a prefix
+
+    # Populated legacy columns the new model does not carry (FINDING 2). Loss is
+    # made visible here rather than vanishing silently; carrying them is a
+    # separate product call. column name -> count of rows with a non-empty value.
+    dropped_folio_columns: Dict[str, int] = field(default_factory=dict)
+    dropped_thread_columns: Dict[str, int] = field(default_factory=dict)
 
     succession_renamed: int = 0      # succession -> supersedes
 
@@ -172,16 +222,29 @@ class ImportReport:
             f"within threads: {self.within_threads} (unresolved site refs {self.within_unresolved})",
             f"threads: carried {self.threads_carried} of {self.threads_seen} seen",
             f"threads merged (distinct legacy edges collapsed to one hash): {self.threads_merged}",
-            f"actor endpoints routed to weaver: {self.actor_endpoints_to_weaver}",
-            f"actor endpoints dropped (identity lost): {self.actor_endpoints_dropped}",
-            f"unresolved refs kept as legacy ids: {self.unresolved_refs} "
-            f"(cross-project {self.cross_project_refs}, dangling {self.dangling_refs})",
+            f"actor endpoints folded to weaver (lossless): {self.actor_endpoints_to_weaver}",
+            f"actor endpoints kept verbatim on edge: {self.actor_endpoints_kept}",
+            f"actor<->actor edges preserved (both endpoints kept): {self.actor_to_actor_edges}",
+            f"actor identities dropped (unrepresentable): {self.actor_endpoints_dropped}",
+            f"unresolved refs kept as legacy ids: {self.unresolved_refs} occurrences "
+            f"({len(self.unresolved_distinct)} distinct; "
+            f"cross-project {self.cross_project_refs}, dangling {self.dangling_refs})",
             f"succession renamed to supersedes: {self.succession_renamed}",
             f"non-open folios without a status thread: {self.status_without_thread}",
         ]
+        for col, n in sorted(self.dropped_folio_columns.items()):
+            lines.append(
+                f"legacy folio column not carried: {col} populated in {n} folios"
+            )
+        for col, n in sorted(self.dropped_thread_columns.items()):
+            lines.append(
+                f"legacy thread column not carried: {col} populated in {n} threads"
+            )
         for ex in self.merge_examples[:5]:
             lines.append(f"  merged: {ex}")
-        for ex in self.dropped_examples[:5]:
+        # Dropped actor identities must never happen; if any do, enumerate ALL of
+        # them (no cap) — silent truncation here would hide real relational loss.
+        for ex in self.dropped_examples:
             lines.append(f"  dropped actor: {ex}")
         for ex in self.status_examples[:5]:
             lines.append(f"  status-only: {ex}")
@@ -194,6 +257,53 @@ _FOLIO_COLS = ("folio_id", "type", "site_id", "created_at", "created_by",
                "title", "content", "status")
 _THREAD_COLS = ("thread_id", "from_id", "to_id", "type", "content", "weaver",
                 "created_at")
+
+
+# Legacy columns the bridge already accounts for, so they are NOT silent loss:
+# folio_id -> alias, site_id -> within thread, status -> status-thread audit,
+# content_hash -> deliberately re-minted (never trusted). The five canonical
+# fields carry into the new folio. Any *other* populated column is invisible loss
+# unless the report counts it (FINDING 2).
+_ACCOUNTED_FOLIO_COLS = {
+    "folio_id", "type", "site_id", "created_at", "created_by",
+    "title", "content", "status", "content_hash",
+}
+# Threads are content-addressed; thread_id is replaced by the hash. The other
+# six columns carry into the new thread.
+_ACCOUNTED_THREAD_COLS = {
+    "thread_id", "from_id", "to_id", "type", "content", "weaver", "created_at",
+}
+
+
+def _populated_unaccounted_columns(
+    conn: sqlite3.Connection, table: str, accounted: Set[str]
+) -> Dict[str, int]:
+    """Count rows with a non-empty value in each legacy column not carried.
+
+    Defensive about schema drift: legacy databases vary (tome lacks columns
+    speakbot has), so the present columns are read from ``PRAGMA table_info`` and
+    only the ones outside ``accounted`` are counted. A value counts as populated
+    when it is non-NULL and, cast to text and trimmed, is not a default/empty
+    token: ``''``, ``{}``, ``[]``, ``null``, or ``0``. Excluding ``0`` keeps an
+    all-default boolean flag (e.g. an ``archived`` column that is ``0`` for every
+    row, carrying no information to migrate) from being reported as phantom loss,
+    while a flag with real ``1`` values still surfaces its count of set rows. The
+    SKEIN folio/thread schema has no column where a literal ``0`` is meaningful
+    content, so this does not undercount real data.
+    """
+    present = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+    counts: Dict[str, int] = {}
+    for col in present:
+        if col in accounted:
+            continue
+        n = conn.execute(
+            f'SELECT COUNT(*) FROM {table} '
+            f'WHERE "{col}" IS NOT NULL '
+            f"AND TRIM(CAST(\"{col}\" AS TEXT)) NOT IN ('', '{{}}', '[]', 'null', '0')"
+        ).fetchone()[0]
+        if n:
+            counts[col] = n
+    return counts
 
 
 def _load_sites(sites_dir: Path) -> List[Dict[str, Any]]:
@@ -216,49 +326,74 @@ def _resolve_thread_endpoints(
     store: SkeinNextStore,
     folio_ids: Set[str],
     folio_types: Set[str],
+    known_actors: Set[str],
     report: ImportReport,
 ) -> Tuple[Optional[str], Optional[str], Optional[str], List[str]]:
     """Map a legacy edge to new (from, to, weaver), classifying each endpoint.
 
     Returns ``(new_from, new_to, weaver, endpoint_kinds)``.
+
+    Folio and unresolved endpoints resolve directly (hash / kept legacy id).
+    Actor endpoints are placed by meaning, never blindly nulled:
+
+    - When the two endpoints are *distinct actors*, the thread is an actor<->actor
+      relationship (e.g. a session-handoff succession A->B): both actor strings
+      are kept verbatim on the edge. The legacy weaver, if any, stays the weaver.
+    - Otherwise (at most one distinct actor across the edges, including an actor
+      self-loop) the actor folds into the weaver slot and its edge clears — but
+      only when that is lossless: if the weaver slot already holds a *different*
+      identity, the actor is kept verbatim on its edge instead of being dropped.
+
+    With three slots (from, to, weaver) and at most three legacy identities, every
+    actor identity always finds a home; ``actor_endpoints_dropped`` stays 0.
     """
-    new_vals: List[Optional[str]] = []
-    kinds: List[str] = []
-    actors: List[str] = []
-    for eid in (from_id, to_id):
-        kind, value = classify_endpoint(eid, folio_ids, folio_types)
-        kinds.append(kind)
+    classified = [
+        classify_endpoint(eid, folio_ids, folio_types, known_actors)
+        for eid in (from_id, to_id)
+    ]
+    kinds = [k for k, _ in classified]
+
+    new_vals: List[Optional[str]] = [None, None]
+    for i, (kind, value) in enumerate(classified):
         if kind == "folio":
-            new_vals.append(store.resolve_alias(value))
+            new_vals[i] = store.resolve_alias(value)
         elif kind == "unresolved":
-            new_vals.append(value)
+            new_vals[i] = value
             report.unresolved_refs += 1
+            report.unresolved_distinct.add(value)
             if ":" in value:
                 report.cross_project_refs += 1
             else:
                 report.dangling_refs += 1
-        elif kind == "actor":
-            new_vals.append(None)
-            actors.append(value)
-            report.actor_endpoints_to_weaver += 1
-        else:  # none
-            new_vals.append(None)
+        # "actor" and "none" are decided below (none stays None).
 
-    # The actor is the weaver, not an edge endpoint. Prefer the legacy weaver;
-    # fold in actor endpoints. With one weaver slot, any further distinct identity
-    # is genuine loss — count and surface it rather than dropping it silently.
-    candidates: List[str] = []
-    if legacy_weaver:
-        candidates.append(legacy_weaver)
-    candidates.extend(actors)
-    distinct = list(dict.fromkeys(candidates))
-    weaver = distinct[0] if distinct else None
-    if len(distinct) > 1:
-        report.actor_endpoints_dropped += len(distinct) - 1
-        if len(report.dropped_examples) < 20:
-            report.dropped_examples.append(
-                f"kept weaver {distinct[0]!r}, lost {distinct[1:]!r}"
-            )
+    edge_actors = [
+        (i, value) for i, (kind, value) in enumerate(classified) if kind == "actor"
+    ]
+    distinct_actors = list(dict.fromkeys(value for _, value in edge_actors))
+    weaver = legacy_weaver
+
+    if len(distinct_actors) >= 2:
+        # Actor<->actor: keep both endpoints verbatim, fold nothing. The weaver
+        # (if present) is a third identity and still fits its own slot.
+        for i, value in edge_actors:
+            new_vals[i] = value
+        report.actor_to_actor_edges += 1
+        report.actor_endpoints_kept += len(edge_actors)
+    else:
+        # Zero or one distinct actor across the edges: fold into the weaver slot
+        # where lossless, keep verbatim only when the slot is already taken by a
+        # different identity (so nothing is ever dropped).
+        for i, value in edge_actors:
+            if weaver is None:
+                weaver = value
+                report.actor_endpoints_to_weaver += 1
+            elif weaver == value:
+                report.actor_endpoints_to_weaver += 1
+            else:
+                new_vals[i] = value
+                report.actor_endpoints_kept += 1
+
     return new_vals[0], new_vals[1], weaver, kinds
 
 
@@ -277,6 +412,28 @@ def import_project(
             r[0] for r in conn.execute("SELECT folio_id FROM folios")
         }
         folio_types = _folio_types(conn)
+        # Every distinct weaver is unambiguously an actor; used to disambiguate a
+        # folio-type-prefixed actor id from a real unresolved folio ref (FINDING 3).
+        known_actors: Set[str] = {
+            r[0] for r in conn.execute("SELECT DISTINCT weaver FROM threads")
+            if r[0]
+        }
+
+        # Account for populated legacy columns the new model does not carry, so
+        # the loss is visible rather than silent (FINDING 2).
+        report.dropped_folio_columns = _populated_unaccounted_columns(
+            conn, "folios", _ACCOUNTED_FOLIO_COLS
+        )
+        report.dropped_thread_columns = _populated_unaccounted_columns(
+            conn, "threads", _ACCOUNTED_THREAD_COLS
+        )
+        if report.dropped_folio_columns or report.dropped_thread_columns:
+            report.notes.append(
+                "populated legacy columns above are not carried into the new "
+                "model (the five canonical folio fields plus thread from/to/type/"
+                "weaver/created_at/content are). Loss is counted, not silent; "
+                "whether to carry these is a separate product call"
+            )
 
         # --- folios -> hashes + aliases -------------------------------------
         seen_hashes: Set[str] = set()
@@ -326,7 +483,7 @@ def import_project(
                 report.threads_seen += 1
                 new_from, new_to, weaver, kinds = _resolve_thread_endpoints(
                     row["from_id"], row["to_id"], row["weaver"],
-                    store, folio_ids, folio_types, report,
+                    store, folio_ids, folio_types, known_actors, report,
                 )
                 ttype = row["type"]
                 if ttype == "succession" and all(

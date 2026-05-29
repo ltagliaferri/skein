@@ -399,6 +399,14 @@ class TestAlphabetInvariants:
             assert E.ALPHABET.role(lo) == role
             assert E.ALPHABET.role(hi) == role
 
+    def test_RANGES_are_the_pinned_five_spans(self, codec):
+        # The public API lists ALPHABET.RANGES; pin the exact spans so an impl
+        # can't omit or misstate them while role() boundaries still pass (fell-r4).
+        assert E.ALPHABET.RANGES == (
+            (0, 783, "cluster"), (784, 811, "singleton"), (812, 821, "digit"),
+            (822, 838, "control"), (839, 1023, "reserved"),
+        )
+
     def test_control_boundary_is_822_838(self, codec):
         # The boundary is permanent across versions (finding 10).
         assert E.ALPHABET.role(821) != "control"
@@ -443,6 +451,7 @@ def _assert_manifest_invariants(man):
     assert brand.isdisjoint(route_cps)
     assert brand.isdisjoint(type_cps)
     assert route_cps.isdisjoint(type_cps)
+    assert man.version == 1                       # this contract is v1-only (fell-r4)
     assert man.identity_length == IDENTITY_LEN
     assert man.packing_order == "big-endian"
     assert man.extension_sentinel == SENTINEL_CP

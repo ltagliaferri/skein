@@ -6,6 +6,7 @@ pydantic>=2.12.0; python_version >= "3.9"
 click>=8.1.0
 requests>=2.32.0
 GitPython>=3.1.0
+markdown-it-py>=3.0.0
 
 # Signing (skein/signing.py is shipped library code that imports sigstore;
 # sigstore brings cryptography transitively). Runtime dep, not test-only.

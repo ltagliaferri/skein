@@ -48,7 +48,12 @@ htmlcov/
 *.db
 *.log
 .skein/
+.skein-next/
 data/
+
+# Agent scratch dirs (kept out of commits to avoid shared-tree sweep)
+.cache/
+.local/
 worktrees/
 
 # Asciinema recordings

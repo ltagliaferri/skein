@@ -1,0 +1,1024 @@
+   0 U+231A   ⌚  cluster   aa   WATCH
+   1 U+231B   ⌛  cluster   ab   HOURGLASS
+   2 U+2648   ♈  cluster   ac   ARIES
+   3 U+2649   ♉  cluster   ad   TAURUS
+   4 U+264A   ♊  cluster   ae   GEMINI
+   5 U+264B   ♋  cluster   af   CANCER
+   6 U+264C   ♌  cluster   ag   LEO
+   7 U+264D   ♍  cluster   ah   VIRGO
+   8 U+264E   ♎  cluster   ai   LIBRA
+   9 U+264F   ♏  cluster   aj   SCORPIUS
+  10 U+2650   ♐  cluster   ak   SAGITTARIUS
+  11 U+2651   ♑  cluster   al   CAPRICORN
+  12 U+2652   ♒  cluster   am   AQUARIUS
+  13 U+2653   ♓  cluster   an   PISCES
+  14 U+25FD   ◽  cluster   ao   WHITE MEDIUM SMALL SQUARE
+  15 U+25FE   ◾  cluster   ap   BLACK MEDIUM SMALL SQUARE
+  16 U+2614   ☔  cluster   aq   UMBRELLA WITH RAIN DROPS
+  17 U+2615   ☕  cluster   ar   HOT BEVERAGE
+  18 U+26A1   ⚡  cluster   as   HIGH VOLTAGE SIGN
+  19 U+267F   ♿  cluster   at   WHEELCHAIR SYMBOL
+  20 U+2693   ⚓  cluster   au   ANCHOR
+  21 U+26AA   ⚪  cluster   av   MEDIUM WHITE CIRCLE
+  22 U+26AB   ⚫  cluster   aw   MEDIUM BLACK CIRCLE
+  23 U+2B1B   ⬛  cluster   ax   BLACK LARGE SQUARE
+  24 U+2B1C   ⬜  cluster   ay   WHITE LARGE SQUARE
+  25 U+2B50   ⭐  cluster   az   WHITE MEDIUM STAR
+  26 U+1F004  🀄  cluster   a.   MAHJONG TILE RED DRAGON
+  27 U+26BD   ⚽  cluster   a-   SOCCER BALL
+  28 U+26BE   ⚾  cluster   ba   BASEBALL
+  29 U+26C4   ⛄  cluster   bb   SNOWMAN WITHOUT SNOW
+  30 U+26C5   ⛅  cluster   bc   SUN BEHIND CLOUD
+  31 U+26EA   ⛪  cluster   bd   CHURCH
+  32 U+26F2   ⛲  cluster   be   FOUNTAIN
+  33 U+26F3   ⛳  cluster   bf   FLAG IN HOLE
+  34 U+26F5   ⛵  cluster   bg   SAILBOAT
+  35 U+26FA   ⛺  cluster   bh   TENT
+  36 U+26FD   ⛽  cluster   bi   FUEL PUMP
+  37 U+23E9   ⏩  cluster   bj   BLACK RIGHT-POINTING DOUBLE TRIANGLE
+  38 U+23EA   ⏪  cluster   bk   BLACK LEFT-POINTING DOUBLE TRIANGLE
+  39 U+23EB   ⏫  cluster   bl   BLACK UP-POINTING DOUBLE TRIANGLE
+  40 U+23EC   ⏬  cluster   bm   BLACK DOWN-POINTING DOUBLE TRIANGLE
+  41 U+23F0   ⏰  cluster   bn   ALARM CLOCK
+  42 U+23F3   ⏳  cluster   bo   HOURGLASS WITH FLOWING SAND
+  43 U+26CE   ⛎  cluster   bp   OPHIUCHUS
+  44 U+2705   ✅  cluster   bq   WHITE HEAVY CHECK MARK
+  45 U+270A   ✊  cluster   br   RAISED FIST
+  46 U+270B   ✋  cluster   bs   RAISED HAND
+  47 U+2728   ✨  cluster   bt   SPARKLES
+  48 U+1F0CF  🃏  cluster   bu   PLAYING CARD BLACK JOKER
+  49 U+1F300  🌀  cluster   bv   CYCLONE
+  50 U+1F301  🌁  cluster   bw   FOGGY
+  51 U+1F302  🌂  cluster   bx   CLOSED UMBRELLA
+  52 U+1F303  🌃  cluster   by   NIGHT WITH STARS
+  53 U+1F304  🌄  cluster   bz   SUNRISE OVER MOUNTAINS
+  54 U+1F305  🌅  cluster   b.   SUNRISE
+  55 U+1F306  🌆  cluster   b-   CITYSCAPE AT DUSK
+  56 U+1F307  🌇  cluster   ca   SUNSET OVER BUILDINGS
+  57 U+1F308  🌈  cluster   cb   RAINBOW
+  58 U+1F309  🌉  cluster   cc   BRIDGE AT NIGHT
+  59 U+1F30A  🌊  cluster   cd   WATER WAVE
+  60 U+1F30B  🌋  cluster   ce   VOLCANO
+  61 U+1F30C  🌌  cluster   cf   MILKY WAY
+  62 U+1F30D  🌍  cluster   cg   EARTH GLOBE EUROPE-AFRICA
+  63 U+1F30E  🌎  cluster   ch   EARTH GLOBE AMERICAS
+  64 U+1F30F  🌏  cluster   ci   EARTH GLOBE ASIA-AUSTRALIA
+  65 U+1F310  🌐  cluster   cj   GLOBE WITH MERIDIANS
+  66 U+1F311  🌑  cluster   ck   NEW MOON SYMBOL
+  67 U+1F312  🌒  cluster   cl   WAXING CRESCENT MOON SYMBOL
+  68 U+1F313  🌓  cluster   cm   FIRST QUARTER MOON SYMBOL
+  69 U+1F314  🌔  cluster   cn   WAXING GIBBOUS MOON SYMBOL
+  70 U+1F315  🌕  cluster   co   FULL MOON SYMBOL
+  71 U+1F316  🌖  cluster   cp   WANING GIBBOUS MOON SYMBOL
+  72 U+1F317  🌗  cluster   cq   LAST QUARTER MOON SYMBOL
+  73 U+1F318  🌘  cluster   cr   WANING CRESCENT MOON SYMBOL
+  74 U+1F319  🌙  cluster   cs   CRESCENT MOON
+  75 U+1F31A  🌚  cluster   ct   NEW MOON WITH FACE
+  76 U+1F31B  🌛  cluster   cu   FIRST QUARTER MOON WITH FACE
+  77 U+1F31C  🌜  cluster   cv   LAST QUARTER MOON WITH FACE
+  78 U+1F31D  🌝  cluster   cw   FULL MOON WITH FACE
+  79 U+1F31E  🌞  cluster   cx   SUN WITH FACE
+  80 U+1F31F  🌟  cluster   cy   GLOWING STAR
+  81 U+1F320  🌠  cluster   cz   SHOOTING STAR
+  82 U+1F330  🌰  cluster   c.   CHESTNUT
+  83 U+1F331  🌱  cluster   c-   SEEDLING
+  84 U+1F332  🌲  cluster   da   EVERGREEN TREE
+  85 U+1F333  🌳  cluster   db   DECIDUOUS TREE
+  86 U+1F334  🌴  cluster   dc   PALM TREE
+  87 U+1F335  🌵  cluster   dd   CACTUS
+  88 U+1F337  🌷  cluster   de   TULIP
+  89 U+1F338  🌸  cluster   df   CHERRY BLOSSOM
+  90 U+1F339  🌹  cluster   dg   ROSE
+  91 U+1F33A  🌺  cluster   dh   HIBISCUS
+  92 U+1F33B  🌻  cluster   di   SUNFLOWER
+  93 U+1F33C  🌼  cluster   dj   BLOSSOM
+  94 U+1F33D  🌽  cluster   dk   EAR OF MAIZE
+  95 U+1F33E  🌾  cluster   dl   EAR OF RICE
+  96 U+1F33F  🌿  cluster   dm   HERB
+  97 U+1F340  🍀  cluster   dn   FOUR LEAF CLOVER
+  98 U+1F341  🍁  cluster   do   MAPLE LEAF
+  99 U+1F342  🍂  cluster   dp   FALLEN LEAF
+ 100 U+1F343  🍃  cluster   dq   LEAF FLUTTERING IN WIND
+ 101 U+1F344  🍄  cluster   dr   MUSHROOM
+ 102 U+1F345  🍅  cluster   ds   TOMATO
+ 103 U+1F346  🍆  cluster   dt   AUBERGINE
+ 104 U+1F347  🍇  cluster   du   GRAPES
+ 105 U+1F348  🍈  cluster   dv   MELON
+ 106 U+1F349  🍉  cluster   dw   WATERMELON
+ 107 U+1F34A  🍊  cluster   dx   TANGERINE
+ 108 U+1F34B  🍋  cluster   dy   LEMON
+ 109 U+1F34C  🍌  cluster   dz   BANANA
+ 110 U+1F34D  🍍  cluster   d.   PINEAPPLE
+ 111 U+1F34E  🍎  cluster   d-   RED APPLE
+ 112 U+1F34F  🍏  cluster   ea   GREEN APPLE
+ 113 U+1F350  🍐  cluster   eb   PEAR
+ 114 U+1F351  🍑  cluster   ec   PEACH
+ 115 U+1F352  🍒  cluster   ed   CHERRIES
+ 116 U+1F353  🍓  cluster   ee   STRAWBERRY
+ 117 U+1F354  🍔  cluster   ef   HAMBURGER
+ 118 U+1F355  🍕  cluster   eg   SLICE OF PIZZA
+ 119 U+1F356  🍖  cluster   eh   MEAT ON BONE
+ 120 U+1F357  🍗  cluster   ei   POULTRY LEG
+ 121 U+1F358  🍘  cluster   ej   RICE CRACKER
+ 122 U+1F359  🍙  cluster   ek   RICE BALL
+ 123 U+1F35A  🍚  cluster   el   COOKED RICE
+ 124 U+1F35B  🍛  cluster   em   CURRY AND RICE
+ 125 U+1F35C  🍜  cluster   en   STEAMING BOWL
+ 126 U+1F35D  🍝  cluster   eo   SPAGHETTI
+ 127 U+1F35E  🍞  cluster   ep   BREAD
+ 128 U+1F35F  🍟  cluster   eq   FRENCH FRIES
+ 129 U+1F360  🍠  cluster   er   ROASTED SWEET POTATO
+ 130 U+1F361  🍡  cluster   es   DANGO
+ 131 U+1F362  🍢  cluster   et   ODEN
+ 132 U+1F363  🍣  cluster   eu   SUSHI
+ 133 U+1F364  🍤  cluster   ev   FRIED SHRIMP
+ 134 U+1F365  🍥  cluster   ew   FISH CAKE WITH SWIRL DESIGN
+ 135 U+1F366  🍦  cluster   ex   SOFT ICE CREAM
+ 136 U+1F367  🍧  cluster   ey   SHAVED ICE
+ 137 U+1F368  🍨  cluster   ez   ICE CREAM
+ 138 U+1F369  🍩  cluster   e.   DOUGHNUT
+ 139 U+1F36A  🍪  cluster   e-   COOKIE
+ 140 U+1F36B  🍫  cluster   fa   CHOCOLATE BAR
+ 141 U+1F36C  🍬  cluster   fb   CANDY
+ 142 U+1F36D  🍭  cluster   fc   LOLLIPOP
+ 143 U+1F36E  🍮  cluster   fd   CUSTARD
+ 144 U+1F36F  🍯  cluster   fe   HONEY POT
+ 145 U+1F370  🍰  cluster   ff   SHORTCAKE
+ 146 U+1F371  🍱  cluster   fg   BENTO BOX
+ 147 U+1F372  🍲  cluster   fh   POT OF FOOD
+ 148 U+1F373  🍳  cluster   fi   COOKING
+ 149 U+1F374  🍴  cluster   fj   FORK AND KNIFE
+ 150 U+1F375  🍵  cluster   fk   TEACUP WITHOUT HANDLE
+ 151 U+1F376  🍶  cluster   fl   SAKE BOTTLE AND CUP
+ 152 U+1F377  🍷  cluster   fm   WINE GLASS
+ 153 U+1F378  🍸  cluster   fn   COCKTAIL GLASS
+ 154 U+1F379  🍹  cluster   fo   TROPICAL DRINK
+ 155 U+1F37A  🍺  cluster   fp   BEER MUG
+ 156 U+1F37B  🍻  cluster   fq   CLINKING BEER MUGS
+ 157 U+1F37C  🍼  cluster   fr   BABY BOTTLE
+ 158 U+1F380  🎀  cluster   fs   RIBBON
+ 159 U+1F381  🎁  cluster   ft   WRAPPED PRESENT
+ 160 U+1F382  🎂  cluster   fu   BIRTHDAY CAKE
+ 161 U+1F383  🎃  cluster   fv   JACK-O-LANTERN
+ 162 U+1F384  🎄  cluster   fw   CHRISTMAS TREE
+ 163 U+1F385  🎅  cluster   fx   FATHER CHRISTMAS
+ 164 U+1F386  🎆  cluster   fy   FIREWORKS
+ 165 U+1F387  🎇  cluster   fz   FIREWORK SPARKLER
+ 166 U+1F388  🎈  cluster   f.   BALLOON
+ 167 U+1F389  🎉  cluster   f-   PARTY POPPER
+ 168 U+1F38A  🎊  cluster   ga   CONFETTI BALL
+ 169 U+1F38B  🎋  cluster   gb   TANABATA TREE
+ 170 U+1F38C  🎌  cluster   gc   CROSSED FLAGS
+ 171 U+1F38D  🎍  cluster   gd   PINE DECORATION
+ 172 U+1F38E  🎎  cluster   ge   JAPANESE DOLLS
+ 173 U+1F38F  🎏  cluster   gf   CARP STREAMER
+ 174 U+1F390  🎐  cluster   gg   WIND CHIME
+ 175 U+1F391  🎑  cluster   gh   MOON VIEWING CEREMONY
+ 176 U+1F392  🎒  cluster   gi   SCHOOL SATCHEL
+ 177 U+1F393  🎓  cluster   gj   GRADUATION CAP
+ 178 U+1F3A0  🎠  cluster   gk   CAROUSEL HORSE
+ 179 U+1F3A1  🎡  cluster   gl   FERRIS WHEEL
+ 180 U+1F3A2  🎢  cluster   gm   ROLLER COASTER
+ 181 U+1F3A3  🎣  cluster   gn   FISHING POLE AND FISH
+ 182 U+1F3A4  🎤  cluster   go   MICROPHONE
+ 183 U+1F3A5  🎥  cluster   gp   MOVIE CAMERA
+ 184 U+1F3A6  🎦  cluster   gq   CINEMA
+ 185 U+1F3A7  🎧  cluster   gr   HEADPHONE
+ 186 U+1F3A8  🎨  cluster   gs   ARTIST PALETTE
+ 187 U+1F3A9  🎩  cluster   gt   TOP HAT
+ 188 U+1F3AA  🎪  cluster   gu   CIRCUS TENT
+ 189 U+1F3AB  🎫  cluster   gv   TICKET
+ 190 U+1F3AC  🎬  cluster   gw   CLAPPER BOARD
+ 191 U+1F3AD  🎭  cluster   gx   PERFORMING ARTS
+ 192 U+1F3AE  🎮  cluster   gy   VIDEO GAME
+ 193 U+1F3AF  🎯  cluster   gz   DIRECT HIT
+ 194 U+1F3B0  🎰  cluster   g.   SLOT MACHINE
+ 195 U+1F3B1  🎱  cluster   g-   BILLIARDS
+ 196 U+1F3B2  🎲  cluster   ha   GAME DIE
+ 197 U+1F3B3  🎳  cluster   hb   BOWLING
+ 198 U+1F3B4  🎴  cluster   hc   FLOWER PLAYING CARDS
+ 199 U+1F3B5  🎵  cluster   hd   MUSICAL NOTE
+ 200 U+1F3B6  🎶  cluster   he   MULTIPLE MUSICAL NOTES
+ 201 U+1F3B7  🎷  cluster   hf   SAXOPHONE
+ 202 U+1F3B8  🎸  cluster   hg   GUITAR
+ 203 U+1F3B9  🎹  cluster   hh   MUSICAL KEYBOARD
+ 204 U+1F3BA  🎺  cluster   hi   TRUMPET
+ 205 U+1F3BB  🎻  cluster   hj   VIOLIN
+ 206 U+1F3BC  🎼  cluster   hk   MUSICAL SCORE
+ 207 U+1F3BD  🎽  cluster   hl   RUNNING SHIRT WITH SASH
+ 208 U+1F3BE  🎾  cluster   hm   TENNIS RACQUET AND BALL
+ 209 U+1F3BF  🎿  cluster   hn   SKI AND SKI BOOT
+ 210 U+1F3C0  🏀  cluster   ho   BASKETBALL AND HOOP
+ 211 U+1F3C1  🏁  cluster   hp   CHEQUERED FLAG
+ 212 U+1F3C2  🏂  cluster   hq   SNOWBOARDER
+ 213 U+1F3C3  🏃  cluster   hr   RUNNER
+ 214 U+1F3C4  🏄  cluster   hs   SURFER
+ 215 U+1F3C6  🏆  cluster   ht   TROPHY
+ 216 U+1F3C7  🏇  cluster   hu   HORSE RACING
+ 217 U+1F3C8  🏈  cluster   hv   AMERICAN FOOTBALL
+ 218 U+1F3C9  🏉  cluster   hw   RUGBY FOOTBALL
+ 219 U+1F3CA  🏊  cluster   hx   SWIMMER
+ 220 U+1F3E0  🏠  cluster   hy   HOUSE BUILDING
+ 221 U+1F3E1  🏡  cluster   hz   HOUSE WITH GARDEN
+ 222 U+1F3E2  🏢  cluster   h.   OFFICE BUILDING
+ 223 U+1F3E3  🏣  cluster   h-   JAPANESE POST OFFICE
+ 224 U+1F3E4  🏤  cluster   ia   EUROPEAN POST OFFICE
+ 225 U+1F3E5  🏥  cluster   ib   HOSPITAL
+ 226 U+1F3E6  🏦  cluster   ic   BANK
+ 227 U+1F3E7  🏧  cluster   id   AUTOMATED TELLER MACHINE
+ 228 U+1F3E8  🏨  cluster   ie   HOTEL
+ 229 U+1F3E9  🏩  cluster   if   LOVE HOTEL
+ 230 U+1F3EA  🏪  cluster   ig   CONVENIENCE STORE
+ 231 U+1F3EB  🏫  cluster   ih   SCHOOL
+ 232 U+1F3EC  🏬  cluster   ii   DEPARTMENT STORE
+ 233 U+1F3ED  🏭  cluster   ij   FACTORY
+ 234 U+1F3EE  🏮  cluster   ik   IZAKAYA LANTERN
+ 235 U+1F3EF  🏯  cluster   il   JAPANESE CASTLE
+ 236 U+1F3F0  🏰  cluster   im   EUROPEAN CASTLE
+ 237 U+1F400  🐀  cluster   in   RAT
+ 238 U+1F401  🐁  cluster   io   MOUSE
+ 239 U+1F402  🐂  cluster   ip   OX
+ 240 U+1F403  🐃  cluster   iq   WATER BUFFALO
+ 241 U+1F404  🐄  cluster   ir   COW
+ 242 U+1F405  🐅  cluster   is   TIGER
+ 243 U+1F406  🐆  cluster   it   LEOPARD
+ 244 U+1F407  🐇  cluster   iu   RABBIT
+ 245 U+1F408  🐈  cluster   iv   CAT
+ 246 U+1F409  🐉  cluster   iw   DRAGON
+ 247 U+1F40A  🐊  cluster   ix   CROCODILE
+ 248 U+1F40B  🐋  cluster   iy   WHALE
+ 249 U+1F40C  🐌  cluster   iz   SNAIL
+ 250 U+1F40D  🐍  cluster   i.   SNAKE
+ 251 U+1F40E  🐎  cluster   i-   HORSE
+ 252 U+1F40F  🐏  cluster   ja   RAM
+ 253 U+1F410  🐐  cluster   jb   GOAT
+ 254 U+1F411  🐑  cluster   jc   SHEEP
+ 255 U+1F412  🐒  cluster   jd   MONKEY
+ 256 U+1F413  🐓  cluster   je   ROOSTER
+ 257 U+1F414  🐔  cluster   jf   CHICKEN
+ 258 U+1F415  🐕  cluster   jg   DOG
+ 259 U+1F416  🐖  cluster   jh   PIG
+ 260 U+1F417  🐗  cluster   ji   BOAR
+ 261 U+1F418  🐘  cluster   jj   ELEPHANT
+ 262 U+1F419  🐙  cluster   jk   OCTOPUS
+ 263 U+1F41A  🐚  cluster   jl   SPIRAL SHELL
+ 264 U+1F41B  🐛  cluster   jm   BUG
+ 265 U+1F41C  🐜  cluster   jn   ANT
+ 266 U+1F41D  🐝  cluster   jo   HONEYBEE
+ 267 U+1F41E  🐞  cluster   jp   LADY BEETLE
+ 268 U+1F41F  🐟  cluster   jq   FISH
+ 269 U+1F420  🐠  cluster   jr   TROPICAL FISH
+ 270 U+1F421  🐡  cluster   js   BLOWFISH
+ 271 U+1F422  🐢  cluster   jt   TURTLE
+ 272 U+1F423  🐣  cluster   ju   HATCHING CHICK
+ 273 U+1F424  🐤  cluster   jv   BABY CHICK
+ 274 U+1F425  🐥  cluster   jw   FRONT-FACING BABY CHICK
+ 275 U+1F426  🐦  cluster   jx   BIRD
+ 276 U+1F427  🐧  cluster   jy   PENGUIN
+ 277 U+1F428  🐨  cluster   jz   KOALA
+ 278 U+1F429  🐩  cluster   j.   POODLE
+ 279 U+1F42A  🐪  cluster   j-   DROMEDARY CAMEL
+ 280 U+1F42B  🐫  cluster   ka   BACTRIAN CAMEL
+ 281 U+1F42C  🐬  cluster   kb   DOLPHIN
+ 282 U+1F42D  🐭  cluster   kc   MOUSE FACE
+ 283 U+1F42E  🐮  cluster   kd   COW FACE
+ 284 U+1F42F  🐯  cluster   ke   TIGER FACE
+ 285 U+1F430  🐰  cluster   kf   RABBIT FACE
+ 286 U+1F431  🐱  cluster   kg   CAT FACE
+ 287 U+1F432  🐲  cluster   kh   DRAGON FACE
+ 288 U+1F433  🐳  cluster   ki   SPOUTING WHALE
+ 289 U+1F434  🐴  cluster   kj   HORSE FACE
+ 290 U+1F435  🐵  cluster   kk   MONKEY FACE
+ 291 U+1F436  🐶  cluster   kl   DOG FACE
+ 292 U+1F437  🐷  cluster   km   PIG FACE
+ 293 U+1F438  🐸  cluster   kn   FROG FACE
+ 294 U+1F439  🐹  cluster   ko   HAMSTER FACE
+ 295 U+1F43A  🐺  cluster   kp   WOLF FACE
+ 296 U+1F43B  🐻  cluster   kq   BEAR FACE
+ 297 U+1F43C  🐼  cluster   kr   PANDA FACE
+ 298 U+1F43D  🐽  cluster   ks   PIG NOSE
+ 299 U+1F43E  🐾  cluster   kt   PAW PRINTS
+ 300 U+1F440  👀  cluster   ku   EYES
+ 301 U+1F442  👂  cluster   kv   EAR
+ 302 U+1F443  👃  cluster   kw   NOSE
+ 303 U+1F444  👄  cluster   kx   MOUTH
+ 304 U+1F445  👅  cluster   ky   TONGUE
+ 305 U+1F446  👆  cluster   kz   WHITE UP POINTING BACKHAND INDEX
+ 306 U+1F447  👇  cluster   k.   WHITE DOWN POINTING BACKHAND INDEX
+ 307 U+1F448  👈  cluster   k-   WHITE LEFT POINTING BACKHAND INDEX
+ 308 U+1F449  👉  cluster   la   WHITE RIGHT POINTING BACKHAND INDEX
+ 309 U+1F44A  👊  cluster   lb   FISTED HAND SIGN
+ 310 U+1F44B  👋  cluster   lc   WAVING HAND SIGN
+ 311 U+1F44C  👌  cluster   ld   OK HAND SIGN
+ 312 U+1F44D  👍  cluster   le   THUMBS UP SIGN
+ 313 U+1F44E  👎  cluster   lf   THUMBS DOWN SIGN
+ 314 U+1F44F  👏  cluster   lg   CLAPPING HANDS SIGN
+ 315 U+1F450  👐  cluster   lh   OPEN HANDS SIGN
+ 316 U+1F451  👑  cluster   li   CROWN
+ 317 U+1F452  👒  cluster   lj   WOMANS HAT
+ 318 U+1F453  👓  cluster   lk   EYEGLASSES
+ 319 U+1F454  👔  cluster   ll   NECKTIE
+ 320 U+1F455  👕  cluster   lm   T-SHIRT
+ 321 U+1F456  👖  cluster   ln   JEANS
+ 322 U+1F457  👗  cluster   lo   DRESS
+ 323 U+1F458  👘  cluster   lp   KIMONO
+ 324 U+1F459  👙  cluster   lq   BIKINI
+ 325 U+1F45A  👚  cluster   lr   WOMANS CLOTHES
+ 326 U+1F45B  👛  cluster   ls   PURSE
+ 327 U+1F45C  👜  cluster   lt   HANDBAG
+ 328 U+1F45D  👝  cluster   lu   POUCH
+ 329 U+1F45E  👞  cluster   lv   MANS SHOE
+ 330 U+1F45F  👟  cluster   lw   ATHLETIC SHOE
+ 331 U+1F460  👠  cluster   lx   HIGH-HEELED SHOE
+ 332 U+1F461  👡  cluster   ly   WOMANS SANDAL
+ 333 U+1F462  👢  cluster   lz   WOMANS BOOTS
+ 334 U+1F463  👣  cluster   l.   FOOTPRINTS
+ 335 U+1F464  👤  cluster   l-   BUST IN SILHOUETTE
+ 336 U+1F465  👥  cluster   ma   BUSTS IN SILHOUETTE
+ 337 U+1F466  👦  cluster   mb   BOY
+ 338 U+1F467  👧  cluster   mc   GIRL
+ 339 U+1F468  👨  cluster   md   MAN
+ 340 U+1F469  👩  cluster   me   WOMAN
+ 341 U+1F46A  👪  cluster   mf   FAMILY
+ 342 U+1F46B  👫  cluster   mg   MAN AND WOMAN HOLDING HANDS
+ 343 U+1F46C  👬  cluster   mh   TWO MEN HOLDING HANDS
+ 344 U+1F46D  👭  cluster   mi   TWO WOMEN HOLDING HANDS
+ 345 U+1F46E  👮  cluster   mj   POLICE OFFICER
+ 346 U+1F46F  👯  cluster   mk   WOMAN WITH BUNNY EARS
+ 347 U+1F470  👰  cluster   ml   BRIDE WITH VEIL
+ 348 U+1F471  👱  cluster   mm   PERSON WITH BLOND HAIR
+ 349 U+1F472  👲  cluster   mn   MAN WITH GUA PI MAO
+ 350 U+1F473  👳  cluster   mo   MAN WITH TURBAN
+ 351 U+1F474  👴  cluster   mp   OLDER MAN
+ 352 U+1F475  👵  cluster   mq   OLDER WOMAN
+ 353 U+1F476  👶  cluster   mr   BABY
+ 354 U+1F477  👷  cluster   ms   CONSTRUCTION WORKER
+ 355 U+1F478  👸  cluster   mt   PRINCESS
+ 356 U+1F479  👹  cluster   mu   JAPANESE OGRE
+ 357 U+1F47A  👺  cluster   mv   JAPANESE GOBLIN
+ 358 U+1F47B  👻  cluster   mw   GHOST
+ 359 U+1F47C  👼  cluster   mx   BABY ANGEL
+ 360 U+1F47D  👽  cluster   my   EXTRATERRESTRIAL ALIEN
+ 361 U+1F47E  👾  cluster   mz   ALIEN MONSTER
+ 362 U+1F47F  👿  cluster   m.   IMP
+ 363 U+1F480  💀  cluster   m-   SKULL
+ 364 U+1F481  💁  cluster   na   INFORMATION DESK PERSON
+ 365 U+1F482  💂  cluster   nb   GUARDSMAN
+ 366 U+1F483  💃  cluster   nc   DANCER
+ 367 U+1F484  💄  cluster   nd   LIPSTICK
+ 368 U+1F485  💅  cluster   ne   NAIL POLISH
+ 369 U+1F486  💆  cluster   nf   FACE MASSAGE
+ 370 U+1F487  💇  cluster   ng   HAIRCUT
+ 371 U+1F488  💈  cluster   nh   BARBER POLE
+ 372 U+1F489  💉  cluster   ni   SYRINGE
+ 373 U+1F48A  💊  cluster   nj   PILL
+ 374 U+1F48B  💋  cluster   nk   KISS MARK
+ 375 U+1F48C  💌  cluster   nl   LOVE LETTER
+ 376 U+1F48D  💍  cluster   nm   RING
+ 377 U+1F48E  💎  cluster   nn   GEM STONE
+ 378 U+1F48F  💏  cluster   no   KISS
+ 379 U+1F490  💐  cluster   np   BOUQUET
+ 380 U+1F491  💑  cluster   nq   COUPLE WITH HEART
+ 381 U+1F492  💒  cluster   nr   WEDDING
+ 382 U+1F493  💓  cluster   ns   BEATING HEART
+ 383 U+1F494  💔  cluster   nt   BROKEN HEART
+ 384 U+1F495  💕  cluster   nu   TWO HEARTS
+ 385 U+1F496  💖  cluster   nv   SPARKLING HEART
+ 386 U+1F497  💗  cluster   nw   GROWING HEART
+ 387 U+1F498  💘  cluster   nx   HEART WITH ARROW
+ 388 U+1F499  💙  cluster   ny   BLUE HEART
+ 389 U+1F49A  💚  cluster   nz   GREEN HEART
+ 390 U+1F49B  💛  cluster   n.   YELLOW HEART
+ 391 U+1F49C  💜  cluster   n-   PURPLE HEART
+ 392 U+1F49D  💝  cluster   oa   HEART WITH RIBBON
+ 393 U+1F49E  💞  cluster   ob   REVOLVING HEARTS
+ 394 U+1F49F  💟  cluster   oc   HEART DECORATION
+ 395 U+1F4A0  💠  cluster   od   DIAMOND SHAPE WITH A DOT INSIDE
+ 396 U+1F4A1  💡  cluster   oe   ELECTRIC LIGHT BULB
+ 397 U+1F4A2  💢  cluster   of   ANGER SYMBOL
+ 398 U+1F4A3  💣  cluster   og   BOMB
+ 399 U+1F4A4  💤  cluster   oh   SLEEPING SYMBOL
+ 400 U+1F4A5  💥  cluster   oi   COLLISION SYMBOL
+ 401 U+1F4A6  💦  cluster   oj   SPLASHING SWEAT SYMBOL
+ 402 U+1F4A7  💧  cluster   ok   DROPLET
+ 403 U+1F4A8  💨  cluster   ol   DASH SYMBOL
+ 404 U+1F4A9  💩  cluster   om   PILE OF POO
+ 405 U+1F4AA  💪  cluster   on   FLEXED BICEPS
+ 406 U+1F4AB  💫  cluster   oo   DIZZY SYMBOL
+ 407 U+1F4AC  💬  cluster   op   SPEECH BALLOON
+ 408 U+1F4AD  💭  cluster   oq   THOUGHT BALLOON
+ 409 U+1F4AE  💮  cluster   or   WHITE FLOWER
+ 410 U+1F4AF  💯  cluster   os   HUNDRED POINTS SYMBOL
+ 411 U+1F4B0  💰  cluster   ot   MONEY BAG
+ 412 U+1F4B1  💱  cluster   ou   CURRENCY EXCHANGE
+ 413 U+1F4B2  💲  cluster   ov   HEAVY DOLLAR SIGN
+ 414 U+1F4B3  💳  cluster   ow   CREDIT CARD
+ 415 U+1F4B4  💴  cluster   ox   BANKNOTE WITH YEN SIGN
+ 416 U+1F4B5  💵  cluster   oy   BANKNOTE WITH DOLLAR SIGN
+ 417 U+1F4B6  💶  cluster   oz   BANKNOTE WITH EURO SIGN
+ 418 U+1F4B7  💷  cluster   o.   BANKNOTE WITH POUND SIGN
+ 419 U+1F4B8  💸  cluster   o-   MONEY WITH WINGS
+ 420 U+1F4B9  💹  cluster   pa   CHART WITH UPWARDS TREND AND YEN SIGN
+ 421 U+1F4BA  💺  cluster   pb   SEAT
+ 422 U+1F4BB  💻  cluster   pc   PERSONAL COMPUTER
+ 423 U+1F4BC  💼  cluster   pd   BRIEFCASE
+ 424 U+1F4BD  💽  cluster   pe   MINIDISC
+ 425 U+1F4BE  💾  cluster   pf   FLOPPY DISK
+ 426 U+1F4BF  💿  cluster   pg   OPTICAL DISC
+ 427 U+1F4C0  📀  cluster   ph   DVD
+ 428 U+1F4C1  📁  cluster   pi   FILE FOLDER
+ 429 U+1F4C2  📂  cluster   pj   OPEN FILE FOLDER
+ 430 U+1F4C3  📃  cluster   pk   PAGE WITH CURL
+ 431 U+1F4C4  📄  cluster   pl   PAGE FACING UP
+ 432 U+1F4C5  📅  cluster   pm   CALENDAR
+ 433 U+1F4C6  📆  cluster   pn   TEAR-OFF CALENDAR
+ 434 U+1F4C7  📇  cluster   po   CARD INDEX
+ 435 U+1F4C8  📈  cluster   pp   CHART WITH UPWARDS TREND
+ 436 U+1F4C9  📉  cluster   pq   CHART WITH DOWNWARDS TREND
+ 437 U+1F4CA  📊  cluster   pr   BAR CHART
+ 438 U+1F4CB  📋  cluster   ps   CLIPBOARD
+ 439 U+1F4CC  📌  cluster   pt   PUSHPIN
+ 440 U+1F4CD  📍  cluster   pu   ROUND PUSHPIN
+ 441 U+1F4CE  📎  cluster   pv   PAPERCLIP
+ 442 U+1F4CF  📏  cluster   pw   STRAIGHT RULER
+ 443 U+1F4D0  📐  cluster   px   TRIANGULAR RULER
+ 444 U+1F4D1  📑  cluster   py   BOOKMARK TABS
+ 445 U+1F4D2  📒  cluster   pz   LEDGER
+ 446 U+1F4D3  📓  cluster   p.   NOTEBOOK
+ 447 U+1F4D4  📔  cluster   p-   NOTEBOOK WITH DECORATIVE COVER
+ 448 U+1F4D5  📕  cluster   qa   CLOSED BOOK
+ 449 U+1F4D6  📖  cluster   qb   OPEN BOOK
+ 450 U+1F4D7  📗  cluster   qc   GREEN BOOK
+ 451 U+1F4D8  📘  cluster   qd   BLUE BOOK
+ 452 U+1F4D9  📙  cluster   qe   ORANGE BOOK
+ 453 U+1F4DA  📚  cluster   qf   BOOKS
+ 454 U+1F4DB  📛  cluster   qg   NAME BADGE
+ 455 U+1F4DC  📜  cluster   qh   SCROLL
+ 456 U+1F4DD  📝  cluster   qi   MEMO
+ 457 U+1F4DE  📞  cluster   qj   TELEPHONE RECEIVER
+ 458 U+1F4DF  📟  cluster   qk   PAGER
+ 459 U+1F4E0  📠  cluster   ql   FAX MACHINE
+ 460 U+1F4E1  📡  cluster   qm   SATELLITE ANTENNA
+ 461 U+1F4E2  📢  cluster   qn   PUBLIC ADDRESS LOUDSPEAKER
+ 462 U+1F4E3  📣  cluster   qo   CHEERING MEGAPHONE
+ 463 U+1F4E4  📤  cluster   qp   OUTBOX TRAY
+ 464 U+1F4E5  📥  cluster   qq   INBOX TRAY
+ 465 U+1F4E6  📦  cluster   qr   PACKAGE
+ 466 U+1F4E7  📧  cluster   qs   E-MAIL SYMBOL
+ 467 U+1F4E8  📨  cluster   qt   INCOMING ENVELOPE
+ 468 U+1F4E9  📩  cluster   qu   ENVELOPE WITH DOWNWARDS ARROW ABOVE
+ 469 U+1F4EA  📪  cluster   qv   CLOSED MAILBOX WITH LOWERED FLAG
+ 470 U+1F4EB  📫  cluster   qw   CLOSED MAILBOX WITH RAISED FLAG
+ 471 U+1F4EC  📬  cluster   qx   OPEN MAILBOX WITH RAISED FLAG
+ 472 U+1F4ED  📭  cluster   qy   OPEN MAILBOX WITH LOWERED FLAG
+ 473 U+1F4EE  📮  cluster   qz   POSTBOX
+ 474 U+1F4EF  📯  cluster   q.   POSTAL HORN
+ 475 U+1F4F0  📰  cluster   q-   NEWSPAPER
+ 476 U+1F4F1  📱  cluster   ra   MOBILE PHONE
+ 477 U+1F4F2  📲  cluster   rb   MOBILE PHONE WITH RIGHTWARDS ARROW AT LEFT
+ 478 U+1F4F3  📳  cluster   rc   VIBRATION MODE
+ 479 U+1F4F4  📴  cluster   rd   MOBILE PHONE OFF
+ 480 U+1F4F6  📶  cluster   re   ANTENNA WITH BARS
+ 481 U+1F4F7  📷  cluster   rf   CAMERA
+ 482 U+1F4F9  📹  cluster   rg   VIDEO CAMERA
+ 483 U+1F4FA  📺  cluster   rh   TELEVISION
+ 484 U+1F4FB  📻  cluster   ri   RADIO
+ 485 U+1F4FC  📼  cluster   rj   VIDEOCASSETTE
+ 486 U+1F500  🔀  cluster   rk   TWISTED RIGHTWARDS ARROWS
+ 487 U+1F501  🔁  cluster   rl   CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS
+ 488 U+1F502  🔂  cluster   rm   CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS WITH CIRCLED ONE OVERLAY
+ 489 U+1F503  🔃  cluster   rn   CLOCKWISE DOWNWARDS AND UPWARDS OPEN CIRCLE ARROWS
+ 490 U+1F504  🔄  cluster   ro   ANTICLOCKWISE DOWNWARDS AND UPWARDS OPEN CIRCLE ARROWS
+ 491 U+1F505  🔅  cluster   rp   LOW BRIGHTNESS SYMBOL
+ 492 U+1F506  🔆  cluster   rq   HIGH BRIGHTNESS SYMBOL
+ 493 U+1F507  🔇  cluster   rr   SPEAKER WITH CANCELLATION STROKE
+ 494 U+1F508  🔈  cluster   rs   SPEAKER
+ 495 U+1F509  🔉  cluster   rt   SPEAKER WITH ONE SOUND WAVE
+ 496 U+1F50A  🔊  cluster   ru   SPEAKER WITH THREE SOUND WAVES
+ 497 U+1F50B  🔋  cluster   rv   BATTERY
+ 498 U+1F50C  🔌  cluster   rw   ELECTRIC PLUG
+ 499 U+1F50D  🔍  cluster   rx   LEFT-POINTING MAGNIFYING GLASS
+ 500 U+1F50E  🔎  cluster   ry   RIGHT-POINTING MAGNIFYING GLASS
+ 501 U+1F50F  🔏  cluster   rz   LOCK WITH INK PEN
+ 502 U+1F510  🔐  cluster   r.   CLOSED LOCK WITH KEY
+ 503 U+1F511  🔑  cluster   r-   KEY
+ 504 U+1F512  🔒  cluster   sa   LOCK
+ 505 U+1F513  🔓  cluster   sb   OPEN LOCK
+ 506 U+1F514  🔔  cluster   sc   BELL
+ 507 U+1F515  🔕  cluster   sd   BELL WITH CANCELLATION STROKE
+ 508 U+1F516  🔖  cluster   se   BOOKMARK
+ 509 U+1F517  🔗  cluster   sf   LINK SYMBOL
+ 510 U+1F518  🔘  cluster   sg   RADIO BUTTON
+ 511 U+1F519  🔙  cluster   sh   BACK WITH LEFTWARDS ARROW ABOVE
+ 512 U+1F51A  🔚  cluster   si   END WITH LEFTWARDS ARROW ABOVE
+ 513 U+1F51B  🔛  cluster   sj   ON WITH EXCLAMATION MARK WITH LEFT RIGHT ARROW ABOVE
+ 514 U+1F51C  🔜  cluster   sk   SOON WITH RIGHTWARDS ARROW ABOVE
+ 515 U+1F51D  🔝  cluster   sl   TOP WITH UPWARDS ARROW ABOVE
+ 516 U+1F525  🔥  cluster   sm   FIRE
+ 517 U+1F526  🔦  cluster   sn   ELECTRIC TORCH
+ 518 U+1F527  🔧  cluster   so   WRENCH
+ 519 U+1F528  🔨  cluster   sp   HAMMER
+ 520 U+1F529  🔩  cluster   sq   NUT AND BOLT
+ 521 U+1F52C  🔬  cluster   sr   MICROSCOPE
+ 522 U+1F52D  🔭  cluster   ss   TELESCOPE
+ 523 U+1F52E  🔮  cluster   st   CRYSTAL BALL
+ 524 U+1F52F  🔯  cluster   su   SIX POINTED STAR WITH MIDDLE DOT
+ 525 U+1F530  🔰  cluster   sv   JAPANESE SYMBOL FOR BEGINNER
+ 526 U+1F531  🔱  cluster   sw   TRIDENT EMBLEM
+ 527 U+1F534  🔴  cluster   sx   LARGE RED CIRCLE
+ 528 U+1F535  🔵  cluster   sy   LARGE BLUE CIRCLE
+ 529 U+1F536  🔶  cluster   sz   LARGE ORANGE DIAMOND
+ 530 U+1F537  🔷  cluster   s.   LARGE BLUE DIAMOND
+ 531 U+1F53A  🔺  cluster   s-   UP-POINTING RED TRIANGLE
+ 532 U+1F53B  🔻  cluster   ta   DOWN-POINTING RED TRIANGLE
+ 533 U+1F53C  🔼  cluster   tb   UP-POINTING SMALL RED TRIANGLE
+ 534 U+1F53D  🔽  cluster   tc   DOWN-POINTING SMALL RED TRIANGLE
+ 535 U+1F5FB  🗻  cluster   td   MOUNT FUJI
+ 536 U+1F5FC  🗼  cluster   te   TOKYO TOWER
+ 537 U+1F5FD  🗽  cluster   tf   STATUE OF LIBERTY
+ 538 U+1F5FE  🗾  cluster   tg   SILHOUETTE OF JAPAN
+ 539 U+1F5FF  🗿  cluster   th   MOYAI
+ 540 U+1F601  😁  cluster   ti   GRINNING FACE WITH SMILING EYES
+ 541 U+1F602  😂  cluster   tj   FACE WITH TEARS OF JOY
+ 542 U+1F603  😃  cluster   tk   SMILING FACE WITH OPEN MOUTH
+ 543 U+1F604  😄  cluster   tl   SMILING FACE WITH OPEN MOUTH AND SMILING EYES
+ 544 U+1F605  😅  cluster   tm   SMILING FACE WITH OPEN MOUTH AND COLD SWEAT
+ 545 U+1F606  😆  cluster   tn   SMILING FACE WITH OPEN MOUTH AND TIGHTLY-CLOSED EYES
+ 546 U+1F607  😇  cluster   to   SMILING FACE WITH HALO
+ 547 U+1F608  😈  cluster   tp   SMILING FACE WITH HORNS
+ 548 U+1F609  😉  cluster   tq   WINKING FACE
+ 549 U+1F60A  😊  cluster   tr   SMILING FACE WITH SMILING EYES
+ 550 U+1F60B  😋  cluster   ts   FACE SAVOURING DELICIOUS FOOD
+ 551 U+1F60C  😌  cluster   tt   RELIEVED FACE
+ 552 U+1F60D  😍  cluster   tu   SMILING FACE WITH HEART-SHAPED EYES
+ 553 U+1F60E  😎  cluster   tv   SMILING FACE WITH SUNGLASSES
+ 554 U+1F60F  😏  cluster   tw   SMIRKING FACE
+ 555 U+1F610  😐  cluster   tx   NEUTRAL FACE
+ 556 U+1F612  😒  cluster   ty   UNAMUSED FACE
+ 557 U+1F613  😓  cluster   tz   FACE WITH COLD SWEAT
+ 558 U+1F614  😔  cluster   t.   PENSIVE FACE
+ 559 U+1F616  😖  cluster   t-   CONFOUNDED FACE
+ 560 U+1F618  😘  cluster   ua   FACE THROWING A KISS
+ 561 U+1F61A  😚  cluster   ub   KISSING FACE WITH CLOSED EYES
+ 562 U+1F61C  😜  cluster   uc   FACE WITH STUCK-OUT TONGUE AND WINKING EYE
+ 563 U+1F61D  😝  cluster   ud   FACE WITH STUCK-OUT TONGUE AND TIGHTLY-CLOSED EYES
+ 564 U+1F61E  😞  cluster   ue   DISAPPOINTED FACE
+ 565 U+1F620  😠  cluster   uf   ANGRY FACE
+ 566 U+1F621  😡  cluster   ug   POUTING FACE
+ 567 U+1F622  😢  cluster   uh   CRYING FACE
+ 568 U+1F623  😣  cluster   ui   PERSEVERING FACE
+ 569 U+1F624  😤  cluster   uj   FACE WITH LOOK OF TRIUMPH
+ 570 U+1F625  😥  cluster   uk   DISAPPOINTED BUT RELIEVED FACE
+ 571 U+1F628  😨  cluster   ul   FEARFUL FACE
+ 572 U+1F629  😩  cluster   um   WEARY FACE
+ 573 U+1F62A  😪  cluster   un   SLEEPY FACE
+ 574 U+1F62B  😫  cluster   uo   TIRED FACE
+ 575 U+1F62D  😭  cluster   up   LOUDLY CRYING FACE
+ 576 U+1F630  😰  cluster   uq   FACE WITH OPEN MOUTH AND COLD SWEAT
+ 577 U+1F631  😱  cluster   ur   FACE SCREAMING IN FEAR
+ 578 U+1F632  😲  cluster   us   ASTONISHED FACE
+ 579 U+1F633  😳  cluster   ut   FLUSHED FACE
+ 580 U+1F635  😵  cluster   uu   DIZZY FACE
+ 581 U+1F636  😶  cluster   uv   FACE WITHOUT MOUTH
+ 582 U+1F637  😷  cluster   uw   FACE WITH MEDICAL MASK
+ 583 U+1F638  😸  cluster   ux   GRINNING CAT FACE WITH SMILING EYES
+ 584 U+1F639  😹  cluster   uy   CAT FACE WITH TEARS OF JOY
+ 585 U+1F63A  😺  cluster   uz   SMILING CAT FACE WITH OPEN MOUTH
+ 586 U+1F63B  😻  cluster   u.   SMILING CAT FACE WITH HEART-SHAPED EYES
+ 587 U+1F63C  😼  cluster   u-   CAT FACE WITH WRY SMILE
+ 588 U+1F63D  😽  cluster   va   KISSING CAT FACE WITH CLOSED EYES
+ 589 U+1F63E  😾  cluster   vb   POUTING CAT FACE
+ 590 U+1F63F  😿  cluster   vc   CRYING CAT FACE
+ 591 U+1F640  🙀  cluster   vd   WEARY CAT FACE
+ 592 U+1F645  🙅  cluster   ve   FACE WITH NO GOOD GESTURE
+ 593 U+1F646  🙆  cluster   vf   FACE WITH OK GESTURE
+ 594 U+1F647  🙇  cluster   vg   PERSON BOWING DEEPLY
+ 595 U+1F648  🙈  cluster   vh   SEE-NO-EVIL MONKEY
+ 596 U+1F649  🙉  cluster   vi   HEAR-NO-EVIL MONKEY
+ 597 U+1F64A  🙊  cluster   vj   SPEAK-NO-EVIL MONKEY
+ 598 U+1F64B  🙋  cluster   vk   HAPPY PERSON RAISING ONE HAND
+ 599 U+1F64C  🙌  cluster   vl   PERSON RAISING BOTH HANDS IN CELEBRATION
+ 600 U+1F64D  🙍  cluster   vm   PERSON FROWNING
+ 601 U+1F64E  🙎  cluster   vn   PERSON WITH POUTING FACE
+ 602 U+1F64F  🙏  cluster   vo   PERSON WITH FOLDED HANDS
+ 603 U+1F680  🚀  cluster   vp   ROCKET
+ 604 U+1F681  🚁  cluster   vq   HELICOPTER
+ 605 U+1F682  🚂  cluster   vr   STEAM LOCOMOTIVE
+ 606 U+1F683  🚃  cluster   vs   RAILWAY CAR
+ 607 U+1F684  🚄  cluster   vt   HIGH-SPEED TRAIN
+ 608 U+1F685  🚅  cluster   vu   HIGH-SPEED TRAIN WITH BULLET NOSE
+ 609 U+1F686  🚆  cluster   vv   TRAIN
+ 610 U+1F687  🚇  cluster   vw   METRO
+ 611 U+1F688  🚈  cluster   vx   LIGHT RAIL
+ 612 U+1F689  🚉  cluster   vy   STATION
+ 613 U+1F68A  🚊  cluster   vz   TRAM
+ 614 U+1F68B  🚋  cluster   v.   TRAM CAR
+ 615 U+1F68C  🚌  cluster   v-   BUS
+ 616 U+1F68D  🚍  cluster   wa   ONCOMING BUS
+ 617 U+1F68E  🚎  cluster   wb   TROLLEYBUS
+ 618 U+1F68F  🚏  cluster   wc   BUS STOP
+ 619 U+1F690  🚐  cluster   wd   MINIBUS
+ 620 U+1F691  🚑  cluster   we   AMBULANCE
+ 621 U+1F692  🚒  cluster   wf   FIRE ENGINE
+ 622 U+1F693  🚓  cluster   wg   POLICE CAR
+ 623 U+1F694  🚔  cluster   wh   ONCOMING POLICE CAR
+ 624 U+1F695  🚕  cluster   wi   TAXI
+ 625 U+1F696  🚖  cluster   wj   ONCOMING TAXI
+ 626 U+1F697  🚗  cluster   wk   AUTOMOBILE
+ 627 U+1F698  🚘  cluster   wl   ONCOMING AUTOMOBILE
+ 628 U+1F699  🚙  cluster   wm   RECREATIONAL VEHICLE
+ 629 U+1F69A  🚚  cluster   wn   DELIVERY TRUCK
+ 630 U+1F69B  🚛  cluster   wo   ARTICULATED LORRY
+ 631 U+1F69C  🚜  cluster   wp   TRACTOR
+ 632 U+1F69D  🚝  cluster   wq   MONORAIL
+ 633 U+1F69E  🚞  cluster   wr   MOUNTAIN RAILWAY
+ 634 U+1F69F  🚟  cluster   ws   SUSPENSION RAILWAY
+ 635 U+1F6A0  🚠  cluster   wt   MOUNTAIN CABLEWAY
+ 636 U+1F6A1  🚡  cluster   wu   AERIAL TRAMWAY
+ 637 U+1F6A2  🚢  cluster   wv   SHIP
+ 638 U+1F6A3  🚣  cluster   ww   ROWBOAT
+ 639 U+1F6A4  🚤  cluster   wx   SPEEDBOAT
+ 640 U+1F6A5  🚥  cluster   wy   HORIZONTAL TRAFFIC LIGHT
+ 641 U+1F6A6  🚦  cluster   wz   VERTICAL TRAFFIC LIGHT
+ 642 U+1F6A7  🚧  cluster   w.   CONSTRUCTION SIGN
+ 643 U+1F6A8  🚨  cluster   w-   POLICE CARS REVOLVING LIGHT
+ 644 U+1F6A9  🚩  cluster   xa   TRIANGULAR FLAG ON POST
+ 645 U+1F6AA  🚪  cluster   xb   DOOR
+ 646 U+1F6AE  🚮  cluster   xc   PUT LITTER IN ITS PLACE SYMBOL
+ 647 U+1F6B0  🚰  cluster   xd   POTABLE WATER SYMBOL
+ 648 U+1F6B2  🚲  cluster   xe   BICYCLE
+ 649 U+1F6B4  🚴  cluster   xf   BICYCLIST
+ 650 U+1F6B5  🚵  cluster   xg   MOUNTAIN BICYCLIST
+ 651 U+1F6B6  🚶  cluster   xh   PEDESTRIAN
+ 652 U+1F6B8  🚸  cluster   xi   CHILDREN CROSSING
+ 653 U+1F6B9  🚹  cluster   xj   MENS SYMBOL
+ 654 U+1F6BA  🚺  cluster   xk   WOMENS SYMBOL
+ 655 U+1F6BB  🚻  cluster   xl   RESTROOM
+ 656 U+1F6BC  🚼  cluster   xm   BABY SYMBOL
+ 657 U+1F6BD  🚽  cluster   xn   TOILET
+ 658 U+1F6BE  🚾  cluster   xo   WATER CLOSET
+ 659 U+1F6BF  🚿  cluster   xp   SHOWER
+ 660 U+1F6C0  🛀  cluster   xq   BATH
+ 661 U+1F6C1  🛁  cluster   xr   BATHTUB
+ 662 U+1F6C2  🛂  cluster   xs   PASSPORT CONTROL
+ 663 U+1F6C3  🛃  cluster   xt   CUSTOMS
+ 664 U+1F6C4  🛄  cluster   xu   BAGGAGE CLAIM
+ 665 U+1F6C5  🛅  cluster   xv   LEFT LUGGAGE
+ 666 U+1F600  😀  cluster   xw   GRINNING FACE
+ 667 U+1F611  😑  cluster   xx   EXPRESSIONLESS FACE
+ 668 U+1F615  😕  cluster   xy   CONFUSED FACE
+ 669 U+1F617  😗  cluster   xz   KISSING FACE
+ 670 U+1F619  😙  cluster   x.   KISSING FACE WITH SMILING EYES
+ 671 U+1F61B  😛  cluster   x-   FACE WITH STUCK-OUT TONGUE
+ 672 U+1F61F  😟  cluster   ya   WORRIED FACE
+ 673 U+1F626  😦  cluster   yb   FROWNING FACE WITH OPEN MOUTH
+ 674 U+1F627  😧  cluster   yc   ANGUISHED FACE
+ 675 U+1F62C  😬  cluster   yd   GRIMACING FACE
+ 676 U+1F62E  😮  cluster   ye   FACE WITH OPEN MOUTH
+ 677 U+1F62F  😯  cluster   yf   HUSHED FACE
+ 678 U+1F634  😴  cluster   yg   SLEEPING FACE
+ 679 U+1F3C5  🏅  cluster   yh   SPORTS MEDAL
+ 680 U+1F3F4  🏴  cluster   yi   WAVING BLACK FLAG
+ 681 U+1F4F8  📸  cluster   yj   CAMERA WITH FLASH
+ 682 U+1F596  🖖  cluster   yk   RAISED HAND WITH PART BETWEEN MIDDLE AND RING FINGERS
+ 683 U+1F641  🙁  cluster   yl   SLIGHTLY FROWNING FACE
+ 684 U+1F642  🙂  cluster   ym   SLIGHTLY SMILING FACE
+ 685 U+1F6CC  🛌  cluster   yn   SLEEPING ACCOMMODATION
+ 686 U+1F6EB  🛫  cluster   yo   AIRPLANE DEPARTURE
+ 687 U+1F6EC  🛬  cluster   yp   AIRPLANE ARRIVING
+ 688 U+1F32D  🌭  cluster   yq   HOT DOG
+ 689 U+1F32E  🌮  cluster   yr   TACO
+ 690 U+1F32F  🌯  cluster   ys   BURRITO
+ 691 U+1F37E  🍾  cluster   yt   BOTTLE WITH POPPING CORK
+ 692 U+1F37F  🍿  cluster   yu   POPCORN
+ 693 U+1F3CF  🏏  cluster   yv   CRICKET BAT AND BALL
+ 694 U+1F3D0  🏐  cluster   yw   VOLLEYBALL
+ 695 U+1F3D1  🏑  cluster   yx   FIELD HOCKEY STICK AND BALL
+ 696 U+1F3D2  🏒  cluster   yy   ICE HOCKEY STICK AND PUCK
+ 697 U+1F3D3  🏓  cluster   yz   TABLE TENNIS PADDLE AND BALL
+ 698 U+1F3F8  🏸  cluster   y.   BADMINTON RACQUET AND SHUTTLECOCK
+ 699 U+1F3F9  🏹  cluster   y-   BOW AND ARROW
+ 700 U+1F3FA  🏺  cluster   za   AMPHORA
+ 701 U+1F4FF  📿  cluster   zb   PRAYER BEADS
+ 702 U+1F54B  🕋  cluster   zc   KAABA
+ 703 U+1F54C  🕌  cluster   zd   MOSQUE
+ 704 U+1F54D  🕍  cluster   ze   SYNAGOGUE
+ 705 U+1F54E  🕎  cluster   zf   MENORAH WITH NINE BRANCHES
+ 706 U+1F643  🙃  cluster   zg   UPSIDE-DOWN FACE
+ 707 U+1F644  🙄  cluster   zh   FACE WITH ROLLING EYES
+ 708 U+1F6D0  🛐  cluster   zi   PLACE OF WORSHIP
+ 709 U+1F910  🤐  cluster   zj   ZIPPER-MOUTH FACE
+ 710 U+1F911  🤑  cluster   zk   MONEY-MOUTH FACE
+ 711 U+1F912  🤒  cluster   zl   FACE WITH THERMOMETER
+ 712 U+1F913  🤓  cluster   zm   NERD FACE
+ 713 U+1F914  🤔  cluster   zn   THINKING FACE
+ 714 U+1F915  🤕  cluster   zo   FACE WITH HEAD-BANDAGE
+ 715 U+1F916  🤖  cluster   zp   ROBOT FACE
+ 716 U+1F917  🤗  cluster   zq   HUGGING FACE
+ 717 U+1F918  🤘  cluster   zr   SIGN OF THE HORNS
+ 718 U+1F980  🦀  cluster   zs   CRAB
+ 719 U+1F981  🦁  cluster   zt   LION FACE
+ 720 U+1F982  🦂  cluster   zu   SCORPION
+ 721 U+1F983  🦃  cluster   zv   TURKEY
+ 722 U+1F984  🦄  cluster   zw   UNICORN FACE
+ 723 U+1F9C0  🧀  cluster   zx   CHEESE WEDGE
+ 724 U+1F57A  🕺  cluster   zy   MAN DANCING
+ 725 U+1F5A4  🖤  cluster   zz   BLACK HEART
+ 726 U+1F6D1  🛑  cluster   z.   OCTAGONAL SIGN
+ 727 U+1F6D2  🛒  cluster   z-   SHOPPING TROLLEY
+ 728 U+1F6F4  🛴  cluster   .a   SCOOTER
+ 729 U+1F6F5  🛵  cluster   .b   MOTOR SCOOTER
+ 730 U+1F6F6  🛶  cluster   .c   CANOE
+ 731 U+1F919  🤙  cluster   .d   CALL ME HAND
+ 732 U+1F91A  🤚  cluster   .e   RAISED BACK OF HAND
+ 733 U+1F91B  🤛  cluster   .f   LEFT-FACING FIST
+ 734 U+1F91C  🤜  cluster   .g   RIGHT-FACING FIST
+ 735 U+1F91D  🤝  cluster   .h   HANDSHAKE
+ 736 U+1F91E  🤞  cluster   .i   HAND WITH INDEX AND MIDDLE FINGERS CROSSED
+ 737 U+1F920  🤠  cluster   .j   FACE WITH COWBOY HAT
+ 738 U+1F921  🤡  cluster   .k   CLOWN FACE
+ 739 U+1F922  🤢  cluster   .l   NAUSEATED FACE
+ 740 U+1F923  🤣  cluster   .m   ROLLING ON THE FLOOR LAUGHING
+ 741 U+1F924  🤤  cluster   .n   DROOLING FACE
+ 742 U+1F925  🤥  cluster   .o   LYING FACE
+ 743 U+1F926  🤦  cluster   .p   FACE PALM
+ 744 U+1F927  🤧  cluster   .q   SNEEZING FACE
+ 745 U+1F930  🤰  cluster   .r   PREGNANT WOMAN
+ 746 U+1F933  🤳  cluster   .s   SELFIE
+ 747 U+1F934  🤴  cluster   .t   PRINCE
+ 748 U+1F935  🤵  cluster   .u   MAN IN TUXEDO
+ 749 U+1F936  🤶  cluster   .v   MOTHER CHRISTMAS
+ 750 U+1F937  🤷  cluster   .w   SHRUG
+ 751 U+1F938  🤸  cluster   .x   PERSON DOING CARTWHEEL
+ 752 U+1F939  🤹  cluster   .y   JUGGLING
+ 753 U+1F93A  🤺  cluster   .z   FENCER
+ 754 U+1F93C  🤼  cluster   ..   WRESTLERS
+ 755 U+1F93D  🤽  cluster   .-   WATER POLO
+ 756 U+1F93E  🤾  cluster   -a   HANDBALL
+ 757 U+1F940  🥀  cluster   -b   WILTED FLOWER
+ 758 U+1F941  🥁  cluster   -c   DRUM WITH DRUMSTICKS
+ 759 U+1F942  🥂  cluster   -d   CLINKING GLASSES
+ 760 U+1F943  🥃  cluster   -e   TUMBLER GLASS
+ 761 U+1F944  🥄  cluster   -f   SPOON
+ 762 U+1F945  🥅  cluster   -g   GOAL NET
+ 763 U+1F947  🥇  cluster   -h   FIRST PLACE MEDAL
+ 764 U+1F948  🥈  cluster   -i   SECOND PLACE MEDAL
+ 765 U+1F949  🥉  cluster   -j   THIRD PLACE MEDAL
+ 766 U+1F94A  🥊  cluster   -k   BOXING GLOVE
+ 767 U+1F94B  🥋  cluster   -l   MARTIAL ARTS UNIFORM
+ 768 U+1F950  🥐  cluster   -m   CROISSANT
+ 769 U+1F951  🥑  cluster   -n   AVOCADO
+ 770 U+1F952  🥒  cluster   -o   CUCUMBER
+ 771 U+1F953  🥓  cluster   -p   BACON
+ 772 U+1F954  🥔  cluster   -q   POTATO
+ 773 U+1F955  🥕  cluster   -r   CARROT
+ 774 U+1F956  🥖  cluster   -s   BAGUETTE BREAD
+ 775 U+1F957  🥗  cluster   -t   GREEN SALAD
+ 776 U+1F958  🥘  cluster   -u   SHALLOW PAN OF FOOD
+ 777 U+1F959  🥙  cluster   -v   STUFFED FLATBREAD
+ 778 U+1F95A  🥚  cluster   -w   EGG
+ 779 U+1F95B  🥛  cluster   -x   GLASS OF MILK
+ 780 U+1F95C  🥜  cluster   -y   PEANUTS
+ 781 U+1F95D  🥝  cluster   -z   KIWIFRUIT
+ 782 U+1F95E  🥞  cluster   -.   PANCAKES
+ 783 U+1F985  🦅  cluster   --   EAGLE
+ 784 U+1F986  🦆  singleton a    DUCK
+ 785 U+1F987  🦇  singleton b    BAT
+ 786 U+1F988  🦈  singleton c    SHARK
+ 787 U+1F989  🦉  singleton d    OWL
+ 788 U+1F98A  🦊  singleton e    FOX FACE
+ 789 U+1F98B  🦋  singleton f    BUTTERFLY
+ 790 U+1F98C  🦌  singleton g    DEER
+ 791 U+1F98D  🦍  singleton h    GORILLA
+ 792 U+1F98E  🦎  singleton i    LIZARD
+ 793 U+1F98F  🦏  singleton j    RHINOCEROS
+ 794 U+1F990  🦐  singleton k    SHRIMP
+ 795 U+1F991  🦑  singleton l    SQUID
+ 796 U+1F6F7  🛷  singleton m    SLED
+ 797 U+1F6F8  🛸  singleton n    FLYING SAUCER
+ 798 U+1F91F  🤟  singleton o    I LOVE YOU HAND SIGN
+ 799 U+1F928  🤨  singleton p    FACE WITH ONE EYEBROW RAISED
+ 800 U+1F929  🤩  singleton q    GRINNING FACE WITH STAR EYES
+ 801 U+1F92A  🤪  singleton r    GRINNING FACE WITH ONE LARGE AND ONE SMALL EYE
+ 802 U+1F92B  🤫  singleton s    FACE WITH FINGER COVERING CLOSED LIPS
+ 803 U+1F92D  🤭  singleton t    SMILING FACE WITH SMILING EYES AND HAND COVERING MOUTH
+ 804 U+1F92F  🤯  singleton u    SHOCKED FACE WITH EXPLODING HEAD
+ 805 U+1F931  🤱  singleton v    BREAST-FEEDING
+ 806 U+1F932  🤲  singleton w    PALMS UP TOGETHER
+ 807 U+1F94C  🥌  singleton x    CURLING STONE
+ 808 U+1F95F  🥟  singleton y    DUMPLING
+ 809 U+1F960  🥠  singleton z    FORTUNE COOKIE
+ 810 U+1F961  🥡  singleton .    TAKEOUT BOX
+ 811 U+1F962  🥢  singleton -    CHOPSTICKS
+ 812 U+1F963  🥣  digit     0    BOWL WITH SPOON
+ 813 U+1F964  🥤  digit     1    CUP WITH STRAW
+ 814 U+1F965  🥥  digit     2    COCONUT
+ 815 U+1F966  🥦  digit     3    BROCCOLI
+ 816 U+1F967  🥧  digit     4    PIE
+ 817 U+1F968  🥨  digit     5    PRETZEL
+ 818 U+1F969  🥩  digit     6    CUT OF MEAT
+ 819 U+1F96A  🥪  digit     7    SANDWICH
+ 820 U+1F96B  🥫  digit     8    CANNED FOOD
+ 821 U+1F992  🦒  digit     9    GIRAFFE FACE
+ 822 U+1F993  🦓  control        ZEBRA FACE
+ 823 U+1F994  🦔  control        HEDGEHOG
+ 824 U+1F995  🦕  control        SAUROPOD
+ 825 U+1F996  🦖  control        T-REX
+ 826 U+1F997  🦗  control        CRICKET
+ 827 U+1F9D0  🧐  control        FACE WITH MONOCLE
+ 828 U+1F9D1  🧑  control        ADULT
+ 829 U+1F9D2  🧒  control        CHILD
+ 830 U+1F9D3  🧓  control        OLDER ADULT
+ 831 U+1F9D4  🧔  control        BEARDED PERSON
+ 832 U+1F9D5  🧕  control        PERSON WITH HEADSCARF
+ 833 U+1F9D6  🧖  control        PERSON IN STEAMY ROOM
+ 834 U+1F9D7  🧗  control        PERSON CLIMBING
+ 835 U+1F9D8  🧘  control        PERSON IN LOTUS POSITION
+ 836 U+1F9D9  🧙  control        MAGE
+ 837 U+1F9DA  🧚  control        FAIRY
+ 838 U+1F9DB  🧛  control        VAMPIRE
+ 839 U+1F9DC  🧜  reserved       MERPERSON
+ 840 U+1F9DD  🧝  reserved       ELF
+ 841 U+1F9DE  🧞  reserved       GENIE
+ 842 U+1F9DF  🧟  reserved       ZOMBIE
+ 843 U+1F9E0  🧠  reserved       BRAIN
+ 844 U+1F9E1  🧡  reserved       ORANGE HEART
+ 845 U+1F9E2  🧢  reserved       BILLED CAP
+ 846 U+1F9E3  🧣  reserved       SCARF
+ 847 U+1F9E4  🧤  reserved       GLOVES
+ 848 U+1F9E5  🧥  reserved       COAT
+ 849 U+1F9E6  🧦  reserved       SOCKS
+ 850 U+1F6F9  🛹  reserved       SKATEBOARD
+ 851 U+1F94D  🥍  reserved       LACROSSE STICK AND BALL
+ 852 U+1F94E  🥎  reserved       SOFTBALL
+ 853 U+1F94F  🥏  reserved       FLYING DISC
+ 854 U+1F96C  🥬  reserved       LEAFY GREEN
+ 855 U+1F96D  🥭  reserved       MANGO
+ 856 U+1F96E  🥮  reserved       MOON CAKE
+ 857 U+1F96F  🥯  reserved       BAGEL
+ 858 U+1F970  🥰  reserved       SMILING FACE WITH SMILING EYES AND THREE HEARTS
+ 859 U+1F973  🥳  reserved       FACE WITH PARTY HORN AND PARTY HAT
+ 860 U+1F974  🥴  reserved       FACE WITH UNEVEN EYES AND WAVY MOUTH
+ 861 U+1F975  🥵  reserved       OVERHEATED FACE
+ 862 U+1F976  🥶  reserved       FREEZING FACE
+ 863 U+1F97A  🥺  reserved       FACE WITH PLEADING EYES
+ 864 U+1F97C  🥼  reserved       LAB COAT
+ 865 U+1F97D  🥽  reserved       GOGGLES
+ 866 U+1F97E  🥾  reserved       HIKING BOOT
+ 867 U+1F97F  🥿  reserved       FLAT SHOE
+ 868 U+1F998  🦘  reserved       KANGAROO
+ 869 U+1F999  🦙  reserved       LLAMA
+ 870 U+1F99A  🦚  reserved       PEACOCK
+ 871 U+1F99B  🦛  reserved       HIPPOPOTAMUS
+ 872 U+1F99C  🦜  reserved       PARROT
+ 873 U+1F99D  🦝  reserved       RACCOON
+ 874 U+1F99E  🦞  reserved       LOBSTER
+ 875 U+1F99F  🦟  reserved       MOSQUITO
+ 876 U+1F9A1  🦡  reserved       BADGER
+ 877 U+1F9A2  🦢  reserved       SWAN
+ 878 U+1F9B4  🦴  reserved       BONE
+ 879 U+1F9B5  🦵  reserved       LEG
+ 880 U+1F9B6  🦶  reserved       FOOT
+ 881 U+1F9B7  🦷  reserved       TOOTH
+ 882 U+1F9B8  🦸  reserved       SUPERHERO
+ 883 U+1F9B9  🦹  reserved       SUPERVILLAIN
+ 884 U+1F9C1  🧁  reserved       CUPCAKE
+ 885 U+1F9C2  🧂  reserved       SALT SHAKER
+ 886 U+1F9E7  🧧  reserved       RED GIFT ENVELOPE
+ 887 U+1F9E9  🧩  reserved       JIGSAW PUZZLE PIECE
+ 888 U+1F9EA  🧪  reserved       TEST TUBE
+ 889 U+1F9EB  🧫  reserved       PETRI DISH
+ 890 U+1F9EC  🧬  reserved       DNA DOUBLE HELIX
+ 891 U+1F9ED  🧭  reserved       COMPASS
+ 892 U+1F9EE  🧮  reserved       ABACUS
+ 893 U+1F9EF  🧯  reserved       FIRE EXTINGUISHER
+ 894 U+1F9F0  🧰  reserved       TOOLBOX
+ 895 U+1F9F1  🧱  reserved       BRICK
+ 896 U+1F9F2  🧲  reserved       MAGNET
+ 897 U+1F9F3  🧳  reserved       LUGGAGE
+ 898 U+1F9F4  🧴  reserved       LOTION BOTTLE
+ 899 U+1F9F5  🧵  reserved       SPOOL OF THREAD
+ 900 U+1F9F6  🧶  reserved       BALL OF YARN
+ 901 U+1F9F7  🧷  reserved       SAFETY PIN
+ 902 U+1F9F8  🧸  reserved       TEDDY BEAR
+ 903 U+1F9F9  🧹  reserved       BROOM
+ 904 U+1F9FA  🧺  reserved       BASKET
+ 905 U+1F9FB  🧻  reserved       ROLL OF PAPER
+ 906 U+1F9FC  🧼  reserved       BAR OF SOAP
+ 907 U+1F9FD  🧽  reserved       SPONGE
+ 908 U+1F9FE  🧾  reserved       RECEIPT
+ 909 U+1F9FF  🧿  reserved       NAZAR AMULET
+ 910 U+1F6D5  🛕  reserved       HINDU TEMPLE
+ 911 U+1F6FA  🛺  reserved       AUTO RICKSHAW
+ 912 U+1F7E0  🟠  reserved       LARGE ORANGE CIRCLE
+ 913 U+1F7E1  🟡  reserved       LARGE YELLOW CIRCLE
+ 914 U+1F7E2  🟢  reserved       LARGE GREEN CIRCLE
+ 915 U+1F7E3  🟣  reserved       LARGE PURPLE CIRCLE
+ 916 U+1F7E4  🟤  reserved       LARGE BROWN CIRCLE
+ 917 U+1F7E5  🟥  reserved       LARGE RED SQUARE
+ 918 U+1F7E6  🟦  reserved       LARGE BLUE SQUARE
+ 919 U+1F7E7  🟧  reserved       LARGE ORANGE SQUARE
+ 920 U+1F7E8  🟨  reserved       LARGE YELLOW SQUARE
+ 921 U+1F7E9  🟩  reserved       LARGE GREEN SQUARE
+ 922 U+1F7EA  🟪  reserved       LARGE PURPLE SQUARE
+ 923 U+1F7EB  🟫  reserved       LARGE BROWN SQUARE
+ 924 U+1F90D  🤍  reserved       WHITE HEART
+ 925 U+1F90E  🤎  reserved       BROWN HEART
+ 926 U+1F90F  🤏  reserved       PINCHING HAND
+ 927 U+1F93F  🤿  reserved       DIVING MASK
+ 928 U+1F971  🥱  reserved       YAWNING FACE
+ 929 U+1F97B  🥻  reserved       SARI
+ 930 U+1F9A5  🦥  reserved       SLOTH
+ 931 U+1F9A6  🦦  reserved       OTTER
+ 932 U+1F9A7  🦧  reserved       ORANGUTAN
+ 933 U+1F9A8  🦨  reserved       SKUNK
+ 934 U+1F9A9  🦩  reserved       FLAMINGO
+ 935 U+1F9AA  🦪  reserved       OYSTER
+ 936 U+1F9AE  🦮  reserved       GUIDE DOG
+ 937 U+1F9AF  🦯  reserved       PROBING CANE
+ 938 U+1F9BA  🦺  reserved       SAFETY VEST
+ 939 U+1F9BB  🦻  reserved       EAR WITH HEARING AID
+ 940 U+1F9BC  🦼  reserved       MOTORIZED WHEELCHAIR
+ 941 U+1F9BD  🦽  reserved       MANUAL WHEELCHAIR
+ 942 U+1F9BE  🦾  reserved       MECHANICAL ARM
+ 943 U+1F9BF  🦿  reserved       MECHANICAL LEG
+ 944 U+1F9C3  🧃  reserved       BEVERAGE BOX
+ 945 U+1F9C4  🧄  reserved       GARLIC
+ 946 U+1F9C5  🧅  reserved       ONION
+ 947 U+1F9C6  🧆  reserved       FALAFEL
+ 948 U+1F9C7  🧇  reserved       WAFFLE
+ 949 U+1F9C8  🧈  reserved       BUTTER
+ 950 U+1F9C9  🧉  reserved       MATE DRINK
+ 951 U+1F9CA  🧊  reserved       ICE CUBE
+ 952 U+1F9CD  🧍  reserved       STANDING PERSON
+ 953 U+1F9CE  🧎  reserved       KNEELING PERSON
+ 954 U+1F9CF  🧏  reserved       DEAF PERSON
+ 955 U+1FA70  🩰  reserved       BALLET SHOES
+ 956 U+1FA71  🩱  reserved       ONE-PIECE SWIMSUIT
+ 957 U+1FA72  🩲  reserved       BRIEFS
+ 958 U+1FA73  🩳  reserved       SHORTS
+ 959 U+1FA79  🩹  reserved       ADHESIVE BANDAGE
+ 960 U+1FA7A  🩺  reserved       STETHOSCOPE
+ 961 U+1FA80  🪀  reserved       YO-YO
+ 962 U+1FA81  🪁  reserved       KITE
+ 963 U+1FA82  🪂  reserved       PARACHUTE
+ 964 U+1FA90  🪐  reserved       RINGED PLANET
+ 965 U+1FA91  🪑  reserved       CHAIR
+ 966 U+1FA92  🪒  reserved       RAZOR
+ 967 U+1FA94  🪔  reserved       DIYA LAMP
+ 968 U+1FA95  🪕  reserved       BANJO
+ 969 U+1F6D6  🛖  reserved       HUT
+ 970 U+1F6D7  🛗  reserved       ELEVATOR
+ 971 U+1F6FB  🛻  reserved       PICKUP TRUCK
+ 972 U+1F6FC  🛼  reserved       ROLLER SKATE
+ 973 U+1F90C  🤌  reserved       PINCHED FINGERS
+ 974 U+1F972  🥲  reserved       SMILING FACE WITH TEAR
+ 975 U+1F977  🥷  reserved       NINJA
+ 976 U+1F978  🥸  reserved       DISGUISED FACE
+ 977 U+1F9A3  🦣  reserved       MAMMOTH
+ 978 U+1F9A4  🦤  reserved       DODO
+ 979 U+1F9AB  🦫  reserved       BEAVER
+ 980 U+1F9AC  🦬  reserved       BISON
+ 981 U+1F9AD  🦭  reserved       SEAL
+ 982 U+1F9CB  🧋  reserved       BUBBLE TEA
+ 983 U+1FA74  🩴  reserved       THONG SANDAL
+ 984 U+1FA83  🪃  reserved       BOOMERANG
+ 985 U+1FA84  🪄  reserved       MAGIC WAND
+ 986 U+1FA85  🪅  reserved       PINATA
+ 987 U+1FA86  🪆  reserved       NESTING DOLLS
+ 988 U+1FA96  🪖  reserved       MILITARY HELMET
+ 989 U+1FA97  🪗  reserved       ACCORDION
+ 990 U+1FA98  🪘  reserved       LONG DRUM
+ 991 U+1FA99  🪙  reserved       COIN
+ 992 U+1FA9A  🪚  reserved       CARPENTRY SAW
+ 993 U+1FA9B  🪛  reserved       SCREWDRIVER
+ 994 U+1FA9C  🪜  reserved       LADDER
+ 995 U+1FA9D  🪝  reserved       HOOK
+ 996 U+1FA9E  🪞  reserved       MIRROR
+ 997 U+1FA9F  🪟  reserved       WINDOW
+ 998 U+1FAA0  🪠  reserved       PLUNGER
+ 999 U+1FAA1  🪡  reserved       SEWING NEEDLE
+1000 U+1FAA2  🪢  reserved       KNOT
+1001 U+1FAA3  🪣  reserved       BUCKET
+1002 U+1FAA4  🪤  reserved       MOUSE TRAP
+1003 U+1FAA5  🪥  reserved       TOOTHBRUSH
+1004 U+1FAA6  🪦  reserved       HEADSTONE
+1005 U+1FAA7  🪧  reserved       PLACARD
+1006 U+1FAA8  🪨  reserved       ROCK
+1007 U+1FAB0  🪰  reserved       FLY
+1008 U+1FAB1  🪱  reserved       WORM
+1009 U+1FAB2  🪲  reserved       BEETLE
+1010 U+1FAB3  🪳  reserved       COCKROACH
+1011 U+1FAB4  🪴  reserved       POTTED PLANT
+1012 U+1FAB5  🪵  reserved       WOOD
+1013 U+1FAB6  🪶  reserved       FEATHER
+1014 U+1FAC0  🫀  reserved       ANATOMICAL HEART
+1015 U+1FAC1  🫁  reserved       LUNGS
+1016 U+1FAC2  🫂  reserved       PEOPLE HUGGING
+1017 U+1FAD0  🫐  reserved       BLUEBERRIES
+1018 U+1FAD1  🫑  reserved       BELL PEPPER
+1019 U+1FAD2  🫒  reserved       OLIVE
+1020 U+1FAD3  🫓  reserved       FLATBREAD
+1021 U+1FAD4  🫔  reserved       TAMALE
+1022 U+1FAD5  🫕  reserved       FONDUE
+1023 U+1FAD6  🫖  reserved       TEAPOT

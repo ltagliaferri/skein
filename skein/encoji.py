@@ -169,6 +169,7 @@ class _Alphabet:
 
 
 ALPHABET = _Alphabet(_ALPHA_JSON)
+_DATA_CODEPOINTS = frozenset(ALPHABET._idx2cp.values())   # the 1024 data glyph codepoints
 
 
 # ===========================================================================
@@ -251,13 +252,43 @@ class Decoded:
 # ===========================================================================
 # Codec
 # ===========================================================================
+def _validate_manifest(manifest: "Manifest") -> None:
+    """Reject a structurally invalid manifest at construction (fail fast, not
+    late/ambiguous). Mirrors the contract's manifest invariants so a malformed
+    Phase-3+ manifest cannot build a Codec that silently mis-parses."""
+    if manifest.alphabet_sha256 != ALPHABET.sha256:
+        raise ValueError(
+            "manifest.alphabet_sha256 does not match the pinned alphabet "
+            f"({manifest.alphabet_sha256} != {ALPHABET.sha256})"
+        )
+    part = manifest.control_partition
+    if not part.types or not part.routes:
+        raise ValueError("control partition: types and routes must be non-empty")
+    brand = {part.brand}
+    type_cps = set(part.types.values())
+    route_cps = set(part.routes.values())
+    if len(type_cps) != len(part.types) or len(route_cps) != len(part.routes):
+        raise ValueError("control partition: type/route labels must map to distinct codepoints")
+    ctrl = ALPHABET.control_codepoints
+    for name, cps in (("brand", brand), ("types", type_cps), ("routes", route_cps)):
+        if not cps <= ctrl:
+            raise ValueError(f"control partition {name} must be within the control codepoints")
+    if brand & type_cps or brand & route_cps or type_cps & route_cps:
+        raise ValueError("control partition brand/types/routes must be mutually disjoint")
+    if not manifest.normalization_profile.isdisjoint(_DATA_CODEPOINTS):
+        raise ValueError("normalization_profile must not strip a data glyph")
+    if manifest.extension_sentinel in manifest.normalization_profile:
+        raise ValueError("normalization_profile must not strip the extension sentinel")
+    for cp in manifest.prior_brand_registry:
+        if cp not in ctrl or cp == part.brand:
+            raise ValueError(
+                "prior_brand_registry entries must be control codepoints distinct from the brand"
+            )
+
+
 class Codec:
     def __init__(self, manifest: Manifest):
-        if manifest.alphabet_sha256 != ALPHABET.sha256:
-            raise ValueError(
-                "manifest.alphabet_sha256 does not match the pinned alphabet "
-                f"({manifest.alphabet_sha256} != {ALPHABET.sha256})"
-            )
+        _validate_manifest(manifest)
         self.manifest = manifest
         part = manifest.control_partition
         self._brand_cp = part.brand

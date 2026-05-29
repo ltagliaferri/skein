@@ -1205,3 +1205,35 @@ class TestFullRoundTrip:
         assert codec.encode(
             station=d.station, identity=d.identity, type=d.type, route=d.route,
         ) == stream
+
+
+@pytest.mark.skipif(
+    not (HAVE_ENCOJI and hasattr(E, "v1")),
+    reason="encoji.v1() not present yet (Phase 3)",
+)
+class TestV1Factory:
+    """Behavioral smoke test of the REAL v1() codec. The rest of the suite runs the
+    PROVISIONAL manifest fixture; v1() is otherwise only invariant-checked, so a
+    wiring mistake in the canonical factory (the BRAND constant + version_glyph at
+    the front) would not otherwise surface (fell-r1, codex)."""
+
+    def test_v1_encode_decode_round_trips_routed_and_routeless(self):
+        v1 = E.v1()
+        part = v1.manifest.control_partition
+        a_route = next(iter(part.routes))
+        for route in (None, a_route):
+            for typ in part.types:
+                stream = v1.encode(station="auth-svc.1", identity=123456789, type=typ, route=route)
+                d = v1.decode(stream)
+                assert d.station == "auth-svc.1"
+                assert d.identity == 123456789
+                assert d.type == typ
+                assert d.route == route
+                assert d.version == 1
+
+    def test_v1_stream_leads_with_brand_then_version(self):
+        v1 = E.v1()
+        typ = next(iter(v1.manifest.control_partition.types))
+        s = v1.encode(station="x", identity=0, type=typ)
+        assert ord(s[0]) == 0x1F9F6                    # 🧶 brand at glyph 0
+        assert ord(s[1]) == v1.manifest.version_glyph  # 🪢 v1 version at glyph 1

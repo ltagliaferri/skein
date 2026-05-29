@@ -1,0 +1,89 @@
+U+26D4	⛔	offputting:prohibition	NO ENTRY
+U+274C	❌	text-boundary:char-adjacent	CROSS MARK
+U+274E	❎	text-boundary:char-adjacent	NEGATIVE SQUARED CROSS MARK
+U+2753	❓	text-boundary:char-adjacent	BLACK QUESTION MARK ORNAMENT
+U+2754	❔	text-boundary:char-adjacent	WHITE QUESTION MARK ORNAMENT
+U+2755	❕	text-boundary:char-adjacent	WHITE EXCLAMATION MARK ORNAMENT
+U+2757	❗	text-boundary:char-adjacent	HEAVY EXCLAMATION MARK SYMBOL
+U+2795	➕	text-boundary:char-adjacent	HEAVY PLUS SIGN
+U+2796	➖	text-boundary:char-adjacent	HEAVY MINUS SIGN
+U+2797	➗	text-boundary:char-adjacent	HEAVY DIVISION SIGN
+U+27B0	➰	text-boundary:char-adjacent	CURLY LOOP
+U+27BF	➿	text-boundary:char-adjacent	DOUBLE CURLY LOOP
+U+2B55	⭕	text-boundary:char-adjacent	HEAVY LARGE CIRCLE
+U+1F18E	🆎	text-boundary:script-box	NEGATIVE SQUARED AB
+U+1F191	🆑	text-boundary:script-box	SQUARED CL
+U+1F192	🆒	text-boundary:script-box	SQUARED COOL
+U+1F193	🆓	text-boundary:script-box	SQUARED FREE
+U+1F194	🆔	text-boundary:script-box	SQUARED ID
+U+1F195	🆕	text-boundary:script-box	SQUARED NEW
+U+1F196	🆖	text-boundary:script-box	SQUARED NG
+U+1F197	🆗	text-boundary:script-box	SQUARED OK
+U+1F198	🆘	text-boundary:script-box	SQUARED SOS
+U+1F199	🆙	text-boundary:script-box	SQUARED UP WITH EXCLAMATION MARK
+U+1F19A	🆚	text-boundary:script-box	SQUARED VS
+U+1F201	🈁	text-boundary:script-box	SQUARED KATAKANA KOKO
+U+1F21A	🈚	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-7121
+U+1F22F	🈯	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-6307
+U+1F232	🈲	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-7981
+U+1F233	🈳	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-7A7A
+U+1F234	🈴	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-5408
+U+1F235	🈵	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-6E80
+U+1F236	🈶	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-6709
+U+1F238	🈸	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-7533
+U+1F239	🈹	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-5272
+U+1F23A	🈺	text-boundary:script-box	SQUARED CJK UNIFIED IDEOGRAPH-55B6
+U+1F250	🉐	text-boundary:script-box	CIRCLED IDEOGRAPH ADVANTAGE
+U+1F251	🉑	text-boundary:script-box	CIRCLED IDEOGRAPH ACCEPT
+U+1F4F5	📵	offputting:prohibition	NO MOBILE PHONES
+U+1F51E	🔞	offputting:prohibition	NO ONE UNDER EIGHTEEN SYMBOL
+U+1F51F	🔟	text-boundary:char-adjacent	KEYCAP TEN
+U+1F520	🔠	text-boundary:script-box	INPUT SYMBOL FOR LATIN CAPITAL LETTERS
+U+1F521	🔡	text-boundary:script-box	INPUT SYMBOL FOR LATIN SMALL LETTERS
+U+1F522	🔢	text-boundary:script-box	INPUT SYMBOL FOR NUMBERS
+U+1F523	🔣	text-boundary:script-box	INPUT SYMBOL FOR SYMBOLS
+U+1F524	🔤	text-boundary:script-box	INPUT SYMBOL FOR LATIN LETTERS
+U+1F52A	🔪	offputting:gross-weapon	HOCHO
+U+1F52B	🔫	offputting:gross-weapon	PISTOL
+U+1F532	🔲	distinctness:geom-near-dup	BLACK SQUARE BUTTON
+U+1F533	🔳	distinctness:geom-near-dup	WHITE SQUARE BUTTON
+U+1F538	🔸	distinctness:geom-near-dup	SMALL ORANGE DIAMOND
+U+1F539	🔹	distinctness:geom-near-dup	SMALL BLUE DIAMOND
+U+1F550	🕐	distinctness:clock-face	CLOCK FACE ONE OCLOCK
+U+1F551	🕑	distinctness:clock-face	CLOCK FACE TWO OCLOCK
+U+1F552	🕒	distinctness:clock-face	CLOCK FACE THREE OCLOCK
+U+1F553	🕓	distinctness:clock-face	CLOCK FACE FOUR OCLOCK
+U+1F554	🕔	distinctness:clock-face	CLOCK FACE FIVE OCLOCK
+U+1F555	🕕	distinctness:clock-face	CLOCK FACE SIX OCLOCK
+U+1F556	🕖	distinctness:clock-face	CLOCK FACE SEVEN OCLOCK
+U+1F557	🕗	distinctness:clock-face	CLOCK FACE EIGHT OCLOCK
+U+1F558	🕘	distinctness:clock-face	CLOCK FACE NINE OCLOCK
+U+1F559	🕙	distinctness:clock-face	CLOCK FACE TEN OCLOCK
+U+1F55A	🕚	distinctness:clock-face	CLOCK FACE ELEVEN OCLOCK
+U+1F55B	🕛	distinctness:clock-face	CLOCK FACE TWELVE OCLOCK
+U+1F55C	🕜	distinctness:clock-face	CLOCK FACE ONE-THIRTY
+U+1F55D	🕝	distinctness:clock-face	CLOCK FACE TWO-THIRTY
+U+1F55E	🕞	distinctness:clock-face	CLOCK FACE THREE-THIRTY
+U+1F55F	🕟	distinctness:clock-face	CLOCK FACE FOUR-THIRTY
+U+1F560	🕠	distinctness:clock-face	CLOCK FACE FIVE-THIRTY
+U+1F561	🕡	distinctness:clock-face	CLOCK FACE SIX-THIRTY
+U+1F562	🕢	distinctness:clock-face	CLOCK FACE SEVEN-THIRTY
+U+1F563	🕣	distinctness:clock-face	CLOCK FACE EIGHT-THIRTY
+U+1F564	🕤	distinctness:clock-face	CLOCK FACE NINE-THIRTY
+U+1F565	🕥	distinctness:clock-face	CLOCK FACE TEN-THIRTY
+U+1F566	🕦	distinctness:clock-face	CLOCK FACE ELEVEN-THIRTY
+U+1F567	🕧	distinctness:clock-face	CLOCK FACE TWELVE-THIRTY
+U+1F595	🖕	offputting:gross-weapon	REVERSED HAND WITH MIDDLE FINGER EXTENDED
+U+1F6AB	🚫	offputting:prohibition	NO ENTRY SIGN
+U+1F6AC	🚬	offputting:gross-weapon	SMOKING SYMBOL
+U+1F6AD	🚭	offputting:prohibition	NO SMOKING SYMBOL
+U+1F6AF	🚯	offputting:prohibition	DO NOT LITTER SYMBOL
+U+1F6B1	🚱	offputting:prohibition	NON-POTABLE WATER SYMBOL
+U+1F6B3	🚳	offputting:prohibition	NO BICYCLES
+U+1F6B7	🚷	offputting:prohibition	NO PEDESTRIANS
+U+1F92C	🤬	offputting:gross-weapon	SERIOUS FACE WITH SYMBOLS COVERING MOUTH
+U+1F92E	🤮	offputting:gross-weapon	FACE WITH OPEN MOUTH VOMITING
+U+1F9A0	🦠	offputting:gross-relief	MICROBE
+U+1F9E8	🧨	offputting:gross-weapon	FIRECRACKER
+U+1FA78	🩸	offputting:gross-relief	DROP OF BLOOD
+U+1FA93	🪓	offputting:gross-weapon	AXE

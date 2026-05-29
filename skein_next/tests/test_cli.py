@@ -26,7 +26,7 @@ def test_site_create_and_list(runner, data_dir):
     r = run(runner, data_dir, "site", "create", "proj", "--purpose", "the project")
     assert r.exit_code == 0 and "site created: proj" in r.output
     r = run(runner, data_dir, "sites")
-    assert r.exit_code == 0 and "proj — the project" in r.output
+    assert r.exit_code == 0 and "proj - the project" in r.output
 
 
 def test_site_create_is_idempotent(runner, data_dir):

@@ -184,26 +184,19 @@ class Station:
         return self.store.list_folios(limit=limit, offset=offset)
 
     def folios_in_site(
-        self, site: str, type: Optional[str] = None, limit: int = 1000
+        self, site: str, type: Optional[str] = None, limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """Folios that are members of ``site`` (via ``within`` threads).
 
         Raises :class:`UnknownSite` if the slug is unknown. Optionally filtered
-        to one folio ``type``. Ordered by ``created_at`` to match the store.
+        to one folio ``type``. The store does the membership join, ordering by
+        ``created_at`` *before* applying ``limit`` so the window is the stable
+        earliest-N, not an arbitrary slice. ``limit=None`` returns all members.
         """
         site_hash = self.store.resolve_slug(site)
         if not site_hash:
             raise UnknownSite(site)
-        members = self.store.get_threads(to_id=site_hash, type="within")
-        folios: List[Dict[str, Any]] = []
-        for edge in members:
-            folio = self.store.get_folio(edge["from_id"])
-            if folio and (type is None or folio.get("type") == type):
-                folios.append(folio)
-            if len(folios) >= limit:
-                break
-        folios.sort(key=lambda f: (f.get("created_at") or "", f["content_hash"]))
-        return folios
+        return self.store.folios_in_site(site_hash, type=type, limit=limit)
 
     def search(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         return self.store.search_folios(query, limit=limit)

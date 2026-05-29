@@ -22,6 +22,15 @@ from .identity import compute_folio_hash, compute_thread_hash, normalize_created
 DEFAULT_DATA_DIR = Path(".skein-next")
 DB_FILENAME = "store.db"
 
+
+def _like_escape(s: str) -> str:
+    """Escape a literal string for use inside a ``LIKE ... ESCAPE '\\'`` pattern.
+
+    The backslash is escaped first so the later ``%``/``_`` escapes are not
+    doubled. Callers add their own ``%`` wildcards around the result.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS folios (
     content_hash TEXT PRIMARY KEY,
@@ -162,7 +171,7 @@ class SkeinNextStore:
         index. ``query`` is matched literally; SQL ``LIKE`` wildcards in it are
         escaped so a user searching for ``50%`` or ``a_b`` finds those strings.
         """
-        like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        like = "%" + _like_escape(query) + "%"
         rows = self.conn.execute(
             """
             SELECT * FROM folios
@@ -181,7 +190,7 @@ class SkeinNextStore:
         address; ``LIKE`` metacharacters are escaped. Returns up to ``limit``
         matches so a caller can detect (and reject) an ambiguous prefix.
         """
-        like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        like = _like_escape(prefix) + "%"
         rows = self.conn.execute(
             """
             SELECT content_hash FROM folios
@@ -192,6 +201,38 @@ class SkeinNextStore:
             (like, limit),
         ).fetchall()
         return [r["content_hash"] for r in rows]
+
+    def folios_in_site(
+        self,
+        site_hash: str,
+        type: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Member folios of a site, joined through ``within`` threads.
+
+        One SQL join (``threads.from_id = folios.content_hash`` where the
+        ``within`` edge points ``to_id = site_hash``) ordered by the *folio's*
+        ``created_at`` then hash, so ``limit`` returns a stable earliest-N window
+        — not the arbitrary slice that limiting the unordered edge list would
+        give (``within`` edges carry no timestamp, so they have no meaningful
+        order of their own). ``DISTINCT`` guards against a folio somehow holding
+        two membership edges to the same site.
+        """
+        sql = [
+            "SELECT DISTINCT f.* FROM folios f",
+            "JOIN threads t ON t.from_id = f.content_hash",
+            "WHERE t.to_id = ? AND t.type = 'within'",
+        ]
+        params: List[Any] = [site_hash]
+        if type is not None:
+            sql.append("AND f.type = ?")
+            params.append(type)
+        sql.append("ORDER BY f.created_at, f.content_hash")
+        if limit is not None:
+            sql.append("LIMIT ?")
+            params.append(limit)
+        rows = self.conn.execute("\n".join(sql), params).fetchall()
+        return [dict(r) for r in rows]
 
     # --- threads ------------------------------------------------------------
 

@@ -75,6 +75,21 @@ def test_resolve_ref_ambiguous_prefix_raises(station, monkeypatch):
         station.resolve_ref("sha256::dead")
 
 
+def test_resolve_ref_ambiguous_prefix_real_collision(station):
+    # Insert two folio rows that genuinely share a short prefix, so the real
+    # find_by_prefix query + len()>1 guard are exercised end-to-end (not mocked).
+    shared = "sha256::abcdef000000"
+    for tail in ("1111", "2222"):
+        station.store.conn.execute(
+            "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+            (shared + tail, "finding", "t", "c"),
+        )
+    station.store.conn.commit()
+    with pytest.raises(AmbiguousReference) as ei:
+        station.resolve_ref(shared)
+    assert len(ei.value.matches) == 2
+
+
 def test_resolve_ref_unknown_returns_none(station):
     assert station.resolve_ref("sha256::deadbeef") is None
     assert station.resolve_ref("not-a-real-id") is None
@@ -117,6 +132,32 @@ def test_folios_in_site_type_filter(station):
 def test_folios_in_site_unknown_raises(station):
     with pytest.raises(UnknownSite):
         station.folios_in_site("ghost")
+
+
+def test_folios_in_site_limit_returns_earliest_by_created_at(station):
+    # The MAJOR fell-r1 finding: limit must apply *after* created_at ordering,
+    # not truncate the (timestamp-less, hash-ordered) membership edges. Post 5
+    # folios with ascending timestamps; limit=3 must return the earliest three.
+    station.create_site("proj")
+    hashes = [
+        station.post(
+            type="finding", site="proj", title=f"f{i}",
+            created_at=f"2026-01-0{i + 1}T00:00:00Z",
+        )
+        for i in range(5)
+    ]
+    got = station.folios_in_site("proj", limit=3)
+    assert [f["content_hash"] for f in got] == hashes[:3]
+
+
+def test_create_site_idempotent_preserves_membership(station):
+    # The whole reason create_site is idempotent: a member posted before a
+    # re-create must still resolve through the (unchanged) site folio.
+    station.create_site("proj", purpose="first")
+    h = station.post(type="finding", site="proj", title="member", created_at="2026-01-01T00:00:00Z")
+    station.create_site("proj", purpose="a different purpose")  # must NOT remint
+    members = station.folios_in_site("proj")
+    assert [m["content_hash"] for m in members] == [h]
 
 
 # --- sites ------------------------------------------------------------------

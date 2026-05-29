@@ -135,7 +135,7 @@ def folio(ctx: click.Context, ref: str, output_json: bool) -> None:
         if found.get("created_at"):
             meta.append(found["created_at"])
         if meta:
-            click.echo(" · ".join(meta))
+            click.echo(" - ".join(meta))
         if found.get("content"):
             click.echo("")
             click.echo(found["content"])
@@ -216,7 +216,8 @@ def thread(ctx: click.Context, ref: str, output_json: bool) -> None:
         try:
             graph = station.thread_graph(ref)
         except AmbiguousReference as e:
-            raise click.ClickException(str(e))
+            lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+            raise click.ClickException(f"{e}\n{lines}")
         if not graph:
             raise click.ClickException(f"no folio for reference {ref!r}")
         if output_json:
@@ -225,9 +226,9 @@ def thread(ctx: click.Context, ref: str, output_json: bool) -> None:
         focus = graph["folio"]
         click.echo(_folio_line(focus) if focus else graph["content_hash"])
         for edge in graph["outgoing"]:
-            click.echo(f"  --{edge['type']}--> {_peer_label(edge['peer'])}")
+            click.echo(f"  links to ({edge['type']}): {_peer_label(edge['peer'])}")
         for edge in graph["incoming"]:
-            click.echo(f"  <--{edge['type']}-- {_peer_label(edge['peer'])}")
+            click.echo(f"  linked from ({edge['type']}): {_peer_label(edge['peer'])}")
         for edge in graph["memberships"]:
             # within edges point folio -> site; the site is the peer either way.
             site = edge["peer"]
@@ -257,7 +258,7 @@ def sites(ctx: click.Context, output_json: bool) -> None:
             return
         for slug, folio in pairs:
             purpose = _title_line(folio.get("content")) if folio else ""
-            click.echo(f"{slug} — {purpose}" if purpose else slug)
+            click.echo(f"{slug} - {purpose}" if purpose else slug)
 
 
 @cli.command(name="site")

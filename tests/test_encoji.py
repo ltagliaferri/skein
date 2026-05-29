@@ -142,16 +142,26 @@ Contract decisions (Phase 1 left these open; Phase 2 pins them as fixtures)
 - The codec is parameterized by a Manifest (alphabet = fixed checksummed data;
   version-specific choices = manifest). `alphabet_sha256` is LOAD-BEARING — the
   Codec binds a manifest to exactly the pinned table and rejects a mismatch, so
-  the manifest is not a decorative abstraction (fell-r1, codex). v1 ships exactly
-  one alphabet; a future version with a different table is a new manifest bound
-  to a new pinned alphabet. Tests build a Codec from a PROVISIONAL v1 manifest
-  fixture so the positional tests run before Phase 3 pins the real partition;
-  invariant tests constrain ANY manifest (incl. Phase 3's real one).
+  the manifest is not a decorative abstraction (fell-r1, codex). SCOPE (fell-r2,
+  codex): this contract is v1-only — v1 ships exactly the one pinned alphabet
+  (db9eeaf6) and `alphabet_sha256` binds the manifest to it. The Manifest exists
+  to pin v1's version-specific config AND to carry cross-version brand-pool data
+  (prior_brand_registry) so a FUTURE version can be added without breaking v1
+  decoders (finding 9) — that forward-compat is exercised by the brand-pool /
+  unknown-version dispatch tests, NOT by multi-alphabet support. A future version
+  that changes the alphabet TABLE is a separate contract revision; this contract
+  does not represent more than one alphabet (no `Codec(alphabet, ...)` arg, one
+  global `ALPHABET`). Tests build a Codec from a PROVISIONAL v1 manifest fixture
+  so the positional tests run before Phase 3 pins the real partition; invariant
+  tests constrain ANY (v1) manifest, incl. Phase 3's real one.
 - Public API uses semantic labels (type words, route names), NOT table indices
   (fell-r1, codex): callers know "alias"/"web"/"hash", not 826. The provisional
   type-word -> codepoint and route-name -> codepoint maps are fixtured here;
   Phase 3 pins the real control-range glyph->meaning partition (the 🧶 brand,
-  the route subset) within the structural invariants.
+  the route subset) within the structural invariants. Route LABELS ("route_a"
+  etc.) are opaque manifest-owned identifiers, not stable user-facing semantics —
+  Phase 3 may rename them freely (no wire compatibility implied); only the
+  structural slot + disjointness are pinned (fell-r2, codex).
 - normalization_profile: the tests enumerate a representative cosmetic/invisible
   strip set; any manifest's profile must be a SUPERSET of it (so Phase 3 cannot
   silently shrink normalization — fell-r1). Phase 3 MUST complete the
@@ -592,6 +602,19 @@ class TestPositionalDecode:
         assert d.type == TYPE_WORD
         assert d.route is None
 
+    def test_C1b_each_type_word_round_trips_distinctly(self, codec):
+        # The type slot is semantic and load-bearing in [brand][route?][station]
+        # [type][identity x5]: encode must HONOR the type arg and decode must
+        # report the right word. Otherwise a type-blind codec (always "alias")
+        # passes the whole suite, since every other encode() here uses "alias"
+        # (fell-r2). Distinct words must yield distinct glyphs.
+        streams = {}
+        for w in ("alias", "web", "hash"):
+            s = codec.encode(station="auth", identity=7, type=w)
+            assert codec.decode(s).type == w
+            streams[w] = s
+        assert len(set(streams.values())) == 3
+
     def test_C2_identity_is_the_last_five_even_when_glyphs_collide(self, codec):
         # Identity draws from the full 1024, so an identity glyph may equal the
         # brand/control codepoint. Right-anchoring still resolves it.
@@ -681,22 +704,18 @@ class TestPositionalDecode:
         with pytest.raises(E.StructuralError):
             codec.decode(too_short)
 
-    def test_C7_minimum_length_route_present_is_9(self, codec):
-        # brand + route + station(>=1) + type + identity(5) == 9.
-        eight = brand_glyph() + route_glyph() + type_glyph() + idv(7)  # 8 glyphs, empty station
+    def test_C7_route_present_min_9_is_empty_station_reject(self, codec):
+        # The 8-glyph [brand][route][type][identity x5] is BOTH the route-present
+        # minimum-minus-one (min is 9) AND the empty-station case (fell r2):
+        # route present, but nothing between route and type. Structurally one
+        # reject; documented once rather than as two byte-identical tests (fell-r2).
+        eight = brand_glyph() + route_glyph() + type_glyph() + idv(7)
         with pytest.raises(E.StructuralError):
             codec.decode(eight)
 
     def test_C7a_empty_input_rejected(self, codec):
         with pytest.raises(E.StructuralError):
             codec.decode("")
-
-    def test_C7b_empty_station_rejected(self, codec):
-        # The 8-glyph [brand][route][type][identity x5] must NOT decode to an
-        # empty station (fell r2): route present, but nothing between route and type.
-        eight = brand_glyph() + route_glyph() + type_glyph() + idv(7)
-        with pytest.raises(E.StructuralError):
-            codec.decode(eight)
 
     def test_C8_identity_is_exactly_five(self, codec):
         base = codec.encode(station="auth", identity=7, type=TYPE_WORD)
@@ -720,6 +739,10 @@ class TestIdentity:
         v = 1 * 1024 ** 4 + 2 * 1024 ** 3 + 3 * 1024 ** 2 + 4 * 1024 + 5
         assert codec.encode_identity(v) == gly(1) + gly(2) + gly(3) + gly(4) + gly(5)
         assert codec.decode_identity(codec.encode_identity(v)) == v
+        # carry boundaries (knuth): leading index-0 glyphs are NOT stripped (fixed width)
+        assert codec.encode_identity(1023) == gly(0) * 4 + gly(1023)
+        assert codec.encode_identity(1024) == gly(0) * 3 + gly(1) + gly(0)   # carry into 2nd-LSB glyph
+        assert codec.decode_identity(gly(0) * 4 + gly(1023)) == 1023
 
     def test_D1_out_of_range_value_rejected(self, codec):
         for bad in (-1, MAX_IDENTITY, MAX_IDENTITY + 7):
@@ -929,6 +952,13 @@ class TestHelpers:
         base = codec.encode(station="auth", identity=7, type=TYPE_WORD)
         assert codec.station_badge(base + SENTINEL + cl("x", "y")) == base[:-IDENTITY_LEN]
 
+    def test_station_badge_ignores_a_malformed_extension(self, codec):
+        # station_badge is "split at the first sentinel, ignore the rest" — it does
+        # not validate the extension, so even a non-alphabet payload yields the base
+        # badge (fell-r2, codex). decode() is the validator; the badge helper is not.
+        base = codec.encode(station="auth", identity=7, type=TYPE_WORD)
+        assert codec.station_badge(base + SENTINEL + "☃") == base[:-IDENTITY_LEN]
+
 
 # ===========================================================================
 # Full-stream property: encode/decode is a faithful round-trip
@@ -939,16 +969,17 @@ class TestFullRoundTrip:
     @given(
         station=st.text(alphabet=CHARSET + "0123456789", min_size=1, max_size=30),
         identity=st.integers(min_value=0, max_value=MAX_IDENTITY - 1),
+        type=st.sampled_from(("alias", "web", "hash")),
         route=st.sampled_from((None, "route_a", "route_b", "route_c")),
     )
-    def test_full_round_trip(self, station, identity, route):
+    def test_full_round_trip(self, station, identity, type, route):
         codec = _codec()
-        stream = codec.encode(station=station, identity=identity, type=TYPE_WORD, route=route)
+        stream = codec.encode(station=station, identity=identity, type=type, route=route)
         d = codec.decode(stream)
         assert d.station == station
         assert d.identity == identity
         assert d.route == route
-        assert d.type == TYPE_WORD
+        assert d.type == type
 
     @settings(deadline=None, max_examples=200)
     @given(

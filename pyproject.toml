@@ -67,7 +67,7 @@ include = ["skein*", "client*"]
 skein = ["templates/*.md", "web/templates/*.html", "web/templates/**/*.html", "web/static/*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "skein_next/tests"]
 asyncio_mode = "auto"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

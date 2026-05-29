@@ -447,8 +447,21 @@ def _assert_manifest_invariants(man):
     assert man.packing_order == "big-endian"
     assert man.extension_sentinel == SENTINEL_CP
     assert man.alphabet_sha256 == PINNED_SHA
-    # normalization can only GROW, never shrink, relative to the pinned strip set.
+    # normalization can only GROW, never shrink, relative to the pinned strip set...
     assert PROV_NORMALIZATION <= man.normalization_profile
+    # ...but it must never grow INTO the data alphabet or the framing sentinel, or
+    # normalize() would strip a real glyph / corrupt framing (fell-r3).
+    assert man.normalization_profile.isdisjoint(REF_CP_SET), "profile must not strip a data glyph"
+    assert SENTINEL_CP not in man.normalization_profile, "profile must not strip the sentinel"
+    # The v1 type vocabulary is stable, caller-facing semantics (unlike route names,
+    # which are opaque/renamable). Pin it so a v1() that drops/renames a type word is
+    # caught (fell-r3).
+    assert set(part.types) == {"alias", "web", "hash"}, "v1 type vocabulary is pinned"
+    # prior_brand_registry holds control codepoints of PRIOR versions' brands, each
+    # distinct from this version's brand (it disambiguates version dispatch). Empty /
+    # reserved in v1, so this is vacuously true here (fell-r3, codex).
+    for cp in man.prior_brand_registry:
+        assert cp in CONTROL_CPS and cp != part.brand
 
 
 class TestManifestInvariants:
@@ -661,6 +674,18 @@ class TestPositionalDecode:
     def test_C5_route_absent_is_detected(self, codec):
         d = codec.decode(codec.encode(station="auth", identity=7, type=TYPE_WORD))
         assert d.route is None
+
+    def test_C5b_each_route_name_round_trips_distinctly(self, codec):
+        # Mirror of C1b for the route slot (fell-r3). Without this, route-name
+        # fidelity rides solely on the hypothesis property test (skipped when
+        # hypothesis is absent), so a route-name-blind decode (always "route_a")
+        # passes the whole deterministic suite. Distinct names -> distinct glyphs.
+        streams = {}
+        for n in ("route_a", "route_b", "route_c"):
+            s = codec.encode(station="auth", identity=7, type=TYPE_WORD, route=n)
+            assert codec.decode(s).route == n
+            streams[n] = s
+        assert len(set(streams.values())) == 3
 
     def test_C5_reject_wrong_subrole_in_route_slot(self, codec):
         # A control glyph that is NOT a route (a type code, or the brand code) in

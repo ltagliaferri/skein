@@ -66,6 +66,7 @@ include = ["skein*", "client*"]
 
 [tool.setuptools.package-data]
 skein = ["templates/*.md", "web/templates/*.html", "web/templates/**/*.html", "web/static/*"]
+skein_next = ["web/templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "skein_next/tests"]

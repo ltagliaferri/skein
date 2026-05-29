@@ -13,8 +13,9 @@ folio columns — new-skein is thread-native from the start.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 
 from .identity import compute_folio_hash, compute_thread_hash, normalize_created_at
 
@@ -46,6 +47,11 @@ CREATE TABLE IF NOT EXISTS aliases (
     content_hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS slugs (
+    slug         TEXT PRIMARY KEY,
+    content_hash TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_threads_from ON threads(from_id);
 CREATE INDEX IF NOT EXISTS idx_threads_to   ON threads(to_id);
 CREATE INDEX IF NOT EXISTS idx_threads_type ON threads(type);
@@ -64,9 +70,39 @@ class SkeinNextStore:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
+        self._in_batch = False
 
     def close(self) -> None:
         self.conn.close()
+
+    # --- transactions -------------------------------------------------------
+
+    def _maybe_commit(self) -> None:
+        """Commit immediately unless inside a batch transaction."""
+        if not self._in_batch:
+            self.conn.commit()
+
+    @contextmanager
+    def transaction(self) -> Iterator["SkeinNextStore"]:
+        """Batch many writes into a single commit.
+
+        Per-write commits make a 10k-row import I/O-bound (one fsync per row).
+        Inside this context, ``create_folio``/``save_thread``/``set_alias``/
+        ``set_slug`` defer their commit; the whole batch commits once on exit,
+        or rolls back if the block raises. Not re-entrant.
+        """
+        if self._in_batch:
+            raise RuntimeError("transaction() is not re-entrant")
+        self._in_batch = True
+        try:
+            yield self
+        except BaseException:
+            self.conn.rollback()
+            raise
+        else:
+            self.conn.commit()
+        finally:
+            self._in_batch = False
 
     def __enter__(self) -> "SkeinNextStore":
         return self
@@ -99,7 +135,7 @@ class SkeinNextStore:
                 fields.get("content"),
             ),
         )
-        self.conn.commit()
+        self._maybe_commit()
         return content_hash
 
     def get_folio(self, content_hash: str) -> Optional[Dict[str, Any]]:
@@ -154,7 +190,7 @@ class SkeinNextStore:
                 content,
             ),
         )
-        self.conn.commit()
+        self._maybe_commit()
         return thread_hash
 
     def get_threads(
@@ -195,10 +231,69 @@ class SkeinNextStore:
             """,
             (legacy_id, content_hash),
         )
-        self.conn.commit()
+        self._maybe_commit()
 
     def resolve_alias(self, legacy_id: str) -> Optional[str]:
         row = self.conn.execute(
             "SELECT content_hash FROM aliases WHERE legacy_id = ?", (legacy_id,)
         ).fetchone()
         return row["content_hash"] if row else None
+
+    # --- slugs --------------------------------------------------------------
+
+    def set_slug(self, slug: str, content_hash: str) -> None:
+        """Map a site slug to its site-folio content hash (upsert)."""
+        self.conn.execute(
+            """
+            INSERT INTO slugs (slug, content_hash)
+            VALUES (?, ?)
+            ON CONFLICT(slug) DO UPDATE SET content_hash = excluded.content_hash
+            """,
+            (slug, content_hash),
+        )
+        self._maybe_commit()
+
+    def resolve_slug(self, slug: str) -> Optional[str]:
+        row = self.conn.execute(
+            "SELECT content_hash FROM slugs WHERE slug = ?", (slug,)
+        ).fetchone()
+        return row["content_hash"] if row else None
+
+    def list_slugs(self) -> List[Tuple[str, str]]:
+        """All ``(slug, content_hash)`` pairs, ordered by slug."""
+        rows = self.conn.execute(
+            "SELECT slug, content_hash FROM slugs ORDER BY slug"
+        ).fetchall()
+        return [(r["slug"], r["content_hash"]) for r in rows]
+
+    # --- reporting helpers --------------------------------------------------
+
+    def count_folios(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) FROM folios").fetchone()[0]
+
+    def count_threads(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
+
+    def unresolved_endpoints(self) -> List[str]:
+        """Thread endpoints that are legacy ids still awaiting an alias.
+
+        A resolved folio edge stores a ``sha256::`` content hash; an actor
+        endpoint was routed to the weaver and stored as NULL. Anything left —
+        a non-null endpoint that is neither a content hash nor a known alias —
+        is a dangling or cross-project reference holding its legacy id, which
+        resolves lazily if/when the target imports and registers an alias.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT endpoint FROM (
+                SELECT from_id AS endpoint FROM threads
+                UNION
+                SELECT to_id   AS endpoint FROM threads
+            )
+            WHERE endpoint IS NOT NULL
+              AND endpoint NOT LIKE 'sha256::%'
+              AND endpoint NOT IN (SELECT legacy_id FROM aliases)
+            ORDER BY endpoint
+            """
+        ).fetchall()
+        return [r["endpoint"] for r in rows]

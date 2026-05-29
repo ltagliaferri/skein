@@ -5,6 +5,12 @@ five canonical fields (type, title, content, created_at, created_by); there is
 no human folio_id. See brief-20260529-i6fy.
 """
 
+from .bridge import (
+    ImportReport,
+    classify_endpoint,
+    import_project,
+    open_legacy,
+)
 from .identity import (
     compute_folio_hash,
     compute_thread_hash,
@@ -17,4 +23,8 @@ __all__ = [
     "compute_folio_hash",
     "compute_thread_hash",
     "normalize_created_at",
+    "ImportReport",
+    "classify_endpoint",
+    "import_project",
+    "open_legacy",
 ]

@@ -29,15 +29,23 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .store import SkeinNextStore
 
 
+_AMBIGUOUS_CAP = 10  # most candidates resolve_ref fetches/shows for an ambiguous prefix
+
+
 class AmbiguousReference(Exception):
-    """A short hash prefix matched more than one folio."""
+    """A short hash prefix matched more than one folio.
+
+    ``matches`` is capped at ``_AMBIGUOUS_CAP`` candidates; ``capped`` records
+    whether more existed, so the message says "at least N" rather than reporting
+    a floor as if it were exact.
+    """
 
     def __init__(self, prefix: str, matches: List[str]):
         self.prefix = prefix
-        self.matches = matches
-        super().__init__(
-            f"reference {prefix!r} is ambiguous ({len(matches)} folios match)"
-        )
+        self.capped = len(matches) > _AMBIGUOUS_CAP
+        self.matches = matches[:_AMBIGUOUS_CAP]
+        count = f"at least {len(self.matches)}" if self.capped else str(len(self.matches))
+        super().__init__(f"reference {prefix!r} is ambiguous ({count} folios match)")
 
 
 class UnknownSite(Exception):
@@ -102,7 +110,9 @@ class Station:
         if aliased:
             return aliased
         if ref.startswith("sha256::"):
-            matches = self.store.find_by_prefix(ref, limit=10)
+            # Fetch one past the display cap so AmbiguousReference can tell an
+            # exact count from a floor ("at least N").
+            matches = self.store.find_by_prefix(ref, limit=_AMBIGUOUS_CAP + 1)
             if len(matches) == 1:
                 return matches[0]
             if len(matches) > 1:

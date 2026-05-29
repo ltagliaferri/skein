@@ -95,6 +95,18 @@ def test_thread_shows_membership_and_link(runner, data_dir):
     assert r.exit_code == 0 and "within site proj" in r.output
 
 
+def test_thread_on_site_says_contains_not_within(runner, data_dir):
+    # fell-r2 MAJOR: running thread on the SITE must report it contains its
+    # member, not that the site is "within" its member (containment inverted).
+    run(runner, data_dir, "site", "create", "proj")
+    member = run(runner, data_dir, "post", "finding", "proj", "a member").output.strip()
+    site_hash = json.loads(run(runner, data_dir, "sites", "--json").output)[0]["folio"]["content_hash"]
+    r = run(runner, data_dir, "thread", site_hash)
+    assert r.exit_code == 0
+    assert "contains finding a member" in r.output
+    assert "within" not in r.output  # the site is not "within" anything here
+
+
 def test_json_output_is_valid(runner, data_dir):
     run(runner, data_dir, "site", "create", "proj")
     run(runner, data_dir, "post", "finding", "proj", "x")

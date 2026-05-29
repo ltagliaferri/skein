@@ -230,10 +230,15 @@ def thread(ctx: click.Context, ref: str, output_json: bool) -> None:
         for edge in graph["incoming"]:
             click.echo(f"  linked from ({edge['type']}): {_peer_label(edge['peer'])}")
         for edge in graph["memberships"]:
-            # within edges point folio -> site; the site is the peer either way.
-            site = edge["peer"]
-            label = _peer_label(site)
-            click.echo(f"  within {label}")
+            # A within edge points member -> site. Which end the focus is on
+            # flips the relationship: if the focus is the member, the peer is its
+            # site ("within"); if the focus is the site, the peer is a member it
+            # "contains". Printing "within" unconditionally states it backwards
+            # when you run `thread` on a site.
+            if edge["from_id"] == graph["content_hash"]:
+                click.echo(f"  within {_peer_label(edge['peer'])}")
+            else:
+                click.echo(f"  contains {_peer_label(edge['peer'])}")
         if not (graph["outgoing"] or graph["incoming"] or graph["memberships"]):
             click.echo("  (no threads)")
 

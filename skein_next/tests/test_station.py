@@ -88,6 +88,24 @@ def test_resolve_ref_ambiguous_prefix_real_collision(station):
     with pytest.raises(AmbiguousReference) as ei:
         station.resolve_ref(shared)
     assert len(ei.value.matches) == 2
+    assert not ei.value.capped
+
+
+def test_resolve_ref_ambiguous_count_is_capped(station):
+    # More collisions than the display cap: the count must read "at least N",
+    # not present the cap as if it were the exact total.
+    shared = "sha256::cafef0000000"
+    for i in range(12):
+        station.store.conn.execute(
+            "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+            (f"{shared}{i:04d}", "finding", "t", "c"),
+        )
+    station.store.conn.commit()
+    with pytest.raises(AmbiguousReference) as ei:
+        station.resolve_ref(shared)
+    assert ei.value.capped
+    assert len(ei.value.matches) == 10
+    assert "at least 10" in str(ei.value)
 
 
 def test_resolve_ref_unknown_returns_none(station):

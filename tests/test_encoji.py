@@ -4,9 +4,10 @@ Phase 2 test contract for the encoji codec (encode + emoji).
 RSP: encoji (brief skein:brief-20260529-rx21). Design source, fell-clean:
 skein:finding-20260529-uyt5 (Phase 1, rev 6) — the curated 1024-glyph alphabet,
 the curation ruleset, the decode pipeline, and the edge-case gauntlet (sections
-A-G) that this file turns into executable tests. Contract decisions that Phase 1
-left open (and that Phase 2 must pin so the tests are runnable) are recorded in
-skein:finding-20260529-dk67, reconciled with fell-r1 in skein:finding-20260529-*.
+A-G). The brand/version split below is pinned in skein:finding-20260529-nnf9,
+which SUPERSEDES finding-uyt5 §9 (brand-as-version magic number) and AMENDS §10
+(the control range now partitions into type + route subsets only — no brand
+sub-role). This file is the revised CONTRACT for that split.
 
 This file is the CONTRACT, written before the implementation (test-first per the
 Rock-Solid Primitive playbook, speakbot:playbook-20251218-pb2o). It defines what
@@ -20,19 +21,56 @@ stream; locating address boundaries inside surrounding text is the addressing
 grammar's job (skein:brief-20260529-0yjl), aided by the first-codepoint sniffer.
 
 ============================================================================
-The pinned alphabet (Phase 1, do NOT relitigate)
+The brand/version split (finding-20260529-nnf9 — supersedes brand-as-version)
+============================================================================
+Wire layout: [brand][version][route?][station][type][identity x5]
+             (+ optional [sentinel][extension]).
+
+- BRAND = the CONSTANT mark of identity, the same glyph in EVERY encoji version,
+  forever = "this is encoji". 🧶 BALL OF YARN (U+1F9F6, index 900). It is a
+  MODULE CONSTANT (encoji.BRAND / encoji.BRAND_CODEPOINT), NOT a per-version
+  manifest field. It is a data glyph in the reserved range, used POSITIONALLY at
+  glyph 0 (identity may contain it by chance — right-anchoring still resolves).
+- VERSION = a dedicated glyph at position 1, present in EVERY version (no
+  special-casing). v1 = 🪢 KNOT (U+1FAA2, index 1000). A PER-VERSION manifest
+  field (Manifest.version_glyph).
+- VERSION FAMILY = the reserved range minus the brand: indices [839,1023] \\ {900}
+  (184 codepoints, exposed as ALPHABET.version_family). Membership in this set =
+  "this glyph is a version marker." This is what lets a v1 decoder recognize an
+  unknown FUTURE version glyph as "a version marker I don't know" (clean
+  UnknownVersionError) rather than garbage. It is a MODULE-level rule, not a
+  manifest field.
+- SENTINEL = ➿ (U+27BF), unchanged — outside the 1024 because it FLOATS
+  (content-scanned). Brand and version are positional, so they need not be
+  outside the 1024.
+
+Decode dispatch (replaces the old brand-pool logic):
+  - glyph 0 codepoint != U+1F9F6                -> NoBrandError ("not encoji").
+  - glyph 1 index NOT in the version family     -> StructuralError (missing /
+                                                   invalid version).
+  - glyph 1 == 🪢 (index 1000)                  -> parse as v1.
+  - glyph 1 in the version family but != 🪢     -> UnknownVersionError (a newer
+                                                   encoji version; reject cleanly).
+  - looks_like_encoji(stream) = glyph 0 codepoint == U+1F9F6. (The old "glyph 0
+    in control_codepoints / brand pool" notion is GONE.)
+
+============================================================================
+The pinned alphabet (Phase 1, do NOT relitigate; checksum UNCHANGED)
 ============================================================================
 1024 single-codepoint emoji, Unicode age <= 13.0, default emoji presentation
 (no variation selectors / ZWJ / modifiers). sha256 of the canonical
 `index\\tU+XXXX\\n` table == db9eeaf666177d145e7e061af02b13f104e135b067a427b4c3f851a1ffec13da.
+The brand/version split changes only the ROLE-SEMANTICS of already-fixed
+reserved-range glyphs; it does not touch the table, so the checksum is unchanged.
 Index roles (the index->glyph map is arbitrary for correctness; ordering is by
 (age, codepoint) so the cluster range renders on the oldest platforms):
 
     0-783      cluster    2-char clusters over [a-z . -]; index = c1*28 + c2  (28*28)
     784-811    singleton  one per cluster-alphabet char (forced boundary / final odd)
     812-821    digit      digit terminators 0-9
-    822-838    control    brand + route-subset + type-subset (17 codepoints)
-    839-1023   reserved   future expansion (185)
+    822-838    control    type-subset + route-subset (17 codepoints; NO brand)
+    839-1023   reserved   future expansion (185); holds the BRAND (index 900) and
+                          the VERSION FAMILY (the other 184), used positionally
 
 Cluster alphabet = "abcdefghijklmnopqrstuvwxyz.-" (28 chars, fixed order).
 Extension sentinel = U+27BF DOUBLE CURLY LOOP, OUTSIDE the 1024 (never data).
@@ -53,29 +91,35 @@ as codepoints (not indices), so it is meaningful independent of the table order.
         .index(g)      -> int | None      # glyph -> index, or None if not a data glyph
         .role(i)       -> str             # "cluster"|"singleton"|"digit"|"control"|"reserved"
         .RANGES        -> tuple[(lo, hi, role_name), ...]   # the 5 index ranges
-        .control_codepoints -> frozenset[int]   # the 17 control-range codepoints = the brand POOL
+        .control_codepoints -> frozenset[int]   # the 17 control-range codepoints (TYPE+ROUTE pool)
+        .version_family     -> frozenset[int]   # reserved-range codepoints minus the brand (version markers)
 
+    skein.encoji.BRAND                    # str, the brand glyph "\\U0001F9F6" (🧶) — CONSTANT forever
+    skein.encoji.BRAND_CODEPOINT          # int, 0x1F9F6
     skein.encoji.SENTINEL                 # str, the extension sentinel "\\u27bf"
 
     @dataclass(frozen=True)
     class ControlPartition:               # the per-version split of the control range, in CODEPOINTS
-        brand: int                        # this version's brand codepoint
         types: Mapping[str, int]          # type word  -> codepoint  ({"alias":.., "web":.., "hash":..})
         routes: Mapping[str, int]         # route name -> codepoint  (provisional in v1)
         # invariant: every codepoint is one of ALPHABET.control_codepoints; and
-        # {brand} / types.values() / routes.values() are mutually disjoint.
+        # types.values() / routes.values() are mutually disjoint. (No brand here:
+        # the brand is the module constant BRAND_CODEPOINT, not a partition slot.)
 
     @dataclass(frozen=True)
-    class Manifest:                       # the per-version system of record (finding 9)
+    class Manifest:                       # the per-version system of record (finding 9, reshaped by nnf9)
         version: int
         alphabet_sha256: str              # LOAD-BEARING: Codec() rejects a manifest whose digest
                                           #   != ALPHABET.sha256 (binds the manifest to its table).
         identity_length: int              # 5 for v1
+        version_glyph: int                # this version's version-marker codepoint (v1 = 0x1FAA2),
+                                          #   which MUST be in ALPHABET.version_family.
         control_partition: ControlPartition
         normalization_profile: frozenset[int]   # codepoints normalize() strips (cosmetic/invisible)
         packing_order: str                # "big-endian"
         extension_sentinel: int           # 0x27BF
-        prior_brand_registry: tuple[int, ...]    # control codepoints of prior versions' brands
+        # NOTE: prior_brand_registry is REMOVED (nnf9) — there is no brand pool to
+        # disambiguate; version dispatch is the version field's job.
 
     class Codec:
         def __init__(self, manifest: Manifest): ...   # ValueError if alphabet_sha256 != ALPHABET.sha256
@@ -94,14 +138,15 @@ as codepoints (not indices), so it is meaningful independent of the table order.
         # --- full positional address (sections C & G) ---
         def encode(self, *, station: str, identity: int,
                    type: str, route: str | None = None) -> str
+            # always emits [BRAND][version_glyph] at the front.
         def decode(self, stream: str) -> Decoded         # normalizes internally;
             # raises UnsupportedExtensionError when a (non-empty) extension is present.
 
         # --- free helper (finding 12) ---
         def station_badge(self, stream: str) -> str      # base minus the right-hand identity 5
 
-    # version-agnostic O(1) sniffer (finding 12): glyph 0's codepoint in the brand POOL
-    # (ALPHABET.control_codepoints). Module-level because it needs no version state.
+    # version-agnostic O(1) sniffer (finding 12): glyph 0's codepoint == the brand.
+    # Module-level because the brand is a constant; it needs no version state.
     def looks_like_encoji(stream: str) -> bool
 
     @dataclass(frozen=True)
@@ -110,6 +155,7 @@ as codepoints (not indices), so it is meaningful independent of the table order.
         identity: int                     # the 50-bit value
         type: str                         # the type word ("alias" | "web" | "hash")
         route: str | None                 # the route name, or None
+        version: int                      # the parsed version (1 for a v1 stream)
 
     # resolver bridge (section D2-D4). This is the encoji analogue of the rev3 addressing
     # resolver skein.address.resolve() (skein:finding-20260528-brgy): same station-scoped,
@@ -127,9 +173,10 @@ as codepoints (not indices), so it is meaningful independent of the table order.
         InvalidStationError               # encode: a char outside [a-z0-9.-]; unknown type/route label
         InvalidGlyphError                 # decode: a codepoint not in (1024 union {sentinel})
         NonCanonicalError                 # decode: re-encode != input (non-canonical clustering)
-        StructuralError                   # full decode: layout / length / role / arity / empty station
-        NoBrandError                      # glyph 0 in alphabet but not in the brand pool
-        UnknownVersionError               # glyph 0 in the brand pool but not this version's brand
+        StructuralError                   # full decode: layout / length / role / arity / empty station /
+                                          #   missing-or-invalid-version (glyph 1 not in the version family)
+        NoBrandError                      # glyph 0 codepoint != the brand (U+1F9F6) -> "not encoji"
+        UnknownVersionError               # glyph 1 in the version family but != this version's version_glyph
         UnsupportedExtensionError(.base: Decoded, .extension: str)   # a sentinel-delimited extension
         AmbiguousIdentity(.candidates: list[str])    # resolver: >1 colliding full digest
         IdentityNotFound                  # resolver: zero matches
@@ -144,24 +191,29 @@ Contract decisions (Phase 1 left these open; Phase 2 pins them as fixtures)
   Codec binds a manifest to exactly the pinned table and rejects a mismatch, so
   the manifest is not a decorative abstraction (fell-r1, codex). SCOPE (fell-r2,
   codex): this contract is v1-only — v1 ships exactly the one pinned alphabet
-  (db9eeaf6) and `alphabet_sha256` binds the manifest to it. The Manifest exists
-  to pin v1's version-specific config AND to carry cross-version brand-pool data
-  (prior_brand_registry) so a FUTURE version can be added without breaking v1
-  decoders (finding 9) — that forward-compat is exercised by the brand-pool /
-  unknown-version dispatch tests, NOT by multi-alphabet support. A future version
-  that changes the alphabet TABLE is a separate contract revision; this contract
-  does not represent more than one alphabet (no `Codec(alphabet, ...)` arg, one
-  global `ALPHABET`). Tests build a Codec from a PROVISIONAL v1 manifest fixture
-  so the positional tests run before Phase 3 pins the real partition; invariant
-  tests constrain ANY (v1) manifest, incl. Phase 3's real one.
+  (db9eeaf6) and `alphabet_sha256` binds the manifest to it. Forward-compat is no
+  longer carried by a brand pool (nnf9 removed prior_brand_registry); it is the
+  VERSION FIELD's job — a v1 decoder recognizes an unknown version glyph as a
+  member of ALPHABET.version_family and rejects it cleanly (UnknownVersionError),
+  exercised by the version-dispatch tests, NOT by multi-alphabet support. A future
+  version that changes the alphabet TABLE is a separate contract revision; this
+  contract does not represent more than one alphabet (no `Codec(alphabet, ...)`
+  arg, one global `ALPHABET`). Tests build a Codec from a PROVISIONAL v1 manifest
+  fixture so the positional tests run before Phase 3 pins the real partition;
+  invariant tests constrain ANY (v1) manifest, incl. Phase 3's real one.
 - Public API uses semantic labels (type words, route names), NOT table indices
-  (fell-r1, codex): callers know "alias"/"web"/"hash", not 826. The provisional
+  (fell-r1, codex): callers know "alias"/"web"/"hash", not 822. The provisional
   type-word -> codepoint and route-name -> codepoint maps are fixtured here;
-  Phase 3 pins the real control-range glyph->meaning partition (the 🧶 brand,
-  the route subset) within the structural invariants. Route LABELS ("route_a"
-  etc.) are opaque manifest-owned identifiers, not stable user-facing semantics —
-  Phase 3 may rename them freely (no wire compatibility implied); only the
-  structural slot + disjointness are pinned (fell-r2, codex).
+  Phase 3 pins the real control-range glyph->meaning partition (the type subset,
+  the route subset) within the structural invariants. The BRAND is no longer part
+  of the partition — it is the module constant BRAND_CODEPOINT (🧶 U+1F9F6), fixed
+  for all versions. Route LABELS ("route_a" etc.) are opaque manifest-owned
+  identifiers, not stable user-facing semantics — Phase 3 may rename them freely
+  (no wire compatibility implied); only the structural slot + disjointness are
+  pinned (fell-r2, codex).
+- version_glyph: a per-version manifest field. v1 = 0x1FAA2 (🪢 KNOT, index 1000).
+  Any manifest's version_glyph must be in ALPHABET.version_family (the reserved
+  range minus the brand). The provisional fixture uses the real v1 glyph.
 - normalization_profile: the tests enumerate a representative cosmetic/invisible
   strip set; any manifest's profile must be a SUPERSET of it (so Phase 3 cannot
   silently shrink normalization — fell-r1). Phase 3 MUST complete the
@@ -176,6 +228,8 @@ Contract decisions (Phase 1 left these open; Phase 2 pins them as fixtures)
   Rationale: the bare base is the single canonical form; accepting `base + sentinel`
   with no payload would be a second encoding of the same address and break the
   re-encode-and-compare canonicality the decoder enforces everywhere else.
+- Decoded.version is an int (the parsed version number, 1 for v1) — not the glyph,
+  not a label. It mirrors Manifest.version so a caller can branch on it.
 """
 
 from __future__ import annotations
@@ -194,7 +248,8 @@ except Exception:  # ModuleNotFoundError today; broad so a partial stub still sk
     E = None
 
 HAVE_ENCOJI = E is not None and all(
-    hasattr(E, n) for n in ("ALPHABET", "Codec", "Manifest", "ControlPartition", "SENTINEL")
+    hasattr(E, n)
+    for n in ("ALPHABET", "Codec", "Manifest", "ControlPartition", "SENTINEL", "BRAND")
 )
 pytestmark = pytest.mark.skipif(
     not HAVE_ENCOJI,
@@ -220,6 +275,11 @@ SENTINEL = chr(SENTINEL_CP)
 IDENTITY_LEN = 5
 MAX_IDENTITY = 1024 ** IDENTITY_LEN               # 2**50 exactly
 CONTROL_LO, CONTROL_HI = 822, 838                 # permanent control boundary
+RESERVED_LO, RESERVED_HI = 839, 1023              # reserved range
+BRAND_IDX = 900                                   # 🧶 BALL OF YARN, the constant brand
+BRAND_CP = 0x1F9F6
+V1_VERSION_IDX = 1000                             # 🪢 KNOT, the v1 version glyph
+V1_VERSION_CP = 0x1FAA2
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _ALPHA_JSON = _REPO_ROOT / "docs" / "emoji-codec" / "encoji-alphabet.json"
@@ -231,7 +291,8 @@ def _load_reference():
     The recompute mirrors the generator's canonical-table format exactly
     (encoji_alphabet.py:125 -> `f"{index}\\t{codepoint}\\n"` with
     codepoint == `f"U+{cp:04X}"`), so the import-time assert fails fast if the
-    artifact ever drifts.
+    artifact ever drifts. The brand/version split does NOT touch the table, so
+    this digest is identical to the pre-split contract's.
     """
     data = json.loads(_ALPHA_JSON.read_text(encoding="utf-8"))
     entries = data["alphabet"]
@@ -248,7 +309,17 @@ def _load_reference():
 REF_CP = _load_reference()                         # index -> codepoint
 REF_GLYPH = {i: chr(cp) for i, cp in REF_CP.items()}  # index -> single-codepoint str
 REF_CP_SET = set(REF_CP.values())
-CONTROL_CPS = frozenset(REF_CP[i] for i in range(CONTROL_LO, CONTROL_HI + 1))  # brand pool
+CONTROL_CPS = frozenset(REF_CP[i] for i in range(CONTROL_LO, CONTROL_HI + 1))  # type+route pool
+# The version family = the reserved-range codepoints minus the brand (the
+# membership test that recognizes any version marker, known or not).
+VERSION_FAMILY_CPS = frozenset(
+    REF_CP[i] for i in range(RESERVED_LO, RESERVED_HI + 1) if i != BRAND_IDX
+)
+
+# Sanity-pin the spec's anchor glyphs against the pinned table (catches an
+# artifact whose 900/1000 slots ever drift away from 🧶/🪢).
+assert REF_CP[BRAND_IDX] == BRAND_CP, "brand glyph is not at index 900"
+assert REF_CP[V1_VERSION_IDX] == V1_VERSION_CP, "v1 version glyph is not at index 1000"
 
 
 # --- expectation builders (documented index formulas -> reference glyphs) ----
@@ -278,14 +349,15 @@ def idv(value: int) -> str:
 
 # ===========================================================================
 # The provisional v1 manifest fixture (see "Contract decisions" above).
-# Control range 822-838: brand = index 822; type words alias/web/hash = 826/827/828;
-# provisional route names = 823/824/825. Expressed as CODEPOINTS in the manifest.
-# All disjoint, all within the control range. Phase 3 replaces the partition with
-# the real v1 assignment (which must still satisfy the invariants tested below).
+# Brand is NOT in the partition (it's the module constant 🧶 U+1F9F6, index 900).
+# Control range 822-838: type words alias/web/hash = 822/823/824; provisional
+# route names = 825/826/827. version_glyph = index 1000 (the real v1 🪢 KNOT).
+# All control codepoints disjoint, all within the control range. Phase 3 replaces
+# the partition with the real v1 assignment (still satisfying the invariants).
 # ===========================================================================
-PROV_BRAND_IDX = 822
-PROV_TYPE_IDX = {"alias": 826, "web": 827, "hash": 828}
-PROV_ROUTE_IDX = {"route_a": 823, "route_b": 824, "route_c": 825}  # names provisional (Phase 3)
+PROV_TYPE_IDX = {"alias": 822, "web": 823, "hash": 824}
+PROV_ROUTE_IDX = {"route_a": 825, "route_b": 826, "route_c": 827}  # names provisional (Phase 3)
+PROV_VERSION_IDX = V1_VERSION_IDX                    # 1000 (🪢), in the version family
 
 # Representative cosmetic/invisible strip set (Phase 3 completes the DI set).
 _VARIATION_SELECTORS = [0xFE0E, 0xFE0F]
@@ -305,7 +377,11 @@ ROUTE_NAME = "route_a"                                # a route name used to bui
 
 
 def brand_glyph() -> str:
-    return gly(PROV_BRAND_IDX)
+    return gly(BRAND_IDX)                             # == E.BRAND
+
+
+def version_glyph(idx: int = PROV_VERSION_IDX) -> str:
+    return gly(idx)
 
 
 def type_glyph(word: str = TYPE_WORD) -> str:
@@ -318,7 +394,6 @@ def route_glyph(name: str = ROUTE_NAME) -> str:
 
 def _partition(**ov):
     return E.ControlPartition(
-        brand=ov.get("brand", REF_CP[PROV_BRAND_IDX]),
         types=ov.get("types", {w: REF_CP[i] for w, i in PROV_TYPE_IDX.items()}),
         routes=ov.get("routes", {n: REF_CP[i] for n, i in PROV_ROUTE_IDX.items()}),
     )
@@ -329,11 +404,11 @@ def _manifest(**ov):
         version=ov.get("version", 1),
         alphabet_sha256=ov.get("alphabet_sha256", PINNED_SHA),
         identity_length=ov.get("identity_length", IDENTITY_LEN),
+        version_glyph=ov.get("version_glyph", REF_CP[PROV_VERSION_IDX]),
         control_partition=ov.get("control_partition", _partition()),
         normalization_profile=ov.get("normalization_profile", PROV_NORMALIZATION),
         packing_order=ov.get("packing_order", "big-endian"),
         extension_sentinel=ov.get("extension_sentinel", SENTINEL_CP),
-        prior_brand_registry=ov.get("prior_brand_registry", ()),
     )
 
 
@@ -379,7 +454,7 @@ class TestAlphabetInvariants:
             assert E.ALPHABET.glyph(i) == REF_GLYPH[i]
 
     def test_index_is_inverse_of_glyph(self, codec):
-        for i in (0, 1, 27, 28, 783, 784, 811, 812, 821, 822, 838, 839, 1023):
+        for i in (0, 1, 27, 28, 783, 784, 811, 812, 821, 822, 838, 839, 900, 1000, 1023):
             assert E.ALPHABET.index(E.ALPHABET.glyph(i)) == i
 
     def test_index_of_non_alphabet_is_none(self, codec):
@@ -414,10 +489,36 @@ class TestAlphabetInvariants:
         assert E.ALPHABET.role(838) == "control"
         assert E.ALPHABET.role(839) == "reserved"
 
-    def test_control_codepoints_are_the_brand_pool(self, codec):
-        # The 17 control-range codepoints; version dispatch sniffs against these.
+    def test_control_codepoints_are_the_type_route_pool(self, codec):
+        # The 17 control-range codepoints; v1 draws its type + route subsets from
+        # here. (Under nnf9 these are NO LONGER a brand pool — the brand is the
+        # module constant in the reserved range.)
         assert E.ALPHABET.control_codepoints == CONTROL_CPS
         assert len(E.ALPHABET.control_codepoints) == 17
+        assert BRAND_CP not in E.ALPHABET.control_codepoints   # brand is reserved, not control
+
+    def test_brand_is_the_constant_module_glyph(self, codec):
+        # 🧶 BALL OF YARN, U+1F9F6, index 900 — a CONSTANT module-level glyph, the
+        # same in every encoji version. It is a data glyph in the reserved range,
+        # used positionally at glyph 0.
+        assert E.BRAND == chr(BRAND_CP)
+        assert E.BRAND_CODEPOINT == BRAND_CP
+        assert E.ALPHABET.index(E.BRAND) == BRAND_IDX          # a real data glyph
+        assert E.ALPHABET.role(BRAND_IDX) == "reserved"
+        assert BRAND_CP in REF_CP_SET
+        assert BRAND_CP not in E.ALPHABET.version_family       # brand is excluded from the family
+
+    def test_version_family_is_reserved_minus_brand(self, codec):
+        # The version family = reserved range [839,1023] minus the brand (index
+        # 900). Membership = "this glyph is a version marker." 184 codepoints.
+        assert E.ALPHABET.version_family == VERSION_FAMILY_CPS
+        assert len(E.ALPHABET.version_family) == 184
+        assert V1_VERSION_CP in E.ALPHABET.version_family      # 🪢 the v1 version glyph
+        assert BRAND_CP not in E.ALPHABET.version_family
+        # No control-range or active-range codepoint is a version marker.
+        assert E.ALPHABET.version_family.isdisjoint(CONTROL_CPS)
+        for i in (0, 783, 821, 838):
+            assert REF_CP[i] not in E.ALPHABET.version_family
 
     def test_sentinel_constant(self, codec):
         assert E.SENTINEL == SENTINEL
@@ -444,18 +545,20 @@ def _assert_manifest_invariants(man):
     part = man.control_partition
     route_cps = set(part.routes.values())
     type_cps = set(part.types.values())
-    brand = {part.brand}
-    for cps in (brand, route_cps, type_cps):
+    for cps in (route_cps, type_cps):
         assert cps, "each control subset is non-empty"
         assert cps <= CONTROL_CPS, "control subsets live within the control codepoints"
-    assert brand.isdisjoint(route_cps)
-    assert brand.isdisjoint(type_cps)
     assert route_cps.isdisjoint(type_cps)
     assert man.version == 1                       # this contract is v1-only (fell-r4)
     assert man.identity_length == IDENTITY_LEN
     assert man.packing_order == "big-endian"
     assert man.extension_sentinel == SENTINEL_CP
     assert man.alphabet_sha256 == PINNED_SHA
+    # The version glyph is a member of the version family (reserved minus brand),
+    # and is never the brand or a control codepoint.
+    assert man.version_glyph in VERSION_FAMILY_CPS
+    assert man.version_glyph != BRAND_CP
+    assert man.version_glyph not in CONTROL_CPS
     # normalization can only GROW, never shrink, relative to the pinned strip set...
     assert PROV_NORMALIZATION <= man.normalization_profile
     # ...but it must never grow INTO the data alphabet or the framing sentinel, or
@@ -466,11 +569,6 @@ def _assert_manifest_invariants(man):
     # which are opaque/renamable). Pin it so a v1() that drops/renames a type word is
     # caught (fell-r3).
     assert set(part.types) == {"alias", "web", "hash"}, "v1 type vocabulary is pinned"
-    # prior_brand_registry holds control codepoints of PRIOR versions' brands, each
-    # distinct from this version's brand (it disambiguates version dispatch). Empty /
-    # reserved in v1, so this is vacuously true here (fell-r3, codex).
-    for cp in man.prior_brand_registry:
-        assert cp in CONTROL_CPS and cp != part.brand
 
 
 class TestManifestInvariants:
@@ -483,6 +581,14 @@ class TestManifestInvariants:
         with pytest.raises((ValueError, E.EncojiError)):
             _codec(alphabet_sha256="0" * 64)
 
+    def test_version_glyph_outside_family_rejected(self):
+        # A manifest whose version_glyph is not in the version family (e.g. an
+        # active-range or control-range glyph, or the brand itself) must reject:
+        # the version dispatch relies on family membership.
+        for bad in (REF_CP[0], next(iter(CONTROL_CPS)), BRAND_CP):
+            with pytest.raises((ValueError, E.EncojiError)):
+                _codec(version_glyph=bad)
+
     @pytest.mark.skipif(
         not (HAVE_ENCOJI and hasattr(E, "v1")),
         reason="Phase 3 pins the real v1 manifest (encoji.v1()); not present yet",
@@ -490,7 +596,9 @@ class TestManifestInvariants:
     def test_real_v1_manifest_satisfies_invariants(self):
         # When Phase 3 ships the canonical v1 manifest, it must obey the same
         # structural invariants the provisional fixture does.
-        _assert_manifest_invariants(E.v1().manifest)
+        man = E.v1().manifest
+        _assert_manifest_invariants(man)
+        assert man.version_glyph == V1_VERSION_CP       # 🪢 KNOT, the pinned v1 version
 
 
 # ===========================================================================
@@ -618,18 +726,22 @@ class TestDecoderCanonicalRejection:
 class TestPositionalDecode:
     def test_C1_layout_round_trips(self, codec):
         stream = codec.encode(station="auth", identity=7, type=TYPE_WORD)
+        # the wire layout begins [brand][version]
+        assert stream[0] == brand_glyph()
+        assert stream[1] == version_glyph()
         d = codec.decode(stream)
         assert d.station == "auth"
         assert d.identity == 7
         assert d.type == TYPE_WORD
         assert d.route is None
+        assert d.version == 1
 
     def test_C1b_each_type_word_round_trips_distinctly(self, codec):
-        # The type slot is semantic and load-bearing in [brand][route?][station]
-        # [type][identity x5]: encode must HONOR the type arg and decode must
-        # report the right word. Otherwise a type-blind codec (always "alias")
-        # passes the whole suite, since every other encode() here uses "alias"
-        # (fell-r2). Distinct words must yield distinct glyphs.
+        # The type slot is semantic and load-bearing in [brand][version][route?]
+        # [station][type][identity x5]: encode must HONOR the type arg and decode
+        # must report the right word. Otherwise a type-blind codec (always
+        # "alias") passes the whole suite, since every other encode() here uses
+        # "alias" (fell-r2). Distinct words must yield distinct glyphs.
         streams = {}
         for w in ("alias", "web", "hash"):
             s = codec.encode(station="auth", identity=7, type=w)
@@ -638,9 +750,10 @@ class TestPositionalDecode:
         assert len(set(streams.values())) == 3
 
     def test_C2_identity_is_the_last_five_even_when_glyphs_collide(self, codec):
-        # Identity draws from the full 1024, so an identity glyph may equal the
-        # brand/control codepoint. Right-anchoring still resolves it.
-        value = PROV_BRAND_IDX * (1024 ** 4) + 5            # i4 == brand index
+        # Identity draws from the full 1024, so an identity glyph may equal a
+        # control codepoint. Right-anchoring still resolves it.
+        type_idx = PROV_TYPE_IDX[TYPE_WORD]
+        value = type_idx * (1024 ** 4) + 5                  # i4 == a type-subset index
         stream = codec.encode(station="auth", identity=value, type=TYPE_WORD)
         assert stream.endswith(idv(value))
         assert codec.decode(stream).identity == value
@@ -648,12 +761,31 @@ class TestPositionalDecode:
     def test_C2a_type_subset_glyph_inside_identity_is_still_peeled(self, codec):
         # A right-to-left SCANNER (scan from the end for the first type-subset
         # control glyph) would mis-split here; positional peel takes the last 5
-        # regardless. value places a type-subset index (826) at the last and the
-        # middle identity glyph. Pins peel-not-scan deterministically (fell-r1).
-        type_idx = PROV_TYPE_IDX[TYPE_WORD]                 # 826, a type-subset index
+        # regardless. value places a type-subset index at the last and the middle
+        # identity glyph. Pins peel-not-scan deterministically (fell-r1).
+        type_idx = PROV_TYPE_IDX[TYPE_WORD]
         for value in (type_idx, type_idx * (1024 ** 2)):
             stream = codec.encode(station="auth", identity=value, type=TYPE_WORD)
             assert codec.decode(stream).identity == value
+
+    def test_C2b_brand_or_version_codepoint_inside_identity_right_anchors(self, codec):
+        # The brand (index 900) and the version-family glyphs (e.g. the v1 version
+        # at index 1000) are reachable inside identity because identity draws from
+        # the full 1024. A positional peel-the-last-5 resolves them; only a decoder
+        # that scanned for the brand/version codepoints would mis-split (mirrors
+        # C2 for the new positional brand/version glyphs — nnf9).
+        cases = [
+            BRAND_IDX,                                       # 🧶 as the least-significant identity glyph
+            BRAND_IDX * (1024 ** 4),                         # 🧶 as the leftmost (most-significant)
+            V1_VERSION_IDX,                                  # 🪢 (a version-family glyph) least-significant
+            V1_VERSION_IDX * (1024 ** 2) + BRAND_IDX,        # both, mid and low
+        ]
+        for value in cases:
+            stream = codec.encode(station="auth", identity=value, type=TYPE_WORD)
+            assert stream.endswith(idv(value))
+            d = codec.decode(stream)
+            assert d.identity == value
+            assert d.station == "auth"
 
     def test_C3_type_slot_must_be_a_type_subset_control_glyph(self, codec):
         base = codec.encode(station="auth", identity=7, type=TYPE_WORD)
@@ -668,8 +800,10 @@ class TestPositionalDecode:
             codec.decode(bad_role)
 
     def test_C4_station_run_must_be_indices_0_821(self, codec):
-        # A reserved/control glyph mid-station is a parse error.
-        bad = brand_glyph() + cl("a", "u") + gly(839) + cl("t", "h") + type_glyph() + idv(7)
+        # A reserved/control glyph mid-station is a parse error. Front layout is
+        # [brand][version][station...][type][identity x5].
+        bad = (brand_glyph() + version_glyph() + cl("a", "u") + gly(839)
+               + cl("t", "h") + type_glyph() + idv(7))
         with pytest.raises(E.StructuralError):
             codec.decode(bad)
 
@@ -696,69 +830,90 @@ class TestPositionalDecode:
             streams[n] = s
         assert len(set(streams.values())) == 3
 
-    def test_C5c_route_sits_immediately_after_brand(self, codec):
-        # The wire layout is [brand][route?][station][type][identity x5] (finding
-        # C1): a present route is positionally right after the brand, before the
-        # station. This pins route POSITION (a wire-layout fact), distinct from
-        # route NAME semantics (opaque/Phase 3). Without it, a self-consistent
-        # [brand][station][route]... layout round-trips but is cross-incompatible
-        # (fell-r4b observation).
+    def test_C5c_route_sits_immediately_after_version(self, codec):
+        # The wire layout is [brand][version][route?][station][type][identity x5]
+        # (nnf9): a present route is positionally right after the VERSION glyph,
+        # before the station. This pins route POSITION (a wire-layout fact),
+        # distinct from route NAME semantics (opaque/Phase 3). Without it, a
+        # self-consistent [brand][version][station][route]... layout round-trips
+        # but is cross-incompatible.
         with_route = codec.encode(station="auth", identity=7, type=TYPE_WORD, route=ROUTE_NAME)
         routeless = codec.encode(station="auth", identity=7, type=TYPE_WORD)
-        assert with_route[0] == routeless[0]                 # same brand at position 0
-        assert with_route[1] == route_glyph(ROUTE_NAME)      # route immediately after brand
-        assert with_route[2:] == routeless[1:]               # station+type+identity unchanged
+        assert with_route[0] == routeless[0] == brand_glyph()    # brand at position 0
+        assert with_route[1] == routeless[1] == version_glyph()  # version at position 1
+        assert with_route[2] == route_glyph(ROUTE_NAME)          # route immediately after version
+        assert with_route[3:] == routeless[2:]                   # station+type+identity unchanged
 
     def test_C5_reject_wrong_subrole_in_route_slot(self, codec):
-        # A control glyph that is NOT a route (a type code, or the brand code) in
-        # the route slot (right after brand) must reject — mirrors C3 for the type
-        # slot. A decoder that treats ANY control glyph after brand as a route
-        # would wrongly accept these (fell-r1, both reviewers).
+        # A control glyph that is NOT a route (a type code) in the route slot
+        # (right after the version) must reject — mirrors C3 for the type slot. A
+        # decoder that treats ANY control glyph after the version as a route would
+        # wrongly accept this (fell-r1, both reviewers).
         base = codec.encode(station="auth", identity=7, type=TYPE_WORD)
-        for wrong in (type_glyph(), brand_glyph()):
-            with pytest.raises(E.StructuralError):
-                codec.decode(base[:1] + wrong + base[1:])
+        bad = base[:2] + type_glyph() + base[2:]            # type code in the route slot
+        with pytest.raises(E.StructuralError):
+            codec.decode(bad)
 
     def test_C5a_partition_subsets_are_disjoint(self, codec):
         p = codec.manifest.control_partition
-        brand, routes, types = {p.brand}, set(p.routes.values()), set(p.types.values())
-        assert brand.isdisjoint(routes)
-        assert brand.isdisjoint(types)
+        routes, types = set(p.routes.values()), set(p.types.values())
         assert routes.isdisjoint(types)
 
-    def test_C6_glyph0_must_be_a_brand_pool_codepoint(self, codec):
+    def test_C6_glyph0_must_be_the_brand(self, codec):
+        # nnf9 dispatch: glyph 0 codepoint != 🧶 (U+1F9F6) -> NoBrandError ("not
+        # encoji"). Any non-brand glyph 0 fails the same way — there is no brand
+        # pool any more.
         valid = codec.encode(station="auth", identity=7, type=TYPE_WORD)
-        # (a) glyph 0 is a normal alphabet glyph, not in the brand pool -> NoBrand
-        no_brand = cl("a", "b") + valid[1:]
-        with pytest.raises(E.NoBrandError):
-            codec.decode(no_brand)
-        # (b) glyph 0 is in the brand pool but is not this version's brand
-        unknown = route_glyph() + valid[1:]             # control cp, not the v1 brand
-        with pytest.raises(E.UnknownVersionError):
-            codec.decode(unknown)
+        for not_brand in (cl("a", "b"), type_glyph(), gly(901)):  # active / control / reserved
+            with pytest.raises(E.NoBrandError):
+                codec.decode(not_brand + valid[1:])
+
+    def test_C6b_version_dispatch(self, codec):
+        # The version field (glyph 1) carries version dispatch (nnf9), NOT the
+        # brand. Build a valid v1 stream, then swap glyph 1.
+        valid = codec.encode(station="auth", identity=7, type=TYPE_WORD)
+        assert valid[1] == version_glyph()
+        # (a) glyph 1 == 🪢 (this version) -> parses as v1.
+        assert codec.decode(valid).version == 1
+        # (b) glyph 1 in the version family but NOT this version's glyph -> a newer
+        #     version; reject cleanly with UnknownVersionError.
+        for fam_idx in (839, 901, 1023):                    # reserved, != brand(900), != v1(1000)
+            assert REF_CP[fam_idx] in VERSION_FAMILY_CPS
+            unknown = valid[:1] + gly(fam_idx) + valid[2:]
+            with pytest.raises(E.UnknownVersionError):
+                codec.decode(unknown)
+        # (c) glyph 1 NOT in the version family (an active glyph, a control glyph,
+        #     or the brand itself) -> missing/invalid version (StructuralError).
+        for bad in (cl("a", "b"), type_glyph(), brand_glyph()):
+            assert ord(bad) not in VERSION_FAMILY_CPS
+            with pytest.raises(E.StructuralError):
+                codec.decode(valid[:1] + bad + valid[2:])
 
     def test_C_noncanonical_station_through_full_decode_rejected(self, codec):
         # The full decode() path must also enforce canonical-rejection — not only
         # decode_station() in isolation (fell-r1, adversarial). sg(a)sg(b) decodes
         # 'ab' but canonical is cl(a,b).
-        stream = brand_glyph() + sg("a") + sg("b") + type_glyph() + idv(7)
+        stream = brand_glyph() + version_glyph() + sg("a") + sg("b") + type_glyph() + idv(7)
         with pytest.raises(E.NonCanonicalError):
             codec.decode(stream)
 
-    def test_C7_minimum_length_routeless_is_8(self, codec):
-        # brand + station(>=1) + type + identity(5) == 8.
-        too_short = brand_glyph() + type_glyph() + idv(7)   # 7 glyphs, no station
+    def test_C7_minimum_length_routeless_is_9(self, codec):
+        # brand + version + station(>=1) + type + identity(5) == 9. An 8-glyph
+        # stream with no station is too short.
+        too_short = brand_glyph() + version_glyph() + type_glyph() + idv(7)   # 8 glyphs, no station
+        assert len(too_short) == 8
         with pytest.raises(E.StructuralError):
             codec.decode(too_short)
 
-    def test_C7_route_present_min_9_is_empty_station_reject(self, codec):
-        # The 8-glyph [brand][route][type][identity x5] is BOTH the route-present
-        # minimum-minus-one (min is 9) AND the empty-station case (fell r2):
+    def test_C7_route_present_min_10_is_empty_station_reject(self, codec):
+        # The 9-glyph [brand][version][route][type][identity x5] is BOTH the
+        # route-present minimum-minus-one (min is 10) AND the empty-station case:
         # route present, but nothing between route and type. Structurally one
         # reject; documented once rather than as two byte-identical tests (fell-r2).
-        eight = brand_glyph() + route_glyph() + type_glyph() + idv(7)
+        nine = brand_glyph() + version_glyph() + route_glyph() + type_glyph() + idv(7)
+        assert len(nine) == 9
         with pytest.raises(E.StructuralError):
-            codec.decode(eight)
+            codec.decode(nine)
 
     def test_C7a_empty_input_rejected(self, codec):
         with pytest.raises(E.StructuralError):
@@ -839,7 +994,7 @@ class TestUnicodeGauntlet:
         stream = codec.encode(station="auth", identity=value, type=TYPE_WORD)
         assert codec.decode(stream).identity == value
         # iterate-by-codepoint sanity: Python str length == glyph count
-        assert len(stream) == 1 + 2 + 1 + 5             # brand+station(au,th)+type+id
+        assert len(stream) == 1 + 1 + 2 + 1 + 5         # brand+version+station(au,th)+type+id
 
     def test_E2_normalize_does_not_alter_a_clean_stream(self, codec):
         stream = codec.encode(station="auth", identity=7, type=TYPE_WORD)
@@ -965,7 +1120,7 @@ class TestExtensionSentinel:
             codec.decode(base + SENTINEL)
 
     def test_G7_leading_sentinel_empty_base_rejected(self, codec):
-        # glyph 0 == sentinel: empty base / not in the brand pool.
+        # glyph 0 == sentinel: empty base / not the brand.
         with pytest.raises((E.NoBrandError, E.StructuralError)):
             codec.decode(SENTINEL + cl("x", "y"))
         assert E.looks_like_encoji(SENTINEL + cl("x", "y")) is False
@@ -979,8 +1134,17 @@ class TestHelpers:
         assert E.looks_like_encoji(codec.encode(station="auth", identity=7, type=TYPE_WORD)) is True
 
     def test_looks_like_encoji_true_for_unknown_version(self, codec):
-        # glyph 0 in the brand pool (any control codepoint) -> looks like encoji.
-        assert E.looks_like_encoji(route_glyph() + cl("a", "b")) is True
+        # The sniffer keys on the brand alone (glyph 0 == 🧶), so an UNKNOWN-version
+        # stream (brand present, version glyph not v1's) still looks like encoji —
+        # which is exactly the forward-compat property (a v1 client recognizes a
+        # future address as encoji, then rejects the version).
+        unknown_version = brand_glyph() + gly(901) + cl("a", "b")   # 901 in the version family
+        assert E.looks_like_encoji(unknown_version) is True
+
+    def test_looks_like_encoji_false_for_control_leading_glyph(self, codec):
+        # A control codepoint at glyph 0 is NOT the brand (the old brand-pool
+        # notion is gone), so it does not look like encoji.
+        assert E.looks_like_encoji(type_glyph() + cl("a", "b")) is False
 
     def test_looks_like_encoji_false_for_non_brand_leading_glyph(self, codec):
         assert E.looks_like_encoji(cl("a", "b") + cl("c", "d")) is False
@@ -1027,6 +1191,7 @@ class TestFullRoundTrip:
         assert d.identity == identity
         assert d.route == route
         assert d.type == type
+        assert d.version == 1
 
     @settings(deadline=None, max_examples=200)
     @given(

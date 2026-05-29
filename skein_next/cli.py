@@ -1,0 +1,291 @@
+"""Daily-driver CLI for the content-hash station (Slice 3).
+
+A direct, local CLI over :class:`skein_next.station.Station` — no server, no HTTP
+hop. It serves the daily verbs against the ``.skein-next/`` data dir, beside the
+legacy ``skein`` command which is never touched:
+
+    post    create a folio in a site
+    folio   read one folio
+    folios  list a site's folios
+    search  substring search over title/content
+    thread  walk a folio's thread graph
+    sites   list sites
+    site    create a site (so a fresh station is usable)
+
+Output is plain text built for a screen reader: one item per line, a human
+description followed by the id used to look it up — no tables, no columns, no
+markdown. ``--json`` on the read/list verbs emits structured data for tooling.
+
+Run via the ``skein-next`` console script or ``python -m skein_next``.
+"""
+
+from __future__ import annotations
+
+import json as _json
+import os
+import sys
+from typing import Any, Dict, Optional
+
+import click
+
+from .station import AmbiguousReference, Station, UnknownSite, _short, _title_line
+
+ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
+ENV_AGENT = "SKEIN_NEXT_AGENT"
+
+
+def _default_author() -> Optional[str]:
+    return os.environ.get(ENV_AGENT) or os.environ.get("SKEIN_AGENT")
+
+
+def _open_station(ctx: click.Context) -> Station:
+    return Station(ctx.obj.get("data_dir"))
+
+
+def _folio_line(folio: Dict[str, Any]) -> str:
+    """One screen-reader line for a folio: ``<type> <title>  <short-id>``."""
+    ftype = folio.get("type") or "folio"
+    title = _title_line(folio.get("title")) or _title_line(folio.get("content")) or "(untitled)"
+    return f"{ftype} {title}  {_short(folio['content_hash'])}"
+
+
+def _emit_json(payload: Any) -> None:
+    click.echo(_json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+
+
+@click.group()
+@click.option(
+    "--data-dir",
+    default=None,
+    help=f"Station data dir (default: $.{ENV_DATA_DIR} or ./.skein-next).",
+)
+@click.pass_context
+def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
+    """new-skein: the local content-hash station."""
+    ctx.ensure_object(dict)
+    ctx.obj["data_dir"] = data_dir or os.environ.get(ENV_DATA_DIR)
+
+
+# --- post -------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("type")
+@click.argument("site")
+@click.argument("title")
+@click.option("--content", "-c", default=None, help="Folio body. '-' reads stdin.")
+@click.option("--by", "created_by", default=None, help="Author (default: $SKEIN_NEXT_AGENT).")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def post(
+    ctx: click.Context,
+    type: str,
+    site: str,
+    title: str,
+    content: Optional[str],
+    created_by: Optional[str],
+    output_json: bool,
+) -> None:
+    """Create a TYPE folio titled TITLE in SITE.
+
+    Examples: skein-next post finding myproj "Cache key collides under load"
+    """
+    if content == "-":
+        content = sys.stdin.read()
+    author = created_by or _default_author()
+    with _open_station(ctx) as station:
+        try:
+            folio_hash = station.post(
+                type=type, site=site, title=title, content=content, created_by=author
+            )
+        except UnknownSite as e:
+            raise click.ClickException(str(e) + " — create it first with 'site create'.")
+        if output_json:
+            _emit_json(station.store.get_folio(folio_hash))
+        else:
+            click.echo(folio_hash)
+
+
+# --- folio (read) -----------------------------------------------------------
+
+
+@cli.command()
+@click.argument("ref")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def folio(ctx: click.Context, ref: str, output_json: bool) -> None:
+    """Read one folio by its hash, a short prefix, or a legacy id."""
+    with _open_station(ctx) as station:
+        try:
+            found = station.get_folio(ref)
+        except AmbiguousReference as e:
+            lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+            raise click.ClickException(f"{e}\n{lines}")
+        if not found:
+            raise click.ClickException(f"no folio for reference {ref!r}")
+        if output_json:
+            _emit_json(found)
+            return
+        click.echo(f"{found.get('type') or 'folio'}  {found['content_hash']}")
+        if found.get("title"):
+            click.echo(found["title"])
+        meta = []
+        if found.get("created_by"):
+            meta.append(f"by {found['created_by']}")
+        if found.get("created_at"):
+            meta.append(found["created_at"])
+        if meta:
+            click.echo(" · ".join(meta))
+        if found.get("content"):
+            click.echo("")
+            click.echo(found["content"])
+
+
+# --- folios (list a site) ---------------------------------------------------
+
+
+@cli.command()
+@click.argument("site")
+@click.option("--type", "-t", "type_filter", default=None, help="Only this folio type.")
+@click.option("-n", "--limit", type=int, default=100, help="Max folios shown.")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def folios(
+    ctx: click.Context,
+    site: str,
+    type_filter: Optional[str],
+    limit: int,
+    output_json: bool,
+) -> None:
+    """List the folios in SITE."""
+    with _open_station(ctx) as station:
+        try:
+            items = station.folios_in_site(site, type=type_filter, limit=limit)
+        except UnknownSite as e:
+            raise click.ClickException(str(e))
+        if output_json:
+            _emit_json(items)
+            return
+        if not items:
+            click.echo(f"(no folios in {site})")
+            return
+        for f in items:
+            click.echo(_folio_line(f))
+
+
+# --- search -----------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("query")
+@click.option("-n", "--limit", type=int, default=50, help="Max results.")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def search(ctx: click.Context, query: str, limit: int, output_json: bool) -> None:
+    """Find folios whose title or content contains QUERY."""
+    with _open_station(ctx) as station:
+        items = station.search(query, limit=limit)
+        if output_json:
+            _emit_json(items)
+            return
+        if not items:
+            click.echo(f"(no folios match {query!r})")
+            return
+        for f in items:
+            click.echo(_folio_line(f))
+
+
+# --- thread (graph) ---------------------------------------------------------
+
+
+def _peer_label(peer: Dict[str, Any]) -> str:
+    if peer["kind"] == "folio":
+        return _folio_line(peer["folio"])
+    if peer["kind"] == "ref":
+        return f"(unresolved) {peer['id']}"
+    return "(none)"
+
+
+@cli.command()
+@click.argument("ref")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def thread(ctx: click.Context, ref: str, output_json: bool) -> None:
+    """Show the threads into and out of a folio."""
+    with _open_station(ctx) as station:
+        try:
+            graph = station.thread_graph(ref)
+        except AmbiguousReference as e:
+            raise click.ClickException(str(e))
+        if not graph:
+            raise click.ClickException(f"no folio for reference {ref!r}")
+        if output_json:
+            _emit_json(graph)
+            return
+        focus = graph["folio"]
+        click.echo(_folio_line(focus) if focus else graph["content_hash"])
+        for edge in graph["outgoing"]:
+            click.echo(f"  --{edge['type']}--> {_peer_label(edge['peer'])}")
+        for edge in graph["incoming"]:
+            click.echo(f"  <--{edge['type']}-- {_peer_label(edge['peer'])}")
+        for edge in graph["memberships"]:
+            # within edges point folio -> site; the site is the peer either way.
+            site = edge["peer"]
+            label = _peer_label(site)
+            click.echo(f"  within {label}")
+        if not (graph["outgoing"] or graph["incoming"] or graph["memberships"]):
+            click.echo("  (no threads)")
+
+
+# --- sites ------------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def sites(ctx: click.Context, output_json: bool) -> None:
+    """List the sites in this station."""
+    with _open_station(ctx) as station:
+        pairs = station.list_sites()
+        if output_json:
+            _emit_json(
+                [{"slug": slug, "folio": folio} for slug, folio in pairs]
+            )
+            return
+        if not pairs:
+            click.echo("(no sites)")
+            return
+        for slug, folio in pairs:
+            purpose = _title_line(folio.get("content")) if folio else ""
+            click.echo(f"{slug} — {purpose}" if purpose else slug)
+
+
+@cli.command(name="site")
+@click.argument("action", type=click.Choice(["create"]))
+@click.argument("slug")
+@click.option("--purpose", "-p", default=None, help="What the site is for.")
+@click.option("--by", "created_by", default=None, help="Author.")
+@click.pass_context
+def site(
+    ctx: click.Context,
+    action: str,
+    slug: str,
+    purpose: Optional[str],
+    created_by: Optional[str],
+) -> None:
+    """Manage sites. Currently: site create SLUG."""
+    author = created_by or _default_author()
+    with _open_station(ctx) as station:
+        existing = station.store.resolve_slug(slug)
+        site_hash = station.create_site(slug, purpose=purpose, created_by=author)
+        verb = "exists" if existing == site_hash else "created"
+        click.echo(f"site {verb}: {slug}  {site_hash}")
+
+
+def main() -> None:
+    """Entry point for the ``skein-next`` console script."""
+    cli()
+
+
+if __name__ == "__main__":
+    main()

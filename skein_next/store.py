@@ -155,6 +155,44 @@ class SkeinNextStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def search_folios(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Folios whose title or content contains ``query`` (case-insensitive).
+
+        A plain substring match — the daily-driver search verb, not a ranked
+        index. ``query`` is matched literally; SQL ``LIKE`` wildcards in it are
+        escaped so a user searching for ``50%`` or ``a_b`` finds those strings.
+        """
+        like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        rows = self.conn.execute(
+            """
+            SELECT * FROM folios
+            WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
+            ORDER BY created_at, content_hash
+            LIMIT ?
+            """,
+            (like, like, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def find_by_prefix(self, prefix: str, limit: int = 10) -> List[str]:
+        """Content hashes beginning with ``prefix`` (git-style short-hash lookup).
+
+        ``prefix`` is matched literally against the full stored ``sha256::<hex>``
+        address; ``LIKE`` metacharacters are escaped. Returns up to ``limit``
+        matches so a caller can detect (and reject) an ambiguous prefix.
+        """
+        like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        rows = self.conn.execute(
+            """
+            SELECT content_hash FROM folios
+            WHERE content_hash LIKE ? ESCAPE '\\'
+            ORDER BY content_hash
+            LIMIT ?
+            """,
+            (like, limit),
+        ).fetchall()
+        return [r["content_hash"] for r in rows]
+
     # --- threads ------------------------------------------------------------
 
     def save_thread(

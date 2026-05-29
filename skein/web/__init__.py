@@ -1,5 +1,5 @@
 """
-SKEIN Web UI - HTMX-based browser interface.
+SKEIN Web UI - read-only, server-rendered.
 
 Launch with: skein web
 """

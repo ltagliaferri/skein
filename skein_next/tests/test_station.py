@@ -146,13 +146,52 @@ def test_resolve_ref_alias_form_short_hash_cascades(station):
 
 def test_resolve_ref_malformed_address_returns_none(station):
     # Structurally-invalid addresses resolve to None, never raise to the caller.
-    for bad in ("sha256::", "::sha256::abc", "sha256::xyz", "a::b::c::d"):
+    # Includes the floor boundary: a bare short hash under 8 hex (which the
+    # scheme rejects) must return None, not crash.
+    for bad in ("sha256::", "::sha256::abc", "sha256::xyz", "a::b::c::d",
+                "sha256::dead", "sha256::deadbe", "sha256"):
         assert station.resolve_ref(bad) is None
 
 
 def test_resolve_ref_full_hash_not_in_store_returns_none(station):
     # A well-formed full address for a folio that isn't here resolves to None.
     assert station.resolve_ref("sha256::" + "a" * 64) is None
+
+
+def test_resolve_ref_uppercase_hex_does_not_resolve(station):
+    # Intended behavior change from Slice 3: identity is canonical lowercase hex
+    # (validate-not-convert, matching the :: scheme). An uppercase reference to
+    # an existing folio resolves to None rather than case-folding to a match.
+    h = station.store.create_folio({"type": "finding", "title": "t", "content": "c"})
+    assert station.resolve_ref(h.upper()) is None
+    assert station.resolve_ref("sha256::" + h.split("::", 1)[1][:16].upper()) is None
+
+
+def _insert_prefix_collision(station, shared, tails):
+    for tail in tails:
+        station.store.conn.execute(
+            "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+            (shared + tail, "finding", "t", "c"),
+        )
+    station.store.conn.commit()
+
+
+def test_resolve_ref_alias_form_ambiguous_raises(station):
+    # The step-3 resolver ambiguity path: an alias-form short hash that matches
+    # multiple folios surfaces as AmbiguousReference with sha256::-framed
+    # candidates (translated from the resolver's AmbiguousShortHash).
+    shared = "abcdef0000000000"  # 16 hex, a valid short hash
+    _insert_prefix_collision(station, "sha256::" + shared, ("1111", "2222"))
+    with pytest.raises(AmbiguousReference) as ei:
+        station.resolve_ref(f"mystation::sha256::{shared}")
+    assert all(c.startswith("sha256::") for c in ei.value.matches)
+    assert len(ei.value.matches) == 2
+
+
+def test_resolve_ref_alias_form_no_match_returns_none(station):
+    # The step-3 ShortHashNotFound path: an alias-form short hash matching
+    # nothing resolves to None, not an exception.
+    assert station.resolve_ref("mystation::sha256::abcdef0000000000") is None
 
 
 # --- post / membership ------------------------------------------------------

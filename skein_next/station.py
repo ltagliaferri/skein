@@ -68,6 +68,14 @@ class UnknownSite(Exception):
         super().__init__(f"no site named {slug!r}")
 
 
+class UnknownFolio(Exception):
+    """A reference did not resolve to any folio in this station."""
+
+    def __init__(self, ref: str):
+        self.ref = ref
+        super().__init__(f"no folio for reference {ref!r}")
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -204,6 +212,43 @@ class Station:
         )
         self.store.save_thread(from_id=folio_hash, to_id=site_hash, type="within")
         return folio_hash
+
+    def set_status(
+        self,
+        ref: str,
+        status: str,
+        by: Optional[str] = None,
+        created_at: Any = None,
+    ) -> str:
+        """Set a folio's status by writing a ``status`` thread. Returns the
+        resolved folio hash (the subject the status was written to).
+
+        Status is thread-derived: the latest ``status`` thread (by created_at,
+        then thread_hash) wins, matching how the import bridge carried legacy
+        statuses and how the read side reads them. The thread is a self-loop
+        (``from_id == to_id == folio``, ``weaver`` = author, ``content`` = the
+        status word) — the exact shape legacy status threads have. ``created_at``
+        defaults to now so a fresh status supersedes earlier ones.
+
+        Raises :class:`UnknownFolio` if ``ref`` does not resolve, or
+        :class:`AmbiguousReference` if it is an ambiguous short hash.
+        """
+        folio_hash = self.resolve_ref(ref)
+        if not folio_hash:
+            raise UnknownFolio(ref)
+        self.store.save_thread(
+            from_id=folio_hash,
+            to_id=folio_hash,
+            type="status",
+            weaver=by,
+            content=status,
+            created_at=created_at if created_at is not None else _now_utc(),
+        )
+        return folio_hash
+
+    def status_of(self, content_hash: str) -> Optional[str]:
+        """The folio's current status (latest status thread), or ``None``."""
+        return self.store.latest_statuses([content_hash]).get(content_hash)
 
     def create_site(
         self,

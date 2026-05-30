@@ -107,6 +107,49 @@ def test_thread_on_site_says_contains_not_within(runner, data_dir):
     assert "within" not in r.output  # the site is not "within" anything here
 
 
+def test_status_and_close_round_trip(runner, data_dir):
+    run(runner, data_dir, "site", "create", "proj")
+    h = run(runner, data_dir, "post", "finding", "proj", "a finding").output.strip()
+    # set a custom status, read it back on the folio detail
+    r = run(runner, data_dir, "status", h, "investigating")
+    assert r.exit_code == 0 and "status set: investigating" in r.output
+    assert "status: investigating" in run(runner, data_dir, "folio", h).output
+    # close is shorthand for status closed, and latest wins
+    run(runner, data_dir, "close", h)
+    assert "status: closed" in run(runner, data_dir, "folio", h).output
+
+
+def test_status_unknown_ref_errors(runner, data_dir):
+    run(runner, data_dir, "site", "create", "proj")
+    r = run(runner, data_dir, "close", "sha256::deadbeef")
+    assert r.exit_code != 0 and "no folio for reference" in r.output
+
+
+def test_status_ambiguous_ref_errors(runner, data_dir):
+    from skein_next.store import SkeinNextStore
+
+    run(runner, data_dir, "site", "create", "proj")  # initializes the store
+    shared = "sha256::abcdef000000"
+    with SkeinNextStore(data_dir) as store:
+        for tail in ("1111", "2222"):
+            store.conn.execute(
+                "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+                (shared + tail, "finding", "t", "c"),
+            )
+        store.conn.commit()
+    r = run(runner, data_dir, "close", shared)
+    assert r.exit_code != 0
+    assert "is ambiguous" in r.output
+    assert shared + "1111" in r.output and shared + "2222" in r.output
+
+
+def test_folio_json_includes_status(runner, data_dir):
+    run(runner, data_dir, "site", "create", "proj")
+    h = run(runner, data_dir, "post", "finding", "proj", "x").output.strip()
+    run(runner, data_dir, "close", h)
+    assert json.loads(run(runner, data_dir, "folio", h, "--json").output)["status"] == "closed"
+
+
 def test_json_output_is_valid(runner, data_dir):
     run(runner, data_dir, "site", "create", "proj")
     run(runner, data_dir, "post", "finding", "proj", "x")

@@ -3,7 +3,14 @@ leans on (search, short-hash prefix lookup)."""
 
 import pytest
 
-from skein_next.station import AmbiguousReference, Station, UnknownSite, _short, _title_line
+from skein_next.station import (
+    AmbiguousReference,
+    Station,
+    UnknownFolio,
+    UnknownSite,
+    _short,
+    _title_line,
+)
 from skein_next.store import SkeinNextStore
 
 
@@ -269,6 +276,64 @@ def test_list_sites_and_get_site(station):
     assert [slug for slug, _ in pairs] == ["alpha", "beta"]
     assert station.get_site("alpha")["content"] == "first"
     assert station.get_site("missing") is None
+
+
+# --- status (write parity) --------------------------------------------------
+
+
+def test_set_status_then_read_back(station):
+    station.create_site("proj")
+    h = station.post(type="finding", site="proj", title="t", created_at="2026-01-01T00:00:00Z")
+    assert station.status_of(h) is None  # no status thread yet
+    station.set_status(h, "investigating", by="me")
+    assert station.status_of(h) == "investigating"
+
+
+def test_set_status_latest_wins(station):
+    station.create_site("proj")
+    h = station.post(type="finding", site="proj", title="t", created_at="2026-01-01T00:00:00Z")
+    station.set_status(h, "open", by="me", created_at="2026-02-01T00:00:00Z")
+    station.set_status(h, "closed", by="me", created_at="2026-02-02T00:00:00Z")
+    assert station.status_of(h) == "closed"
+
+
+def test_set_status_writes_self_loop_thread(station):
+    # Status threads match the legacy shape: from_id == to_id == folio, type
+    # status, weaver = author, content = the status word.
+    station.create_site("proj")
+    h = station.post(type="finding", site="proj", title="t", created_at="2026-01-01T00:00:00Z")
+    station.set_status(h, "closed", by="alice")
+    edges = station.store.get_threads(to_id=h, type="status")
+    assert len(edges) == 1
+    e = edges[0]
+    assert e["from_id"] == h and e["to_id"] == h
+    assert e["weaver"] == "alice" and e["content"] == "closed"
+
+
+def test_set_status_unknown_folio_raises(station):
+    with pytest.raises(UnknownFolio):
+        station.set_status("sha256::deadbeef", "closed")
+
+
+def test_set_status_resolves_short_ref(station):
+    station.create_site("proj")
+    h = station.post(type="finding", site="proj", title="t", created_at="2026-01-01T00:00:00Z")
+    station.set_status(_short(h), "closed", by="me")  # short hash resolves
+    assert station.status_of(h) == "closed"
+
+
+def test_set_status_ambiguous_short_ref_raises(station):
+    # An ambiguous short prefix must propagate AmbiguousReference (not silently
+    # write to one of the matches), so the CLI can list the candidates.
+    shared = "sha256::abcdef000000"
+    for tail in ("1111", "2222"):
+        station.store.conn.execute(
+            "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+            (shared + tail, "finding", "t", "c"),
+        )
+    station.store.conn.commit()
+    with pytest.raises(AmbiguousReference):
+        station.set_status(shared, "closed", by="me")
 
 
 # --- thread graph -----------------------------------------------------------

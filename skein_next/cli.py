@@ -260,13 +260,12 @@ def _set_status(ctx: click.Context, ref: str, value: str, created_by: Optional[s
     author = created_by or _default_author()
     with _open_station(ctx) as station:
         try:
-            station.set_status(ref, value, by=author)
+            folio_hash = station.set_status(ref, value, by=author)
         except AmbiguousReference as e:
             lines = "\n".join("  " + _short(m, 24) for m in e.matches)
             raise click.ClickException(f"{e}\n{lines}")
         except UnknownFolio as e:
             raise click.ClickException(str(e))
-        folio_hash = station.resolve_ref(ref)
         click.echo(f"status set: {value}  {_short(folio_hash)}")
 
 

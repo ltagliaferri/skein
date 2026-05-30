@@ -125,6 +125,24 @@ def test_status_unknown_ref_errors(runner, data_dir):
     assert r.exit_code != 0 and "no folio for reference" in r.output
 
 
+def test_status_ambiguous_ref_errors(runner, data_dir):
+    from skein_next.store import SkeinNextStore
+
+    run(runner, data_dir, "site", "create", "proj")  # initializes the store
+    shared = "sha256::abcdef000000"
+    with SkeinNextStore(data_dir) as store:
+        for tail in ("1111", "2222"):
+            store.conn.execute(
+                "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+                (shared + tail, "finding", "t", "c"),
+            )
+        store.conn.commit()
+    r = run(runner, data_dir, "close", shared)
+    assert r.exit_code != 0
+    assert "is ambiguous" in r.output
+    assert shared + "1111" in r.output and shared + "2222" in r.output
+
+
 def test_folio_json_includes_status(runner, data_dir):
     run(runner, data_dir, "site", "create", "proj")
     h = run(runner, data_dir, "post", "finding", "proj", "x").output.strip()

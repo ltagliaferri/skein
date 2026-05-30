@@ -220,7 +220,8 @@ class Station:
         by: Optional[str] = None,
         created_at: Any = None,
     ) -> str:
-        """Set a folio's status by writing a ``status`` thread. Returns its hash.
+        """Set a folio's status by writing a ``status`` thread. Returns the
+        resolved folio hash (the subject the status was written to).
 
         Status is thread-derived: the latest ``status`` thread (by created_at,
         then thread_hash) wins, matching how the import bridge carried legacy
@@ -235,7 +236,7 @@ class Station:
         folio_hash = self.resolve_ref(ref)
         if not folio_hash:
             raise UnknownFolio(ref)
-        return self.store.save_thread(
+        self.store.save_thread(
             from_id=folio_hash,
             to_id=folio_hash,
             type="status",
@@ -243,6 +244,7 @@ class Station:
             content=status,
             created_at=created_at if created_at is not None else _now_utc(),
         )
+        return folio_hash
 
     def status_of(self, content_hash: str) -> Optional[str]:
         """The folio's current status (latest status thread), or ``None``."""

@@ -322,6 +322,20 @@ def test_set_status_resolves_short_ref(station):
     assert station.status_of(h) == "closed"
 
 
+def test_set_status_ambiguous_short_ref_raises(station):
+    # An ambiguous short prefix must propagate AmbiguousReference (not silently
+    # write to one of the matches), so the CLI can list the candidates.
+    shared = "sha256::abcdef000000"
+    for tail in ("1111", "2222"):
+        station.store.conn.execute(
+            "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+            (shared + tail, "finding", "t", "c"),
+        )
+    station.store.conn.commit()
+    with pytest.raises(AmbiguousReference):
+        station.set_status(shared, "closed", by="me")
+
+
 # --- thread graph -----------------------------------------------------------
 
 

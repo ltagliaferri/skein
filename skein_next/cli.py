@@ -28,7 +28,14 @@ from typing import Any, Dict, Optional
 
 import click
 
-from .station import AmbiguousReference, Station, UnknownSite, _short, _title_line
+from .station import (
+    AmbiguousReference,
+    Station,
+    UnknownFolio,
+    UnknownSite,
+    _short,
+    _title_line,
+)
 
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
 ENV_AGENT = "SKEIN_NEXT_AGENT"
@@ -123,8 +130,9 @@ def folio(ctx: click.Context, ref: str, output_json: bool) -> None:
             raise click.ClickException(f"{e}\n{lines}")
         if not found:
             raise click.ClickException(f"no folio for reference {ref!r}")
+        status = station.status_of(found["content_hash"])
         if output_json:
-            _emit_json(found)
+            _emit_json({**found, "status": status})
             return
         click.echo(f"{found.get('type') or 'folio'}  {found['content_hash']}")
         if found.get("title"):
@@ -134,6 +142,8 @@ def folio(ctx: click.Context, ref: str, output_json: bool) -> None:
             meta.append(f"by {found['created_by']}")
         if found.get("created_at"):
             meta.append(found["created_at"])
+        if status:
+            meta.append(f"status: {status}")
         if meta:
             click.echo(" - ".join(meta))
         if found.get("content"):
@@ -241,6 +251,42 @@ def thread(ctx: click.Context, ref: str, output_json: bool) -> None:
                 click.echo(f"  contains {_peer_label(edge['peer'])}")
         if not (graph["outgoing"] or graph["incoming"] or graph["memberships"]):
             click.echo("  (no threads)")
+
+
+# --- status / close ---------------------------------------------------------
+
+
+def _set_status(ctx: click.Context, ref: str, value: str, created_by: Optional[str]) -> None:
+    author = created_by or _default_author()
+    with _open_station(ctx) as station:
+        try:
+            station.set_status(ref, value, by=author)
+        except AmbiguousReference as e:
+            lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+            raise click.ClickException(f"{e}\n{lines}")
+        except UnknownFolio as e:
+            raise click.ClickException(str(e))
+        folio_hash = station.resolve_ref(ref)
+        click.echo(f"status set: {value}  {_short(folio_hash)}")
+
+
+@cli.command()
+@click.argument("ref")
+@click.argument("value")
+@click.option("--by", "created_by", default=None, help="Author (default: $SKEIN_NEXT_AGENT).")
+@click.pass_context
+def status(ctx: click.Context, ref: str, value: str, created_by: Optional[str]) -> None:
+    """Set a folio's status (writes a status thread; latest wins)."""
+    _set_status(ctx, ref, value, created_by)
+
+
+@cli.command()
+@click.argument("ref")
+@click.option("--by", "created_by", default=None, help="Author (default: $SKEIN_NEXT_AGENT).")
+@click.pass_context
+def close(ctx: click.Context, ref: str, created_by: Optional[str]) -> None:
+    """Close a folio (shorthand for 'status REF closed')."""
+    _set_status(ctx, ref, "closed", created_by)
 
 
 # --- sites ------------------------------------------------------------------

@@ -22,11 +22,23 @@ Three content-hash facts shape this layer:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from skein import address
+
 from .store import SkeinNextStore
+
+# A bare ``sha256::<hex>`` short-hash reference, 8..63 hex digits. The hardened
+# `::` grammar rejects a *bare* short hash (it has no station to disambiguate
+# against), so the local station resolves this convenience form itself — through
+# the same StationIndex prefix lookup the resolver uses, not a naive scan. The
+# 8-digit floor matches the addressing scheme's minimum short-hash length.
+_LOCAL_SHORT_HASH = re.compile(r"^sha256::([0-9a-f]{8,63})$")
+# Cap on candidates fetched for a short-hash prefix; enough to detect ambiguity.
+_PREFIX_CANDIDATE_CAP = 100
 
 
 _AMBIGUOUS_CAP = 10  # most candidates resolve_ref fetches/shows for an ambiguous prefix
@@ -96,31 +108,68 @@ class Station:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    # --- references ---------------------------------------------------------
+    # --- references (StationIndex + :: resolution) --------------------------
+
+    def folios_with_prefix(self, algo: str, prefix: str) -> List[str]:
+        """:class:`skein.address.StationIndex` hook: full digests for a prefix.
+
+        Returns the matching FULL lowercase-hex digests (no ``sha256::`` framing)
+        for folios whose hash begins with ``prefix``. This is what the hardened
+        ``::`` resolver calls to lengthen a short hash against this station.
+        """
+        if algo != "sha256":
+            return []
+        framed = self.store.find_by_prefix(
+            f"{algo}::{prefix}", limit=_PREFIX_CANDIDATE_CAP
+        )
+        return [h.split("::", 1)[1] for h in framed]
 
     def resolve_ref(self, ref: str) -> Optional[str]:
         """Resolve a user-supplied reference to a full content hash, or ``None``.
 
         Resolution order, first hit wins:
-        1. an exact ``sha256::<hex>`` address that is a stored folio;
+        1. an exact stored ``sha256::<hex>`` address (fast path);
         2. a legacy id present in the alias table;
-        3. a unique ``sha256::`` short-hash prefix.
+        3. a structurally-valid ``::`` address (bare hash, or alias/web form
+           whose short hash this station lengthens) routed through the hardened
+           ``skein.address`` parser and resolver;
+        4. the local bare short-hash convenience ``sha256::<8..63 hex>``, which
+           the ``::`` grammar rejects as a bare short hash — resolved here via
+           the same StationIndex prefix lookup the resolver uses.
 
-        Raises :class:`AmbiguousReference` when a prefix matches several folios.
+        Raises :class:`AmbiguousReference` when a short hash matches several
+        folios (translated from the resolver's ``AmbiguousShortHash``).
         """
         if ref.startswith("sha256::") and self.store.get_folio(ref):
             return ref
         aliased = self.store.resolve_alias(ref)
         if aliased:
             return aliased
-        if ref.startswith("sha256::"):
-            # Fetch one past the display cap so AmbiguousReference can tell an
-            # exact count from a floor ("at least N").
-            matches = self.store.find_by_prefix(ref, limit=_AMBIGUOUS_CAP + 1)
-            if len(matches) == 1:
-                return matches[0]
-            if len(matches) > 1:
-                raise AmbiguousReference(ref, matches)
+
+        try:
+            parsed = address.parse(ref)
+        except address.AddressError:
+            return self._resolve_local_short(ref)
+
+        try:
+            digest = address.resolve(parsed, self)
+        except address.AmbiguousShortHash as e:
+            raise AmbiguousReference(ref, [f"sha256::{c}" for c in e.candidates])
+        except address.ShortHashNotFound:
+            return None
+        framed = f"sha256::{digest}"
+        return framed if self.store.get_folio(framed) else None
+
+    def _resolve_local_short(self, ref: str) -> Optional[str]:
+        """Resolve a bare ``sha256::<8..63 hex>`` ref against this station."""
+        m = _LOCAL_SHORT_HASH.match(ref)
+        if not m:
+            return None
+        matches = self.folios_with_prefix("sha256", m.group(1))
+        if len(matches) == 1:
+            return f"sha256::{matches[0]}"
+        if len(matches) > 1:
+            raise AmbiguousReference(ref, [f"sha256::{c}" for c in matches])
         return None
 
     # --- write --------------------------------------------------------------

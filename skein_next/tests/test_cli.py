@@ -119,6 +119,15 @@ def test_status_and_close_round_trip(runner, data_dir):
     assert "status: closed" in run(runner, data_dir, "folio", h).output
 
 
+def test_folio_unset_status_shows_open(runner, data_dir):
+    # A freshly posted folio (no status thread) shows 'open' on the detail and
+    # in --json — matching legacy, not a blank/None.
+    run(runner, data_dir, "site", "create", "proj")
+    h = run(runner, data_dir, "post", "finding", "proj", "a finding").output.strip()
+    assert "status: open" in run(runner, data_dir, "folio", h).output
+    assert json.loads(run(runner, data_dir, "folio", h, "--json").output)["status"] == "open"
+
+
 def test_status_unknown_ref_errors(runner, data_dir):
     run(runner, data_dir, "site", "create", "proj")
     r = run(runner, data_dir, "close", "sha256::deadbeef")

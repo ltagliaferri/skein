@@ -284,7 +284,7 @@ def test_list_sites_and_get_site(station):
 def test_set_status_then_read_back(station):
     station.create_site("proj")
     h = station.post(type="finding", site="proj", title="t", created_at="2026-01-01T00:00:00Z")
-    assert station.status_of(h) is None  # no status thread yet
+    assert station.status_of(h) == "open"  # default until a status thread says otherwise
     station.set_status(h, "investigating", by="me")
     assert station.status_of(h) == "investigating"
 
@@ -334,6 +334,19 @@ def test_set_status_ambiguous_short_ref_raises(station):
     station.store.conn.commit()
     with pytest.raises(AmbiguousReference):
         station.set_status(shared, "closed", by="me")
+
+
+def test_status_of_defaults_to_open(station):
+    # A folio with no status thread reads as 'open' (the default), matching
+    # legacy SKEIN and the web adapter — not None.
+    station.create_site("proj")
+    h = station.post(type="finding", site="proj", title="t", created_at="2026-01-01T00:00:00Z")
+    assert station.status_of(h) == "open"
+    # an explicit status still wins, and re-opening reads back as open
+    station.set_status(h, "closed", by="me", created_at="2026-02-01T00:00:00Z")
+    assert station.status_of(h) == "closed"
+    station.set_status(h, "open", by="me", created_at="2026-02-02T00:00:00Z")
+    assert station.status_of(h) == "open"
 
 
 # --- thread graph -----------------------------------------------------------

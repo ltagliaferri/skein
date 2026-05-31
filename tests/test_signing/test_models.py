@@ -4,8 +4,8 @@ VerifyStatus, VerifyResult, MultiVerifyResult, Evidence, RekorInclusionProof,
 SignResult, SignatureBundle, OIDCProviderConfig, SigningUnavailable,
 EmptySignatureBundle, MultiSignerBundle.
 
-The models are part of the surface — every caller (routes.py, web/app.py,
-federation peer, CLI render layer) reads from them. A wrong-shaped enum value
+The models are part of the surface — every caller (routes.py, the instance
+web read path, federation peer, CLI render layer) reads from them. A wrong-shaped enum value
 or missing required field cascades across the read path. We test the shape
 contract, not the values.
 """

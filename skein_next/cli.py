@@ -27,7 +27,7 @@ import json as _json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import click
 
@@ -66,22 +66,95 @@ def _emit_json(payload: Any) -> None:
 
 # --- import fidelity gate ---------------------------------------------------
 #
-# Four invariants must hold for an import to be faithful. Everything else the
-# report counts — threads merged, actor endpoints folded/kept, unresolved refs,
-# status-without-thread, the legacy columns the new schema intentionally omits
-# (the accepted pure-threads + v0 multi-actor-thread drops, finding-20260529-y2d6)
-# — is EXPECTED, not a failure. Those are surfaced by ``ImportReport.render()``
-# so they are visible rather than silent; only these four gate the exit code.
+# The gate is the only risk surface of an otherwise purely-additive cutover, so
+# a false "FIDELITY OK" is how data loss slips into a real tome cutover. It must
+# not trust the importer's self-tally; it RECONCILES the report against the
+# destination store it actually wrote (fell-r1 findings 1-3).
+#
+# Hard invariants (any violation => FIDELITY FAILED, exit non-zero):
+#
+#   Store reconciliation (authoritative — these reconcile counts against the
+#   destination store, so they catch loss the self-tally cannot):
+#     1. count_folios()  == folios_carried + sites_carried
+#        Every legacy folio and every site both go through store.create_folio
+#        (a site is a real type=site folio). create_folio is INSERT OR IGNORE on
+#        the content hash, so any two inputs that hash identically yield ONE row:
+#        a collision (folio/folio, site/site, or folio/site — only the first of
+#        which folio_hash_collisions counts) makes the store smaller than the
+#        carried tally and trips this. In a faithful import the store holds
+#        exactly one row per carried folio plus one per carried site.
+#     2. count_threads() == threads_carried + within_threads
+#        threads_carried is the count of DISTINCT thread hashes the thread loop
+#        wrote (== len(legacy_per_hash); the merged duplicates already collapsed
+#        into it). within_threads is one synthesized membership edge per member
+#        folio. Legacy stores hold no type=within edges, so the two sets are
+#        disjoint and the store holds their sum. This bound is what makes thread
+#        loss catchable at all (threads_carried + threads_merged == threads_seen
+#        is a structural identity that cannot fail — finding 3); a dropped or
+#        unexpectedly-collapsed thread shows up here as a store shortfall.
+#     3. count_aliases() == folios_carried
+#        One alias per legacy folio_id (a legacy PK, hence distinct). Confirms the
+#        alias writes actually landed for every carried folio.
+#
+#   Documented tripwires (must stay 0 by construction; surfaced loudly if not):
+#     4. folio_hash_collisions == 0   (distinct legacy folios that hashed alike)
+#     5. actor_endpoints_dropped == 0 (an actor identity with no home — the design
+#        guarantees this never happens; the tripwire proves it)
+#     6. NOT (folios_with_site_id > 0 AND sites_seen == 0) — folios reference sites
+#        but none were imported (finding 1): an empty/missing sites_dir would
+#        otherwise drop every site and every membership edge while sites_seen==
+#        sites_carried==0 passed the lockstep check silently.
+#
+#   Internal-consistency checks (cheap self-tally; the reconciliations above are
+#   the real teeth, but these catch a future bridge change that breaks lockstep):
+#     7. folios_carried == folios_seen
+#     8. sites_carried  == sites_seen
+#
+# Everything else the report counts — threads merged, actor endpoints folded/kept,
+# unresolved refs, within_unresolved, status-without-thread, dropped legacy
+# columns (the accepted pure-threads + v0 multi-actor-thread drops,
+# finding-20260529-y2d6) — is EXPECTED, not a failure. Those are non-gated losses:
+# surfaced in the verdict (see _surfaced_losses) so "FIDELITY OK" never overclaims
+# "nothing lost" when it means "nothing lost that the hard invariants cover".
 
 
-def _fidelity_failures(report: ImportReport) -> List[Tuple[str, str]]:
+class _StoreCounts(NamedTuple):
+    """Destination-store row counts gathered right after an import, for the gate
+    to reconcile the report against what was actually written."""
+
+    folios: int
+    threads: int
+    aliases: int
+
+
+def _fidelity_failures(
+    report: ImportReport, counts: _StoreCounts
+) -> List[Tuple[str, str]]:
     """Return failed hard invariants as ``(invariant, offending counts)`` pairs."""
     failures: List[Tuple[str, str]] = []
-    if report.folios_carried != report.folios_seen:
+
+    # Store reconciliation — the authoritative checks (findings 1-3).
+    expected_folios = report.folios_carried + report.sites_carried
+    if counts.folios != expected_folios:
         failures.append((
-            "folios_carried == folios_seen",
-            f"carried {report.folios_carried} of {report.folios_seen} seen",
+            "count_folios() == folios_carried + sites_carried",
+            f"store has {counts.folios}, expected {expected_folios} "
+            f"({report.folios_carried} folios + {report.sites_carried} sites)",
         ))
+    expected_threads = report.threads_carried + report.within_threads
+    if counts.threads != expected_threads:
+        failures.append((
+            "count_threads() == threads_carried + within_threads",
+            f"store has {counts.threads}, expected {expected_threads} "
+            f"({report.threads_carried} carried + {report.within_threads} within)",
+        ))
+    if counts.aliases != report.folios_carried:
+        failures.append((
+            "count_aliases() == folios_carried",
+            f"store has {counts.aliases}, expected {report.folios_carried}",
+        ))
+
+    # Documented tripwires.
     if report.folio_hash_collisions != 0:
         failures.append((
             "folio_hash_collisions == 0",
@@ -92,6 +165,19 @@ def _fidelity_failures(report: ImportReport) -> List[Tuple[str, str]]:
             "actor_endpoints_dropped == 0",
             f"{report.actor_endpoints_dropped} dropped: {report.dropped_examples}",
         ))
+    if report.folios_with_site_id and report.sites_seen == 0:
+        failures.append((
+            "sites imported when folios reference them",
+            f"{report.folios_with_site_id} folios carry a site_id but 0 sites "
+            "were seen (empty or missing sites dir)",
+        ))
+
+    # Internal-consistency self-tally.
+    if report.folios_carried != report.folios_seen:
+        failures.append((
+            "folios_carried == folios_seen",
+            f"carried {report.folios_carried} of {report.folios_seen} seen",
+        ))
     if report.sites_carried != report.sites_seen:
         failures.append((
             "sites_carried == sites_seen",
@@ -100,16 +186,59 @@ def _fidelity_failures(report: ImportReport) -> List[Tuple[str, str]]:
     return failures
 
 
-def _emit_fidelity(report: ImportReport) -> bool:
-    """Print the fidelity verdict. Return True when every invariant holds."""
-    failures = _fidelity_failures(report)
-    if not failures:
+def _surfaced_losses(report: ImportReport) -> List[str]:
+    """Non-gated loss counters that are nonzero, as ``name=value`` strings.
+
+    These are real un-migrated data (some unmigratable by design): they do not
+    fail the gate, but a bare "FIDELITY OK" must not be printed while any is
+    nonzero — it would read as "nothing lost" when the truth is "nothing lost
+    that the hard invariants cover" (finding 4)."""
+    parts: List[str] = []
+    if report.within_unresolved:
+        parts.append(f"within_unresolved={report.within_unresolved}")
+    if report.status_without_thread:
+        parts.append(f"status_without_thread={report.status_without_thread}")
+    if report.threads_merged:
+        parts.append(f"threads_merged={report.threads_merged}")
+    if report.sites_skipped_no_id:
+        parts.append(f"sites_skipped_no_id={report.sites_skipped_no_id}")
+    if report.dropped_folio_columns:
+        parts.append(
+            "dropped_folio_columns="
+            + ",".join(sorted(report.dropped_folio_columns))
+        )
+    if report.dropped_thread_columns:
+        parts.append(
+            "dropped_thread_columns="
+            + ",".join(sorted(report.dropped_thread_columns))
+        )
+    return parts
+
+
+def _emit_fidelity(report: ImportReport, counts: _StoreCounts) -> bool:
+    """Print the fidelity verdict. Return True when every hard invariant holds.
+
+    A clean gate prints a bare "FIDELITY OK" only when no non-gated loss counter
+    is set; otherwise it prints a qualified "FIDELITY OK (...)" that enumerates
+    the surfaced losses, so the one-line verdict distinguishes "nothing lost" from
+    "nothing lost that the hard invariants cover". Either way the gate passes
+    (exit 0); only a hard-invariant failure prints "FIDELITY FAILED"."""
+    failures = _fidelity_failures(report, counts)
+    if failures:
+        click.echo("FIDELITY FAILED")
+        for invariant, detail in failures:
+            click.echo(f"  invariant {invariant} violated: {detail}")
+        return False
+    surfaced = _surfaced_losses(report)
+    if surfaced:
+        click.echo(
+            "FIDELITY OK (gated invariants pass; surfaced non-gated losses: "
+            + "; ".join(surfaced)
+            + ")"
+        )
+    else:
         click.echo("FIDELITY OK")
-        return True
-    click.echo("FIDELITY FAILED")
-    for invariant, detail in failures:
-        click.echo(f"  invariant {invariant} violated: {detail}")
-    return False
+    return True
 
 
 def _resolve_legacy_paths(
@@ -141,8 +270,12 @@ def _run_import(
     project_root: Optional[str],
     legacy_db: Optional[str],
     sites_dir: Optional[str],
-) -> ImportReport:
-    """Resolve paths, open the target station, and run the read-only import."""
+) -> Tuple[ImportReport, _StoreCounts]:
+    """Resolve paths, open the target station, and run the read-only import.
+
+    Returns the report together with the destination-store counts (gathered
+    while the station is open) so the fidelity gate can reconcile against them.
+    """
     db_path, sd_path = _resolve_legacy_paths(project_root, legacy_db, sites_dir)
     if db_path is None:
         raise click.ClickException(
@@ -150,15 +283,32 @@ def _run_import(
         )
     if not Path(db_path).is_file():
         raise click.ClickException(f"no legacy database at {db_path}")
+    # A sites dir DERIVED from a project root must exist, mirroring the db check
+    # (finding 1). A missing/empty sites dir would drop every site and every
+    # membership edge while the gate still passed; fail fast instead. An explicit
+    # --sites-dir override is the caller's deliberate choice and is not policed
+    # here (the finding-1 gate check still catches the empty case at verify time).
+    sites_derived = sites_dir is None and project_root is not None
+    if sites_derived and not Path(sd_path).is_dir():
+        raise click.ClickException(
+            f"no legacy sites dir at {sd_path} "
+            "(expected PROJECT_ROOT/.skein/data/sites; pass --sites-dir to override)"
+        )
     with _open_station(ctx) as station:
-        return import_project(db_path, sd_path, station.store)
+        report = import_project(db_path, sd_path, station.store)
+        counts = _StoreCounts(
+            folios=station.store.count_folios(),
+            threads=station.store.count_threads(),
+            aliases=station.store.count_aliases(),
+        )
+    return report, counts
 
 
 @click.group()
 @click.option(
     "--data-dir",
     default=None,
-    help=f"Station data dir (default: $.{ENV_DATA_DIR} or ./.skein-next).",
+    help=f"Station data dir (default: ${ENV_DATA_DIR} or ./.skein-next).",
 )
 @click.pass_context
 def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
@@ -486,10 +636,10 @@ def import_(
 
     Examples: interskein import /home/patrick/projects/tome --verify
     """
-    report = _run_import(ctx, project_root, legacy_db, sites_dir)
+    report, counts = _run_import(ctx, project_root, legacy_db, sites_dir)
     click.echo(report.render())
     if verify:
-        if not _emit_fidelity(report):
+        if not _emit_fidelity(report, counts):
             ctx.exit(1)
 
 
@@ -518,12 +668,14 @@ def verify(
 ) -> None:
     """Re-derive an import report and check the fidelity invariants.
 
-    Re-runs the (idempotent, read-only) import to recompute the report, prints
-    it, then asserts the four hard invariants. Exits non-zero if any fails.
+    Read-only on the source; re-writes the idempotent target. Re-runs the import
+    to recompute the report and re-derive the destination store, prints the
+    report, then reconciles the store against the report's hard invariants. Exits
+    non-zero if any fails.
     """
-    report = _run_import(ctx, project_root, legacy_db, sites_dir)
+    report, counts = _run_import(ctx, project_root, legacy_db, sites_dir)
     click.echo(report.render())
-    if not _emit_fidelity(report):
+    if not _emit_fidelity(report, counts):
         ctx.exit(1)
 
 

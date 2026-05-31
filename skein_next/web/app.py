@@ -106,6 +106,7 @@ def create_app() -> FastAPI:
         recent = sorted(folios, key=lambda f: f.created_at, reverse=True)[:30]
 
         return templates.TemplateResponse(
+            request,
             "index.html",
             {
                 "request": request,
@@ -135,6 +136,7 @@ def create_app() -> FastAPI:
         folios.sort(key=lambda f: f.created_at, reverse=True)
 
         return templates.TemplateResponse(
+            request,
             "site.html",
             {
                 "request": request,
@@ -160,6 +162,7 @@ def create_app() -> FastAPI:
         refs = store.cross_refs(folio.content_hash)
 
         return templates.TemplateResponse(
+            request,
             "folio.html",
             {
                 "request": request,
@@ -180,6 +183,7 @@ def create_app() -> FastAPI:
     ):
         results = store.search_folios(q, limit=100) if q.strip() else []
         return templates.TemplateResponse(
+            request,
             "search.html",
             {
                 "request": request,

@@ -87,7 +87,10 @@ class ContentHashAdapter:
     """Presents the content-hash store behind the legacy web read interface."""
 
     def __init__(self, data_dir: Optional[Union[str, Path]] = None):
-        self.store = SkeinNextStore(data_dir, check_same_thread=False)
+        # The web read surface never writes; open read-only so it serves a
+        # read-only-mounted corpus (the containerized instance) without ever
+        # touching the store. The corpus must already exist (be imported).
+        self.store = SkeinNextStore(data_dir, check_same_thread=False, read_only=True)
 
     def close(self) -> None:
         self.store.close()

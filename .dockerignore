@@ -51,6 +51,8 @@ Thumbs.db
 
 # Project specific
 .skein/
+.skein-next/
+worktrees/
 *.log
 *.cast
 data/

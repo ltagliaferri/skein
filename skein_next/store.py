@@ -75,8 +75,9 @@ class SkeinNextStore:
         self,
         data_dir: Optional[Union[str, Path]] = None,
         check_same_thread: bool = True,
+        read_only: bool = False,
     ):
-        """Open (creating if needed) the store under ``data_dir``.
+        """Open the store under ``data_dir`` (creating it unless ``read_only``).
 
         ``check_same_thread`` defaults to SQLite's safe single-thread mode, which
         suits the import bridge and CLI. The web server (Slice 4) opens one store
@@ -85,17 +86,55 @@ class SkeinNextStore:
         False``. That is safe here because a request uses its connection serially
         (no concurrent access to the same connection); a separate connection per
         request keeps writers/readers isolated.
+
+        ``read_only`` opens the store without ever writing it — no ``mkdir``, no
+        schema DDL, no commit — for serving a corpus on a read-only mount (the
+        web read surface / containerized instance). Without it the normal open
+        path runs ``CREATE ... IF NOT EXISTS`` on connect, which only happens to
+        succeed on a read-only mount by luck (no-op DDL on an already-complete,
+        non-WAL store) and would 500 the moment the schema drifts or the store is
+        WAL-mode. The store must already exist when ``read_only`` is set.
         """
         self.data_dir = Path(data_dir) if data_dir is not None else DEFAULT_DATA_DIR
-        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / DB_FILENAME
-        self.conn = sqlite3.connect(
-            str(self.db_path), check_same_thread=check_same_thread
-        )
-        self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(_SCHEMA)
-        self.conn.commit()
+        self.read_only = read_only
+        if read_only:
+            self.conn = self._connect_read_only(check_same_thread)
+        else:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            self.conn = sqlite3.connect(
+                str(self.db_path), check_same_thread=check_same_thread
+            )
+            self.conn.row_factory = sqlite3.Row
+            self.conn.executescript(_SCHEMA)
+            self.conn.commit()
         self._in_batch = False
+
+    def _connect_read_only(self, check_same_thread: bool) -> sqlite3.Connection:
+        """Open the store read-only, never writing the corpus. Tries ``mode=ro``
+        (WAL-aware) then ``immutable=1`` (a read-only filesystem where SQLite
+        can't create its sidecar files), mirroring ``bridge.open_legacy``."""
+        p = str(self.db_path)
+        last_err: Optional[Exception] = None
+        for uri in (f"file:{p}?mode=ro", f"file:{p}?immutable=1"):
+            conn: Optional[sqlite3.Connection] = None
+            try:
+                conn = sqlite3.connect(
+                    uri, uri=True, check_same_thread=check_same_thread
+                )
+                conn.row_factory = sqlite3.Row
+                conn.execute("SELECT 1 FROM folios LIMIT 1")  # resolve the open
+                return conn
+            except sqlite3.OperationalError as e:
+                last_err = e
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        raise sqlite3.OperationalError(
+            f"could not open {p} read-only (mode=ro or immutable=1): {last_err}"
+        )
 
     def close(self) -> None:
         self.conn.close()

@@ -82,9 +82,10 @@ def test_adapter_status_is_thread_derived(seeded):
 
 
 def test_adapter_get_folio_via_alias(seeded):
+    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
+        st.store.set_alias("finding-20260101-leg1", seeded["a"])
     ad = ContentHashAdapter(seeded["data_dir"])
     try:
-        ad.store.set_alias("finding-20260101-leg1", seeded["a"])
         assert ad.get_folio("finding-20260101-leg1").content_hash == seeded["a"]
         assert ad.get_folio("totally-unknown") is None
     finally:
@@ -107,12 +108,13 @@ def test_adapter_cross_refs_from_thread_graph(seeded):
 
 
 def test_adapter_cross_refs_resolves_alias_endpoint(seeded):
+    # A thread endpoint kept as a legacy id resolves to a folio via alias.
+    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
+        st.store.set_alias("brief-20260101-old0", seeded["b"])
+        st.store.save_thread(from_id=seeded["a"], to_id="brief-20260101-old0",
+                             type="relates", created_at="2026-01-05T00:00:00Z")
     ad = ContentHashAdapter(seeded["data_dir"])
     try:
-        # A thread endpoint kept as a legacy id resolves to a folio via alias.
-        ad.store.set_alias("brief-20260101-old0", seeded["b"])
-        ad.store.save_thread(from_id=seeded["a"], to_id="brief-20260101-old0",
-                             type="relates", created_at="2026-01-05T00:00:00Z")
         targets = [r.content_hash for r in ad.cross_refs(seeded["a"])]
         assert seeded["b"] in targets  # still just b, deduped
         assert targets.count(seeded["b"]) == 1
@@ -123,11 +125,12 @@ def test_adapter_cross_refs_resolves_alias_endpoint(seeded):
 def test_adapter_cross_refs_excludes_alias_self_loop(seeded):
     # fell-r1 MINOR: an edge to a legacy id that aliases back to THIS folio must
     # not list the folio as its own reference (guard the resolved target).
+    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
+        st.store.set_alias("finding-20260101-self", seeded["a"])
+        st.store.save_thread(from_id=seeded["a"], to_id="finding-20260101-self",
+                             type="relates", created_at="2026-01-06T00:00:00Z")
     ad = ContentHashAdapter(seeded["data_dir"])
     try:
-        ad.store.set_alias("finding-20260101-self", seeded["a"])
-        ad.store.save_thread(from_id=seeded["a"], to_id="finding-20260101-self",
-                             type="relates", created_at="2026-01-06T00:00:00Z")
         assert seeded["a"] not in [r.content_hash for r in ad.cross_refs(seeded["a"])]
     finally:
         ad.close()
@@ -136,14 +139,15 @@ def test_adapter_cross_refs_excludes_alias_self_loop(seeded):
 def test_latest_statuses_tiebreak_is_deterministic(seeded):
     # fell-r1 MINOR: two status threads sharing a created_at must resolve to a
     # stable winner (ORDER BY created_at, thread_hash), not flip per query.
+    b = seeded["b"]
+    ts = "2026-02-02T00:00:00+00:00"
+    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
+        h_open = st.store.save_thread(to_id=b, type="status", content="reopened", created_at=ts)
+        h_closed = st.store.save_thread(to_id=b, type="status", content="archived", created_at=ts)
+    # ascending (created_at, thread_hash) -> the greater thread_hash wins
+    winner = "reopened" if h_open > h_closed else "archived"
     ad = ContentHashAdapter(seeded["data_dir"])
     try:
-        b = seeded["b"]
-        ts = "2026-02-02T00:00:00+00:00"
-        h_open = ad.store.save_thread(to_id=b, type="status", content="reopened", created_at=ts)
-        h_closed = ad.store.save_thread(to_id=b, type="status", content="archived", created_at=ts)
-        # ascending (created_at, thread_hash) -> the greater thread_hash wins
-        winner = "reopened" if h_open > h_closed else "archived"
         first = ad.store.latest_statuses([b])[b]
         second = ad.store.latest_statuses([b])[b]
         assert first == second == winner

@@ -246,9 +246,17 @@ class Station:
         )
         return folio_hash
 
-    def status_of(self, content_hash: str) -> Optional[str]:
-        """The folio's current status (latest status thread), or ``None``."""
-        return self.store.latest_statuses([content_hash]).get(content_hash)
+    def status_of(self, content_hash: str) -> str:
+        """The folio's current status: the latest ``status`` thread's content,
+        or ``'open'`` when the folio has no status thread.
+
+        Open is the default — a folio is open until a status thread says
+        otherwise — matching legacy SKEIN (whose unset status reads as 'open')
+        and the web adapter, which already defaults the same way. Without this
+        default the CLI showed no status for the ~80% of folios that are open by
+        default, where legacy shows 'open'.
+        """
+        return self.store.latest_statuses([content_hash]).get(content_hash, "open")
 
     def create_site(
         self,

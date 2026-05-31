@@ -179,6 +179,9 @@ class ImportReport:
 
     sites_seen: int = 0
     sites_carried: int = 0
+    sites_skipped_no_id: int = 0     # site JSON files dropped for lacking a site_id
+
+    folios_with_site_id: int = 0     # legacy folios carrying a (non-empty) site_id
 
     threads_seen: int = 0            # legacy thread rows read
     threads_carried: int = 0         # distinct new thread hashes from those rows
@@ -219,6 +222,8 @@ class ImportReport:
             f"folios: carried {self.folios_carried} of {self.folios_seen} seen",
             f"folio hash collisions: {self.folio_hash_collisions}",
             f"sites: carried {self.sites_carried} of {self.sites_seen} seen",
+            f"site JSON skipped (no site_id): {self.sites_skipped_no_id}",
+            f"folios carrying a site_id: {self.folios_with_site_id}",
             f"within threads: {self.within_threads} (unresolved site refs {self.within_unresolved})",
             f"threads: carried {self.threads_carried} of {self.threads_seen} seen",
             f"threads merged (distinct legacy edges collapsed to one hash): {self.threads_merged}",
@@ -462,6 +467,9 @@ def import_project(
             for site in sites:
                 slug = site.get("site_id")
                 if not slug:
+                    # A site JSON with no site_id can't be slugged or linked; count
+                    # the drop so it is surfaced rather than vanishing silently.
+                    report.sites_skipped_no_id += 1
                     continue
                 site_hash = store.create_folio({
                     "type": "site",
@@ -514,6 +522,7 @@ def import_project(
                 site_id = row["site_id"]
                 if not site_id:
                     continue
+                report.folios_with_site_id += 1
                 site_hash = store.resolve_slug(site_id)
                 folio_hash = store.resolve_alias(row["folio_id"])
                 if site_hash and folio_hash:

@@ -463,6 +463,11 @@ class SkeinNextStore:
     def count_threads(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
 
+    def count_aliases(self) -> int:
+        """Number of legacy-id aliases. ``legacy_id`` is the PK, so this is the
+        distinct-alias count the import fidelity gate reconciles against."""
+        return self.conn.execute("SELECT COUNT(*) FROM aliases").fetchone()[0]
+
     def unresolved_endpoints(self) -> List[str]:
         """Thread endpoints that are legacy ids still awaiting an alias.
 

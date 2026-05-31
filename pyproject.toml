@@ -65,7 +65,7 @@ where = ["."]
 include = ["skein*", "client*"]
 
 [tool.setuptools.package-data]
-skein = ["templates/*.md", "web/templates/*.html", "web/templates/**/*.html", "web/static/*"]
+skein = ["templates/*.md"]
 skein_next = ["web/templates/*.html"]
 
 [tool.pytest.ini_options]

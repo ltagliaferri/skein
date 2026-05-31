@@ -174,3 +174,32 @@ def test_persists_across_reopen(tmp_path):
     assert s2.get_folio(h) is not None
     assert s2.resolve_alias("legacy-1") == h
     s2.close()
+
+
+# --- read-only open (serving a read-only-mounted corpus) --------------------
+
+
+def test_read_only_open_reads_without_writing(tmp_path):
+    data_dir = tmp_path / ".skein-next"
+    s1 = SkeinNextStore(data_dir=data_dir)
+    h = s1.create_folio(FOLIO)
+    s1.close()
+
+    ro = SkeinNextStore(data_dir=data_dir, read_only=True)
+    try:
+        assert ro.read_only is True
+        assert ro.get_folio(h) is not None  # reads fine
+        # a write must be refused — the corpus is never mutated when serving
+        with pytest.raises(Exception):
+            ro.create_folio({**FOLIO, "title": "nope"})
+    finally:
+        ro.close()
+
+
+def test_read_only_open_does_not_create_store(tmp_path):
+    # read_only must not mkdir or create the db; a missing store errors clearly
+    # rather than silently serving a freshly-created empty one.
+    missing = tmp_path / "no-such-station"
+    with pytest.raises(Exception):
+        SkeinNextStore(data_dir=missing, read_only=True)
+    assert not missing.exists()

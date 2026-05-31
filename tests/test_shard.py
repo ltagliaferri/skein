@@ -33,6 +33,7 @@ except ImportError:
 # Import the module under test
 from skein.shard import (
     ShardError,
+    _graft_sequence_in_progress,
     spawn_shard,
     cleanup_shard,
     merge_shard,
@@ -2334,6 +2335,246 @@ class TestGraftConflictHandling:
             # Graft worktree should still exist for resolution
             graft_path = Path(graft_result["graft_worktree_path"])
             assert graft_path.exists()
+
+        finally:
+            cleanup_graft_chain(info["worktree_name"])
+
+
+class TestGraftConflictPreservesLaterCommits:
+    """
+    Regression for finding-20260530-3jnx: an early conflicting commit must NOT
+    silently drop later, non-conflicting commits. The old per-commit loop
+    `break`ed on the first conflict (dropping the rest) while reporting
+    commits_applied=len(commits). The fix cherry-picks the whole range so the
+    sequencer holds the remainder for `git cherry-pick --continue`.
+    """
+
+    def test_graft_conflict_preserves_later_commit(self, shard_env: Path):
+        """WHY: A conflict in C1 must not lose C2's unrelated change."""
+        info = spawn_shard("preserve-later-commit-test")
+        worktree_path = Path(info["worktree_path"])
+
+        try:
+            # C1 edits file X (will conflict once master advances).
+            (worktree_path / "X.py").write_text("shard X v1\n")
+            subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "C1: edit X"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+
+            # C2 edits an unrelated file Y (must survive the C1 conflict).
+            (worktree_path / "Y.py").write_text("shard Y v1\n")
+            subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "C2: edit unrelated Y"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+
+            # Advance master so C1 conflicts on X.
+            (shard_env / "X.py").write_text("master X v2\n")
+            subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Master: edit X"],
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
+            )
+
+            # Graft: C1 conflicts; C2 must stay queued, NOT silently dropped.
+            graft_result = graft_shard(info["worktree_name"])
+            graft_path = Path(graft_result["graft_worktree_path"])
+
+            assert not graft_result["success"]
+            assert "X.py" in graft_result["conflicts"]
+            # Conflict is on the FIRST commit, so nothing has landed yet and
+            # both commits remain to be applied. The old code wrongly reported
+            # commits_applied == 2 here.
+            assert graft_result["commits_total"] == 2
+            assert graft_result["commits_applied"] == 0
+            assert graft_result["commits_pending"] == 2
+
+            # Resolve the conflict in X and continue the cherry-pick sequence.
+            (graft_path / "X.py").write_text("resolved X\n")
+            subprocess.run(["git", "add", "X.py"], cwd=graft_path, check=True)
+            env = {**os.environ, "GIT_EDITOR": "true"}
+            subprocess.run(
+                ["git", "cherry-pick", "--continue"],
+                cwd=graft_path,
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+
+            # C2's change to the unrelated file MUST be present on the graft
+            # branch (this is exactly what the bug dropped).
+            assert (graft_path / "Y.py").exists()
+            assert (graft_path / "Y.py").read_text() == "shard Y v1\n"
+
+            # And C2's commit is actually on the branch.
+            log_out = subprocess.run(
+                ["git", "log", "--oneline"],
+                cwd=graft_path,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            assert "C2: edit unrelated Y" in log_out
+
+            # The sequencer is now drained, so a merge would no longer be
+            # blocked by the paused-graft guard.
+            from skein.shard import _graft_sequence_in_progress
+
+            assert _graft_sequence_in_progress(graft_path) is None
+
+        finally:
+            cleanup_graft_chain(info["worktree_name"])
+
+
+class TestGraftEmptyCommitPause:
+    """
+    Regression for fell-r1 on finding-20260530-3jnx: when a commit replays
+    EMPTY on the advanced base (its change is already present), git stops with
+    "...now empty, possibly due to conflict resolution." That string contains
+    "conflict", so the conflict branch ran, but `git status` showed no UU/AA
+    files, leaving conflict_files empty - and success was wrongly computed from
+    "no conflict files", reporting a clean graft while the sequencer still held
+    the rest. success must instead be driven by whether the sequence DRAINED.
+    """
+
+    def test_empty_commit_pause_is_not_a_false_clean(self, shard_env: Path):
+        """WHY: An empty-commit pause must report success=False, not a clean graft."""
+        info = spawn_shard("empty-commit-pause-test")
+        worktree_path = Path(info["worktree_path"])
+
+        try:
+            # C1 adds X.py. C2 adds an unrelated Y.py (must stay queued).
+            (worktree_path / "X.py").write_text("shared change\n")
+            subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "C1: add X"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+            (worktree_path / "Y.py").write_text("shard Y v1\n")
+            subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "C2: add unrelated Y"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+
+            # Advance master with the SAME change C1 makes (identical content),
+            # so cherry-picking C1 onto the new base replays EMPTY - no conflict.
+            (shard_env / "X.py").write_text("shared change\n")
+            subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Master: add identical X"],
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
+            )
+
+            graft_result = graft_shard(info["worktree_name"])
+            graft_path = Path(graft_result["graft_worktree_path"])
+
+            # The graft is PAUSED on the empty commit - this must NOT be a false
+            # clean. There are no conflict files (it is an empty replay, not a
+            # merge conflict).
+            assert graft_result["success"] is False
+            assert graft_result["conflicts"] == []
+
+            # The sequencer is detected as paused (empty pick still in progress).
+            assert _graft_sequence_in_progress(graft_path) is not None
+
+            # Counts are accurate: C1 replayed empty so nothing landed yet, and
+            # both commits remain pending.
+            assert graft_result["commits_total"] == 2
+            assert graft_result["commits_applied"] == 0
+            assert graft_result["commits_pending"] == 2
+
+            # The message guides --skip/--continue, not a "ready to merge".
+            assert "empty" in graft_result["message"].lower()
+            assert "ready to merge" not in graft_result["message"].lower()
+
+            # And the merge guard refuses the paused graft.
+            merge_result = merge_shard(graft_result["graft_worktree_name"])
+            assert not merge_result["success"]
+            assert "paused mid-sequence" in merge_result["message"].lower()
+
+        finally:
+            cleanup_graft_chain(info["worktree_name"])
+
+
+class TestGraftMergeGuard:
+    """
+    Invariant: `merge_shard` refuses to finalize a graft that is paused
+    mid-cherry-pick (sequencer non-empty), so a half-applied graft cannot be
+    silently merged (finding-20260530-3jnx).
+    """
+
+    def test_merge_refuses_paused_graft(self, shard_env: Path):
+        """WHY: Merging a paused graft would drop the still-queued commits."""
+        info = spawn_shard("merge-guard-test")
+        worktree_path = Path(info["worktree_path"])
+
+        try:
+            # C1 edits X (will conflict), C2 edits unrelated Y.
+            (worktree_path / "X.py").write_text("shard X v1\n")
+            subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "C1: edit X"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+            (worktree_path / "Y.py").write_text("shard Y v1\n")
+            subprocess.run(["git", "add", "."], cwd=worktree_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "C2: edit unrelated Y"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+            )
+
+            # Advance master so C1 conflicts.
+            (shard_env / "X.py").write_text("master X v2\n")
+            subprocess.run(["git", "add", "."], cwd=shard_env, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Master: edit X"],
+                cwd=shard_env,
+                check=True,
+                capture_output=True,
+            )
+
+            graft_result = graft_shard(info["worktree_name"])
+            graft_name = graft_result["graft_worktree_name"]
+            graft_path = Path(graft_result["graft_worktree_path"])
+
+            # Resolve C1 and commit ONLY that commit, leaving C2 queued in the
+            # sequencer (the dangerous "looks clean but incomplete" state).
+            (graft_path / "X.py").write_text("resolved X\n")
+            subprocess.run(["git", "add", "X.py"], cwd=graft_path, check=True)
+            # Commit the in-progress pick without continuing the sequence.
+            subprocess.run(
+                ["git", "commit", "--no-edit"],
+                cwd=graft_path,
+                check=True,
+                capture_output=True,
+                env={**os.environ, "GIT_EDITOR": "true"},
+            )
+
+            # The sequencer still holds C2 - merge must refuse.
+            assert _graft_sequence_in_progress(graft_path) is not None
+            merge_result = merge_shard(graft_name)
+            assert not merge_result["success"]
+            assert "paused mid-sequence" in merge_result["message"].lower()
 
         finally:
             cleanup_graft_chain(info["worktree_name"])

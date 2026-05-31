@@ -11,12 +11,14 @@ legacy ``skein`` command which is never touched:
     thread  walk a folio's thread graph
     sites   list sites
     site    create a site (so a fresh station is usable)
+    import  import a legacy SKEIN project into this station (read-only on source)
+    verify  re-check the fidelity invariants of an import report
 
 Output is plain text built for a screen reader: one item per line, a human
 description followed by the id used to look it up — no tables, no columns, no
 markdown. ``--json`` on the read/list verbs emits structured data for tooling.
 
-Run via the ``skein-next`` console script or ``python -m skein_next``.
+Run via the ``interskein`` console script or ``python -m skein_next``.
 """
 
 from __future__ import annotations
@@ -24,10 +26,12 @@ from __future__ import annotations
 import json as _json
 import os
 import sys
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
 
+from .bridge import ImportReport, import_project
 from .station import (
     AmbiguousReference,
     Station,
@@ -58,6 +62,96 @@ def _folio_line(folio: Dict[str, Any]) -> str:
 
 def _emit_json(payload: Any) -> None:
     click.echo(_json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+
+
+# --- import fidelity gate ---------------------------------------------------
+#
+# Four invariants must hold for an import to be faithful. Everything else the
+# report counts — threads merged, actor endpoints folded/kept, unresolved refs,
+# status-without-thread, the legacy columns the new schema intentionally omits
+# (the accepted pure-threads + v0 multi-actor-thread drops, finding-20260529-y2d6)
+# — is EXPECTED, not a failure. Those are surfaced by ``ImportReport.render()``
+# so they are visible rather than silent; only these four gate the exit code.
+
+
+def _fidelity_failures(report: ImportReport) -> List[Tuple[str, str]]:
+    """Return failed hard invariants as ``(invariant, offending counts)`` pairs."""
+    failures: List[Tuple[str, str]] = []
+    if report.folios_carried != report.folios_seen:
+        failures.append((
+            "folios_carried == folios_seen",
+            f"carried {report.folios_carried} of {report.folios_seen} seen",
+        ))
+    if report.folio_hash_collisions != 0:
+        failures.append((
+            "folio_hash_collisions == 0",
+            f"{report.folio_hash_collisions} collisions",
+        ))
+    if report.actor_endpoints_dropped != 0:
+        failures.append((
+            "actor_endpoints_dropped == 0",
+            f"{report.actor_endpoints_dropped} dropped: {report.dropped_examples}",
+        ))
+    if report.sites_carried != report.sites_seen:
+        failures.append((
+            "sites_carried == sites_seen",
+            f"carried {report.sites_carried} of {report.sites_seen} seen",
+        ))
+    return failures
+
+
+def _emit_fidelity(report: ImportReport) -> bool:
+    """Print the fidelity verdict. Return True when every invariant holds."""
+    failures = _fidelity_failures(report)
+    if not failures:
+        click.echo("FIDELITY OK")
+        return True
+    click.echo("FIDELITY FAILED")
+    for invariant, detail in failures:
+        click.echo(f"  invariant {invariant} violated: {detail}")
+    return False
+
+
+def _resolve_legacy_paths(
+    project_root: Optional[str],
+    legacy_db: Optional[str],
+    sites_dir: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Derive ``(db_path, sites_dir)`` for a legacy project, honoring overrides.
+
+    A legacy project root P holds ``P/.skein/data/skein.db`` and
+    ``P/.skein/data/sites/``. ``--legacy-db`` / ``--sites-dir`` override either
+    path independently. Returns ``(None, None)`` when neither a project root nor
+    both overrides are supplied.
+    """
+    db, sd = legacy_db, sites_dir
+    if project_root:
+        base = Path(project_root) / ".skein" / "data"
+        if db is None:
+            db = str(base / "skein.db")
+        if sd is None:
+            sd = str(base / "sites")
+    if db is None or sd is None:
+        return (None, None)
+    return (db, sd)
+
+
+def _run_import(
+    ctx: click.Context,
+    project_root: Optional[str],
+    legacy_db: Optional[str],
+    sites_dir: Optional[str],
+) -> ImportReport:
+    """Resolve paths, open the target station, and run the read-only import."""
+    db_path, sd_path = _resolve_legacy_paths(project_root, legacy_db, sites_dir)
+    if db_path is None:
+        raise click.ClickException(
+            "give a PROJECT_ROOT, or both --legacy-db and --sites-dir."
+        )
+    if not Path(db_path).is_file():
+        raise click.ClickException(f"no legacy database at {db_path}")
+    with _open_station(ctx) as station:
+        return import_project(db_path, sd_path, station.store)
 
 
 @click.group()
@@ -95,7 +189,7 @@ def post(
 ) -> None:
     """Create a TYPE folio titled TITLE in SITE.
 
-    Examples: skein-next post finding myproj "Cache key collides under load"
+    Examples: interskein post finding myproj "Cache key collides under load"
     """
     if content == "-":
         content = sys.stdin.read()
@@ -351,9 +445,91 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
     run_server(host=host, port=port)
 
 
+# --- import / verify --------------------------------------------------------
+
+
+@cli.command(name="import")
+@click.argument("project_root", required=False, type=click.Path())
+@click.option(
+    "--legacy-db",
+    "legacy_db",
+    default=None,
+    type=click.Path(),
+    help="Legacy skein.db (default: PROJECT_ROOT/.skein/data/skein.db).",
+)
+@click.option(
+    "--sites-dir",
+    "sites_dir",
+    default=None,
+    type=click.Path(),
+    help="Legacy sites dir (default: PROJECT_ROOT/.skein/data/sites).",
+)
+@click.option(
+    "--verify",
+    is_flag=True,
+    help="Assert the fidelity invariants after import; exit non-zero on any failure.",
+)
+@click.pass_context
+def import_(
+    ctx: click.Context,
+    project_root: Optional[str],
+    legacy_db: Optional[str],
+    sites_dir: Optional[str],
+    verify: bool,
+) -> None:
+    """Import a legacy SKEIN project into this station (read-only on the source).
+
+    PROJECT_ROOT is a legacy project dir holding .skein/data/skein.db and
+    .skein/data/sites/. Override either path with --legacy-db / --sites-dir. The
+    target store is the global --data-dir. Idempotent: re-importing into the same
+    data dir is safe.
+
+    Examples: interskein import /home/patrick/projects/tome --verify
+    """
+    report = _run_import(ctx, project_root, legacy_db, sites_dir)
+    click.echo(report.render())
+    if verify:
+        if not _emit_fidelity(report):
+            ctx.exit(1)
+
+
+@cli.command()
+@click.argument("project_root", required=False, type=click.Path())
+@click.option(
+    "--legacy-db",
+    "legacy_db",
+    default=None,
+    type=click.Path(),
+    help="Legacy skein.db (default: PROJECT_ROOT/.skein/data/skein.db).",
+)
+@click.option(
+    "--sites-dir",
+    "sites_dir",
+    default=None,
+    type=click.Path(),
+    help="Legacy sites dir (default: PROJECT_ROOT/.skein/data/sites).",
+)
+@click.pass_context
+def verify(
+    ctx: click.Context,
+    project_root: Optional[str],
+    legacy_db: Optional[str],
+    sites_dir: Optional[str],
+) -> None:
+    """Re-derive an import report and check the fidelity invariants.
+
+    Re-runs the (idempotent, read-only) import to recompute the report, prints
+    it, then asserts the four hard invariants. Exits non-zero if any fails.
+    """
+    report = _run_import(ctx, project_root, legacy_db, sites_dir)
+    click.echo(report.render())
+    if not _emit_fidelity(report):
+        ctx.exit(1)
+
+
 def main() -> None:
-    """Entry point for the ``skein-next`` console script."""
-    cli()
+    """Entry point for the ``interskein`` console script."""
+    cli(prog_name="interskein")
 
 
 if __name__ == "__main__":

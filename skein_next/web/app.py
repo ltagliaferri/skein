@@ -64,7 +64,7 @@ def get_project_id() -> str:
     if project:
         return project
     data_dir = get_data_dir()
-    return Path(data_dir).resolve().parent.name if data_dir else "skein-next"
+    return Path(data_dir).resolve().parent.name if data_dir else "interskein"
 
 
 def get_adapter() -> Iterator[ContentHashAdapter]:

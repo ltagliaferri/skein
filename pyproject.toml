@@ -49,7 +49,7 @@ dev = [
 
 [project.scripts]
 skein = "client.cli:main"
-skein-next = "skein_next.cli:main"
+interskein = "skein_next.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/smythp/skein"

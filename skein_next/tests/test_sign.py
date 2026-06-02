@@ -181,6 +181,53 @@ def test_require_signed_env_reaches_create_app(monkeypatch):
     assert ingress._require_signed() is False
 
 
+def test_acquire_oidc_provider_extracts_issuer_and_token(monkeypatch):
+    """The login flow's IdentityToken -> OIDCProviderConfig mapping (no browser)."""
+    captured = {}
+
+    class FakeToken:
+        issuer = "https://oauth2.sigstore.dev/auth"
+        def __str__(self):
+            return "raw.jwt.token"
+
+    class FakeIssuer:
+        def __init__(self, base):
+            captured["base"] = base
+        def identity_token(self, force_oob=False):
+            captured["force_oob"] = force_oob
+            return FakeToken()
+
+    monkeypatch.setattr("sigstore.oidc.Issuer", FakeIssuer)
+    prov = sign_mod.acquire_oidc_provider(force_oob=True)
+    assert prov.issuer == "https://oauth2.sigstore.dev/auth"  # allowlisted broker
+    assert prov.token == "raw.jwt.token"
+    assert captured["base"] == sign_mod.SIGSTORE_PROD_ISSUER  # production only for v0
+    assert captured["force_oob"] is True
+
+
+def test_build_signer_login_path_uses_acquire(monkeypatch, provider):
+    """CLI --sign --login builds a signer from the interactive flow."""
+    from skein_next import cli
+    monkeypatch.setattr(sign_mod, "acquire_oidc_provider", lambda **kw: provider)
+    signer = cli._build_signer("x", None, login=True)
+    assert callable(signer)
+
+
+def test_publish_signing_flag_guards(tmp_path):
+    """Signing flags without --sign, and --login+--oidc-token together, are rejected."""
+    from click.testing import CliRunner
+    from skein_next.cli import cli
+    runner = CliRunner()
+    dd = ["--data-dir", str(tmp_path / "x")]
+
+    no_sign = runner.invoke(cli, [*dd, "publish", "--site", "s", "--to", "http://h", "--login"])
+    assert no_sign.exit_code != 0 and "only apply with --sign" in no_sign.output
+
+    both = runner.invoke(cli, [*dd, "publish", "--site", "s", "--to", "http://h",
+                               "--sign", "--login", "--oidc-token", "t"])
+    assert both.exit_code != 0 and "not both" in both.output
+
+
 def test_provenance_distinguishes_unverifiable_from_invalid(client, instance, monkeypatch):
     """A trust-root-unavailable verdict must read UNVERIFIED, not SIGNATURE INVALID."""
     _seed(client)

@@ -55,22 +55,32 @@ def _open_station(ctx: click.Context) -> Station:
     return Station(ctx.obj.get("data_dir"))
 
 
-def _build_signer(do_sign: bool, oidc_issuer: str, oidc_token: Optional[str]):
-    """Construct a boundary signer from an OIDC token (the ceremony seam).
+def _build_signer(
+    oidc_issuer: str,
+    oidc_token: Optional[str],
+    login: bool = False,
+    force_oob: bool = False,
+):
+    """Construct a boundary signer (the ceremony seam).
 
-    The token is the interactive part — obtain it via the Sigstore login flow
-    (a Google login producing a JWT with aud=sigstore) and pass it here. We do
-    not run the browser flow; this just wraps a token the operator supplies.
+    Two ways to get the identity: ``--login`` runs the interactive Sigstore flow
+    here (opens a browser, or prints a code with ``--oob`` for SSH/headless), or
+    ``--oidc-token`` wraps a token the operator obtained out of band ('-' reads
+    stdin). The token is short-lived, so login-then-publish must be prompt.
     """
+    from . import sign as _sign  # lazy: keep sigstore off the other verbs
+
+    if login:
+        provider = _sign.acquire_oidc_provider(force_oob=force_oob)
+        return _sign.make_oidc_signer(provider)
+
     if oidc_token == "-":
         oidc_token = sys.stdin.read().strip()
     if not oidc_token:
         raise click.ClickException(
-            "--sign needs --oidc-token (or '-' for stdin). Obtain a Sigstore "
-            "OIDC token (Google login, aud=sigstore) and pass it."
+            "--sign needs --login (interactive) or --oidc-token (or '-' for stdin)."
         )
-    from skein.signing import OIDCProviderConfig  # lazy: keep sigstore off other verbs
-    from . import sign as _sign
+    from skein.signing import OIDCProviderConfig
 
     provider = OIDCProviderConfig(issuer=oidc_issuer, token=oidc_token, provider_id=None)
     return _sign.make_oidc_signer(provider)
@@ -627,9 +637,11 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
 @click.option("--to", "instance_url", default=None, help="Instance publish URL (e.g. http://127.0.0.1:9101).")
 @click.option("--by", "created_by", default=None, help="Author recording the publish (default: $SKEIN_NEXT_AGENT).")
 @click.option("--dry-run", is_flag=True, help="Show what would be published; send nothing.")
-@click.option("--sign", "do_sign", is_flag=True, help="Sign each folio at the boundary (needs an OIDC token).")
-@click.option("--oidc-issuer", default="https://accounts.google.com", help="OIDC issuer for --sign.")
-@click.option("--oidc-token", default=None, help="OIDC JWT for --sign ('-' reads stdin). Obtain via the Sigstore login flow.")
+@click.option("--sign", "do_sign", is_flag=True, help="Sign each folio at the boundary (needs --login or --oidc-token).")
+@click.option("--login", is_flag=True, help="With --sign: run the interactive Sigstore login here.")
+@click.option("--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (no local browser, e.g. SSH).")
+@click.option("--oidc-issuer", default="https://accounts.google.com", help="OIDC issuer for --sign --oidc-token.")
+@click.option("--oidc-token", default=None, help="OIDC JWT for --sign ('-' reads stdin).")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def publish(
@@ -640,6 +652,8 @@ def publish(
     created_by: Optional[str],
     dry_run: bool,
     do_sign: bool,
+    login: bool,
+    force_oob: bool,
     oidc_issuer: str,
     oidc_token: Optional[str],
     output_json: bool,
@@ -655,13 +669,21 @@ def publish(
 
     Examples:
       interskein publish --site specifications --to http://127.0.0.1:9101
-      interskein publish --site specifications --to https://interskein.com --sign --oidc-token "$TOKEN"
+      interskein publish --site specifications --to https://interskein.com --sign --login
     """
     if not refs and not site_slug:
         raise click.ClickException("nothing to publish — give folio REFS or --site SLUG.")
     if not dry_run and not instance_url:
         raise click.ClickException("--to INSTANCE_URL is required (or use --dry-run).")
-    signer = _build_signer(do_sign, oidc_issuer, oidc_token) if do_sign else None
+    if (login or force_oob or oidc_token) and not do_sign:
+        raise click.ClickException("--login/--oob/--oidc-token only apply with --sign.")
+    if login and oidc_token:
+        raise click.ClickException("use one of --login or --oidc-token, not both.")
+    signer = (
+        _build_signer(oidc_issuer, oidc_token, login=login, force_oob=force_oob)
+        if do_sign
+        else None
+    )
     author = created_by or _default_author()
     with _open_station(ctx) as station:
         try:
@@ -705,6 +727,29 @@ def publish(
         click.echo(f"{len(rejected_threads)} link(s) not carried:")
         for r in rejected_threads:
             click.echo(f"  {_short(r.get('thread_hash') or '?', 24)} - {r.get('reason')}")
+
+
+@cli.command()
+def login() -> None:
+    """Run the interactive Sigstore login; print the OIDC token to stdout.
+
+    The human-accountability gate: opens a browser. The token is short-lived —
+    use it promptly. Diagnostics go to stderr so the token captures cleanly:
+
+      TOKEN=$(interskein login) && interskein publish --site S --to URL --sign --oidc-token "$TOKEN"
+
+    On a headless/SSH box (no local browser, can't capture), use the inline
+    out-of-band flow instead — its code prompt stays on the terminal:
+
+      interskein publish --site S --to URL --sign --login --oob
+
+    Or, with a browser, skip the token juggling: interskein publish ... --sign --login
+    """
+    from . import sign as _sign
+
+    provider = _sign.acquire_oidc_provider()
+    click.echo(f"signed in as {provider.issuer}", err=True)
+    click.echo(provider.token)
 
 
 @cli.command()

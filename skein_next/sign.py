@@ -30,6 +30,37 @@ from . import canon
 
 DEFAULT_IDENTITY_SCHEME = "sigstore-public-v1"
 
+# Sigstore's public production Dex broker. The interactive flow federates to
+# Google/GitHub/Microsoft and mints a token whose issuer is the broker — which is
+# on the v0 allowlist (skein.signing._V0_OIDC_ALLOWLIST), so sign() accepts it.
+# Production only for v0: sign()/verify deliberately use the production trust root
+# (no staging path), so signing a staging-issued token would pass the local
+# guards and then fail confusingly at production Fulcio. Don't offer staging here
+# until a staging context is plumbed through sign() and verify together.
+SIGSTORE_PROD_ISSUER = "https://oauth2.sigstore.dev/auth"
+
+
+def acquire_oidc_provider(
+    issuer_url: Optional[str] = None,
+    force_oob: bool = False,
+) -> "signing.OIDCProviderConfig":
+    """Run the interactive Sigstore OIDC flow and return a ready provider config.
+
+    This is the human-accountability gate: it opens a browser (or, with
+    ``force_oob``, prints a URL to paste a code back — for SSH/headless) and
+    returns a short-lived token bound to the operator's identity. The token's own
+    issuer claim is used, so the v0 allowlist check in ``sign()`` passes. Network
+    + interactive by nature — exercised at the ceremony, not in CI.
+    """
+    from sigstore.oidc import Issuer  # lazy: only the ceremony needs the browser flow
+
+    identity_token = Issuer(issuer_url or SIGSTORE_PROD_ISSUER).identity_token(force_oob=force_oob)
+    return signing.OIDCProviderConfig(
+        issuer=identity_token.issuer,
+        token=str(identity_token),
+        provider_id=None,
+    )
+
 # A Signer maps a folio's canonical bytes to a SignatureBundle.
 Signer = Callable[[bytes], "signing.SignatureBundle"]
 # A Verifier maps (canonical_bytes, bundle) to a MultiVerifyResult.

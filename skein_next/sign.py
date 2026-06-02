@@ -104,7 +104,23 @@ def sign_wire_folio(wire_folio: Mapping[str, Any], signer: Signer) -> Dict[str, 
 
 
 def default_verifier(canonical_bytes: bytes, bundle: Any) -> "signing.MultiVerifyResult":
-    return signing.verify_multi(canonical_bytes, bundle)
+    # We deliberately do not pin an expected identity — this is a read surface
+    # that *displays* whoever validly signed, not a gate against one signer. So
+    # sigstore verifies the signature, the Fulcio chain, and Rekor inclusion, but
+    # its identity policy is UnsafeNoOp, which logs a scary "no verification
+    # performed!" warning every time. That warning is expected here (the crypto
+    # IS checked; only identity-pinning is skipped), so silence just that one
+    # logger for the duration of our call — a real warning from anywhere else
+    # still surfaces.
+    import logging
+
+    policy_logger = logging.getLogger("sigstore.verify.policy")
+    previous = policy_logger.level
+    policy_logger.setLevel(logging.ERROR)
+    try:
+        return signing.verify_multi(canonical_bytes, bundle)
+    finally:
+        policy_logger.setLevel(previous)
 
 
 def verify_wire_folio(

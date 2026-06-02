@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS slugs (
     content_hash TEXT NOT NULL
 );
 
+-- Signature overlay (kept OUT of the folios table so identity stays the five
+-- canonical fields and nothing else — same reason status/assignment are threads,
+-- not columns). A folio's signature_bundle is data about one folio, not a
+-- relationship, so it is a sidecar keyed by content hash rather than a thread.
+CREATE TABLE IF NOT EXISTS folio_signatures (
+    content_hash TEXT PRIMARY KEY,
+    bundle_json  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_threads_from ON threads(from_id);
 CREATE INDEX IF NOT EXISTS idx_threads_to   ON threads(to_id);
 CREATE INDEX IF NOT EXISTS idx_threads_type ON threads(type);
@@ -421,6 +430,13 @@ class SkeinNextStore:
         self._maybe_commit()
         return thread_hash
 
+    def get_thread(self, thread_hash: str) -> Optional[Dict[str, Any]]:
+        """Read one thread by its content hash (symmetric with get_folio)."""
+        row = self.conn.execute(
+            "SELECT * FROM threads WHERE thread_hash = ?", (thread_hash,)
+        ).fetchone()
+        return dict(row) if row else None
+
     def get_threads(
         self,
         from_id: Optional[str] = None,
@@ -493,6 +509,24 @@ class SkeinNextStore:
             "SELECT slug, content_hash FROM slugs ORDER BY slug"
         ).fetchall()
         return [(r["slug"], r["content_hash"]) for r in rows]
+
+    # --- signature overlay (sidecar) ----------------------------------------
+
+    def set_signature(self, content_hash: str, bundle_json: str) -> None:
+        """Store (or replace) a folio's signature bundle. Overlay, not identity."""
+        self.conn.execute(
+            "INSERT OR REPLACE INTO folio_signatures (content_hash, bundle_json) VALUES (?, ?)",
+            (content_hash, bundle_json),
+        )
+        self._maybe_commit()
+
+    def get_signature(self, content_hash: str) -> Optional[str]:
+        """A folio's signature bundle JSON, or ``None`` if it is unsigned."""
+        row = self.conn.execute(
+            "SELECT bundle_json FROM folio_signatures WHERE content_hash = ?",
+            (content_hash,),
+        ).fetchone()
+        return row["bundle_json"] if row else None
 
     # --- reporting helpers --------------------------------------------------
 

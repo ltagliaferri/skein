@@ -21,74 +21,21 @@ legacy ``folio:sha256:<hex>`` digest — only the prefix framing differs.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Mapping, Optional
 
-from knurl import canon, hash as knurl_hash
+from knurl import hash as knurl_hash
 
-# The five fields that constitute folio identity, in no particular order
-# (canon sorts keys). Kept explicit so callers and reviewers can see the basis.
-CANONICAL_FIELDS = ("type", "title", "content", "created_at", "created_by")
-
-CreatedAt = Union[str, datetime, None]
-
-
-def normalize_created_at(value: CreatedAt) -> Optional[str]:
-    """Normalize any ``created_at`` representation to one canonical string.
-
-    Accepts a ``datetime`` (naive or aware) or a string (isoformat, ``Z``-suffixed,
-    space-separated SQLite form, or with an explicit offset). Returns a
-    timezone-aware UTC isoformat string. ``None`` passes through as ``None``.
-
-    Rules:
-    - A naive datetime/string is assumed to already be in UTC.
-    - An aware value is converted to UTC.
-    - Sub-second precision is preserved (it is the corpus-wide uniqueness basis);
-      whole-second inputs that denote the same instant collapse to one string.
-
-    Raises ``ValueError`` if a string cannot be parsed as a timestamp.
-    """
-    if value is None:
-        return None
-
-    if isinstance(value, datetime):
-        dt = value
-    elif isinstance(value, str):
-        dt = _parse_timestamp(value)
-    else:
-        raise TypeError(
-            f"created_at must be a datetime, str, or None, got {type(value).__name__}"
-        )
-
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
-    return dt.isoformat()
-
-
-def _parse_timestamp(value: str) -> datetime:
-    s = value.strip()
-    # datetime.fromisoformat handles 'Z' natively only on 3.11+; normalize anyway
-    # so behavior is identical across supported interpreters.
-    if s.endswith("Z") or s.endswith("z"):
-        s = s[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(s)
-    except ValueError as e:
-        raise ValueError(f"Unparseable created_at timestamp: {value!r}") from e
-
-
-def _canonical_fields(fields: Mapping[str, Any]) -> dict:
-    """Build the immutable five-field dict with created_at normalized."""
-    return {
-        "type": fields.get("type"),
-        "title": fields.get("title"),
-        "content": fields.get("content"),
-        "created_at": normalize_created_at(fields.get("created_at")),
-        "created_by": fields.get("created_by"),
-    }
-
+# The canonical-bytes producer now lives in canon.py so the signer can sign
+# EXACTLY the bytes the hasher hashes (publish-path + signing specs). identity
+# stays the address layer: it frames those bytes' digest as a sha256:: address.
+# Re-exported here so existing importers (store.py, wire.py) keep working.
+from .canon import (  # noqa: F401
+    CANONICAL_FIELDS,
+    CreatedAt,
+    folio_canonical_bytes,
+    normalize_created_at,
+    thread_canonical_bytes,
+)
 
 def _address(content: str) -> str:
     """Hash a canonical string and return it in the ``sha256::<hex>`` address form."""
@@ -101,10 +48,12 @@ def compute_folio_hash(fields: Mapping[str, Any]) -> str:
     """Compute a folio's content hash from its five canonical fields.
 
     Only ``type, title, content, created_at, created_by`` participate; any other
-    keys in ``fields`` are ignored. ``created_at`` is normalized first.
+    keys in ``fields`` are ignored. The canonical bytes come from
+    :func:`skein_next.canon.folio_canonical_bytes` — the same bytes the signer
+    signs — so a folio's hash and its signature can never disagree on what was
+    hashed.
     """
-    canonical = canon.serialize(_canonical_fields(fields))
-    return _address(canonical.decode("utf-8"))
+    return _address(folio_canonical_bytes(fields).decode("utf-8"))
 
 
 def compute_thread_hash(
@@ -117,17 +66,11 @@ def compute_thread_hash(
 ) -> str:
     """Compute a thread's content hash from its canonical fields.
 
-    Threads are content-addressed like folios so save is idempotent. ``created_at``
-    is normalized identically.
+    Threads are content-addressed like folios so save is idempotent. The
+    canonical bytes come from :func:`skein_next.canon.thread_canonical_bytes`.
     """
-    canonical = canon.serialize(
-        {
-            "from_id": from_id,
-            "to_id": to_id,
-            "type": type,
-            "weaver": weaver,
-            "created_at": normalize_created_at(created_at),
-            "content": content,
-        }
+    return _address(
+        thread_canonical_bytes(
+            from_id, to_id, type, weaver, created_at, content
+        ).decode("utf-8")
     )
-    return _address(canonical.decode("utf-8"))

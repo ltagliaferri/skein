@@ -76,15 +76,6 @@ def get_adapter() -> Iterator[ContentHashAdapter]:
         adapter.close()
 
 
-def _provenance(folio) -> dict:
-    """Provenance block. Grows a Sigstore identity once signing is wired in."""
-    return {
-        "content_hash": folio.content_hash,
-        "signed": False,
-        "signature_note": "UNSIGNED — Sigstore signing not yet wired into publish",
-    }
-
-
 def create_app() -> FastAPI:
     app = FastAPI(
         title="SKEIN (next)",
@@ -170,7 +161,7 @@ def create_app() -> FastAPI:
                 "folio": folio,
                 "site": site,
                 "body_html": render_markdown(folio.content),
-                "provenance": _provenance(folio),
+                "provenance": store.provenance(folio.content_hash),
                 "cross_refs": refs,
             },
         )

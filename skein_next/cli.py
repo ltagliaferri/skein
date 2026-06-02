@@ -32,6 +32,8 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 import click
 
 from .bridge import ImportReport, import_project
+from . import publish as _publish
+from .publish import PublishError
 from .station import (
     AmbiguousReference,
     Station,
@@ -51,6 +53,37 @@ def _default_author() -> Optional[str]:
 
 def _open_station(ctx: click.Context) -> Station:
     return Station(ctx.obj.get("data_dir"))
+
+
+def _build_signer(
+    oidc_issuer: str,
+    oidc_token: Optional[str],
+    login: bool = False,
+    force_oob: bool = False,
+):
+    """Construct a boundary signer (the ceremony seam).
+
+    Two ways to get the identity: ``--login`` runs the interactive Sigstore flow
+    here (opens a browser, or prints a code with ``--oob`` for SSH/headless), or
+    ``--oidc-token`` wraps a token the operator obtained out of band ('-' reads
+    stdin). The token is short-lived, so login-then-publish must be prompt.
+    """
+    from . import sign as _sign  # lazy: keep sigstore off the other verbs
+
+    if login:
+        provider = _sign.acquire_oidc_provider(force_oob=force_oob)
+        return _sign.make_oidc_signer(provider)
+
+    if oidc_token == "-":
+        oidc_token = sys.stdin.read().strip()
+    if not oidc_token:
+        raise click.ClickException(
+            "--sign needs --login (interactive) or --oidc-token (or '-' for stdin)."
+        )
+    from skein.signing import OIDCProviderConfig
+
+    provider = OIDCProviderConfig(issuer=oidc_issuer, token=oidc_token, provider_id=None)
+    return _sign.make_oidc_signer(provider)
 
 
 def _folio_line(folio: Dict[str, Any]) -> str:
@@ -591,6 +624,150 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
     if data_dir:
         os.environ[ENV_DATA_DIR] = data_dir
     from .web.app import run_server  # lazy: keep the heavy web deps off other verbs
+
+    run_server(host=host, port=port)
+
+
+# --- publish (client -> instance) -------------------------------------------
+
+
+@cli.command()
+@click.argument("refs", nargs=-1)
+@click.option("--site", "site_slug", default=None, help="Publish every folio in this site.")
+@click.option("--to", "instance_url", default=None, help="Instance publish URL (e.g. http://127.0.0.1:9101).")
+@click.option("--by", "created_by", default=None, help="Author recording the publish (default: $SKEIN_NEXT_AGENT).")
+@click.option("--dry-run", is_flag=True, help="Show what would be published; send nothing.")
+@click.option("--sign", "do_sign", is_flag=True, help="Sign each folio at the boundary (needs --login or --oidc-token).")
+@click.option("--login", is_flag=True, help="With --sign: run the interactive Sigstore login here.")
+@click.option("--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (no local browser, e.g. SSH).")
+@click.option("--oidc-issuer", default="https://accounts.google.com", help="OIDC issuer for --sign --oidc-token.")
+@click.option("--oidc-token", default=None, help="OIDC JWT for --sign ('-' reads stdin).")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def publish(
+    ctx: click.Context,
+    refs: Tuple[str, ...],
+    site_slug: Optional[str],
+    instance_url: Optional[str],
+    created_by: Optional[str],
+    dry_run: bool,
+    do_sign: bool,
+    login: bool,
+    force_oob: bool,
+    oidc_issuer: str,
+    oidc_token: Optional[str],
+    output_json: bool,
+) -> None:
+    """Publish local folios to an instance.
+
+    Give folio REFS, a --site SLUG, or both. Each folio travels with its site
+    folio and its in-set threads (membership, status); the instance verifies
+    every content hash before storing. Without --sign the batch crosses unsigned
+    (pre-mesh). With --sign each folio is signed at the boundary under your OIDC
+    identity (the human-accountability gate) and the provenance card flips from
+    UNSIGNED to your authorship.
+
+    Examples:
+      interskein publish --site specifications --to http://127.0.0.1:9101
+      interskein publish --site specifications --to https://interskein.com --sign --login
+    """
+    if not refs and not site_slug:
+        raise click.ClickException("nothing to publish — give folio REFS or --site SLUG.")
+    if not dry_run and not instance_url:
+        raise click.ClickException("--to INSTANCE_URL is required (or use --dry-run).")
+    if (login or force_oob or oidc_token) and not do_sign:
+        raise click.ClickException("--login/--oob/--oidc-token only apply with --sign.")
+    if login and oidc_token:
+        raise click.ClickException("use one of --login or --oidc-token, not both.")
+    signer = (
+        _build_signer(oidc_issuer, oidc_token, login=login, force_oob=force_oob)
+        if do_sign
+        else None
+    )
+    author = created_by or _default_author()
+    with _open_station(ctx) as station:
+        try:
+            result = _publish.publish(
+                station,
+                instance_url or "(dry-run)",
+                refs=list(refs) or None,
+                site=site_slug,
+                by=author,
+                dry_run=dry_run,
+                signer=signer,
+            )
+        except (UnknownSite, UnknownFolio) as e:
+            raise click.ClickException(str(e))
+        except PublishError as e:
+            raise click.ClickException(str(e))
+
+    if output_json:
+        _emit_json(result)
+        return
+    if not result.get("folios"):
+        click.echo("nothing to publish (selection is empty)")
+        return
+    verb = "would publish" if dry_run else "published"
+    signed_note = " (signed)" if result.get("signed") else ""
+    click.echo(f"{verb} {result['folios']} folio(s), {result['threads']} thread(s){signed_note}")
+    if dry_run:
+        for h in result.get("folio_hashes", []):
+            click.echo(_short(h, 24))
+        return
+    ack = result.get("ack", {})
+    click.echo(
+        f"instance accepted {len(ack.get('accepted', []))} new, "
+        f"{len(ack.get('existing', []))} already held, "
+        f"{len(ack.get('rejected', []))} rejected"
+    )
+    for r in ack.get("rejected", []):
+        click.echo(f"rejected {_short(r.get('content_hash') or '?', 24)} - {r.get('reason')}")
+    rejected_threads = result.get("threads_rejected", [])
+    if rejected_threads:
+        click.echo(f"{len(rejected_threads)} link(s) not carried:")
+        for r in rejected_threads:
+            click.echo(f"  {_short(r.get('thread_hash') or '?', 24)} - {r.get('reason')}")
+
+
+@cli.command()
+def login() -> None:
+    """Run the interactive Sigstore login; print the OIDC token to stdout.
+
+    The human-accountability gate: opens a browser. The token is short-lived —
+    use it promptly. Diagnostics go to stderr so the token captures cleanly:
+
+      TOKEN=$(interskein login) && interskein publish --site S --to URL --sign --oidc-token "$TOKEN"
+
+    On a headless/SSH box (no local browser, can't capture), use the inline
+    out-of-band flow instead — its code prompt stays on the terminal:
+
+      interskein publish --site S --to URL --sign --login --oob
+
+    Or, with a browser, skip the token juggling: interskein publish ... --sign --login
+    """
+    from . import sign as _sign
+
+    provider = _sign.acquire_oidc_provider()
+    click.echo(f"signed in as {provider.issuer}", err=True)
+    click.echo(provider.token)
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Bind host.")
+@click.option("--port", default=9101, type=int, help="Bind port (default 9101).")
+@click.pass_context
+def ingress(ctx: click.Context, host: str, port: int) -> None:
+    """Serve the publish ingress write surface (PROTOTYPE, unsigned).
+
+    Receives publish batches from clients and stores them into this station's
+    data dir (--data-dir or $SKEIN_NEXT_DATA_DIR), which the read web surface
+    then serves. Distinct port from the read app so the read surface stays
+    read-only.
+    """
+    data_dir = ctx.obj.get("data_dir")
+    if data_dir:
+        os.environ[ENV_DATA_DIR] = data_dir
+    from .ingress import run_server  # lazy: keep web deps off the other verbs
 
     run_server(host=host, port=port)
 

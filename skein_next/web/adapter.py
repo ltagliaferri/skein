@@ -32,6 +32,11 @@ from ..store import SkeinNextStore
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 _NON_REF_THREADS = {"within", "status"}
 
+# verify_multi statuses that mean "the verifier could not check", NOT "the
+# signature is bad". These must read as UNVERIFIED, not SIGNATURE INVALID, so a
+# transient trust-root problem doesn't slander a legitimately signed folio.
+_VERIFIER_UNAVAILABLE = {"OFFLINE_NO_TRUSTED_ROOT", "TRUST_ROOT_STALE"}
+
 
 def _to_datetime(value: Optional[str]) -> datetime:
     """Parse a stored ISO ``created_at`` into an aware datetime (sentinel on miss)."""
@@ -153,6 +158,62 @@ class ContentHashAdapter:
         slug = self.store.folio_site_slug(content_hash) or ""
         status = self.store.latest_statuses([content_hash]).get(content_hash, "open")
         return FolioView(row, site_id=slug, status=status)
+
+    def get_signature(self, content_hash: str) -> Optional[str]:
+        """The folio's signature bundle JSON (overlay), or ``None`` if unsigned."""
+        return self.store.get_signature(content_hash)
+
+    def provenance(self, content_hash: str) -> Dict:
+        """Verify-on-read provenance for a folio (the template's provenance card).
+
+        Built off the RAW stored row (not FolioView, whose created_at is parsed
+        to a datetime) so the canonical bytes re-derive exactly as signed. Lazy-
+        imports the signing seam so an unsigned read never loads Sigstore.
+        Per-request for now; caching by (content_hash, bundle_hash) is a later
+        optimization (publish spec).
+        """
+        bundle_json = self.store.get_signature(content_hash)
+        if not bundle_json:
+            return {
+                "content_hash": content_hash,
+                "signed": False,
+                "signature_note": "UNSIGNED — operator-vouched, not cryptographically signed",
+            }
+        row = self.store.get_folio(content_hash)
+        if not row:
+            # A signature with no folio row should never happen (set_signature is
+            # paired with create_folio in one transaction); surface it honestly
+            # rather than verifying against all-None bytes and crying forgery.
+            return {
+                "content_hash": content_hash,
+                "signed": False,
+                "signature_note": "UNKNOWN — signature present but folio missing",
+            }
+        from ..sign import verify_wire_folio  # lazy: keeps Sigstore off unsigned reads
+
+        wire_folio = {**row, "signature_bundle": bundle_json}
+        verified, reason, identity = verify_wire_folio(wire_folio)
+        if verified:
+            subject = (identity or {}).get("subject")
+            return {
+                "content_hash": content_hash,
+                "signed": True,
+                "issuer": (identity or {}).get("issuer"),
+                "subject": subject,
+                "signature_note": f"SIGNED — {subject or 'verified'}",
+            }
+        # Distinguish "the signature is bad" from "we couldn't check it". Saying
+        # SIGNATURE INVALID for a transient verifier-availability problem reads as
+        # forgery — the opposite of the truth — for a legitimately signed folio.
+        if reason in _VERIFIER_UNAVAILABLE:
+            note = f"UNVERIFIED — verifier unavailable ({reason})"
+        else:
+            note = f"SIGNATURE INVALID — {reason}"
+        return {
+            "content_hash": content_hash,
+            "signed": False,
+            "signature_note": note,
+        }
 
     def search_folios(self, query: str, limit: int = 100) -> List[FolioView]:
         rows = self.store.search_folios(query, limit=limit)

@@ -258,6 +258,66 @@ class Station:
         """
         return self.store.latest_statuses([content_hash]).get(content_hash, "open")
 
+    # --- publish state (client-side, thread-derived) ------------------------
+    #
+    # A folio is ``local`` by default and becomes ``published`` once it has been
+    # pushed to an instance. Like status, this is not a column: publishing
+    # records a ``published`` thread from the folio to the instance it went to.
+    # The thread is CLIENT-LOCAL bookkeeping — it is never sent over the wire,
+    # because an instance knows a folio is published simply by holding it. Two
+    # consequences fall out for free: a folio can be published to several
+    # instances (one edge each), and re-publishing is idempotent (the edge's
+    # content hash dedups).
+
+    PUBLISHED_THREAD = "published"
+
+    def record_published(
+        self,
+        content_hash: str,
+        instance: str,
+        by: Optional[str] = None,
+        created_at: Any = None,
+    ) -> str:
+        """Mark a folio published to ``instance`` by writing a ``published`` thread.
+
+        ``instance`` is the target's identifier (its publish URL for now). The
+        edge runs folio -> instance; ``content`` repeats the instance id so the
+        target reads off the edge without a join. Returns the thread hash.
+        """
+        return self.store.save_thread(
+            from_id=content_hash,
+            to_id=instance,
+            type=self.PUBLISHED_THREAD,
+            weaver=by,
+            content=instance,
+            created_at=created_at if created_at is not None else _now_utc(),
+        )
+
+    def published_instances(self, content_hash: str) -> List[str]:
+        """Instances this folio has been published to (``published`` edge targets).
+
+        Deduplicated, in first-published order. Re-publishing to the same
+        instance writes a fresh timestamped edge (publish history is kept
+        append-only, like status), so the raw edge list can repeat an instance;
+        callers asking "where does this live" want the distinct set.
+        """
+        seen: List[str] = []
+        for t in self.store.get_threads(
+            from_id=content_hash, type=self.PUBLISHED_THREAD
+        ):
+            target = t.get("to_id")
+            if target and target not in seen:
+                seen.append(target)
+        return seen
+
+    def publish_state_of(self, content_hash: str) -> str:
+        """``'published'`` if the folio has any ``published`` edge, else ``'local'``.
+
+        Local is the default — a folio exists on the client unpublished until a
+        publish records otherwise, mirroring how ``status_of`` defaults to open.
+        """
+        return "published" if self.published_instances(content_hash) else "local"
+
     def create_site(
         self,
         slug: str,

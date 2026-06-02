@@ -18,6 +18,10 @@
     <strong>Provenance</strong><br>
     content hash: {% if provenance.content_hash %}<code>{{ provenance.content_hash }}</code>{% else %}(none){% endif %}<br>
     signature: {{ provenance.signature_note }}
+    {% if provenance.signed %}<br>
+    issuer: {{ provenance.issuer or "(unknown)" }}<br>
+    subject: {{ provenance.subject or "(unknown)" }}
+    {% endif %}
   </p>
   <hr>
 

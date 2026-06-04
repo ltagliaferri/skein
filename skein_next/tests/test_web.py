@@ -13,7 +13,13 @@ from fastapi.testclient import TestClient
 
 from skein_next.station import Station
 from skein_next.web.adapter import ContentHashAdapter, _to_datetime
-from skein_next.web.app import ENV_DATA_DIR, create_app
+from skein_next.web.app import (
+    DEFAULT_PROJECT,
+    ENV_DATA_DIR,
+    ENV_PROJECT,
+    create_app,
+    get_project_id,
+)
 
 
 @pytest.fixture
@@ -43,6 +49,35 @@ def seeded(data_dir):
 def client(seeded, monkeypatch):
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
     return TestClient(create_app())
+
+
+# --- project label ----------------------------------------------------------
+
+
+def test_project_id_prefers_env(monkeypatch):
+    monkeypatch.setenv(ENV_PROJECT, "SKEIN Mesh")
+    monkeypatch.setenv(ENV_DATA_DIR, "/srv/whatever/.skein-next")
+    assert get_project_id() == "SKEIN Mesh"
+
+
+def test_project_id_derives_from_data_dir_parent(monkeypatch):
+    monkeypatch.delenv(ENV_PROJECT, raising=False)
+    monkeypatch.setenv(ENV_DATA_DIR, "/srv/myproject/.skein-next")
+    assert get_project_id() == "myproject"
+
+
+def test_project_id_falls_back_when_parent_empty(monkeypatch):
+    # The container mounts the corpus straight at /data, so .parent.name is
+    # empty; the label must never render blank (the live "— SKEIN" bug).
+    monkeypatch.delenv(ENV_PROJECT, raising=False)
+    monkeypatch.setenv(ENV_DATA_DIR, "/data")
+    assert get_project_id() == DEFAULT_PROJECT
+
+
+def test_project_id_falls_back_when_unset(monkeypatch):
+    monkeypatch.delenv(ENV_PROJECT, raising=False)
+    monkeypatch.delenv(ENV_DATA_DIR, raising=False)
+    assert get_project_id() == DEFAULT_PROJECT
 
 
 # --- adapter ----------------------------------------------------------------

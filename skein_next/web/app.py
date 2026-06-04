@@ -58,13 +58,27 @@ def get_data_dir() -> Optional[str]:
     return os.environ.get(ENV_DATA_DIR)
 
 
+DEFAULT_PROJECT = "interskein"
+
+
 def get_project_id() -> str:
-    """A display label for the station (env, else the data dir's name)."""
+    """A display label for the station (env, else the data dir's parent name).
+
+    Falls back to ``DEFAULT_PROJECT`` rather than an empty string. The corpus can
+    be mounted straight at the data dir (e.g. ``/data`` in the container), which
+    leaves ``.parent.name`` empty and otherwise rendered a bare ``— SKEIN`` title
+    with no instance name. ``SKEIN_NEXT_PROJECT`` (set in compose) is the real
+    configuration knob; this fallback only guarantees the label is never blank.
+    """
     project = os.environ.get(ENV_PROJECT)
     if project:
         return project
     data_dir = get_data_dir()
-    return Path(data_dir).resolve().parent.name if data_dir else "interskein"
+    if data_dir:
+        name = Path(data_dir).resolve().parent.name
+        if name:
+            return name
+    return DEFAULT_PROJECT
 
 
 def get_adapter() -> Iterator[ContentHashAdapter]:

@@ -20,6 +20,11 @@ services:
       - "127.0.0.1:9001:9001"
     environment:
       - SKEIN_NEXT_DATA_DIR=/data
+      # Display name for the instance (page <title>/h1). Without this the label
+      # is derived from the data dir's parent, which is empty when the corpus is
+      # mounted straight at /data — rendering a bare "— SKEIN". Override per
+      # instance once per-site config lands.
+      - SKEIN_NEXT_PROJECT=interskein
     volumes:
       - "${INTERSKEIN_CORPUS:?set INTERSKEIN_CORPUS to a project's .skein-next dir}:/data:ro"
     restart: unless-stopped

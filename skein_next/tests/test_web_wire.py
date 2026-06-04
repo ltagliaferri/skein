@@ -1,0 +1,231 @@
+"""Route-level tests for the machine wire: content negotiation, the envelope over
+HTTP, caching headers, structured errors, and the bundle sub-resource."""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from skein import signing
+from skein_next import canon
+from skein_next.station import Station
+from skein_next.web.app import ENV_DATA_DIR, create_app, negotiate
+
+
+@pytest.fixture
+def seeded(tmp_path):
+    data_dir = tmp_path / ".skein-next"
+    with Station(data_dir) as st:
+        st.create_site("proj", purpose="the project")
+        a = st.post(
+            type="finding",
+            site="proj",
+            title="Finding A",
+            content="# A\n\nbody A",
+            created_by="alice",
+            created_at="2026-01-01T00:00:00Z",
+        )
+        b = st.post(
+            type="brief",
+            site="proj",
+            title="Brief B",
+            content="body B",
+            created_by="bob",
+            created_at="2026-01-02T00:00:00Z",
+        )
+        st.store.save_thread(
+            from_id=a, to_id=b, type="reference", created_at="2026-01-03T00:00:00Z"
+        )
+    return {"data_dir": data_dir, "a": a, "b": b}
+
+
+@pytest.fixture
+def client(seeded, monkeypatch):
+    monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+    return TestClient(create_app())
+
+
+# --- negotiate (unit) -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "suffix,accept,ua,expected",
+    [
+        ("json", None, None, "json"),
+        ("md", None, None, "md_raw"),
+        (None, "application/json", None, "json"),
+        (None, "text/markdown", None, "markdown"),
+        (None, "text/html", "Mozilla/5.0", "html"),
+        (None, "*/*", "Mozilla/5.0", "html"),
+        (None, "*/*", "curl/8.0", "markdown"),
+        (None, "*/*", "skein/0.1", "markdown"),
+        (None, "*/*", "testclient", "html"),  # unknown UA -> HTML (human surface)
+        (None, None, None, "html"),
+        ("json", "text/html", "Mozilla", "json"),  # suffix wins over Accept
+    ],
+)
+def test_negotiate(suffix, accept, ua, expected):
+    assert negotiate(suffix, accept, ua) == expected
+
+
+# --- folio representations --------------------------------------------------
+
+
+def test_json_folio(client, seeded):
+    r = client.get(f"/folio/{seeded['a']}.json")
+    assert r.status_code == 200
+    env = r.json()
+    assert env["kind"] == "folio" and env["proof"]["content_hash"] == seeded["a"]
+    assert env["body"]["title"] == "Finding A"
+    assert r.headers["etag"] == f'"{seeded["a"]}"'
+    assert "immutable" in r.headers["cache-control"]
+
+
+def test_json_folio_conditional_304(client, seeded):
+    etag = f'"{seeded["a"]}"'
+    r = client.get(f"/folio/{seeded['a']}.json", headers={"If-None-Match": etag})
+    assert r.status_code == 304
+
+
+def test_markdown_via_accept(client, seeded):
+    r = client.get(f"/folio/{seeded['a']}", headers={"Accept": "text/markdown"})
+    assert r.status_code == 200
+    assert "x-skein-nonce" in r.headers
+    assert r.headers["cache-control"] == "no-store"
+    nonce = r.headers["x-skein-nonce"]
+    assert f"===={nonce}==" in r.text
+    assert "body A" in r.text
+
+
+def test_markdown_nonce_changes_per_fetch(client, seeded):
+    n1 = client.get(f"/folio/{seeded['a']}", headers={"Accept": "text/markdown"}).headers[
+        "x-skein-nonce"
+    ]
+    n2 = client.get(f"/folio/{seeded['a']}", headers={"Accept": "text/markdown"}).headers[
+        "x-skein-nonce"
+    ]
+    assert n1 != n2
+
+
+def test_raw_md(client, seeded):
+    r = client.get(f"/folio/{seeded['a']}.md")
+    assert r.status_code == 200
+    assert r.text == "# A\n\nbody A\n"
+    assert "immutable" in r.headers["cache-control"]
+
+
+def test_html_still_default_for_browser(client, seeded):
+    r = client.get(
+        f"/folio/{seeded['a']}", headers={"Accept": "text/html", "User-Agent": "Mozilla/5.0"}
+    )
+    assert r.status_code == 200
+    assert "<" in r.text  # HTML, not the wire
+
+
+# --- errors -----------------------------------------------------------------
+
+
+def test_not_found_json(client):
+    r = client.get("/folio/sha256::" + "0" * 64 + ".json")
+    assert r.status_code == 404
+    assert r.json()["body"] == {"found": False, "error": "not_found"}
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_invalid_address_json(client):
+    r = client.get("/folio/not-an-address.json")
+    assert r.status_code == 400
+    assert r.json()["body"]["error"] == "invalid_address"
+
+
+def test_error_markdown(client):
+    r = client.get("/folio/sha256::" + "0" * 64, headers={"Accept": "text/markdown"})
+    assert r.status_code == 404
+    assert "NOT RESOLVED" in r.text
+
+
+# --- collections ------------------------------------------------------------
+
+
+def test_catalog_json(client):
+    r = client.get("/.json")
+    assert r.status_code == 200
+    env = r.json()
+    assert env["kind"] == "catalog" and env["stability"] == "derived"
+    assert env["asserted"]["wire"] == "skein.envelope/v1"
+    assert any(s["slug"] == "proj" for s in env["asserted"]["sites"])
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_catalog_via_accept(client):
+    r = client.get("/", headers={"Accept": "application/json"})
+    assert r.status_code == 200 and r.json()["kind"] == "catalog"
+
+
+def test_site_json(client, seeded):
+    r = client.get("/site/proj.json")
+    assert r.status_code == 200
+    env = r.json()
+    assert env["kind"] == "site" and env["asserted"]["count"] == 2
+    assert {e["address"] for e in env["body"]} == {seeded["a"], seeded["b"]}
+
+
+def test_site_json_unknown_is_error(client):
+    r = client.get("/site/ghost.json")
+    assert r.status_code == 404
+    assert r.json()["body"]["error"] == "not_found"
+
+
+# --- navigation: no dead ends -----------------------------------------------
+
+
+def test_navigate_corpus_over_the_wire(client):
+    """The slice-1 demo: from the catalog alone, every address an agent is handed
+    resolves over the wire — no dead ends for local content (§6)."""
+    catalog = client.get("/.json").json()
+
+    # Every catalog entry resolves to a folio.
+    for entry in catalog["body"]:
+        assert client.get(f"/folio/{entry['address']}.json").status_code == 200
+
+    # Every site the catalog names resolves, and so does every member it lists.
+    for site in catalog["asserted"]["sites"]:
+        listing = client.get(f"{site['href']}.json").json()
+        assert listing["kind"] == "site"
+        for entry in listing["body"]:
+            assert client.get(f"/folio/{entry['address']}.json").status_code == 200
+
+    # Every locally-held thread peer (one carrying a title) resolves too.
+    for entry in catalog["body"]:
+        folio = client.get(f"/folio/{entry['address']}.json").json()
+        edges = folio["asserted"]["threads_out"] + folio["asserted"]["threads_in"]
+        for edge in edges:
+            if edge["title"] is not None:  # cross-instance peers 404 by design
+                assert client.get(f"/folio/{edge['address']}.json").status_code == 200
+
+
+# --- bundle sub-resource ----------------------------------------------------
+
+
+def test_bundle_unsigned_is_404(client, seeded):
+    r = client.get(f"/folio/{seeded['a']}/bundle")
+    assert r.status_code == 404
+    assert r.json()["body"]["error"] == "not_found"
+
+
+def test_bundle_served_when_signed(seeded, monkeypatch):
+    # Attach a bundle sidecar, then the bundle route returns it verbatim.
+    with Station(seeded["data_dir"]) as st:
+        row = st.store.get_folio(seeded["a"])
+        bundle = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1",
+            bundles=["x"],
+            canonical_bytes=canon.folio_canonical_bytes(row),
+        )
+        st.store.set_signature(seeded["a"], bundle.model_dump_json())
+    monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+    client = TestClient(create_app())
+    r = client.get(f"/folio/{seeded['a']}/bundle")
+    assert r.status_code == 200
+    assert r.json()["identity_scheme"] == "sigstore-public-v1"
+    assert "immutable" in r.headers["cache-control"]

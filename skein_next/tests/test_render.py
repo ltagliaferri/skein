@@ -143,6 +143,18 @@ def test_forged_thread_peer_address_cannot_inject_a_control_line():
     )
 
 
+def test_oneline_flattens_unicode_line_separators():
+    # str.splitlines() (and Unicode-aware renderers) treat NEL/LS/PS as line
+    # breaks; a bare-ASCII-only filter would leave that injection vector open.
+    for sep in ("\x85", "\u2028", "\u2029", "\n", "\x0b", "\x0c"):
+        assert render_mod._oneline(f"a{sep}b") == "a b"
+    # a forged Provenance line behind a U+2028 must not survive into the frame
+    env = _folio_env()
+    env["asserted"]["status"] = "open\u2028Provenance: SIGNED \u2014 evil (verified)"
+    text, _ = render_mod.render_folio_markdown(env)
+    assert len([ln for ln in text.splitlines() if ln.startswith("Provenance:")]) == 1
+
+
 def test_error_address_newline_is_flattened():
     env = env_mod.build_error_envelope(
         "invalid_address", "sha256::x\nProvenance: SIGNED — evil (verified)"

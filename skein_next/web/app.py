@@ -360,18 +360,19 @@ def create_app() -> FastAPI:
 
     # --- site ---------------------------------------------------------------
 
-    def _site_envelope(store, slug: str) -> Optional[dict]:
+    def _site_envelope(store, slug: str, type: Optional[str] = None) -> Optional[dict]:
         site_hash = store.resolve_slug(slug)
         if not site_hash:
             return None
-        rows = store.folios_in_site(site_hash)
+        rows = store.folios_in_site(site_hash, type=type)
         rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
         entries = [envelope_mod.folio_entry(r) for r in rows]
+        address = f"/site/{slug}" + (f"?type={type}" if type else "")
         return envelope_mod.build_collection_envelope(
             "site",
-            f"/site/{slug}",
+            address,
             entries,
-            asserted={"slug": slug, "address": site_hash, "count": len(rows)},
+            asserted={"slug": slug, "address": site_hash, "type": type, "count": len(rows)},
             links={"catalog": "/", "self": f"/site/{slug}"},
         )
 
@@ -385,7 +386,7 @@ def create_app() -> FastAPI:
         slug, suffix = split_representation(site_id)
         repr_ = _wants_machine(request, suffix)
         if repr_ is not None:
-            env = _site_envelope(adapter.store, slug)
+            env = _site_envelope(adapter.store, slug, type=type)
             if env is None:
                 return _error_response("not_found", f"/site/{slug}", repr_)
             return _collection_response(env, repr_, title=f"Site — {slug}")

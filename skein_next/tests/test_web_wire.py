@@ -199,6 +199,16 @@ def test_site_json(client, seeded):
     assert {e["address"] for e in env["body"]} == {seeded["a"], seeded["b"]}
 
 
+def test_site_json_honors_type_filter(client, seeded):
+    # The machine listing must honor ?type= just like the HTML branch — silently
+    # ignoring it would be a contract gap (a/finding, b/brief in the fixture).
+    r = client.get("/site/proj.json", params={"type": "brief"})
+    assert r.status_code == 200
+    env = r.json()
+    assert env["asserted"]["type"] == "brief" and env["asserted"]["count"] == 1
+    assert {e["address"] for e in env["body"]} == {seeded["b"]}
+
+
 def test_site_json_unknown_is_error(client):
     r = client.get("/site/ghost.json")
     assert r.status_code == 404

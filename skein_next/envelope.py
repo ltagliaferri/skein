@@ -107,7 +107,10 @@ def validate_envelope(env: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def folio_verdict(
-    store, content_hash: str, row: Mapping[str, Any]
+    store,
+    content_hash: str,
+    row: Mapping[str, Any],
+    bundle_json: Optional[str] = None,
 ) -> tuple[str, Optional[Dict[str, Optional[str]]]]:
     """The station's provenance verdict line for a folio, and the signer identity.
 
@@ -117,8 +120,12 @@ def folio_verdict(
     verification path (same one the HTML provenance card uses), distinguishing a
     bad signature from a verifier that could not be reached. The slice-2 strict,
     domain-separated path replaces the call without changing this contract.
+
+    ``bundle_json`` may be passed by a caller that already read the sidecar (the
+    envelope builder), so a folio read does one signature fetch, not two.
     """
-    bundle_json = store.get_signature(content_hash)
+    if bundle_json is None:
+        bundle_json = store.get_signature(content_hash)
     if not bundle_json:
         return ("UNSIGNED — operator-vouched, not cryptographically signed", None)
 
@@ -226,7 +233,7 @@ def build_folio_envelope(
 
     bundle_json = store.get_signature(content_hash)
     signature_bundle = _bundle_object(bundle_json)
-    verdict, _identity = folio_verdict(store, content_hash, row)
+    verdict, _identity = folio_verdict(store, content_hash, row, bundle_json)
 
     links = {
         "self": _folio_href(content_hash),

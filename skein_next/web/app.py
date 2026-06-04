@@ -143,8 +143,15 @@ def negotiate(suffix: Optional[str], accept: Optional[str], user_agent: Optional
 
     A ``.json``/``.md`` suffix wins. Then an explicit ``Accept``. Absent both, the
     User-Agent decides — a browser (``Mozilla``) gets HTML, a CLI/agent tool gets
-    markdown, and anything unrecognized defaults to HTML so the human surface (and
-    the existing route tests) keep working.
+    markdown, and anything unrecognized defaults to HTML.
+
+    Note the trade: tgg8 §1/§7 make agent markdown the *default* representation,
+    but a no-Accept, unrecognized-UA request gets HTML here — browser-compat is
+    chosen for the bare case (browsers send ``Accept: text/html``; the human
+    surface stays the safe default). An agent that wants the wire must say so
+    explicitly: a ``.json``/``.md`` suffix, an ``Accept`` header, or a recognized
+    agent User-Agent. ``skein fetch`` always does, so this only affects ad-hoc
+    callers.
     """
     if suffix == "json":
         return "json"
@@ -174,30 +181,67 @@ def _wants_machine(request: Request, suffix: Optional[str]) -> Optional[str]:
 
 
 def _immutable_headers(content_hash: str) -> dict:
-    # Keyed by the full content hash: the object bytes can never change, so an
-    # agent holding them need not refetch (§8).
+    # For a representation that IS the hashed object bytes (raw .md = body.content,
+    # a canonical field): the content hash binds it, so it can never change and an
+    # agent holding it need not refetch (§8). The ETag is the content hash itself.
     return {"ETag": f'"{content_hash}"', "Cache-Control": "public, immutable"}
+
+
+def _payload_etag(payload: bytes) -> str:
+    """A strong validator over the exact response bytes."""
+    import hashlib
+
+    return f'"{hashlib.sha256(payload).hexdigest()}"'
+
+
+def _conditional(request: Request, etag: str, headers: dict) -> Optional[Response]:
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return None
+
+
+def _json_revalidate(request: Request, env: dict, *, status: int = 200) -> Response:
+    """Serialize an envelope and serve it ``no-cache`` with an ETag over the exact
+    bytes — so a conditional GET revalidates and only 304s when the WHOLE envelope
+    (including the derived ``asserted`` block) is byte-identical.
+
+    The folio envelope embeds the verifiable object (``proof``+``body``) AND the
+    station's mutable ``asserted`` claims (status, site, graph edges, verdict). A
+    status thread can flip ``status``/``verdict`` while the content hash is
+    unchanged, so the envelope is NOT immutable: per tgg8 §8 / ujwx §5 only the
+    object bytes (raw .md) are immutably cacheable; the asserted-bearing envelope
+    must be revalidated.
+    """
+    import json
+
+    payload = json.dumps(env, ensure_ascii=False, separators=(",", ":")).encode()
+    etag = _payload_etag(payload)
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    not_modified = _conditional(request, etag, headers)
+    if not_modified is not None:
+        return not_modified
+    return Response(payload, status_code=status, media_type="application/json", headers=headers)
 
 
 def _folio_response(request: Request, store, content_hash: str, repr_: str, row) -> Response:
     env = envelope_mod.build_folio_envelope(store, content_hash, row=row)
 
     if repr_ == "json":
-        headers = _immutable_headers(content_hash)
-        if request.headers.get("if-none-match") == headers["ETag"]:
-            return Response(status_code=304, headers=headers)
-        return JSONResponse(env, headers=headers)
+        return _json_revalidate(request, env)
 
     if repr_ == "md_raw":
+        # body.content is a hashed canonical field, so this representation truly
+        # cannot change for a given content hash — the one immutable folio view.
         headers = _immutable_headers(content_hash)
-        if request.headers.get("if-none-match") == headers["ETag"]:
-            return Response(status_code=304, headers=headers)
+        not_modified = _conditional(request, headers["ETag"], headers)
+        if not_modified is not None:
+            return not_modified
         return PlainTextResponse(
             render_mod.render_raw_md(env), media_type=_MARKDOWN_MEDIA, headers=headers
         )
 
     # markdown: a per-fetch nonce makes each response unique, so it is never
-    # immutably cached; the nonce also rides a header for parse-free splitting.
+    # cached; the nonce also rides a header for parse-free splitting.
     text, nonce = render_mod.render_folio_markdown(env)
     return PlainTextResponse(
         text,
@@ -222,13 +266,16 @@ def _error_response(
 
 
 def _collection_response(env: dict, repr_: str, *, title: str) -> Response:
+    # Derived (a query result, `as_of`-stamped): never immutably cached. JSON
+    # revalidates; the nonce'd markdown is no-store like the folio markdown — a
+    # per-fetch delimiter must not be stored and replayed.
     if repr_ == "json":
         return JSONResponse(env, headers={"Cache-Control": "no-cache"})
     text, nonce = render_mod.render_collection_markdown(env, title=title)
     return PlainTextResponse(
         text,
         media_type=_MARKDOWN_MEDIA,
-        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-cache"},
+        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store"},
     )
 
 
@@ -244,12 +291,15 @@ def create_app() -> FastAPI:
     # --- index / catalog ----------------------------------------------------
 
     def _catalog_envelope(store) -> dict:
+        # The whole-corpus scan feeds the recent-30 window (no recency-ordered
+        # query exists yet; the HTML index does the same). The TOTAL, though, is
+        # the store's own count — `len(rows)` would silently cap at the scan limit.
         rows = store.list_folios(limit=1_000_000)
         recent = sorted(rows, key=lambda r: r.get("created_at") or "", reverse=True)[:30]
         entries = [envelope_mod.folio_entry(r) for r in recent]
         counts: dict = {}
-        for r in store.folio_site_slugs().values():
-            counts[r] = counts.get(r, 0) + 1
+        for slug in store.folio_site_slugs().values():
+            counts[slug] = counts.get(slug, 0) + 1
         sites = [
             {"slug": slug, "address": h, "href": f"/site/{slug}", "count": counts.get(slug, 0)}
             for slug, h in store.list_slugs()
@@ -263,7 +313,7 @@ def create_app() -> FastAPI:
                 "wire": envelope_mod.SCHEMA,
                 "profile": envelope_mod.CANON_PROFILE,
                 "sites": sites,
-                "total_folios": len(rows),
+                "total_folios": store.count_folios(),
                 "example": "skein fetch sha256::<digest>",
             },
             links={"catalog": "/"},
@@ -383,7 +433,7 @@ def create_app() -> FastAPI:
             },
         )
 
-    def _serve_bundle(store, address: str) -> Response:
+    def _serve_bundle(request: Request, store, address: str) -> Response:
         try:
             content_hash = resolve_to_hash(address, store, local_authority=get_authority())
         except ResolveError as e:
@@ -391,9 +441,17 @@ def create_app() -> FastAPI:
         bundle_json = store.get_signature(content_hash)
         if not bundle_json:
             return _error_response("not_found", f"{address}/bundle", "json")
-        return Response(
-            bundle_json, media_type="application/json", headers=_immutable_headers(content_hash)
-        )
+        # The bundle is overlay, not identity: a folio can be re-signed (slice 2
+        # re-signs the live docs under the canon profile), replacing the bundle
+        # for an unchanged content hash. So it revalidates against an ETag over
+        # the bundle bytes, never `immutable`.
+        payload = bundle_json.encode()
+        etag = _payload_etag(payload)
+        headers = {"ETag": etag, "Cache-Control": "no-cache"}
+        not_modified = _conditional(request, etag, headers)
+        if not_modified is not None:
+            return not_modified
+        return Response(payload, media_type="application/json", headers=headers)
 
     @app.get("/folio/{ref:path}", response_class=HTMLResponse)
     def folio_detail(
@@ -405,7 +463,7 @@ def create_app() -> FastAPI:
 
         # The signature bundle sub-resource (the dead-end-free provenance link).
         if ref.endswith("/bundle"):
-            return _serve_bundle(store, ref[: -len("/bundle")])
+            return _serve_bundle(request, store, ref[: -len("/bundle")])
 
         address, suffix = split_representation(ref)
         repr_ = negotiate(suffix, request.headers.get("accept"), request.headers.get("user-agent"))

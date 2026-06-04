@@ -77,14 +77,43 @@ def test_json_folio(client, seeded):
     env = r.json()
     assert env["kind"] == "folio" and env["proof"]["content_hash"] == seeded["a"]
     assert env["body"]["title"] == "Finding A"
-    assert r.headers["etag"] == f'"{seeded["a"]}"'
-    assert "immutable" in r.headers["cache-control"]
+    # The envelope embeds mutable `asserted` state, so it is NOT immutable: it
+    # revalidates, and the ETag is over the payload bytes (not the content hash).
+    assert r.headers["cache-control"] == "no-cache"
+    assert r.headers["etag"] != f'"{seeded["a"]}"'
 
 
 def test_json_folio_conditional_304(client, seeded):
-    etag = f'"{seeded["a"]}"'
+    # A conditional GET 304s only against the *payload* ETag (whole envelope),
+    # never against the content hash.
+    first = client.get(f"/folio/{seeded['a']}.json")
+    etag = first.headers["etag"]
     r = client.get(f"/folio/{seeded['a']}.json", headers={"If-None-Match": etag})
     assert r.status_code == 304
+    # The content-hash spelling must NOT satisfy the conditional (that was the bug).
+    r2 = client.get(f"/folio/{seeded['a']}.json", headers={"If-None-Match": f'"{seeded["a"]}"'})
+    assert r2.status_code == 200
+
+
+def test_json_folio_etag_tracks_asserted_not_just_hash(seeded, monkeypatch):
+    """A status change flips the envelope ETag while the content hash is unchanged
+    — proving the asserted block is not pinned by an immutable cache (B1)."""
+    monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+    before = TestClient(create_app()).get(f"/folio/{seeded['b']}.json")
+    assert before.json()["asserted"]["status"] == "open"
+    etag_before = before.headers["etag"]
+
+    with Station(seeded["data_dir"]) as st:  # close the folio via a status thread
+        st.store.save_thread(
+            to_id=seeded["b"],
+            type="status",
+            content="closed",
+            created_at="2026-02-01T00:00:00Z",
+        )
+    after = TestClient(create_app()).get(f"/folio/{seeded['b']}.json")
+    assert after.json()["asserted"]["status"] == "closed"
+    assert after.json()["proof"]["content_hash"] == seeded["b"]  # hash unchanged
+    assert after.headers["etag"] != etag_before  # but the validator moved
 
 
 def test_markdown_via_accept(client, seeded):
@@ -228,4 +257,5 @@ def test_bundle_served_when_signed(seeded, monkeypatch):
     r = client.get(f"/folio/{seeded['a']}/bundle")
     assert r.status_code == 200
     assert r.json()["identity_scheme"] == "sigstore-public-v1"
-    assert "immutable" in r.headers["cache-control"]
+    # The bundle is re-signable for an unchanged hash (slice 2), so it revalidates.
+    assert r.headers["cache-control"] == "no-cache"

@@ -1,23 +1,30 @@
 {% extends "base.html" %}
-{% block title %}search — SKEIN{% endblock %}
+{#
+  search.html — results from the search collection envelope (`env.body`). Search
+  is HTML-only in Phase 1; the machine search.json endpoint is slice 5.
+#}
+{% block title %}search — {{ station.name }}{% endblock %}
 {% block content %}
+<main class="skein-page">
   <h1>Search</h1>
-  <form action="/search" method="get">
-    <input type="search" name="q" value="{{ q }}" placeholder="search folios" autofocus>
+  <form class="search-form" action="/search" method="get" role="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="search folios" aria-label="search folios" autofocus>
     <button type="submit">go</button>
   </form>
 
   {% if q %}
-    <p><small>{{ results|length }} result(s) for "{{ q }}".</small></p>
-    <ul class="folios">
-      {% for f in results %}
-        <li>
-          [{{ f.type }}] <a href="/folio/{{ f.folio_id }}">{{ f.title | clean_title(f.folio_id) }}</a>
-          <small>{{ f.folio_id }} · {{ f.site_id }} · {{ f.created_at.strftime('%Y-%m-%d') }}</small>
-        </li>
-      {% else %}
-        <li>No matches.</li>
-      {% endfor %}
-    </ul>
+  <p class="meta">{{ env.body | length }} result(s) for &ldquo;{{ q }}&rdquo;.</p>
+  <ul class="entry-list">
+    {% for e in env.body %}
+    <li class="entry">
+      <span class="type-tag">{{ e.type }}</span>
+      <a href="{{ e.href }}">{{ e.title | clean_title(e.address) }}</a>
+      <div class="meta crypto">{{ e.address }}</div>
+    </li>
+    {% else %}
+    <li class="meta">No matches.</li>
+    {% endfor %}
+  </ul>
   {% endif %}
+</main>
 {% endblock %}

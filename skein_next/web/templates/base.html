@@ -1,29 +1,49 @@
+{#
+  base.html — the semantic, hook-rich shell every page extends.
+
+  Content-first source order is a DOM guarantee (Patrick screen-reader hard req):
+  each page puts its primary content (the folio body, the listing) before nav
+  chrome where it can. The head links base.css, then the active theme, then an
+  inline <style> with the stationfile token overrides (the no-CSS path) — last
+  wins, so a token always beats the theme's default for that property.
+#}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"{% if data_theme %} data-theme="{{ data_theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}SKEIN{% endblock %}</title>
-  <style>
-    body { max-width: 42rem; margin: 1rem auto; padding: 0 1rem; }
-    ul.folios { padding-left: 1.2rem; }
-    pre { overflow-x: auto; }
-  </style>
+  <title>{% block title %}{{ station.name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/base.css">
+  {% if station.is_shipped_theme %}
+  <link rel="stylesheet" href="/static/themes/{{ station.theme }}.css">
+  {% else %}
+  <link rel="stylesheet" href="/theme.css">
+  {% endif %}
+  {#
+    token_css is pre-sanitized by the loader (no <>{}; — it can neither escape
+    the declaration nor close the <style> element), so it is emitted unescaped:
+    autoescaping would mangle legitimate CSS values like a quoted font name.
+  #}
+  {% if token_css %}<style>:root { {{ token_css | safe }} }</style>{% endif %}
 </head>
 <body>
-  <header>
-    <strong><a href="/">{{ project_id }}</a></strong>
-    <nav>
-      <a href="/">overview</a> ·
-      <form action="/search" method="get" style="display:inline">
-        <input type="search" name="q" placeholder="search folios" value="{{ q|default('') }}">
+  <header class="station-header">
+    <span class="station-name"><a href="/">{{ station.name }}</a></span>
+    {% if station.tagline %}<span class="tagline">{{ station.tagline }}</span>{% endif %}
+    <nav class="station-nav" aria-label="station">
+      <a href="/">overview</a>
+      <form action="/search" method="get" role="search">
+        <input type="search" name="q" placeholder="search" value="{{ q|default('') }}" aria-label="search folios">
         <button type="submit">go</button>
       </form>
     </nav>
   </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
-  <footer>SKEIN — read-only surface. Provenance shown per folio.</footer>
+
+  {% block content %}{% endblock %}
+
+  <footer class="station-footer">
+    {{ station.name }} — read-only station surface. Provenance is shown per folio;
+    every claim under &ldquo;station claim&rdquo; is to be verified independently.
+  </footer>
 </body>
 </html>

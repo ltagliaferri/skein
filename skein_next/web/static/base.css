@@ -1,0 +1,98 @@
+/* base.css — the shared structural skeleton + the token surface.
+ *
+ * brief-20260603-s4gq (layer 3). This sheet ships with EVERY page; a theme
+ * (ulm.css / classic.css / a custom sheet) layers on top of it. It owns three
+ * things and nothing visual beyond them:
+ *
+ *   1. The token surface — the CSS custom properties on :root that the
+ *      stationfile `tokens` override (the no-CSS path) and that themes read.
+ *   2. The structural contract — content-first source order is a DOM guarantee
+ *      (the templates emit the folio body before chrome); this sheet does not
+ *      reorder it. The stable class hooks below are the theming contract: a
+ *      theme targets them and we promise not to rename them.
+ *   3. A minimal reset so themes start from the same baseline.
+ *
+ * The stable hooks (do not rename — themes depend on these):
+ *   .station-header .station-nav .station-footer .breadcrumb
+ *   .skein-folio .folio-body .metadata .type-tag .crypto
+ *   .provenance (+ --verified/--invalid/--unverified/--unsigned)
+ *   .threads .threads-out .threads-in .lineage .toc
+ *   .entry-list .entry .site-list .prose (folio body prose links live here)
+ */
+
+:root {
+  /* Grayscale + one accent set (green=verified, amber=wrapped, red=invalid).
+   * Color never does structural work — size and weight do. */
+  --fg: #111;
+  --bg: #fff;
+  --muted: #555;
+  --rule: #ccc;
+  --link: #0b3d91;
+  --accent: #0a7d3b;       /* verified — dark green */
+  --accent-warn: #9a6a00;  /* wrapped / unverified — amber */
+  --accent-bad: #a11; /* invalid signature — red */
+
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --maxw: 44rem;
+  --gap: 1rem;
+}
+
+[data-theme="dark"] {
+  --fg: #e8e8e8;
+  --bg: #121212;
+  --muted: #9a9a9a;
+  --rule: #333;
+  --link: #6ea8fe;
+  --accent: #4caf76;
+  --accent-warn: #d0a23a;
+  --accent-bad: #e26d6d;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font-body);
+  line-height: 1.5;
+}
+
+/* Crypto-artifact marker: hashes, signatures, addresses, profile strings.
+ * Monospace says "this is a crypto artifact," not the page vibe. */
+.crypto, code, pre, .address {
+  font-family: var(--font-mono);
+}
+
+.crypto, .address { word-break: break-all; }
+
+a { color: var(--link); }
+
+/* The structural wrapper hooks exist on every page so themes can target them
+ * even before they carry theme-specific rules. */
+.skein-page { display: block; }
+.skein-folio { display: block; }
+.folio-body { display: block; }
+
+/* Provenance state is conveyed by a modifier class, never color alone — the
+ * label text ("SIGNED — … (verified)", "SIGNATURE INVALID — …") carries the
+ * meaning; the accent is reinforcement. */
+.provenance--verified { --prov: var(--accent); }
+.provenance--invalid { --prov: var(--accent-bad); }
+.provenance--unverified { --prov: var(--accent-warn); }
+.provenance--unsigned { --prov: var(--muted); }
+
+/* A visually-hidden helper for screen-reader-only labels (the structured path
+ * stays first-class; this just lets a theme hide a redundant visible label
+ * without removing it from the accessibility tree). */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}

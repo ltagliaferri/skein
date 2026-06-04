@@ -20,10 +20,11 @@ services:
       - "127.0.0.1:9001:9001"
     environment:
       - SKEIN_NEXT_DATA_DIR=/data
-      # Display name for the instance (page <title>/h1). Without this the label
-      # is derived from the data dir's parent, which is empty when the corpus is
-      # mounted straight at /data — rendering a bare "— SKEIN". Override per
-      # instance once per-site config lands.
+      # The station name (page <title>/h1) bootstrap. A station MUST be named:
+      # with no stationfile (.skein-next/stationfile.json) and this var unset, the
+      # station refuses to start (slice 3 retired the old derive-from-parent
+      # fallback). Once a stationfile with a "name" exists it wins over this var,
+      # so a rename rides the light deploy path; this stays a harmless fallback.
       - SKEIN_NEXT_PROJECT=interskein
     volumes:
       - "${INTERSKEIN_CORPUS:?set INTERSKEIN_CORPUS to a project's .skein-next dir}:/data:ro"

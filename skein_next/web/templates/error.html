@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{#
+  error.html — a themed human error/absence page. The machine surface returns a
+  structured error envelope (§6); this is the HTML rendering of the same miss.
+#}
+{% block title %}not found — {{ station.name }}{% endblock %}
+{% block content %}
+<main class="skein-page">
+  <h1>Not resolved</h1>
+  <p class="meta">{{ message }}</p>
+  {% if address %}<p class="crypto">{{ address }}</p>{% endif %}
+  <p><a href="/">Return to the catalog</a></p>
+</main>
+{% endblock %}

@@ -97,8 +97,12 @@ def test_dangling_thread_is_refused_by_instance(client, instance):
     ghost = "sha256::" + "a" * 64
     real = batch["folios"][0]["content_hash"]
     bad = {
-        "from_id": real, "to_id": ghost, "type": "reference",
-        "weaver": "tester", "created_at": "2026-06-01T00:00:00+00:00", "content": None,
+        "from_id": real,
+        "to_id": ghost,
+        "type": "reference",
+        "weaver": "tester",
+        "created_at": "2026-06-01T00:00:00+00:00",
+        "content": None,
     }
     bad["thread_hash"] = wire.recompute_thread_hash(bad)
     batch["threads"].append(bad)
@@ -115,8 +119,14 @@ def test_dropped_edge_is_convergent_on_later_publish(client, instance):
     a = client.post("finding", "specs", "A", "body a", created_by="t")
     b = client.post("finding", "specs", "B", "body b", created_by="t")
     # A references B; both are in 'specs' but we publish them one at a time.
-    client.store.save_thread(from_id=a, to_id=b, type="reference", weaver="t",
-                             content=None, created_at="2026-06-01T00:00:00+00:00")
+    client.store.save_thread(
+        from_id=a,
+        to_id=b,
+        type="reference",
+        weaver="t",
+        content=None,
+        created_at="2026-06-01T00:00:00+00:00",
+    )
 
     # Publish A alone: the A->B reference dangles (B not yet on instance) -> dropped.
     fa, ta, sa = collect_publish_set(client, refs=[a], instance=inst)
@@ -179,12 +189,17 @@ def test_created_at_non_normalized_survives_round_trip(instance):
     this pins that a non-normalized wire value still re-hashes to its address.
     """
     wf = {
-        "type": "finding", "title": "T", "content": "body",
-        "created_at": "2026-06-01T00:00:00Z", "created_by": "t",
+        "type": "finding",
+        "title": "T",
+        "content": "body",
+        "created_at": "2026-06-01T00:00:00Z",
+        "created_by": "t",
     }
     wf["content_hash"] = wire.recompute_folio_hash(wf)
     assert wire.folio_hash_ok(wf)
-    ack = ingest(instance, {"protocol": wire.PROTOCOL, "folios": [wf], "threads": [], "site_slugs": {}})
+    ack = ingest(
+        instance, {"protocol": wire.PROTOCOL, "folios": [wf], "threads": [], "site_slugs": {}}
+    )
     assert wf["content_hash"] in ack["accepted"]
     assert instance.store.get_folio(wf["content_hash"]) is not None
 
@@ -195,8 +210,14 @@ def test_convergence_reverse_order_b_then_a(client, instance):
     client.create_site("specs", purpose="p", created_by="t")
     a = client.post("finding", "specs", "A", "a", created_by="t")
     b = client.post("finding", "specs", "B", "b", created_by="t")
-    client.store.save_thread(from_id=a, to_id=b, type="reference", weaver="t",
-                             content=None, created_at="2026-06-01T00:00:00+00:00")
+    client.store.save_thread(
+        from_id=a,
+        to_id=b,
+        type="reference",
+        weaver="t",
+        content=None,
+        created_at="2026-06-01T00:00:00+00:00",
+    )
 
     fb, tb, sb = collect_publish_set(client, refs=[b], instance=inst)
     assert all(t["type"] != "reference" for t in tb)  # A not on instance yet
@@ -214,8 +235,14 @@ def test_convergence_reverse_order_b_then_a(client, instance):
 def test_actor_id_endpoint_edge_is_dropped(client):
     """An edge to a bare actor id (not a folio) is not eligible to travel."""
     f1, _ = _seed_site(client)
-    client.store.save_thread(from_id=f1, to_id="agent:somebody", type="assignment",
-                             weaver="t", content=None, created_at="2026-06-01T00:00:00+00:00")
+    client.store.save_thread(
+        from_id=f1,
+        to_id="agent:somebody",
+        type="assignment",
+        weaver="t",
+        content=None,
+        created_at="2026-06-01T00:00:00+00:00",
+    )
     _, threads, _ = collect_publish_set(client, site="specs")
     assert all(t["type"] != "assignment" for t in threads)
 
@@ -229,6 +256,7 @@ def test_canonical_instance_collapses_variants():
 
 def test_canonical_instance_handles_ipv6_literal():
     import urllib.parse
+
     canon = canonical_instance("http://[::1]:9101/")
     assert canon == "http://[::1]:9101"
     # the result must reparse (a dropped bracket would make .port throw).
@@ -238,10 +266,35 @@ def test_canonical_instance_handles_ipv6_literal():
 def test_unhashable_created_at_is_rejected_not_raised(instance):
     """A folio whose created_at can't be normalized is rejected, never raised."""
     bad = {
-        "content_hash": "sha256::" + "0" * 64, "type": "finding", "title": "T",
-        "content": "b", "created_at": 12345, "created_by": "t",  # int, unparseable
+        "content_hash": "sha256::" + "0" * 64,
+        "type": "finding",
+        "title": "T",
+        "content": "b",
+        "created_at": 12345,
+        "created_by": "t",  # int, unparseable
     }
-    ack = ingest(instance, {"protocol": wire.PROTOCOL, "folios": [bad], "threads": [], "site_slugs": {}})
+    ack = ingest(
+        instance, {"protocol": wire.PROTOCOL, "folios": [bad], "threads": [], "site_slugs": {}}
+    )
+    assert any(r["reason"] == "invalid fields" for r in ack["rejected"])
+    assert instance.store.count_folios() == 0
+
+
+def test_canon_rejected_body_is_rejected_not_raised(instance):
+    """A body knurl's canon rejects (a noncharacter code point) raises CanonError,
+    which is NOT a ValueError/TypeError — the old narrow catch would have 500'd
+    the ingress. The total catch rejects it cleanly (zr29 MEDIUM #6)."""
+    bad = {
+        "content_hash": "sha256::" + "0" * 64,
+        "type": "finding",
+        "title": "x﷐y",  # U+FDD0 noncharacter -> CanonError
+        "content": "b",
+        "created_at": "2026-01-01T00:00:00Z",
+        "created_by": "t",
+    }
+    ack = ingest(
+        instance, {"protocol": wire.PROTOCOL, "folios": [bad], "threads": [], "site_slugs": {}}
+    )
     assert any(r["reason"] == "invalid fields" for r in ack["rejected"])
     assert instance.store.count_folios() == 0
 
@@ -249,12 +302,24 @@ def test_unhashable_created_at_is_rejected_not_raised(instance):
 def test_route_does_not_500_on_unhashable_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("SKEIN_NEXT_DATA_DIR", str(tmp_path / "r2" / ".skein-next"))
     tc = TestClient(create_app(), raise_server_exceptions=False)
-    r = tc.post("/publish/v0/folios", json={
-        "protocol": wire.PROTOCOL,
-        "folios": [{"content_hash": "sha256::x", "type": "finding", "title": "T",
-                    "content": "b", "created_at": 12345, "created_by": "t"}],
-        "threads": [], "site_slugs": {},
-    })
+    r = tc.post(
+        "/publish/v0/folios",
+        json={
+            "protocol": wire.PROTOCOL,
+            "folios": [
+                {
+                    "content_hash": "sha256::x",
+                    "type": "finding",
+                    "title": "T",
+                    "content": "b",
+                    "created_at": 12345,
+                    "created_by": "t",
+                }
+            ],
+            "threads": [],
+            "site_slugs": {},
+        },
+    )
     assert r.status_code == 200
     assert any(rj["reason"] == "invalid fields" for rj in r.json()["rejected"])
 
@@ -266,16 +331,24 @@ def test_publish_canonicalizes_instance_and_surfaces_thread_rejections(client, m
     def fake_post(instance, batch, timeout=30.0):
         hashes = [f["content_hash"] for f in batch["folios"]]
         return {
-            "protocol": wire.PROTOCOL, "accepted": hashes, "existing": [], "rejected": [],
-            "threads": {"accepted": [], "existing": [],
-                        "rejected": [{"thread_hash": "sha256::x", "reason": "dangling endpoint"}]},
+            "protocol": wire.PROTOCOL,
+            "accepted": hashes,
+            "existing": [],
+            "rejected": [],
+            "threads": {
+                "accepted": [],
+                "existing": [],
+                "rejected": [{"thread_hash": "sha256::x", "reason": "dangling endpoint"}],
+            },
         }
 
     monkeypatch.setattr(pub_mod, "post_batch", fake_post)
     result = pub_mod.publish(client, "http://127.0.0.1:9101/", site="specs", by="t")
 
     assert result["instance"] == "http://127.0.0.1:9101"
-    assert result["threads_rejected"] == [{"thread_hash": "sha256::x", "reason": "dangling endpoint"}]
+    assert result["threads_rejected"] == [
+        {"thread_hash": "sha256::x", "reason": "dangling endpoint"}
+    ]
     # the trailing-slash variant is recorded as one canonical instance.
     assert client.published_instances(f1) == ["http://127.0.0.1:9101"]
 

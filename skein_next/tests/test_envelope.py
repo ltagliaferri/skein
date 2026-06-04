@@ -177,12 +177,14 @@ def test_verdict_unsigned(seeded):
 
 def _store_fake_bundle(store, content_hash):
     row = store.get_folio(content_hash)
-    from skein_next import canon
+    from skein_next import canon, profile
 
+    preimage = profile.profiled_preimage(profile.CANON_PROFILE_V1, canon.folio_canonical_bytes(row))
     bundle = signing.SignatureBundle(
         identity_scheme="sigstore-public-v1",
         bundles=["x"],
-        canonical_bytes=canon.folio_canonical_bytes(row),
+        canonical_bytes=preimage,
+        canon_version=profile.CANON_PROFILE_V1,
     )
     store.set_signature(content_hash, bundle.model_dump_json())
 

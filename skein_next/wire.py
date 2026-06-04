@@ -29,9 +29,12 @@ of any content hash.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Mapping, Optional
 
 from .identity import compute_folio_hash, compute_thread_hash
+
+logger = logging.getLogger(__name__)
 
 PROTOCOL = "skein-publish/v0"
 
@@ -97,15 +100,18 @@ def folio_reject_reason(wire_folio: Mapping[str, Any]) -> Optional[str]:
 
     This is the integrity check the unsigned prototype leans on: even with no
     signature, a folio whose body was altered in transit will not re-hash to its
-    claimed address. The check is TOTAL — fields that cannot even be hashed
-    (e.g. an unparseable or non-string ``created_at``) are rejected as
-    ``"invalid fields"`` rather than raising, so a malformed batch never 500s
-    the ingress. Signing later upgrades this from "the content is intact" to
-    "the content is intact AND authored by X".
+    claimed address. The check is TOTAL — the ingress is an adversarial boundary,
+    so ANY failure to hash a hostile body (an unparseable ``created_at``, a value
+    knurl's canon rejects as ``CanonError``, a structure that trips a
+    ``KeyError``/``RecursionError`` in the pipeline) is rejected as
+    ``"invalid fields"`` rather than raising, so a malformed batch never 500s the
+    ingress (zr29 MEDIUM #6). Signing later upgrades this from "the content is
+    intact" to "the content is intact AND authored by X".
     """
     try:
         recomputed = recompute_folio_hash(wire_folio)
-    except (ValueError, TypeError):
+    except Exception as exc:  # noqa: BLE001 — total: the ingress must never 500
+        logger.debug("folio rejected: un-hashable body (%s): %s", type(exc).__name__, exc)
         return "invalid fields"
     if wire_folio.get("content_hash") != recomputed:
         return "hash mismatch"
@@ -116,7 +122,8 @@ def thread_reject_reason(wire_thread: Mapping[str, Any]) -> Optional[str]:
     """Why a thread should be rejected, or ``None`` if it is intact (total, as above)."""
     try:
         recomputed = recompute_thread_hash(wire_thread)
-    except (ValueError, TypeError):
+    except Exception as exc:  # noqa: BLE001 — total: the ingress must never 500
+        logger.debug("thread rejected: un-hashable edge (%s): %s", type(exc).__name__, exc)
         return "invalid fields"
     if wire_thread.get("thread_hash") != recomputed:
         return "hash mismatch"

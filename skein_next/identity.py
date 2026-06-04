@@ -37,10 +37,19 @@ from .canon import (  # noqa: F401
     thread_canonical_bytes,
 )
 
-def _address(content: str) -> str:
-    """Hash a canonical string and return it in the ``sha256::<hex>`` address form."""
+
+def _address(canonical_bytes: bytes) -> str:
+    """Hash canonical BYTES and return the ``sha256::<hex>`` address form.
+
+    Hashing the raw bytes (``knurl.hash.compute_bytes``) — not a
+    ``bytes -> str -> re-encode`` round-trip — makes "the bytes hashed are exactly
+    the bytes signed" structurally true rather than an implicit contract: the
+    signer signs ``folio_canonical_bytes(...)`` (bytes), and this hashes the same
+    bytes object, so the two can never disagree even if canon ever emitted
+    non-UTF-8 or knurl's string path re-encoded differently (zr29 CRITICAL #1).
+    """
     # knurl returns 'sha256:<hex>'; reframe to the address form 'sha256::<hex>'.
-    digest = knurl_hash.compute(content)
+    digest = knurl_hash.compute_bytes(canonical_bytes)
     return "sha256::" + digest.split(":", 1)[1]
 
 
@@ -53,7 +62,7 @@ def compute_folio_hash(fields: Mapping[str, Any]) -> str:
     signs — so a folio's hash and its signature can never disagree on what was
     hashed.
     """
-    return _address(folio_canonical_bytes(fields).decode("utf-8"))
+    return _address(folio_canonical_bytes(fields))
 
 
 def compute_thread_hash(
@@ -69,8 +78,4 @@ def compute_thread_hash(
     Threads are content-addressed like folios so save is idempotent. The
     canonical bytes come from :func:`skein_next.canon.thread_canonical_bytes`.
     """
-    return _address(
-        thread_canonical_bytes(
-            from_id, to_id, type, weaver, created_at, content
-        ).decode("utf-8")
-    )
+    return _address(thread_canonical_bytes(from_id, to_id, type, weaver, created_at, content))

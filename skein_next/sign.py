@@ -27,7 +27,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 from skein import signing
 
 from . import canon, profile
-from .identity import compute_folio_hash
+from .identity import content_hash_for_bytes
 
 DEFAULT_IDENTITY_SCHEME = "sigstore-public-v1"
 
@@ -159,6 +159,13 @@ def verify_wire_folio(
 
     There is no lazy path: nothing is accepted on the bundle's own stored bytes
     without re-deriving them from the body shown.
+
+    Scope: this function binds **authorship to the body shown** (step 3 signs the
+    body's canonical bytes). It binds the body to the claimed ``content_hash`` when
+    one is present (step 1), but it does NOT bind ``content_hash`` to the resolved
+    *address* or ``#`` fragment — that is enforced upstream at the resolver/ingress
+    (tgg8 §4 step 3) before the envelope is assembled. A "verified" result means
+    "these bytes were signed by X", not "this is the folio at that address".
     """
     raw = wire_folio.get("signature_bundle")
     if not raw:
@@ -168,10 +175,11 @@ def verify_wire_folio(
     except Exception:  # noqa: BLE001 — any parse failure is a malformed bundle
         return (False, "bundle malformed", None)
 
-    # (1) integrity: the body must hash to the claimed content hash.
+    # (1) integrity: the body must hash to the claimed content hash. Serialize the
+    # canonical bytes once and hash those directly (no second serialization).
     canonical = canon.folio_canonical_bytes(wire_folio)
     claimed = wire_folio.get("content_hash")
-    if claimed is not None and compute_folio_hash(wire_folio) != claimed:
+    if claimed is not None and content_hash_for_bytes(canonical) != claimed:
         return (False, "hash mismatch", None)
 
     # (2) profile: unknown canon_version is a hard fail, never a downgrade.

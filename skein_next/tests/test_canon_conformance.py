@@ -136,6 +136,26 @@ VECTORS = {
         ),
         content_hash="sha256::c46ee4bc62c9da3607d824356ce2fbfabed8674818052b1521db599e341ce8ed",
     ),
+    # A literal NUL in a field serializes to the JSON escape \\u0000 — NO raw 0x00
+    # byte in the output. This is the property the domain-separation NUL relies on
+    # (profile || 0x00 || canonical_bytes is unambiguous only if canonical_bytes
+    # can't contain a raw NUL); pinned here so a knurl change that stopped escaping
+    # control characters breaks loudly rather than silently un-separating the
+    # preimage (load-bearing once a second profile is registered).
+    "nul_escaped": dict(
+        fields={
+            "type": "note",
+            "title": "t",
+            "content": "a\x00b",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "created_by": "x",
+        },
+        canonical_bytes=(
+            b'{"content":"a\\u0000b","created_at":"2026-01-01T00:00:00+00:00",'
+            b'"created_by":"x","title":"t","type":"note"}'
+        ),
+        content_hash="sha256::a2abaef72b11900618f417d44925d4b183c0e16df03dc9ac56805fd203808d59",
+    ),
 }
 
 
@@ -149,6 +169,13 @@ def test_canonical_bytes_match_frozen_vector(name):
 def test_content_hash_matches_frozen_vector(name):
     vec = VECTORS[name]
     assert compute_folio_hash(vec["fields"]) == vec["content_hash"]
+
+
+@pytest.mark.parametrize("name", list(VECTORS))
+def test_canonical_bytes_never_contain_a_raw_nul(name):
+    # The domain-separation preimage is profile || 0x00 || canonical_bytes; that
+    # split is unambiguous only because canonical bytes can never hold a raw NUL.
+    assert b"\x00" not in VECTORS[name]["canonical_bytes"]
 
 
 # --- the properties the vectors encode (stated, not just implied) -----------

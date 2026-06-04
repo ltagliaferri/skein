@@ -24,7 +24,8 @@ from skein_next.ingress import ingest
 from skein_next import publish as pub_mod
 from skein_next import sign as sign_mod
 from skein_next import canon, profile, wire
-from skein_next.web.adapter import ContentHashAdapter
+from skein_next.envelope import folio_verdict
+from skein_next.store import SkeinNextStore
 
 
 def _unsigned_jwt(aud="sigstore", issuer="https://accounts.google.com") -> str:
@@ -86,14 +87,14 @@ def test_sign_publish_verify_round_trip(client, instance, provider, monkeypatch)
     # Bundle landed on the instance AND was mirrored client-side.
     assert instance.store.get_signature(f1) is not None
     assert client.store.get_signature(f1) is not None
-    # The signed folio verifies on the instance's read surface.
-    adapter = ContentHashAdapter(instance.store.data_dir)
+    # The signed folio verifies on the instance's read surface (the wire verdict).
+    store = SkeinNextStore(instance.store.data_dir, read_only=True)
     try:
-        prov = adapter.provenance(f1)
+        verdict, identity = folio_verdict(store, f1, store.get_folio(f1))
     finally:
-        adapter.close()
-    assert prov["signed"] is True
-    assert prov["issuer"]  # the fake cert's issuer/subject flow through
+        store.close()
+    assert verdict.startswith("SIGNED")
+    assert identity and identity["issuer"]  # the fake cert's issuer/subject flow through
 
 
 def test_signature_bundle_is_overlay_not_identity(client, provider, monkeypatch):
@@ -344,7 +345,7 @@ def test_provenance_distinguishes_unverifiable_from_invalid(client, instance, mo
     ingest(instance, batch, verifier=_ok_verifier)  # store bundles
 
     f = next(f for f in folios if f["type"] == "finding")["content_hash"]
-    adapter = ContentHashAdapter(instance.store.data_dir)
+    store = SkeinNextStore(instance.store.data_dir, read_only=True)
 
     def offline_verify(cb, bundle):
         return signing.MultiVerifyResult(
@@ -355,9 +356,8 @@ def test_provenance_distinguishes_unverifiable_from_invalid(client, instance, mo
     # default_verifier calls signing.verify_multi at call time, so patch there.
     monkeypatch.setattr(signing, "verify_multi", offline_verify)
     try:
-        prov = adapter.provenance(f)
+        verdict, _identity = folio_verdict(store, f, store.get_folio(f))
     finally:
-        adapter.close()
-    assert prov["signed"] is False
-    assert prov["signature_note"].startswith("UNVERIFIED")
-    assert "INVALID" not in prov["signature_note"]
+        store.close()
+    assert verdict.startswith("UNVERIFIED")
+    assert "INVALID" not in verdict

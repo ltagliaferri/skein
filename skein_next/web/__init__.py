@@ -1,9 +1,10 @@
-"""Read-only web surface for the content-hash station (Slice 4).
+"""Read-only web surface for the content-hash station (port 9001).
 
-The legacy SKEIN web app (``skein/web``) is reused in shape but not in code: a
-content-hash store adapter (:mod:`skein_next.web.adapter`) presents the new store
-behind the same handful of read methods the templates expect, so the page
-structure and four of the five templates carry over unchanged. The one thing
-rebuilt is cross-references — under hash identity you can't regex folio ids out
-of prose, so references come from the thread graph and the alias table instead.
+Two surfaces over one store, chosen by content negotiation, both built from the
+same native wire envelope (:mod:`skein_next.envelope`): the machine wire (JSON /
+agent markdown / raw ``.md``) and the themeable human HTML. The HTML is rendered
+FROM the envelope (slice 3) — the legacy ``ContentHashAdapter`` seam is retired,
+so the two surfaces can no longer diverge on derived fields. A station's identity
+and look come from its stationfile (:mod:`skein_next.stationfile`); themes layer
+CSS over a fixed set of stable hooks and never touch the markup or the spine.
 """

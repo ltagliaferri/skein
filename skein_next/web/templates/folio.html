@@ -1,43 +1,96 @@
 {% extends "base.html" %}
-{% block title %}{{ folio.title | clean_title(folio.folio_id) }} — SKEIN{% endblock %}
+{#
+  folio.html — one folio, rendered FROM the wire envelope (the same envelope the
+  JSON/markdown representations serve), so HTML and the machine wire cannot
+  diverge. `env` is the folio envelope; `body_html` is env.body.content rendered;
+  `prov_state` is the provenance state derived from env.asserted.verdict.
+
+  Content-first DOM: the folio body (the content's own title + prose) comes
+  first; provenance, metadata, and the cross-reference nav follow in a trailing
+  <aside>. A theme may visually float the aside up — it never reorders the DOM.
+#}
+{% set body = env.body %}
+{% set proof = env.proof %}
+{% set asserted = env.asserted %}
+{% set links = env.links %}
+{% block title %}{{ body.title | clean_title(env.address) }} — {{ station.name }}{% endblock %}
 {% block content %}
-  <p class="meta">
-    <a href="/">{{ project_id }}</a> /
-    <a href="/site/{{ folio.site_id }}">{{ folio.site_id }}</a> /
-    {{ folio.folio_id }}
-  </p>
-
-  <h1>[{{ folio.type }}] {{ folio.title | clean_title(folio.folio_id) }}</h1>
-  <p>
-    <small>{{ folio.created_by }} · {{ folio.created_at.strftime('%Y-%m-%d %H:%M') }} · status: {{ folio.status }}
-    {% if folio.assigned_to %} · assigned: {{ folio.assigned_to }}{% endif %}</small>
-  </p>
-
-  <hr>
-  <p>
-    <strong>Provenance</strong><br>
-    content hash: {% if provenance.content_hash %}<code>{{ provenance.content_hash }}</code>{% else %}(none){% endif %}<br>
-    signature: {{ provenance.signature_note }}
-    {% if provenance.signed %}<br>
-    issuer: {{ provenance.issuer or "(unknown)" }}<br>
-    subject: {{ provenance.subject or "(unknown)" }}
-    {% endif %}
-  </p>
-  <hr>
-
-  <article>
-    {{ body_html | safe }}
+<main class="skein-page">
+  <article class="skein-folio">
+    <p class="type-tag">{{ body.type }}</p>
+    <h1>{{ body.title | clean_title(env.address) }}</h1>
+    <div class="folio-body prose">
+      {{ body_html | safe }}
+    </div>
   </article>
 
-  {% if cross_refs %}
-    <h2>References</h2>
-    <ul class="folios">
-      {% for r in cross_refs %}
+  <aside class="folio-meta" aria-label="provenance and references">
+    <section class="provenance provenance--{{ prov_state }}" aria-label="provenance">
+      <p>
+        <span class="verdict">{{ asserted.verdict }}</span>
+        <span class="disclaimer">[station claim — verify independently]</span>
+      </p>
+      <details>
+        <summary>cryptographic detail</summary>
+        <dl>
+          <dt>content hash</dt>
+          <dd class="crypto">{{ proof.content_hash }}</dd>
+          <dt>profile</dt>
+          <dd class="crypto">{{ proof.profile }}</dd>
+          {% if proof.signature_bundle %}
+          <dt>signature</dt>
+          <dd><a href="{{ links.bundle }}">signature bundle</a> (the verifiable material)</dd>
+          {% endif %}
+        </dl>
+      </details>
+    </section>
+
+    <dl class="metadata">
+      <dt>author</dt><dd>{{ body.created_by }}</dd>
+      <dt>created</dt><dd>{{ body.created_at }}</dd>
+      <dt>status</dt><dd>{{ asserted.status }}</dd>
+      {% if asserted.site %}
+      <dt>site</dt><dd><a href="{{ asserted.site.href }}">{{ asserted.site.slug }}</a></dd>
+      {% endif %}
+      <dt>address</dt><dd class="crypto">{{ env.address }}</dd>
+    </dl>
+
+    {% if asserted.threads_out %}
+    <nav class="threads threads-out" aria-label="references out">
+      <h2>References</h2>
+      <ul>
+        {% for t in asserted.threads_out %}
         <li>
-          [{{ r.type }}] <a href="/folio/{{ r.folio_id }}">{{ r.title | clean_title(r.folio_id) }}</a>
-          <small>{{ r.folio_id }}</small>
+          <span class="edge-type">{{ t.type }} →</span>
+          {% if t.title %}<a href="{{ t.href }}">{{ t.title | clean_title(t.address) }}</a>
+          {% else %}<a href="{{ t.href }}">(peer not held locally)</a>{% endif %}
+          <span class="peer-address crypto">{{ t.address }}</span>
         </li>
-      {% endfor %}
-    </ul>
-  {% endif %}
+        {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+
+    {% if asserted.threads_in %}
+    <nav class="threads threads-in" aria-label="referenced by">
+      <h2>Referenced by</h2>
+      <ul>
+        {% for t in asserted.threads_in %}
+        <li>
+          <span class="edge-type">← {{ t.type }}</span>
+          {% if t.title %}<a href="{{ t.href }}">{{ t.title | clean_title(t.address) }}</a>
+          {% else %}<a href="{{ t.href }}">(peer not held locally)</a>{% endif %}
+          <span class="peer-address crypto">{{ t.address }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+
+    <nav class="breadcrumb" aria-label="folio links">
+      <a href="{{ links.raw }}">raw source</a> ·
+      <a href="{{ links.catalog }}">catalog</a>
+    </nav>
+  </aside>
+</main>
 {% endblock %}

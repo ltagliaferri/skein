@@ -1,24 +1,25 @@
-"""Tests for the Slice 4 web read surface: the content-hash adapter and the
-FastAPI routes driven through TestClient.
+"""Tests for the slice-3 web read surface: HTML rendered FROM the wire envelope,
+the stationfile wiring, and the theming substrate.
 
-The adapter is the interesting seam (hash->folio_id, slug->site_id, ISO->datetime,
-thread-derived status, rebuilt cross-refs); the route tests confirm the templates
-render against it and the per-request connection works under TestClient's threads.
+The legacy ContentHashAdapter is retired; HTML and the machine wire are now built
+from the one envelope, so the interesting properties to pin are: the two surfaces
+agree (no divergence), the page is content-first in the DOM, the stationfile
+drives identity + theme (with fail-loud on an unnamed station), and the token ->
+CSS-variable path reaches the page.
 """
 
-from datetime import datetime, timezone
+import json
 
 import pytest
 from fastapi.testclient import TestClient
 
 from skein_next.station import Station
-from skein_next.web.adapter import ContentHashAdapter, _to_datetime
+from skein_next.stationfile import StationfileError
 from skein_next.web.app import (
-    DEFAULT_PROJECT,
     ENV_DATA_DIR,
     ENV_PROJECT,
     create_app,
-    get_project_id,
+    verdict_state,
 )
 
 
@@ -32,171 +33,79 @@ def seeded(data_dir):
     """A station with two linked folios, a status thread, and a sub-site."""
     with Station(data_dir) as st:
         st.create_site("proj", purpose="the project")
-        a = st.post(type="finding", site="proj", title="Finding A", content="body A",
+        a = st.post(type="finding", site="proj", title="Finding A", content="body A here",
                     created_by="alice", created_at="2026-01-01T00:00:00Z")
-        b = st.post(type="brief", site="proj", title="Brief B", content="body B",
+        b = st.post(type="brief", site="proj", title="Brief B", content="body B here",
                     created_by="bob", created_at="2026-01-02T00:00:00Z")
-        # a references b (a real link, should surface as a cross-ref)
         st.store.save_thread(from_id=a, to_id=b, type="reference",
                              created_at="2026-01-03T00:00:00Z")
-        # a status thread closing b (status is thread-derived, not a column)
         st.store.save_thread(to_id=b, type="status", content="closed",
                              created_at="2026-01-04T00:00:00Z")
     return {"data_dir": data_dir, "a": a, "b": b}
 
 
-@pytest.fixture
-def client(seeded, monkeypatch):
-    monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+def _write_stationfile(data_dir, obj):
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "stationfile.json").write_text(json.dumps(obj), encoding="utf-8")
+
+
+def _make_client(data_dir, monkeypatch, *, stationfile=None, env_project=None):
+    monkeypatch.setenv(ENV_DATA_DIR, str(data_dir))
+    if env_project is None:
+        monkeypatch.delenv(ENV_PROJECT, raising=False)
+    else:
+        monkeypatch.setenv(ENV_PROJECT, env_project)
+    if stationfile is not None:
+        _write_stationfile(data_dir, stationfile)
     return TestClient(create_app())
 
 
-# --- project label ----------------------------------------------------------
+@pytest.fixture
+def client(seeded, monkeypatch):
+    return _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "Field Notes"})
 
 
-def test_project_id_prefers_env(monkeypatch):
-    monkeypatch.setenv(ENV_PROJECT, "SKEIN Mesh")
-    monkeypatch.setenv(ENV_DATA_DIR, "/srv/whatever/.skein-next")
-    assert get_project_id() == "SKEIN Mesh"
+# --- stationfile wiring / fail-loud -----------------------------------------
 
 
-def test_project_id_derives_from_data_dir_parent(monkeypatch):
+def test_unnamed_station_refuses_to_start(seeded, monkeypatch):
+    # No stationfile and no SKEIN_NEXT_PROJECT bootstrap -> create_app fails loud.
+    monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
     monkeypatch.delenv(ENV_PROJECT, raising=False)
-    monkeypatch.setenv(ENV_DATA_DIR, "/srv/myproject/.skein-next")
-    assert get_project_id() == "myproject"
+    with pytest.raises(StationfileError):
+        create_app()
 
 
-def test_project_id_falls_back_when_parent_empty(monkeypatch):
-    # The container mounts the corpus straight at /data, so .parent.name is
-    # empty; the label must never render blank (the live "— SKEIN" bug).
-    monkeypatch.delenv(ENV_PROJECT, raising=False)
-    monkeypatch.setenv(ENV_DATA_DIR, "/data")
-    assert get_project_id() == DEFAULT_PROJECT
+def test_env_project_bootstraps_name(seeded, monkeypatch):
+    client = _make_client(seeded["data_dir"], monkeypatch, env_project="interskein")
+    r = client.get("/")
+    assert r.status_code == 200 and "interskein" in r.text
 
 
-def test_project_id_falls_back_when_unset(monkeypatch):
-    monkeypatch.delenv(ENV_PROJECT, raising=False)
-    monkeypatch.delenv(ENV_DATA_DIR, raising=False)
-    assert get_project_id() == DEFAULT_PROJECT
+def test_stationfile_name_wins_over_env(seeded, monkeypatch):
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "Field Notes"}, env_project="interskein",
+    )
+    r = client.get("/")
+    assert "Field Notes" in r.text and "interskein" not in r.text
 
 
-# --- adapter ----------------------------------------------------------------
+def test_tagline_renders(seeded, monkeypatch):
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "Field Notes", "tagline": "notes from the mesh"},
+    )
+    assert "notes from the mesh" in client.get("/").text
 
 
-def test_to_datetime_handles_iso_and_missing():
-    assert _to_datetime("2026-01-01T00:00:00+00:00").year == 2026
-    # naive string is treated as UTC
-    assert _to_datetime("2026-01-01T00:00:00").tzinfo is not None
-    # None / garbage become the aware sentinel (no crash on sort/strftime)
-    assert _to_datetime(None) == datetime.min.replace(tzinfo=timezone.utc)
-    assert _to_datetime("not-a-date") == datetime.min.replace(tzinfo=timezone.utc)
-
-
-def test_adapter_maps_hash_to_folio_id_and_slug_to_site(seeded):
-    ad = ContentHashAdapter(seeded["data_dir"])
-    try:
-        folio = ad.get_folio(seeded["a"])
-        assert folio.folio_id == seeded["a"] == folio.content_hash
-        assert folio.site_id == "proj"
-        assert isinstance(folio.created_at, datetime)
-        sites = ad.get_sites()
-        assert [s.site_id for s in sites] == ["proj"]
-        assert sites[0].purpose == "the project"
-    finally:
-        ad.close()
-
-
-def test_adapter_status_is_thread_derived(seeded):
-    ad = ContentHashAdapter(seeded["data_dir"])
-    try:
-        # b was closed via a status thread; a has none -> default open
-        assert ad.get_folio(seeded["b"]).status == "closed"
-        assert ad.get_folio(seeded["a"]).status == "open"
-    finally:
-        ad.close()
-
-
-def test_adapter_get_folio_via_alias(seeded):
-    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
-        st.store.set_alias("finding-20260101-leg1", seeded["a"])
-    ad = ContentHashAdapter(seeded["data_dir"])
-    try:
-        assert ad.get_folio("finding-20260101-leg1").content_hash == seeded["a"]
-        assert ad.get_folio("totally-unknown") is None
-    finally:
-        ad.close()
-
-
-def test_adapter_cross_refs_from_thread_graph(seeded):
-    ad = ContentHashAdapter(seeded["data_dir"])
-    try:
-        # a -> b reference must surface; the within (membership) and status
-        # edges must NOT be treated as cross-refs.
-        refs_a = ad.cross_refs(seeded["a"])
-        assert [r.content_hash for r in refs_a] == [seeded["b"]]
-        # b sees a from the incoming reference; neither sees its own site folio.
-        refs_b = ad.cross_refs(seeded["b"])
-        assert seeded["a"] in [r.content_hash for r in refs_b]
-        assert all(r.type != "site" for r in refs_a + refs_b)
-    finally:
-        ad.close()
-
-
-def test_adapter_cross_refs_resolves_alias_endpoint(seeded):
-    # A thread endpoint kept as a legacy id resolves to a folio via alias.
-    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
-        st.store.set_alias("brief-20260101-old0", seeded["b"])
-        st.store.save_thread(from_id=seeded["a"], to_id="brief-20260101-old0",
-                             type="relates", created_at="2026-01-05T00:00:00Z")
-    ad = ContentHashAdapter(seeded["data_dir"])
-    try:
-        targets = [r.content_hash for r in ad.cross_refs(seeded["a"])]
-        assert seeded["b"] in targets  # still just b, deduped
-        assert targets.count(seeded["b"]) == 1
-    finally:
-        ad.close()
-
-
-def test_adapter_cross_refs_excludes_alias_self_loop(seeded):
-    # fell-r1 MINOR: an edge to a legacy id that aliases back to THIS folio must
-    # not list the folio as its own reference (guard the resolved target).
-    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
-        st.store.set_alias("finding-20260101-self", seeded["a"])
-        st.store.save_thread(from_id=seeded["a"], to_id="finding-20260101-self",
-                             type="relates", created_at="2026-01-06T00:00:00Z")
-    ad = ContentHashAdapter(seeded["data_dir"])
-    try:
-        assert seeded["a"] not in [r.content_hash for r in ad.cross_refs(seeded["a"])]
-    finally:
-        ad.close()
-
-
-def test_latest_statuses_tiebreak_is_deterministic(seeded):
-    # fell-r1 MINOR: two status threads sharing a created_at must resolve to a
-    # stable winner (ORDER BY created_at, thread_hash), not flip per query.
-    b = seeded["b"]
-    ts = "2026-02-02T00:00:00+00:00"
-    with Station(seeded["data_dir"]) as st:  # writable setup; the adapter reads RO
-        h_open = st.store.save_thread(to_id=b, type="status", content="reopened", created_at=ts)
-        h_closed = st.store.save_thread(to_id=b, type="status", content="archived", created_at=ts)
-    # ascending (created_at, thread_hash) -> the greater thread_hash wins
-    winner = "reopened" if h_open > h_closed else "archived"
-    ad = ContentHashAdapter(seeded["data_dir"])
-    try:
-        first = ad.store.latest_statuses([b])[b]
-        second = ad.store.latest_statuses([b])[b]
-        assert first == second == winner
-    finally:
-        ad.close()
-
-
-# --- routes -----------------------------------------------------------------
+# --- index / site / search HTML ---------------------------------------------
 
 
 def test_index_lists_sites_and_recent(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "proj" in r.text and "the project" in r.text
+    assert "proj" in r.text
     assert "Finding A" in r.text and "Brief B" in r.text
 
 
@@ -207,27 +116,10 @@ def test_site_detail_and_type_filter(client):
     assert "Finding A" in r.text and "Brief B" not in r.text
 
 
-def test_site_404(client):
-    assert client.get("/site/ghost").status_code == 404
-
-
-def test_folio_detail_shows_provenance_and_crossref(client, seeded):
-    r = client.get(f"/folio/{seeded['a']}")
-    assert r.status_code == 200
-    assert seeded["a"] in r.text          # provenance content hash
-    assert "Provenance" in r.text
-    assert "body A" in r.text             # rendered markdown
-    assert "References" in r.text         # cross-ref section present
-    assert "Brief B" in r.text            # the referenced folio
-
-
-def test_folio_closed_status_renders(client, seeded):
-    r = client.get(f"/folio/{seeded['b']}")
-    assert r.status_code == 200 and "closed" in r.text
-
-
-def test_folio_404(client):
-    assert client.get("/folio/sha256::deadbeef").status_code == 404
+def test_site_404_is_themed_error(client):
+    r = client.get("/site/ghost")
+    assert r.status_code == 404
+    assert "Not resolved" in r.text  # the themed error page, not a bare JSON detail
 
 
 def test_search_route(client):
@@ -238,10 +130,143 @@ def test_search_route(client):
     assert r.status_code == 200 and "No matches" in r.text
 
 
+# --- folio HTML from the envelope -------------------------------------------
+
+
+def test_folio_html_from_wire(client, seeded):
+    r = client.get(f"/folio/{seeded['a']}")
+    assert r.status_code == 200
+    assert "Finding A" in r.text          # title from env.body.title
+    assert "body A here" in r.text        # rendered markdown body
+    assert seeded["a"] in r.text          # the content hash (provenance)
+    assert "UNSIGNED" in r.text           # the verdict line
+    assert "provenance--unsigned" in r.text
+    assert "Brief B" in r.text            # threads_out peer title
+
+
+def test_folio_threads_in_and_out(client, seeded):
+    # b is referenced BY a — the incoming edge must surface as "Referenced by".
+    r = client.get(f"/folio/{seeded['b']}")
+    assert "Referenced by" in r.text
+    assert "Finding A" in r.text
+
+
+def test_folio_content_first_source_order(client, seeded):
+    # Patrick screen-reader hard req: the folio body precedes the provenance /
+    # threads chrome in the DOM.
+    r = client.get(f"/folio/{seeded['a']}").text
+    body_at = r.index("folio-body")
+    aside_at = r.index("folio-meta")
+    refs_at = r.index("References")
+    assert body_at < aside_at < refs_at
+
+
+def test_folio_404_is_themed_error(client):
+    # A well-formed full digest that resolves to nothing -> not_found, themed.
+    r = client.get("/folio/sha256::" + "0" * 64)
+    assert r.status_code == 404 and "Not resolved" in r.text
+
+
+def test_html_and_json_agree_on_status(client, seeded):
+    # The whole point of HTML-from-wire: no divergence. b is closed via a status
+    # thread; both surfaces must report it (HTML reads the same asserted block).
+    html = client.get(f"/folio/{seeded['b']}").text
+    env = client.get(f"/folio/{seeded['b']}.json").json()
+    assert env["asserted"]["status"] == "closed"
+    assert "closed" in html
+
+
+# --- theming substrate ------------------------------------------------------
+
+
+def test_base_and_default_theme_linked(client):
+    r = client.get("/").text
+    assert "/static/base.css" in r
+    assert "/static/themes/ulm.css" in r  # ulm is the default
+
+
+def test_classic_theme_selected(seeded, monkeypatch):
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "theme": "classic"},
+    )
+    r = client.get("/").text
+    assert "/static/themes/classic.css" in r
+    assert "/static/themes/ulm.css" not in r
+
+
+def test_token_accent_reaches_the_page(seeded, monkeypatch):
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "tokens": {"accent": "#123456"}},
+    )
+    r = client.get("/").text
+    assert "--accent: #123456;" in r
+
+
+def test_font_stack_token_not_html_escaped(seeded, monkeypatch):
+    # A quoted font name must reach the <style> block as literal CSS, not
+    # &#39;-escaped (which would break font-family). Safe because the loader
+    # already stripped the markup-breaking chars.
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "tokens": {"font_body": "Georgia, 'Times New Roman', serif"}},
+    )
+    r = client.get("/").text
+    assert "--font-body: Georgia, 'Times New Roman', serif;" in r
+
+
+def test_default_theme_token_sets_data_theme(seeded, monkeypatch):
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "tokens": {"default_theme": "dark"}},
+    )
+    assert 'data-theme="dark"' in client.get("/").text
+
+
+def test_shipped_theme_static_served(client):
+    r = client.get("/static/themes/ulm.css")
+    assert r.status_code == 200
+    assert "text/css" in r.headers["content-type"]
+
+
+def test_custom_theme_served_from_data_dir(seeded, monkeypatch):
+    themes = seeded["data_dir"] / "themes"
+    themes.mkdir(parents=True, exist_ok=True)
+    (themes / "mine.css").write_text("body { color: rebeccapurple; }", encoding="utf-8")
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "theme": "themes/mine.css"},
+    )
+    page = client.get("/").text
+    assert "/theme.css" in page
+    css = client.get("/theme.css")
+    assert css.status_code == 200 and "rebeccapurple" in css.text
+
+
+# --- negotiation still routes (the wire is unchanged) -----------------------
+
+
+def test_machine_wire_still_negotiates(client, seeded):
+    # An agent UA / Accept still gets the wire, not HTML.
+    r = client.get(f"/folio/{seeded['a']}", headers={"accept": "application/json"})
+    assert r.json()["kind"] == "folio"
+    r = client.get(f"/folio/{seeded['a']}.md")
+    assert "body A here" in r.text
+
+
+# --- unit -------------------------------------------------------------------
+
+
+def test_verdict_state_mapping():
+    assert verdict_state("SIGNED — alice (verified)") == "verified"
+    assert verdict_state("SIGNATURE INVALID — bad sig") == "invalid"
+    assert verdict_state("UNVERIFIED — verifier unavailable (X)") == "unverified"
+    assert verdict_state("UNSIGNED — operator-vouched") == "unsigned"
+    assert verdict_state(None) == "unsigned"
+
+
 def test_concurrent_requests_isolated_connections(client):
-    # Per-request adapter + check_same_thread=False must serve concurrent
-    # requests across threads with no connection errors (regression guard for
-    # the store's single-shared-connection hazard).
     import concurrent.futures
 
     def hit(_):

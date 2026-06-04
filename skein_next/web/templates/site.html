@@ -1,26 +1,36 @@
 {% extends "base.html" %}
-{% block title %}{{ site.site_id }} — SKEIN{% endblock %}
+{#
+  site.html — one site's folios, from the site collection envelope. `env.body` is
+  the entry list (already type-filtered by the route); `available_types` and
+  `current_type` are HTML-only filter chrome derived from the store.
+#}
+{% set slug = env.asserted.slug %}
+{% block title %}{{ slug }} — {{ station.name }}{% endblock %}
 {% block content %}
-  <p><small><a href="/">{{ project_id }}</a> / {{ site.site_id }}</small></p>
-  <h1>{{ site.site_id }}</h1>
-  <p>{{ site.purpose }}</p>
+<main class="skein-page">
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">{{ station.name }}</a> / {{ slug }}
+  </nav>
+  <h1>{{ slug }}</h1>
 
-  <p><small>
+  <nav class="site-filter meta" aria-label="filter by type">
     Filter:
-    <a href="/site/{{ site.site_id }}">all</a>
+    <a href="/site/{{ slug }}">all</a>
     {% for t in available_types %}
-      · <a href="/site/{{ site.site_id }}?type={{ t }}">{{ t }}</a>
+    · <a href="/site/{{ slug }}?type={{ t }}">{{ t }}</a>
     {% endfor %}
-  </small></p>
+  </nav>
 
-  <ul class="folios">
-    {% for f in folios %}
-      <li>
-        [{{ f.type }}] <a href="/folio/{{ f.folio_id }}">{{ f.title | clean_title(f.folio_id) }}</a>
-        <small>{{ f.folio_id }} · {{ f.created_by }} · {{ f.created_at.strftime('%Y-%m-%d') }} · {{ f.status }}</small>
-      </li>
+  <ul class="entry-list">
+    {% for e in env.body %}
+    <li class="entry">
+      <span class="type-tag">{{ e.type }}</span>
+      <a href="{{ e.href }}">{{ e.title | clean_title(e.address) }}</a>
+      <div class="meta crypto">{{ e.address }}</div>
+    </li>
     {% else %}
-      <li>No folios{% if current_type %} of type {{ current_type }}{% endif %}.</li>
+    <li class="meta">No folios{% if current_type %} of type {{ current_type }}{% endif %}.</li>
     {% endfor %}
   </ul>
+</main>
 {% endblock %}

@@ -1,23 +1,28 @@
 """Read surface for the content-hash station, served on port 9001.
 
-Two surfaces over one store, chosen by content negotiation:
+One store, several representations chosen by content negotiation, all built from
+the SAME native wire envelope (``skein_next.envelope``):
 
-- **The machine wire** (the product) — the native, verifiable envelope
-  (``skein_next.envelope``) served as JSON or agent markdown, plus raw ``.md``
-  source. Built straight from the store, not the legacy adapter.
-- **HTML** — the human view, still rendered through :class:`ContentHashAdapter`
-  and the Jinja templates. Until the HTML-from-wire migration (slice 3) the JSON
-  wire (native) and the HTML view (adapter) may disagree on derived fields like
-  ``status``/``site``; that is a known, time-boxed inconsistency, not a bug.
+- **The machine wire** (the product) — the verifiable envelope served as JSON or
+  agent markdown, plus raw ``.md`` source.
+- **HTML** — the human view, rendered FROM that same envelope (slice 3). The
+  legacy ``ContentHashAdapter`` is retired: JSON and HTML can no longer diverge
+  on derived fields because they read the one envelope.
+
+Presentation is themeable (brief-20260603-s4gq). A station's identity and look
+come from its **stationfile** (``.skein-next/stationfile.json``): a required
+``name`` plus optional tagline/logo/theme/tokens. The base sheet ships the stable
+class hooks (the theming contract); a theme (``ulm`` default, ``classic``, or a
+custom sheet) layers on top; stationfile ``tokens`` set CSS custom properties
+inline (the no-CSS path). Owners get CSS only — never the markup or the structured
+path — so a hostile sheet can't reach the spine.
 
 Negotiation (§7): an explicit ``.json``/``.md`` suffix wins; else ``Accept``
-decides (``application/json`` → JSON, ``text/markdown`` → markdown, ``text/html``
-→ HTML); else the User-Agent picks — browsers get HTML, ``skein``/CLI tools get
+decides; else the User-Agent picks — browsers get HTML, ``skein``/CLI tools get
 markdown, anything unrecognized defaults to HTML (the human surface).
 
 Routes are synchronous so FastAPI runs each in the threadpool with its own
-per-request adapter (and SQLite connection); the native wire reuses that same
-connection via ``adapter.store``.
+per-request store (and SQLite connection).
 """
 
 from __future__ import annotations
@@ -31,23 +36,26 @@ from typing import Iterator, Optional
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 
 from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
-from .adapter import ContentHashAdapter
+from ..stationfile import StationConfig, StationfileError, load_station_config
+from ..store import SkeinNextStore
 
 logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_PORT = 9001  # legacy stays on 8001/8003; new station is 9001
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
-ENV_PROJECT = "SKEIN_NEXT_PROJECT"
+ENV_PROJECT = "SKEIN_NEXT_PROJECT"  # the stationfile-name bootstrap env
 
 # The instance's own web:: authority, when published behind a domain. Unset in
-# Phase 1 (bare-hash addresses); slice 3's stationfile supplies it.
+# Phase 1 (bare-hash addresses).
 ENV_AUTHORITY = "SKEIN_NEXT_AUTHORITY"
 
 _MARKDOWN_MEDIA = "text/markdown; charset=utf-8"
@@ -62,9 +70,27 @@ _ERROR_STATUS = {
     "ambiguous_short_hash": 422,
 }
 
+# Human-facing one-liners for the themed HTML error page (the machine surface
+# returns the structured error envelope instead).
+_ERROR_MESSAGES = {
+    "not_found": "No folio resolves to that address here.",
+    "invalid_address": "That address is not a well-formed SKEIN address.",
+    "short_hash_unsupported_remote": "A short hash can't be expanded for a remote authority.",
+    "hash_mismatch": "The resolved content does not match the requested hash.",
+    "ambiguous_short_hash": "That short hash matches more than one folio — use more digits.",
+}
+
 # html=False escapes raw HTML embedded in folio markdown, so rendered content
-# cannot inject markup — the v0 sanitization posture, same as the legacy app.
+# cannot inject markup — the v0 sanitization posture.
 _md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": True})
+
+# stationfile token -> CSS custom property (the no-CSS override path). Only these
+# string tokens map to a property; default_theme drives the data-theme attribute.
+_TOKEN_TO_VAR = {
+    "accent": "--accent",
+    "font_body": "--font-body",
+    "font_mono": "--font-mono",
+}
 
 
 def clean_title(title: str, fallback: str = "") -> str:
@@ -93,36 +119,36 @@ def get_authority() -> Optional[str]:
     return os.environ.get(ENV_AUTHORITY)
 
 
-DEFAULT_PROJECT = "interskein"
+def load_config() -> StationConfig:
+    """Resolve the station config from the stationfile + the env bootstrap.
 
-
-def get_project_id() -> str:
-    """A display label for the station (env, else the data dir's parent name).
-
-    Falls back to ``DEFAULT_PROJECT`` rather than an empty string. The corpus can
-    be mounted straight at the data dir (e.g. ``/data`` in the container), which
-    leaves ``.parent.name`` empty and otherwise rendered a bare ``— SKEIN`` title
-    with no instance name. ``SKEIN_NEXT_PROJECT`` (set in compose) is the real
-    configuration knob; this fallback only guarantees the label is never blank.
+    Raises :class:`StationfileError` if the station has no name — the one hard
+    requirement. ``create_app`` calls this once at startup, so a misconfigured
+    station refuses to start (caught in ``run_server`` for a clean message).
     """
-    project = os.environ.get(ENV_PROJECT)
-    if project:
-        return project
-    data_dir = get_data_dir()
-    if data_dir:
-        name = Path(data_dir).resolve().parent.name
-        if name:
-            return name
-    return DEFAULT_PROJECT
+    return load_station_config(get_data_dir(), env_name=os.environ.get(ENV_PROJECT))
 
 
-def get_adapter() -> Iterator[ContentHashAdapter]:
-    """Per-request adapter with its own connection; closed when the request ends."""
-    adapter = ContentHashAdapter(get_data_dir())
+def build_token_css(config: StationConfig) -> str:
+    """The inline ``:root`` CSS-custom-property overrides for the station tokens.
+
+    Token values are pre-sanitized by the loader (no ``<>{};``), so they are safe
+    single declaration values inside the ``<style>`` block.
+    """
+    return " ".join(
+        f"{var}: {config.tokens[key]};"
+        for key, var in _TOKEN_TO_VAR.items()
+        if key in config.tokens
+    )
+
+
+def get_store() -> Iterator[SkeinNextStore]:
+    """Per-request read-only store with its own connection; closed at request end."""
+    store = SkeinNextStore(get_data_dir(), check_same_thread=False, read_only=True)
     try:
-        yield adapter
+        yield store
     finally:
-        adapter.close()
+        store.close()
 
 
 # --- content negotiation ----------------------------------------------------
@@ -143,15 +169,8 @@ def negotiate(suffix: Optional[str], accept: Optional[str], user_agent: Optional
 
     A ``.json``/``.md`` suffix wins. Then an explicit ``Accept``. Absent both, the
     User-Agent decides — a browser (``Mozilla``) gets HTML, a CLI/agent tool gets
-    markdown, and anything unrecognized defaults to HTML.
-
-    Note the trade: tgg8 §1/§7 make agent markdown the *default* representation,
-    but a no-Accept, unrecognized-UA request gets HTML here — browser-compat is
-    chosen for the bare case (browsers send ``Accept: text/html``; the human
-    surface stays the safe default). An agent that wants the wire must say so
-    explicitly: a ``.json``/``.md`` suffix, an ``Accept`` header, or a recognized
-    agent User-Agent. ``skein fetch`` always does, so this only affects ad-hoc
-    callers.
+    markdown, anything unrecognized defaults to HTML (the human surface stays the
+    safe default; an agent that wants the wire says so via suffix/Accept/UA).
     """
     if suffix == "json":
         return "json"
@@ -181,14 +200,10 @@ def _wants_machine(request: Request, suffix: Optional[str]) -> Optional[str]:
 
 
 def _immutable_headers(content_hash: str) -> dict:
-    # For a representation that IS the hashed object bytes (raw .md = body.content,
-    # a canonical field): the content hash binds it, so it can never change and an
-    # agent holding it need not refetch (§8). The ETag is the content hash itself.
     return {"ETag": f'"{content_hash}"', "Cache-Control": "public, immutable"}
 
 
 def _payload_etag(payload: bytes) -> str:
-    """A strong validator over the exact response bytes."""
     import hashlib
 
     return f'"{hashlib.sha256(payload).hexdigest()}"'
@@ -202,16 +217,8 @@ def _conditional(request: Request, etag: str, headers: dict) -> Optional[Respons
 
 def _json_revalidate(request: Request, env: dict, *, status: int = 200) -> Response:
     """Serialize an envelope and serve it ``no-cache`` with an ETag over the exact
-    bytes — so a conditional GET revalidates and only 304s when the WHOLE envelope
-    (including the derived ``asserted`` block) is byte-identical.
-
-    The folio envelope embeds the verifiable object (``proof``+``body``) AND the
-    station's mutable ``asserted`` claims (status, site, graph edges, verdict). A
-    status thread can flip ``status``/``verdict`` while the content hash is
-    unchanged, so the envelope is NOT immutable: per tgg8 §8 / ujwx §5 only the
-    object bytes (raw .md) are immutably cacheable; the asserted-bearing envelope
-    must be revalidated.
-    """
+    bytes — so a conditional GET only 304s when the WHOLE envelope (including the
+    derived ``asserted`` block) is byte-identical."""
     import json
 
     payload = json.dumps(env, ensure_ascii=False, separators=(",", ":")).encode()
@@ -230,8 +237,6 @@ def _folio_response(request: Request, store, content_hash: str, repr_: str, row)
         return _json_revalidate(request, env)
 
     if repr_ == "md_raw":
-        # body.content is a hashed canonical field, so this representation truly
-        # cannot change for a given content hash — the one immutable folio view.
         headers = _immutable_headers(content_hash)
         not_modified = _conditional(request, headers["ETag"], headers)
         if not_modified is not None:
@@ -240,8 +245,6 @@ def _folio_response(request: Request, store, content_hash: str, repr_: str, row)
             render_mod.render_raw_md(env), media_type=_MARKDOWN_MEDIA, headers=headers
         )
 
-    # markdown: a per-fetch nonce makes each response unique, so it is never
-    # cached; the nonce also rides a header for parse-free splitting.
     text, nonce = render_mod.render_folio_markdown(env)
     return PlainTextResponse(
         text,
@@ -266,9 +269,6 @@ def _error_response(
 
 
 def _collection_response(env: dict, repr_: str, *, title: str) -> Response:
-    # Derived (a query result, `as_of`-stamped): never immutably cached. JSON
-    # revalidates; the nonce'd markdown is no-store like the folio markdown — a
-    # per-fetch delimiter must not be stored and replayed.
     if repr_ == "json":
         return JSONResponse(env, headers={"Cache-Control": "no-cache"})
     text, nonce = render_mod.render_collection_markdown(env, title=title)
@@ -279,21 +279,72 @@ def _collection_response(env: dict, repr_: str, *, title: str) -> Response:
     )
 
 
+def verdict_state(verdict: Optional[str]) -> str:
+    """Map a folio verdict line to a provenance state class (the HTML accent).
+
+    The label text carries the meaning; this only drives reinforcement color. The
+    four states mirror ``envelope.folio_verdict``'s prefixes.
+    """
+    v = verdict or ""
+    if v.startswith("SIGNED"):
+        return "verified"
+    if v.startswith("SIGNATURE INVALID"):
+        return "invalid"
+    if v.startswith("UNVERIFIED"):
+        return "unverified"
+    return "unsigned"
+
+
 def create_app() -> FastAPI:
+    config = load_config()  # fail-loud on an unnamed station, at startup
+    token_css = build_token_css(config)
+    data_theme = config.tokens.get("default_theme")
+
     app = FastAPI(
         title="SKEIN (next)",
-        description="Content-addressed SKEIN read surface (machine wire + HTML)",
+        description="Content-addressed SKEIN read surface (machine wire + themed HTML)",
         version="0.1.0",
     )
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
     templates.env.filters["clean_title"] = clean_title
+
+    # The shared template context: the station identity + theming, on every page.
+    base_ctx = {"station": config, "token_css": token_css, "data_theme": data_theme}
+
+    def html(request: Request, name: str, ctx: dict, *, status: int = 200) -> Response:
+        return templates.TemplateResponse(
+            request, name, {**base_ctx, "request": request, **ctx}, status_code=status
+        )
+
+    def html_error(request: Request, code: str, address: str) -> Response:
+        status = _ERROR_STATUS.get(code, 400)
+        return html(
+            request,
+            "error.html",
+            {"message": _ERROR_MESSAGES.get(code, code), "address": address},
+            status=status,
+        )
+
+    # --- custom theme sheet (level 2) ---------------------------------------
+
+    @app.get("/theme.css")
+    def theme_css() -> Response:
+        # Shipped themes are served from /static; this route serves only a custom
+        # sheet from the data dir (its path was validated at config load).
+        if config.is_shipped_theme:
+            raise HTTPException(status_code=404, detail="no custom theme configured")
+        data_dir = get_data_dir()
+        target = Path(data_dir) / config.theme if data_dir else None
+        try:
+            css = target.read_text(encoding="utf-8") if target else ""
+        except OSError:
+            css = ""
+        return Response(css, media_type="text/css", headers={"Cache-Control": "no-cache"})
 
     # --- index / catalog ----------------------------------------------------
 
     def _catalog_envelope(store) -> dict:
-        # The whole-corpus scan feeds the recent-30 window (no recency-ordered
-        # query exists yet; the HTML index does the same). The TOTAL, though, is
-        # the store's own count — `len(rows)` would silently cap at the scan limit.
         rows = store.list_folios(limit=1_000_000)
         recent = sorted(rows, key=lambda r: r.get("created_at") or "", reverse=True)[:30]
         entries = [envelope_mod.folio_entry(r) for r in recent]
@@ -304,12 +355,13 @@ def create_app() -> FastAPI:
             {"slug": slug, "address": h, "href": f"/site/{slug}", "count": counts.get(slug, 0)}
             for slug, h in store.list_slugs()
         ]
+        sites.sort(key=lambda s: s["count"], reverse=True)
         return envelope_mod.build_collection_envelope(
             "catalog",
             "/",
             entries,
             asserted={
-                "name": get_project_id(),
+                "name": config.name,
                 "wire": envelope_mod.SCHEMA,
                 "profile": envelope_mod.CANON_PROFILE,
                 "sites": sites,
@@ -319,43 +371,22 @@ def create_app() -> FastAPI:
             links={"catalog": "/"},
         )
 
-    def _render_index_html(request, adapter):
-        sites = adapter.get_sites()
-        folios = adapter.get_folios()
-        counts: dict = {}
-        for f in folios:
-            counts[f.site_id] = counts.get(f.site_id, 0) + 1
-        recent = sorted(folios, key=lambda f: f.created_at, reverse=True)[:30]
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {
-                "request": request,
-                "project_id": get_project_id(),
-                "sites": sorted(sites, key=lambda s: counts.get(s.site_id, 0), reverse=True),
-                "counts": counts,
-                "recent": recent,
-                "total_folios": len(folios),
-            },
-        )
-
     @app.get("/")
-    def index(request: Request, adapter: ContentHashAdapter = Depends(get_adapter)):
+    def index(request: Request, store: SkeinNextStore = Depends(get_store)):
+        env = _catalog_envelope(store)
         repr_ = _wants_machine(request, None)
         if repr_ is None:
-            return _render_index_html(request, adapter)
-        return _collection_response(
-            _catalog_envelope(adapter.store), repr_, title=f"Catalog — {get_project_id()}"
-        )
+            return html(request, "index.html", {"env": env})
+        return _collection_response(env, repr_, title=f"Catalog — {config.name}")
 
     @app.get("/.json")
-    def index_json(request: Request, adapter: ContentHashAdapter = Depends(get_adapter)):
-        return _collection_response(_catalog_envelope(adapter.store), "json", title="Catalog")
+    def index_json(request: Request, store: SkeinNextStore = Depends(get_store)):
+        return _collection_response(_catalog_envelope(store), "json", title="Catalog")
 
     @app.get("/.md")
-    def index_md(request: Request, adapter: ContentHashAdapter = Depends(get_adapter)):
+    def index_md(request: Request, store: SkeinNextStore = Depends(get_store)):
         return _collection_response(
-            _catalog_envelope(adapter.store), "markdown", title=f"Catalog — {get_project_id()}"
+            _catalog_envelope(store), "markdown", title=f"Catalog — {config.name}"
         )
 
     # --- site ---------------------------------------------------------------
@@ -376,63 +407,41 @@ def create_app() -> FastAPI:
             links={"catalog": "/", "self": f"/site/{slug}"},
         )
 
+    def _available_types(store, slug: str) -> list:
+        """Distinct folio types in the site, for the HTML type-filter chrome."""
+        site_hash = store.resolve_slug(slug)
+        if not site_hash:
+            return []
+        rows = store.folios_in_site(site_hash)
+        return sorted({(r.get("type") or "folio") for r in rows})
+
     @app.get("/site/{site_id}", response_class=HTMLResponse)
     def site_detail(
         request: Request,
         site_id: str,
         type: Optional[str] = None,
-        adapter: ContentHashAdapter = Depends(get_adapter),
+        store: SkeinNextStore = Depends(get_store),
     ):
         slug, suffix = split_representation(site_id)
         repr_ = _wants_machine(request, suffix)
+        env = _site_envelope(store, slug, type=type)
         if repr_ is not None:
-            env = _site_envelope(adapter.store, slug, type=type)
             if env is None:
                 return _error_response("not_found", f"/site/{slug}", repr_)
             return _collection_response(env, repr_, title=f"Site — {slug}")
-
-        site = adapter.get_site(slug)
-        if not site:
-            raise HTTPException(status_code=404, detail=f"Site '{slug}' not found")
-        folios = adapter.get_folios(site_id=slug)
-        available_types = sorted({f.type for f in folios})
-        if type:
-            folios = [f for f in folios if f.type == type]
-        folios.sort(key=lambda f: f.created_at, reverse=True)
-        return templates.TemplateResponse(
+        if env is None:
+            return html_error(request, "not_found", f"/site/{slug}")
+        return html(
             request,
             "site.html",
             {
-                "request": request,
-                "project_id": get_project_id(),
-                "site": site,
-                "folios": folios,
-                "available_types": available_types,
+                "env": env,
+                "available_types": _available_types(store, slug),
                 "current_type": type,
             },
         )
 
     # --- folio --------------------------------------------------------------
-
-    def _render_folio_html(request, adapter, address: str):
-        folio = adapter.get_folio(address)
-        if not folio:
-            raise HTTPException(status_code=404, detail=f"Folio '{address}' not found")
-        site = adapter.get_site(folio.site_id) if folio.site_id else None
-        refs = adapter.cross_refs(folio.content_hash)
-        return templates.TemplateResponse(
-            request,
-            "folio.html",
-            {
-                "request": request,
-                "project_id": get_project_id(),
-                "folio": folio,
-                "site": site,
-                "body_html": render_markdown(folio.content),
-                "provenance": adapter.provenance(folio.content_hash),
-                "cross_refs": refs,
-            },
-        )
 
     def _serve_bundle(request: Request, store, address: str) -> Response:
         try:
@@ -442,10 +451,6 @@ def create_app() -> FastAPI:
         bundle_json = store.get_signature(content_hash)
         if not bundle_json:
             return _error_response("not_found", f"{address}/bundle", "json")
-        # The bundle is overlay, not identity: a folio can be re-signed (slice 2
-        # re-signs the live docs under the canon profile), replacing the bundle
-        # for an unchanged content hash. So it revalidates against an ETag over
-        # the bundle bytes, never `immutable`.
         payload = bundle_json.encode()
         etag = _payload_etag(payload)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
@@ -454,57 +459,82 @@ def create_app() -> FastAPI:
             return not_modified
         return Response(payload, media_type="application/json", headers=headers)
 
+    def _render_folio_html(request, store, content_hash: str, row) -> Response:
+        env = envelope_mod.build_folio_envelope(store, content_hash, row=row)
+        body_html = render_markdown(env["body"].get("content") or "")
+        return html(
+            request,
+            "folio.html",
+            {
+                "env": env,
+                "body_html": body_html,
+                "prov_state": verdict_state(env["asserted"].get("verdict")),
+            },
+        )
+
     @app.get("/folio/{ref:path}", response_class=HTMLResponse)
     def folio_detail(
         request: Request,
         ref: str,
-        adapter: ContentHashAdapter = Depends(get_adapter),
+        store: SkeinNextStore = Depends(get_store),
     ):
-        store = adapter.store
-
         # The signature bundle sub-resource (the dead-end-free provenance link).
         if ref.endswith("/bundle"):
             return _serve_bundle(request, store, ref[: -len("/bundle")])
 
         address, suffix = split_representation(ref)
         repr_ = negotiate(suffix, request.headers.get("accept"), request.headers.get("user-agent"))
-        if repr_ == "html":
-            return _render_folio_html(request, adapter, address)
+        is_html = repr_ == "html"
 
         try:
             content_hash = resolve_to_hash(address, store, local_authority=get_authority())
         except ResolveError as e:
+            if is_html:
+                return html_error(request, e.code, e.address)
             return _error_response(e.code, e.address, repr_, origin=e.origin)
         row = store.get_folio(content_hash)
         if row is None:
+            if is_html:
+                return html_error(request, "not_found", address)
             return _error_response("not_found", address, repr_)
+
+        if is_html:
+            return _render_folio_html(request, store, content_hash, row)
         return _folio_response(request, store, content_hash, repr_, row)
 
-    # --- search -------------------------------------------------------------
+    # --- search (HTML-only in Phase 1; search.json is slice 5) --------------
+
+    def _search_envelope(store, q: str) -> dict:
+        rows = store.search_folios(q, limit=100) if q.strip() else []
+        entries = [envelope_mod.folio_entry(r) for r in rows]
+        return envelope_mod.build_collection_envelope(
+            "search",
+            "/search" + (f"?q={q}" if q else ""),
+            entries,
+            asserted={"query": q, "count": len(entries)},
+            links={"catalog": "/", "self": "/search"},
+        )
 
     @app.get("/search", response_class=HTMLResponse)
     def search(
         request: Request,
         q: str = Query("", description="Search query"),
-        adapter: ContentHashAdapter = Depends(get_adapter),
+        store: SkeinNextStore = Depends(get_store),
     ):
-        results = adapter.search_folios(q, limit=100) if q.strip() else []
-        return templates.TemplateResponse(
-            request,
-            "search.html",
-            {
-                "request": request,
-                "project_id": get_project_id(),
-                "q": q,
-                "results": results,
-            },
-        )
+        env = _search_envelope(store, q)
+        return html(request, "search.html", {"env": env, "q": q})
 
     return app
 
 
 def run_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> None:
-    app = create_app()
+    try:
+        app = create_app()
+    except StationfileError as e:
+        # A misconfigured station refuses to start with a clean operator message,
+        # not a traceback. Name it (the one hard requirement) and try again.
+        logger.error("station will not start: %s", e)
+        raise SystemExit(2) from e
     logger.info("Starting new-skein web UI on http://%s:%s", host, port)
     uvicorn.run(app, host=host, port=port, log_level="info")
 

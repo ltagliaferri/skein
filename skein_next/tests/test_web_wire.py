@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from skein import signing
 from skein_next import canon
 from skein_next.station import Station
-from skein_next.web.app import ENV_DATA_DIR, create_app, negotiate
+from skein_next.web.app import ENV_DATA_DIR, ENV_PROJECT, create_app, negotiate
 
 
 @pytest.fixture
@@ -42,6 +42,7 @@ def seeded(tmp_path):
 @pytest.fixture
 def client(seeded, monkeypatch):
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+    monkeypatch.setenv(ENV_PROJECT, "interskein")  # name the station (the wire is name-agnostic)
     return TestClient(create_app())
 
 
@@ -99,6 +100,7 @@ def test_json_folio_etag_tracks_asserted_not_just_hash(seeded, monkeypatch):
     """A status change flips the envelope ETag while the content hash is unchanged
     — proving the asserted block is not pinned by an immutable cache (B1)."""
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+    monkeypatch.setenv(ENV_PROJECT, "interskein")
     before = TestClient(create_app()).get(f"/folio/{seeded['b']}.json")
     assert before.json()["asserted"]["status"] == "open"
     etag_before = before.headers["etag"]
@@ -263,6 +265,7 @@ def test_bundle_served_when_signed(seeded, monkeypatch):
         )
         st.store.set_signature(seeded["a"], bundle.model_dump_json())
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+    monkeypatch.setenv(ENV_PROJECT, "interskein")
     client = TestClient(create_app())
     r = client.get(f"/folio/{seeded['a']}/bundle")
     assert r.status_code == 200

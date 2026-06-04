@@ -161,6 +161,33 @@ def test_folio_content_first_source_order(client, seeded):
     assert body_at < aside_at < refs_at
 
 
+def test_folio_body_script_is_escaped(seeded, monkeypatch):
+    # The v0 sanitization posture (markdown html=False): a <script> in a folio
+    # body must render escaped, never as live markup. End-to-end regression guard.
+    with Station(seeded["data_dir"]) as st:
+        x = st.post(type="finding", site="proj", title="XSS probe",
+                    content="hello <script>alert('x')</script> world",
+                    created_by="eve", created_at="2026-03-01T00:00:00Z")
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    r = client.get(f"/folio/{x}").text
+    assert "<script>alert" not in r
+    assert "&lt;script&gt;" in r
+
+
+def test_folio_body_headings_demoted(seeded, monkeypatch):
+    # The folio title is the page's single <h1>; a body that leads with `# Title`
+    # must not emit a second <h1> — its headings nest under the title.
+    with Station(seeded["data_dir"]) as st:
+        h = st.post(type="finding", site="proj", title="Heading test",
+                    content="# Body heading\n\nprose\n\n## Sub", created_by="alice",
+                    created_at="2026-03-02T00:00:00Z")
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    r = client.get(f"/folio/{h}").text
+    assert r.count("<h1") == 1                 # only the title
+    assert "<h2>Body heading</h2>" in r        # body `#` demoted to h2
+    assert "<h3>Sub</h3>" in r                  # body `##` demoted to h3
+
+
 def test_folio_404_is_themed_error(client):
     # A well-formed full digest that resolves to nothing -> not_found, themed.
     r = client.get("/folio/sha256::" + "0" * 64)
@@ -222,6 +249,18 @@ def test_default_theme_token_sets_data_theme(seeded, monkeypatch):
         stationfile={"name": "X", "tokens": {"default_theme": "dark"}},
     )
     assert 'data-theme="dark"' in client.get("/").text
+
+
+def test_style_breakout_token_never_reaches_page(seeded, monkeypatch):
+    # End-to-end: a token value carrying </style> is dropped at load, so the
+    # served page's <style> block can never be escaped by station config.
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "tokens": {"accent": "x</style><script>alert(1)</script>"}},
+    )
+    r = client.get("/").text
+    assert "<script>alert(1)</script>" not in r
+    assert "</style><script>" not in r
 
 
 def test_shipped_theme_static_served(client):

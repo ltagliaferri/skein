@@ -106,9 +106,22 @@ def clean_title(title: str, fallback: str = "") -> str:
 
 
 def render_markdown(content: str) -> str:
+    """Render a folio body to HTML, demoting its headings one level.
+
+    The page already carries the folio title as the single ``<h1>``; a body that
+    opens with ``# Title`` (the common case) would otherwise emit a second,
+    near-duplicate ``<h1>`` — a redundant stop in a screen reader and a malformed
+    outline. Demoting in-body headings (``#`` → ``h2``, capped at ``h6``) nests
+    them under the title, giving one clean heading outline. The raw ``.md`` and
+    the agent markdown keep the authored heading levels; only this HTML view nests.
+    """
     if not content:
         return ""
-    return _md.render(content)
+    tokens = _md.parse(content, {})
+    for tok in tokens:
+        if tok.type in ("heading_open", "heading_close"):
+            tok.tag = f"h{min(int(tok.tag[1]) + 1, 6)}"
+    return _md.renderer.render(tokens, _md.options, {})
 
 
 def get_data_dir() -> Optional[str]:
@@ -391,29 +404,31 @@ def create_app() -> FastAPI:
 
     # --- site ---------------------------------------------------------------
 
-    def _site_envelope(store, slug: str, type: Optional[str] = None) -> Optional[dict]:
+    def _site_rows(store, slug: str):
+        """Resolve a site and fetch its folios once, newest-first.
+
+        Returns ``(site_hash, rows)`` or ``(None, [])`` for an unknown slug. A
+        single pass feeds both the type-filtered envelope and the HTML filter
+        chrome's available-types set, so a site page is one scan, not two.
+        """
         site_hash = store.resolve_slug(slug)
         if not site_hash:
-            return None
-        rows = store.folios_in_site(site_hash, type=type)
+            return None, []
+        rows = store.folios_in_site(site_hash)
         rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
-        entries = [envelope_mod.folio_entry(r) for r in rows]
+        return site_hash, rows
+
+    def _site_envelope(slug: str, site_hash: str, rows: list, type: Optional[str] = None) -> dict:
+        filtered = [r for r in rows if type is None or (r.get("type") or "folio") == type]
+        entries = [envelope_mod.folio_entry(r) for r in filtered]
         address = f"/site/{slug}" + (f"?type={type}" if type else "")
         return envelope_mod.build_collection_envelope(
             "site",
             address,
             entries,
-            asserted={"slug": slug, "address": site_hash, "type": type, "count": len(rows)},
+            asserted={"slug": slug, "address": site_hash, "type": type, "count": len(filtered)},
             links={"catalog": "/", "self": f"/site/{slug}"},
         )
-
-    def _available_types(store, slug: str) -> list:
-        """Distinct folio types in the site, for the HTML type-filter chrome."""
-        site_hash = store.resolve_slug(slug)
-        if not site_hash:
-            return []
-        rows = store.folios_in_site(site_hash)
-        return sorted({(r.get("type") or "folio") for r in rows})
 
     @app.get("/site/{site_id}", response_class=HTMLResponse)
     def site_detail(
@@ -424,19 +439,21 @@ def create_app() -> FastAPI:
     ):
         slug, suffix = split_representation(site_id)
         repr_ = _wants_machine(request, suffix)
-        env = _site_envelope(store, slug, type=type)
-        if repr_ is not None:
-            if env is None:
+        site_hash, rows = _site_rows(store, slug)
+        if site_hash is None:
+            if repr_ is not None:
                 return _error_response("not_found", f"/site/{slug}", repr_)
-            return _collection_response(env, repr_, title=f"Site — {slug}")
-        if env is None:
             return html_error(request, "not_found", f"/site/{slug}")
+        env = _site_envelope(slug, site_hash, rows, type=type)
+        if repr_ is not None:
+            return _collection_response(env, repr_, title=f"Site — {slug}")
+        available_types = sorted({(r.get("type") or "folio") for r in rows})
         return html(
             request,
             "site.html",
             {
                 "env": env,
-                "available_types": _available_types(store, slug),
+                "available_types": available_types,
                 "current_type": type,
             },
         )

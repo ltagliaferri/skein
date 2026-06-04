@@ -116,23 +116,30 @@ def _render_footer(env: Mapping[str, Any]) -> str:
 
     site = asserted.get("site")
     if site:
+        # address is a content hash; href carries the (externally-influenced) slug.
         lines.append(
-            f"Site:        {_oneline(site['slug'])}   {site['address']}   → {site['href']}"
+            f"Site:        {_oneline(site['slug'])}   {site['address']}   → {_oneline(site['href'])}"
         )
 
+    # A thread peer that isn't held locally exposes its raw thread endpoint as
+    # `address`/`href` (envelope._folio_threads), and threads are unsigned and
+    # forgeable — so those, too, must be flattened before they go in the bare
+    # frame, not just the type/title (the fell-r2 catch).
     out = asserted.get("threads_out", [])
     if out:
         lines.append("Threads out:")
         for t in out:
             lines.append(
-                f"  {_oneline(t['type'])} → {_peer_label(t)}   {t['address']}   → {t['href']}"
+                f"  {_oneline(t['type'])} → {_peer_label(t)}   "
+                f"{_oneline(t['address'])}   → {_oneline(t['href'])}"
             )
     inc = asserted.get("threads_in", [])
     if inc:
         lines.append("Threads in:")
         for t in inc:
             lines.append(
-                f"  {_oneline(t['type'])} ← {_peer_label(t)}   {t['address']}   → {t['href']}"
+                f"  {_oneline(t['type'])} ← {_peer_label(t)}   "
+                f"{_oneline(t['address'])}   → {_oneline(t['href'])}"
             )
 
     if "raw" in links:
@@ -191,16 +198,20 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
 
 
 def render_error_markdown(env: Mapping[str, Any]) -> str:
-    """Render an error/absence envelope. No untrusted content, so no fence."""
+    """Render an error/absence envelope. No untrusted content, so no fence.
+
+    ``address`` is the verbatim failing input echoed back (a percent-decoded path
+    can carry a newline), so it is flattened like any other bare-frame value.
+    """
     body = env["body"]
     links = env.get("links", {})
     lines = [
         "NOT RESOLVED",
-        f"Address:  {env['address']}",
+        f"Address:  {_oneline(env['address'])}",
         f"Error:    {body.get('error')}",
     ]
     if "origin" in links:
-        lines.append(f"Origin:   {links['origin']}")
+        lines.append(f"Origin:   {_oneline(links['origin'])}")
     lines.append(f"Catalog:  {links.get('catalog', '/')}")
     if env.get("suggestion"):
         lines.append(f"Resolve:  {env['suggestion']}")

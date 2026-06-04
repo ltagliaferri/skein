@@ -174,8 +174,11 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
         untrusted.append(e.get("snippet") or "")
     nonce = fresh_nonce(*untrusted)
 
+    # The caller-supplied title carries the station name or a site slug, both
+    # author/ingest-controlled and stored verbatim (a slug can hold a newline), so
+    # it is flattened like every other bare-frame value.
     lines: List[str] = [
-        f"{title}   (as_of {env['as_of']})",
+        f"{_oneline(title)}   (as_of {env['as_of']})",
         f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}.",
         "",
     ]

@@ -145,21 +145,6 @@ def _folio_href(content_hash: str) -> str:
     return f"/folio/{content_hash}"
 
 
-def _resolve_peer(store, peer: Optional[str], content_hash: str) -> Optional[Dict[str, Any]]:
-    """Resolve a thread endpoint to the peer folio's row, or ``None``.
-
-    A peer is a content hash (resolves directly) or a legacy id (resolves through
-    the alias table). A peer that aliases back to this same folio is dropped (a
-    folio is not its own neighbour).
-    """
-    if not peer or peer == content_hash:
-        return None
-    target = peer if store.get_folio(peer) else store.resolve_alias(peer)
-    if not target or target == content_hash:
-        return None
-    return store.get_folio(target)
-
-
 def _folio_threads(store, content_hash: str, *, outgoing: bool) -> List[Dict[str, Any]]:
     """The folio's cross-reference edges in one direction, native and labelled.
 
@@ -169,6 +154,9 @@ def _folio_threads(store, content_hash: str, *, outgoing: bool) -> List[Dict[str
     ``address`` (the cross-instance-safe handle), and a station-local ``href``
     (which 404s for a peer whose only instance is elsewhere — following uses the
     address, not the href).
+
+    A folio is not its own neighbour: a self-edge is dropped whether the peer is
+    the folio's own hash OR a legacy id that aliases back to it.
     """
     edges = (
         store.get_threads(from_id=content_hash)
@@ -181,19 +169,24 @@ def _folio_threads(store, content_hash: str, *, outgoing: bool) -> List[Dict[str
         if edge["type"] in _STRUCTURAL_THREADS:
             continue
         peer = edge["to_id"] if outgoing else edge["from_id"]
-        prow = _resolve_peer(store, peer, content_hash)
+        if not peer or peer == content_hash:
+            continue
+        # Resolve the endpoint: a content hash directly, else a legacy id through
+        # the alias table. ``target`` is None when the peer is held nowhere local.
+        target = peer if store.get_folio(peer) else store.resolve_alias(peer)
+        if target == content_hash:
+            continue  # aliases back to this folio — not its own neighbour
+        prow = store.get_folio(target) if target else None
         if prow is not None:
             address = prow["content_hash"]
             title = prow.get("title") or ""
             href = _folio_href(address)
-        elif peer and peer != content_hash:
+        else:
             # A peer with no local instance: still a real edge. Expose the raw
             # endpoint as the address so a federating client can chase it.
             address = peer
             title = None
             href = _folio_href(peer)
-        else:
-            continue
         key = (edge["type"], address)
         if key in seen:
             continue

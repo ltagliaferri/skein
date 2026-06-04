@@ -146,6 +146,24 @@ def test_folio_cross_instance_peer_listed_with_raw_address(seeded):
     assert cites[0]["title"] is None  # not held locally, no title
 
 
+def test_folio_threads_exclude_alias_self_loop(seeded):
+    # An edge to a legacy id that aliases back to THIS folio must not list the
+    # folio as its own neighbour (the direct-hash self-loop is already excluded;
+    # this is the alias-to-self case).
+    store = seeded["store"]
+    store.set_alias("finding-20260101-self", seeded["a"])
+    store.save_thread(
+        from_id=seeded["a"],
+        to_id="finding-20260101-self",
+        type="relates",
+        created_at="2026-01-09T00:00:00Z",
+    )
+    env_a = env_mod.build_folio_envelope(store, seeded["a"])
+    addresses = {t["address"] for t in env_a["asserted"]["threads_out"]}
+    assert seeded["a"] not in addresses
+    assert "finding-20260101-self" not in addresses
+
+
 # --- folio_verdict ----------------------------------------------------------
 
 

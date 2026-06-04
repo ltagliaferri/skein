@@ -28,7 +28,11 @@ dependencies = [
     "requests>=2.32.0",
     "GitPython>=3.1.0",
     "jinja2>=3.0.0",
-    "knurl>=0.1.0",
+    # Pinned to the reviewed 0.3.x canon line (brief-20260603-n22c: exact-decimal
+    # integers, MAX_INT_DIGITS/MAX_DEPTH, Cn-rejection). A 0.4 could change the
+    # canonical bytes, so it stays out until a deliberate re-review + a regen of
+    # the skein.folio.canon/v1 conformance vectors (test_canon_conformance.py).
+    "knurl>=0.3.0,<0.4.0",
     "sigstore>=4.2,<5",
 ]
 

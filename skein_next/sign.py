@@ -26,7 +26,8 @@ from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from skein import signing
 
-from . import canon
+from . import canon, profile
+from .identity import content_hash_for_bytes
 
 DEFAULT_IDENTITY_SCHEME = "sigstore-public-v1"
 
@@ -61,6 +62,7 @@ def acquire_oidc_provider(
         provider_id=None,
     )
 
+
 # A Signer maps a folio's canonical bytes to a SignatureBundle.
 Signer = Callable[[bytes], "signing.SignatureBundle"]
 # A Verifier maps (canonical_bytes, bundle) to a MultiVerifyResult.
@@ -71,19 +73,29 @@ def make_oidc_signer(
     oidc_provider: "signing.OIDCProviderConfig",
     identity_scheme: str = DEFAULT_IDENTITY_SCHEME,
     trust_root_pin: Optional[str] = None,
+    canon_profile: str = profile.CANON_PROFILE_V1,
 ) -> Signer:
     """A Signer that signs each folio under ``oidc_provider`` via public Sigstore.
 
     Producing the ``oidc_provider`` token is the interactive ceremony (a Google
     login) — the caller owns it. One provider/session signs the whole publish
     batch (the in-memory Fulcio cert is reused across the calls).
+
+    Domain separation (§3-4): what gets signed is not the raw folio canonical
+    bytes but ``profiled_preimage(profile, canonical_bytes)`` — and the bundle
+    records that preimage as its ``canonical_bytes`` and the profile as its
+    ``canon_version``, so the verifier can reconstruct and check the exact same
+    domain-separated bytes.
     """
+
     def _sign(canonical_bytes: bytes) -> "signing.SignatureBundle":
-        result = signing.sign(canonical_bytes, oidc_provider)  # SignResult
+        preimage = profile.profiled_preimage(canon_profile, canonical_bytes)
+        result = signing.sign(preimage, oidc_provider)  # SignResult
         return signing.SignatureBundle(
             identity_scheme=identity_scheme,
             bundles=[result.bundle_json],
-            canonical_bytes=canonical_bytes,
+            canonical_bytes=preimage,
+            canon_version=canon_profile,
             trust_root_pin=trust_root_pin,
         )
 
@@ -126,11 +138,34 @@ def default_verifier(canonical_bytes: bytes, bundle: Any) -> "signing.MultiVerif
 def verify_wire_folio(
     wire_folio: Mapping[str, Any], verifier: Verifier = default_verifier
 ) -> Tuple[bool, str, Optional[Dict[str, Optional[str]]]]:
-    """Verify a wire folio's signature against its own canonical bytes.
+    """The strict verification path (brief-20260603-ujwx §4) — the only path.
 
     Returns ``(verified, reason, identity)`` where identity is
     ``{"issuer", "subject"}`` when verified, else ``None``. An unsigned folio
     returns ``(False, "unsigned", None)`` — not an error, just no signature.
+
+    The three strict steps, in order:
+
+    1. **Integrity.** Re-serialize the folio body through canon and hash it; if a
+       ``content_hash`` is claimed, it MUST equal the recomputed hash, or it's a
+       ``hash mismatch`` before any crypto is touched (a tampered body can't ride
+       a valid bundle).
+    2. **Profile.** The bundle's ``canon_version`` must resolve in the profile
+       registry; an **unknown profile is a hard failure**, never a fallback (§3).
+    3. **Authorship.** Verify the signature over the domain-separated preimage
+       ``profile || recomputed-canonical-bytes`` (``verify_multi`` also fails
+       closed if the bundle's stored bytes diverge from these), yielding the
+       signer identity or a typed failure.
+
+    There is no lazy path: nothing is accepted on the bundle's own stored bytes
+    without re-deriving them from the body shown.
+
+    Scope: this function binds **authorship to the body shown** (step 3 signs the
+    body's canonical bytes). It binds the body to the claimed ``content_hash`` when
+    one is present (step 1), but it does NOT bind ``content_hash`` to the resolved
+    *address* or ``#`` fragment — that is enforced upstream at the resolver/ingress
+    (tgg8 §4 step 3) before the envelope is assembled. A "verified" result means
+    "these bytes were signed by X", not "this is the folio at that address".
     """
     raw = wire_folio.get("signature_bundle")
     if not raw:
@@ -140,10 +175,23 @@ def verify_wire_folio(
     except Exception:  # noqa: BLE001 — any parse failure is a malformed bundle
         return (False, "bundle malformed", None)
 
-    # verify_multi binds the signature to THIS folio: it fails closed if the
-    # bundle's stored canonical_bytes diverge from the bytes we pass.
-    expected = canon.folio_canonical_bytes(wire_folio)
-    result = verifier(expected, bundle)
+    # (1) integrity: the body must hash to the claimed content hash. Serialize the
+    # canonical bytes once and hash those directly (no second serialization).
+    canonical = canon.folio_canonical_bytes(wire_folio)
+    claimed = wire_folio.get("content_hash")
+    if claimed is not None and content_hash_for_bytes(canonical) != claimed:
+        return (False, "hash mismatch", None)
+
+    # (2) profile: unknown canon_version is a hard fail, never a downgrade.
+    try:
+        preimage = profile.profiled_preimage(bundle.canon_version, canonical)
+    except profile.UnknownProfile:
+        return (False, "unknown profile", None)
+
+    # (3) authorship: verify over the domain-separated preimage. verify_multi
+    # binds the signature to THIS folio — it fails closed if the bundle's stored
+    # canonical_bytes diverge from the preimage we reconstruct.
+    result = verifier(preimage, bundle)
     if result.overall == signing.VerifyStatus.VERIFIED:
         first = result.results[0]
         return (True, "verified", {"issuer": first.issuer, "subject": first.subject})

@@ -31,6 +31,7 @@ def _like_escape(s: str) -> str:
     """
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS folios (
     content_hash TEXT PRIMARY KEY,
@@ -78,7 +79,17 @@ CREATE INDEX IF NOT EXISTS idx_folios_created_at ON folios(created_at);
 
 
 class SkeinNextStore:
-    """Content-hash-native folio/thread/alias store backed by SQLite."""
+    """Content-hash-native folio/thread/alias store backed by SQLite.
+
+    **Single-threaded per instance (not internally synchronized).** A store wraps
+    one SQLite connection and a bare ``_in_batch`` transaction flag with no lock,
+    so a single ``SkeinNextStore`` MUST NOT be shared across threads — concurrent
+    use could interleave ``transaction()`` toggles and commit one caller's writes
+    outside another's transaction (zr29 MEDIUM #7). The supported concurrency model
+    is a connection (and store) per thread/request: the web surface opens one store
+    per request (``check_same_thread=False``, used serially within that request),
+    and the CLI/bridge are single-threaded. Do not hand one instance to a pool.
+    """
 
     def __init__(
         self,
@@ -111,9 +122,7 @@ class SkeinNextStore:
             self.conn = self._connect_read_only(check_same_thread)
         else:
             self.data_dir.mkdir(parents=True, exist_ok=True)
-            self.conn = sqlite3.connect(
-                str(self.db_path), check_same_thread=check_same_thread
-            )
+            self.conn = sqlite3.connect(str(self.db_path), check_same_thread=check_same_thread)
             self.conn.row_factory = sqlite3.Row
             self.conn.executescript(_SCHEMA)
             self.conn.commit()
@@ -128,9 +137,7 @@ class SkeinNextStore:
         for uri in (f"file:{p}?mode=ro", f"file:{p}?immutable=1"):
             conn: Optional[sqlite3.Connection] = None
             try:
-                conn = sqlite3.connect(
-                    uri, uri=True, check_same_thread=check_same_thread
-                )
+                conn = sqlite3.connect(uri, uri=True, check_same_thread=check_same_thread)
                 conn.row_factory = sqlite3.Row
                 conn.execute("SELECT 1 FROM folios LIMIT 1")  # resolve the open
                 return conn
@@ -318,9 +325,7 @@ class SkeinNextStore:
         ).fetchone()
         return row["slug"] if row else None
 
-    def folio_site_slugs(
-        self, content_hashes: Optional[List[str]] = None
-    ) -> Dict[str, str]:
+    def folio_site_slugs(self, content_hashes: Optional[List[str]] = None) -> Dict[str, str]:
         """Map member folio content hashes to their site slugs.
 
         With ``content_hashes`` given, the join is restricted to those folios (a
@@ -345,7 +350,7 @@ class SkeinNextStore:
             return mapping
         hashes = list(content_hashes)
         for i in range(0, len(hashes), 900):
-            chunk = hashes[i:i + 900]
+            chunk = hashes[i : i + 900]
             placeholders = ",".join("?" * len(chunk))
             rows = self.conn.execute(
                 f"""
@@ -374,7 +379,7 @@ class SkeinNextStore:
         # as 999 on older SQLite); a busy project can have far more folios.
         hashes = list(folio_hashes)
         for i in range(0, len(hashes), 900):
-            chunk = hashes[i:i + 900]
+            chunk = hashes[i : i + 900]
             placeholders = ",".join("?" * len(chunk))
             rows = self.conn.execute(
                 f"""
@@ -408,9 +413,7 @@ class SkeinNextStore:
         ``from_id``/``to_id`` may hold a folio content-hash or an actor/external
         id; the store does not classify them.
         """
-        thread_hash = compute_thread_hash(
-            from_id, to_id, type, weaver, created_at, content
-        )
+        thread_hash = compute_thread_hash(from_id, to_id, type, weaver, created_at, content)
         self.conn.execute(
             """
             INSERT OR IGNORE INTO threads
@@ -498,16 +501,12 @@ class SkeinNextStore:
         self._maybe_commit()
 
     def resolve_slug(self, slug: str) -> Optional[str]:
-        row = self.conn.execute(
-            "SELECT content_hash FROM slugs WHERE slug = ?", (slug,)
-        ).fetchone()
+        row = self.conn.execute("SELECT content_hash FROM slugs WHERE slug = ?", (slug,)).fetchone()
         return row["content_hash"] if row else None
 
     def list_slugs(self) -> List[Tuple[str, str]]:
         """All ``(slug, content_hash)`` pairs, ordered by slug."""
-        rows = self.conn.execute(
-            "SELECT slug, content_hash FROM slugs ORDER BY slug"
-        ).fetchall()
+        rows = self.conn.execute("SELECT slug, content_hash FROM slugs ORDER BY slug").fetchall()
         return [(r["slug"], r["content_hash"]) for r in rows]
 
     # --- signature overlay (sidecar) ----------------------------------------

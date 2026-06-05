@@ -289,7 +289,10 @@ def verdict_line(result: FetchResult) -> str:
     if result.state == "unsigned":
         return f"UNSIGNED — no authorship proof; {_pin_clause(result)}"
     if result.state == "unverified":
-        return f"UNVERIFIED — signature present but verifier unavailable ({result.reason})"
+        return (
+            f"UNVERIFIED — signature present but verifier unavailable ({result.reason}); "
+            f"{_pin_clause(result)}"
+        )
     if result.state == "invalid":
         return f"INVALID — {result.reason}"
     return f"NOT RESOLVED — {result.reason or 'no folio at that address'}"

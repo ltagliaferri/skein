@@ -205,6 +205,51 @@ def test_signed_substitution_via_omitted_content_hash_caught(wired, monkeypatch)
     assert r.markdown is None  # the substituted body must not reach stdout
 
 
+def test_pin_check_full_prefix_and_mismatch():
+    from skein_next.mesh.client import _pin_check
+
+    actual = "sha256::" + "ab" * 32  # a full 64-hex digest
+    # full-digest address, exact match
+    assert _pin_check("sha256::" + "ab" * 32, actual)[:2] == (True, "full")
+    # alias short-hash address whose digest prefixes the full hash -> prefix bind
+    assert _pin_check("mysite::sha256::abababab", actual)[:2] == (True, "prefix")
+    # full-digest address that does NOT match -> mismatch
+    matched, kind, reason = _pin_check("sha256::" + "cd" * 32, actual)
+    assert matched is False and kind is None and "address mismatch" in reason
+    # bare alias / legacy id -> unpinnable
+    assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)
+
+
+def _signed_envelope_of_a(station, a):
+    env = _envelope(station, a)
+    env["proof"]["signature_bundle"] = {"b": 1}  # pretend the real folio is signed
+    return env
+
+
+def test_unverified_pin_match_stays_exit_4(wired, monkeypatch):
+    # An unverified result (authorship uncheckable) whose content DOES hash to the
+    # requested address stays UNVERIFIED exit 4 — pinned, not upgraded or downgraded.
+    station = TestClient(create_app())
+    env = _signed_envelope_of_a(station, wired["a"])
+    monkeypatch.setattr(mesh_client, "resolve", lambda inst, addr, timeout=10.0: (env, None))
+    monkeypatch.setattr(sign_mod, "verify_wire_folio",
+                        lambda wf: (False, "OFFLINE_NO_TRUSTED_ROOT", None))
+    r = fetch(LOCAL, wired["a"])
+    assert r.state == "unverified" and r.exit_code == EXIT_UNVERIFIED and r.pinned is True
+
+
+def test_unverified_substituted_is_invalid(wired, monkeypatch):
+    # Even when authorship can't be checked, a body that doesn't hash to the
+    # requested address is an address mismatch -> invalid (the pin runs regardless).
+    station = TestClient(create_app())
+    env = _signed_envelope_of_a(station, wired["a"])
+    monkeypatch.setattr(mesh_client, "resolve", lambda inst, addr, timeout=10.0: (env, None))
+    monkeypatch.setattr(sign_mod, "verify_wire_folio",
+                        lambda wf: (False, "OFFLINE_NO_TRUSTED_ROOT", None))
+    r = fetch(LOCAL, "sha256::" + "f" * 64)  # not a's hash
+    assert r.state == "invalid" and r.exit_code == EXIT_SIGNATURE_INVALID
+
+
 # --- CLI --------------------------------------------------------------------
 
 

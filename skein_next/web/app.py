@@ -357,15 +357,22 @@ def create_app() -> FastAPI:
     @app.get("/theme.css")
     def theme_css() -> Response:
         # Shipped themes are served from /static; this route serves only a custom
-        # sheet from the data dir (its path was validated at config load).
+        # sheet from the data dir. Containment is RE-CHECKED here at read time, not
+        # just at config load: resolve() follows symlinks, so a sheet swapped for a
+        # symlink pointing outside the data dir after startup is caught by
+        # relative_to() rather than disclosed (TOCTOU; cross-model review catch).
         if config.is_shipped_theme:
             raise HTTPException(status_code=404, detail="no custom theme configured")
         data_dir = get_data_dir()
-        target = Path(data_dir) / config.theme if data_dir else None
-        try:
-            css = target.read_text(encoding="utf-8") if target else ""
-        except OSError:
-            css = ""
+        css = ""
+        if data_dir:
+            base = Path(data_dir).resolve()
+            try:
+                target = (base / config.theme).resolve()
+                target.relative_to(base)  # reject any path escaping the data dir
+                css = target.read_text(encoding="utf-8")
+            except (OSError, ValueError):
+                css = ""
         return Response(css, media_type="text/css", headers={"Cache-Control": "no-cache"})
 
     # --- index / catalog ----------------------------------------------------

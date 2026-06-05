@@ -111,12 +111,17 @@ def render_folio_markdown(env: Mapping[str, Any]) -> Tuple[str, str]:
         content, title, asserted.get("verdict"), asserted.get("status"), *peer_titles
     )
 
+    # Every bare control-frame value is flattened: when `mesh fetch` renders an
+    # UNTRUSTED remote envelope, the station controls `address`/`links`, and an
+    # embedded newline would forge a second control line (e.g. a fake "Provenance:
+    # SIGNED …"). The local verdict is unaffected, but the rendered stdout an agent
+    # reads must never carry a forged frame line (cross-model review catch).
     head: List[str] = [
-        f"Address:    {env['address']}",
+        f"Address:    {_oneline(env['address'])}",
         f"Provenance: {_oneline(asserted['verdict'])}   [station claim — verify independently]",
     ]
     if "bundle" in links:
-        head.append(f"Bundle:     {links['bundle']}")
+        head.append(f"Bundle:     {_oneline(links['bundle'])}")
 
     parts: List[str] = ["\n".join(head), "", _fence(nonce, "folio content below", content), ""]
     parts.append(_render_footer(env))
@@ -130,9 +135,11 @@ def _render_footer(env: Mapping[str, Any]) -> str:
 
     site = asserted.get("site")
     if site:
-        # address is a content hash; href carries the (externally-influenced) slug.
+        # All three are bare-frame and station-controlled for a remote envelope —
+        # flatten the address too, not just slug/href.
         lines.append(
-            f"Site:        {_oneline(site['slug'])}   {site['address']}   → {_oneline(site['href'])}"
+            f"Site:        {_oneline(site['slug'])}   {_oneline(site['address'])}   "
+            f"→ {_oneline(site['href'])}"
         )
 
     # A thread peer that isn't held locally exposes its raw thread endpoint as
@@ -157,8 +164,8 @@ def _render_footer(env: Mapping[str, Any]) -> str:
             )
 
     if "raw" in links:
-        lines.append(f"Raw source:  {links['raw']}")
-    lines.append(f"Resolve any address:  mesh fetch {env['address']}")
+        lines.append(f"Raw source:  {_oneline(links['raw'])}")
+    lines.append(f"Resolve any address:  mesh fetch {_oneline(env['address'])}")
     return "\n".join(lines)
 
 
@@ -192,12 +199,12 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
     # author/ingest-controlled and stored verbatim (a slug can hold a newline), so
     # it is flattened like every other bare-frame value.
     lines: List[str] = [
-        f"{_oneline(title)}   (as_of {env['as_of']})",
+        f"{_oneline(title)}   (as_of {_oneline(env['as_of'])})",
         f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}.",
         "",
     ]
     for e in entries:
-        lines.append(f"[{_oneline(e['type'])}] {e['address']}   → {e['href']}")
+        lines.append(f"[{_oneline(e['type'])}] {_oneline(e['address'])}   → {_oneline(e['href'])}")
         fenced_body = e.get("title") or ""
         snippet = e.get("snippet")
         if snippet:
@@ -205,7 +212,7 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
         lines.append(_fence(nonce, "entry below", fenced_body))
     if env.get("next"):
         lines.append("")
-        lines.append(f"Next:  mesh fetch {env['next']}")
+        lines.append(f"Next:  mesh fetch {_oneline(env['next'])}")
     lines.append("")
     lines.append("Resolve any address:  mesh fetch <address>")
     return ("\n".join(lines).rstrip() + "\n", nonce)
@@ -222,16 +229,19 @@ def render_error_markdown(env: Mapping[str, Any]) -> str:
     """
     body = env["body"]
     links = env.get("links", {})
+    # Every bare-frame value flattened for the uniform invariant — even though the
+    # fetch path gates error envelopes out of rendering and these are otherwise
+    # station-generated, so a future code path can't reopen the injection.
     lines = [
         "NOT RESOLVED",
         f"Address:  {_oneline(env['address'])}",
-        f"Error:    {body.get('error')}",
+        f"Error:    {_oneline(body.get('error'))}",
     ]
     if "origin" in links:
         lines.append(f"Origin:   {_oneline(links['origin'])}")
-    lines.append(f"Catalog:  {links.get('catalog', '/')}")
+    lines.append(f"Catalog:  {_oneline(links.get('catalog', '/'))}")
     if env.get("suggestion"):
-        lines.append(f"Resolve:  {env['suggestion']}")
+        lines.append(f"Resolve:  {_oneline(env['suggestion'])}")
     return "\n".join(lines) + "\n"
 
 

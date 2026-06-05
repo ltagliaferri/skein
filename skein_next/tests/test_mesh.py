@@ -86,6 +86,19 @@ def test_error_envelope_is_not_resolved():
     assert state == "not_resolved" and code == EXIT_NOT_RESOLVED and reason == "not_found"
 
 
+def test_malformed_envelopes_do_not_crash(monkeypatch):
+    # A hostile station can return arbitrary JSON at /folio/{addr}.json. None of
+    # these may crash the client; each is reported invalid, not a traceback.
+    for bad in (
+        [1, 2, 3],                                              # env is a list
+        "just a string",                                       # env is a scalar
+        {"kind": "folio", "proof": {}, "body": [1, 2, 3]},     # list body (was {**list} crash)
+        {"kind": "catalog", "proof": None, "body": []},        # non-folio at a folio address
+    ):
+        state, code, _r, _i, _vh = verify_envelope(bad)
+        assert state == "invalid" and code == EXIT_SIGNATURE_INVALID
+
+
 def test_signed_verified_maps_to_ok(monkeypatch):
     env = {"kind": "folio", "body": {"type": "finding", "title": "t", "content": "c",
                                      "created_at": "2026-01-01T00:00:00Z", "created_by": "alice"},

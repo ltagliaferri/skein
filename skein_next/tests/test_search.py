@@ -72,13 +72,27 @@ def test_make_snippet_empty_is_none():
     assert make_snippet(None, ["x"]) is None
 
 
-def test_term_count_is_capped(store):
-    # An unbounded ?q= must not blow up the SQL variable count or the scan work:
-    # the term list is capped, so a thousand-term query still runs (returns []
-    # here since the capped terms don't all co-occur), never raises.
+def test_term_cap_drops_terms_beyond_limit(tmp_path):
+    # Prove the cap is actually applied (not just non-crashing): a folio holds
+    # exactly _MAX_SEARCH_TERMS distinct terms; a query of those PLUS one absent
+    # term still matches — because the cap drops the (absent) overflow term before
+    # it can be required. Without the cap, the absent term would be ANDed in and
+    # the folio would miss.
     from skein_next.store import _MAX_SEARCH_TERMS
 
-    huge = " ".join(f"term{i}" for i in range(_MAX_SEARCH_TERMS * 40))
-    assert store.search_folios(huge) == []  # no row has all those terms; no crash
-    # A capped set of real terms still matches.
-    assert store.search_folios("needle " + huge) is not None
+    present = [f"alpha{i}" for i in range(_MAX_SEARCH_TERMS)]
+    data_dir = tmp_path / ".skein-next"
+    with Station(data_dir) as st:
+        st.create_site("p", purpose="p")
+        st.post(type="finding", site="p", title="capped folio", content=" ".join(present),
+                created_by="a", created_at="2026-01-01T00:00:00Z")
+    s = SkeinNextStore(data_dir, read_only=True)
+    try:
+        # control: the overflow term genuinely matches nothing on its own.
+        assert s.search_folios("absentzzz") == []
+        # the 32 present terms + the overflow term: the overflow is dropped by the
+        # cap, so all required terms are present -> match.
+        hits = s.search_folios(" ".join(present + ["absentzzz"]))
+        assert any(h["title"] == "capped folio" for h in hits)
+    finally:
+        s.close()

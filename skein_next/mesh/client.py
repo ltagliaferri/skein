@@ -144,15 +144,25 @@ def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict],
     would let an omitted hash skip the address pin entirely.) The signature, when
     present, binds authorship to that same re-derived body.
     """
+    # Hostile-station hardening: the response is untrusted JSON. A non-object
+    # envelope, or a folio whose body/proof isn't an object (e.g. a collection's
+    # list body returned at a folio address), is malformed — report it, never let
+    # it crash the client (a `{**list}` / `.get` on a non-dict would).
+    if not isinstance(env, dict):
+        return "invalid", EXIT_SIGNATURE_INVALID, "malformed envelope (not an object)", None, None
     if env.get("kind") == "error":
-        reason = (env.get("body") or {}).get("error")
+        body = env.get("body")
+        reason = body.get("error") if isinstance(body, dict) else None
         return "not_resolved", EXIT_NOT_RESOLVED, reason, None, None
 
     from .. import canon
     from ..identity import content_hash_for_bytes
 
-    proof = env.get("proof") or {}
-    body = env.get("body") or {}
+    proof = env.get("proof")
+    proof = proof if isinstance(proof, dict) else {}
+    body = env.get("body")
+    if not isinstance(body, dict):
+        return "invalid", EXIT_SIGNATURE_INVALID, "malformed envelope (body is not an object)", None, None
     claimed = proof.get("content_hash")
     bundle = proof.get("signature_bundle")
     wire = {**body, "content_hash": claimed}

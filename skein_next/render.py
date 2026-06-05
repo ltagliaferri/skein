@@ -199,7 +199,7 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
     # author/ingest-controlled and stored verbatim (a slug can hold a newline), so
     # it is flattened like every other bare-frame value.
     lines: List[str] = [
-        f"{_oneline(title)}   (as_of {env['as_of']})",
+        f"{_oneline(title)}   (as_of {_oneline(env['as_of'])})",
         f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}.",
         "",
     ]
@@ -229,16 +229,19 @@ def render_error_markdown(env: Mapping[str, Any]) -> str:
     """
     body = env["body"]
     links = env.get("links", {})
+    # Every bare-frame value flattened for the uniform invariant — even though the
+    # fetch path gates error envelopes out of rendering and these are otherwise
+    # station-generated, so a future code path can't reopen the injection.
     lines = [
         "NOT RESOLVED",
         f"Address:  {_oneline(env['address'])}",
-        f"Error:    {body.get('error')}",
+        f"Error:    {_oneline(body.get('error'))}",
     ]
     if "origin" in links:
         lines.append(f"Origin:   {_oneline(links['origin'])}")
-    lines.append(f"Catalog:  {links.get('catalog', '/')}")
+    lines.append(f"Catalog:  {_oneline(links.get('catalog', '/'))}")
     if env.get("suggestion"):
-        lines.append(f"Resolve:  {env['suggestion']}")
+        lines.append(f"Resolve:  {_oneline(env['suggestion'])}")
     return "\n".join(lines) + "\n"
 
 

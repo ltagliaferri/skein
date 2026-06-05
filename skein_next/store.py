@@ -32,6 +32,53 @@ def _like_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# Relevance weights for search ranking (L1): a query term found in the title is
+# worth more than one found in the body.
+_TITLE_WEIGHT = 3
+_BODY_WEIGHT = 1
+
+# Cap on distinct query terms. `?q=` is unauthenticated on a mesh-facing surface;
+# an unbounded term list drives O(terms x candidates x content) substring scans
+# and, on SQLite < 3.32 (999-variable limit), a >499-term query would raise. 32
+# terms is far more than any real query and bounds both the work and the binds.
+_MAX_SEARCH_TERMS = 32
+
+
+def _search_score(row: Mapping[str, Any], terms: List[str]) -> int:
+    """Relevance of a folio for the search terms: title hits weigh over body hits."""
+    title = (row.get("title") or "").lower()
+    content = (row.get("content") or "").lower()
+    score = 0
+    for term in terms:
+        t = term.lower()
+        if t in title:
+            score += _TITLE_WEIGHT
+        if t in content:
+            score += _BODY_WEIGHT
+    return score
+
+
+def make_snippet(content: Optional[str], terms: List[str], width: int = 180) -> Optional[str]:
+    """A short excerpt of ``content`` around the first matched term (legibility).
+
+    Untrusted display text — it goes inside the agent-markdown fence and is HTML-
+    escaped in the web view, never trusted. Returns ``None`` for empty content.
+    """
+    if not content:
+        return None
+    flat = " ".join(content.split())  # collapse whitespace for a clean one-liner
+    low = flat.lower()
+    positions = [low.find(t.lower()) for t in terms]
+    hits = [p for p in positions if p >= 0]
+    if not hits:
+        head = flat[:width]
+        return head + ("…" if len(flat) > width else "")
+    start = max(0, min(hits) - width // 3)
+    end = min(len(flat), start + width)
+    snippet = flat[start:end]
+    return ("…" if start > 0 else "") + snippet + ("…" if end < len(flat) else "")
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS folios (
     content_hash TEXT PRIMARY KEY,
@@ -236,23 +283,46 @@ class SkeinNextStore:
         return [dict(r) for r in rows]
 
     def search_folios(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Folios whose title or content contains ``query`` (case-insensitive).
+        """Folios matching ``query``, AND-of-terms, ranked title-over-body (L1).
 
-        A plain substring match — the daily-driver search verb, not a ranked
-        index. ``query`` is matched literally; SQL ``LIKE`` wildcards in it are
-        escaped so a user searching for ``50%`` or ``a_b`` finds those strings.
+        The query is split on whitespace into terms; a folio matches only if EVERY
+        term appears (case-insensitively) in its title or content — so a
+        multi-word search is an AND of its words, not one exact-phrase substring
+        (brief-20260522-4yt4 Layer 1). Results are relevance-ranked in Python: a
+        term in the title weighs more than one in the body, recency breaks ties.
+        Each term is matched literally; SQL ``LIKE`` wildcards are escaped, so
+        ``50%`` or ``a_b`` find those strings. (Not FTS5/BM25 — the new store has
+        no full-text index; this is the modest L1 polish over substring matching.)
         """
-        like = "%" + _like_escape(query) + "%"
+        terms = [t for t in query.split() if t][:_MAX_SEARCH_TERMS]
+        if not terms:
+            return []
+        clause = " AND ".join(
+            ["(title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')"] * len(terms)
+        )
+        params: List[Any] = []
+        for term in terms:
+            like = "%" + _like_escape(term) + "%"
+            params.extend([like, like])
+        # Pull a generous recency-ordered candidate set, then rank in Python. The
+        # candidate cap keeps ranking bounded; recency ordering becomes the tie
+        # break (a stable sort preserves it within equal relevance scores).
+        params.append(max(limit * 5, 200))
         rows = self.conn.execute(
-            """
+            f"""
             SELECT * FROM folios
-            WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
-            ORDER BY created_at, content_hash
+            WHERE {clause}
+            ORDER BY created_at DESC, content_hash
             LIMIT ?
             """,
-            (like, like, limit),
+            params,
         ).fetchall()
-        return [dict(r) for r in rows]
+        ranked = sorted(
+            (dict(r) for r in rows),
+            key=lambda r: _search_score(r, terms),
+            reverse=True,
+        )
+        return ranked[:limit]
 
     def find_by_prefix(self, prefix: str, limit: int = 10) -> List[str]:
         """Content hashes beginning with ``prefix`` (git-style short-hash lookup).

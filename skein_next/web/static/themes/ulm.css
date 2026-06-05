@@ -131,6 +131,7 @@ h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2re
 .entry-list li, .site-list li { padding: 0.35rem 0; border-bottom: 1px solid #eee; }
 [data-theme="dark"] .entry-list li, [data-theme="dark"] .site-list li { border-bottom-color: #222; }
 .entry .meta, .site-list .meta { font-size: 0.8rem; color: var(--muted); }
+.entry .snippet { font-size: 0.85rem; color: var(--muted); margin: 0.15rem 0; }
 .site-list .count { font-variant-numeric: tabular-nums; }
 
 .section-heading { font-size: 1.1rem; border-bottom: 2px solid var(--fg); padding-bottom: 0.2rem; margin: 1.75rem 0 0.5rem; }

@@ -335,3 +335,65 @@ def test_batch_resolve_non_json_body(client):
 def test_batch_resolve_non_array_body(client):
     r = client.post("/resolve", json={"addresses": []})
     assert r.status_code == 400 and r.json()["body"]["error"] == "invalid_batch"
+
+
+# --- machine search (slice 5) -----------------------------------------------
+
+
+def test_search_json(client):
+    r = client.get("/search.json", params={"q": "body"})
+    assert r.status_code == 200
+    env = r.json()
+    assert env["kind"] == "search" and env["stability"] == "derived"
+    assert env["asserted"]["query"] == "body"
+    titles = [e["title"] for e in env["body"]]
+    assert "Finding A" in titles and "Brief B" in titles
+
+
+def test_search_json_has_snippets(client):
+    env = client.get("/search.json", params={"q": "body"}).json()
+    assert all("snippet" in e for e in env["body"])
+    assert any(e["snippet"] for e in env["body"])
+
+
+def test_search_json_truncated_flag(client):
+    env = client.get("/search.json", params={"q": "body"}).json()
+    # A handful of results is well under the cap -> not truncated.
+    assert env["asserted"]["truncated"] is False
+
+
+def test_search_via_accept(client):
+    r = client.get("/search", params={"q": "body"}, headers={"Accept": "application/json"})
+    assert r.json()["kind"] == "search"
+
+
+def test_search_md(client):
+    r = client.get("/search.md", params={"q": "body"})
+    assert r.status_code == 200 and "Finding A" in r.text
+
+
+# --- well-known / describe (slice 5) ----------------------------------------
+
+
+def test_well_known_json(client):
+    r = client.get("/.well-known/skein.json")
+    assert r.status_code == 200
+    doc = r.json()
+    assert doc["skein"] == "station/v1"
+    assert doc["wire"] == "skein.envelope/v1"
+    assert doc["profile"] == "skein.folio.canon/v1"
+    assert "resolve" in doc["operations"] and "search" in doc["operations"]
+    assert "ignore any delimiter" in doc["nonce_fence"]
+    assert doc["totals"]["folios"] >= 1
+
+
+def test_well_known_negotiates_json_by_default(client):
+    # A browser with no explicit preference gets JSON (metadata, not a page).
+    r = client.get("/.well-known/skein", headers={"User-Agent": "Mozilla/5.0"})
+    assert r.json()["skein"] == "station/v1"
+
+
+def test_well_known_md(client):
+    r = client.get("/.well-known/skein.md")
+    assert r.status_code == 200
+    assert "SKEIN station" in r.text and "Operations:" in r.text

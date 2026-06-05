@@ -44,7 +44,7 @@ from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
 from ..stationfile import StationConfig, StationfileError, load_station_config
-from ..store import SkeinNextStore
+from ..store import SkeinNextStore, make_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,10 @@ BATCH_CAP = 256
 # only run post-parse). 256 KiB comfortably holds 256 of the longest addresses
 # (web::authority::sha256::<64hex>#sha256::<64hex>) with JSON overhead.
 MAX_BATCH_BYTES = 256 * 1024
+
+# Max search results returned in one query; the envelope flags `truncated` when
+# the cap is hit so a consumer knows more may exist.
+SEARCH_LIMIT = 100
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
 ENV_PROJECT = "SKEIN_NEXT_PROJECT"  # the stationfile-name bootstrap env
 
@@ -604,16 +608,23 @@ def create_app() -> FastAPI:
         # independently cacheable by its own hash when fetched singly.
         return JSONResponse(results, headers={"Cache-Control": "no-store"})
 
-    # --- search (HTML-only in Phase 1; search.json is slice 5) --------------
+    # --- search (L1: AND-of-terms, ranked, snippets) -----------------------
 
     def _search_envelope(store, q: str) -> dict:
-        rows = store.search_folios(q, limit=100) if q.strip() else []
-        entries = [envelope_mod.folio_entry(r) for r in rows]
+        terms = q.split()
+        rows = store.search_folios(q, limit=SEARCH_LIMIT) if q.strip() else []
+        entries = [
+            envelope_mod.folio_entry(r, snippet=make_snippet(r.get("content"), terms))
+            for r in rows
+        ]
+        # `truncated` is the honest signal that the result set was capped at the
+        # limit (more matches may exist, and L1 ranks only within that window — it
+        # is not a global relevance sort). A consumer can page/refine on it.
         return envelope_mod.build_collection_envelope(
             "search",
             "/search" + (f"?q={q}" if q else ""),
             entries,
-            asserted={"query": q, "count": len(entries)},
+            asserted={"query": q, "count": len(entries), "truncated": len(entries) >= SEARCH_LIMIT},
             links={"catalog": "/", "self": "/search"},
         )
 
@@ -624,7 +635,74 @@ def create_app() -> FastAPI:
         store: SkeinNextStore = Depends(get_store),
     ):
         env = _search_envelope(store, q)
-        return html(request, "search.html", {"env": env, "q": q})
+        repr_ = _wants_machine(request, None)
+        if repr_ is None:
+            return html(request, "search.html", {"env": env, "q": q})
+        return _collection_response(env, repr_, title=f"Search — {q}")
+
+    @app.get("/search.json")
+    def search_json(
+        request: Request,
+        q: str = Query("", description="Search query"),
+        store: SkeinNextStore = Depends(get_store),
+    ):
+        return _collection_response(_search_envelope(store, q), "json", title=f"Search — {q}")
+
+    @app.get("/search.md")
+    def search_md(
+        request: Request,
+        q: str = Query("", description="Search query"),
+        store: SkeinNextStore = Depends(get_store),
+    ):
+        return _collection_response(_search_envelope(store, q), "markdown", title=f"Search — {q}")
+
+    # --- well-known root / describe (the discovery + MCP `describe` target) --
+
+    def _describe(store) -> dict:
+        return {
+            "skein": "station/v1",
+            "name": config.name,
+            "wire": envelope_mod.SCHEMA,
+            "profile": envelope_mod.CANON_PROFILE,
+            "address_grammar": "rev3",
+            "operations": {
+                "resolve": "GET /folio/{address}[.json|.md]",
+                "resolve_batch": "POST /resolve",
+                "search": "GET /search[.json|.md]?q=",
+                "list": "GET /site/{slug}[.json|.md]",
+                "catalog": "GET /[.json|.md]",
+                "bundle": "GET /folio/{address}/bundle",
+                "describe": "GET /.well-known/skein[.json|.md]",
+            },
+            "nonce_fence": render_mod.WELL_KNOWN_FENCE_RULE,
+            "totals": {"folios": store.count_folios(), "sites": len(store.list_slugs())},
+            "example": "mesh fetch sha256::<digest>",
+        }
+
+    def _describe_response(request: Request, store, suffix: Optional[str]) -> Response:
+        # Metadata, not a content page: markdown on request, else JSON (a browser
+        # with no explicit preference gets JSON here, not an HTML view).
+        repr_ = negotiate(suffix, request.headers.get("accept"), request.headers.get("user-agent"))
+        doc = _describe(store)
+        if repr_ in ("markdown", "md_raw"):
+            return PlainTextResponse(
+                render_mod.render_describe_markdown(doc),
+                media_type=_MARKDOWN_MEDIA,
+                headers={"Cache-Control": "no-cache"},
+            )
+        return JSONResponse(doc, headers={"Cache-Control": "no-cache"})
+
+    @app.get("/.well-known/skein")
+    def well_known(request: Request, store: SkeinNextStore = Depends(get_store)):
+        return _describe_response(request, store, None)
+
+    @app.get("/.well-known/skein.json")
+    def well_known_json(request: Request, store: SkeinNextStore = Depends(get_store)):
+        return _describe_response(request, store, "json")
+
+    @app.get("/.well-known/skein.md")
+    def well_known_md(request: Request, store: SkeinNextStore = Depends(get_store)):
+        return _describe_response(request, store, "md")
 
     return app
 

@@ -358,6 +358,6 @@ def build_error_envelope(
         "asserted": {},
         "links": links,
         "next": None,
-        "suggestion": "skein fetch <address>",
+        "suggestion": "mesh fetch <address>",
     }
     return validate_envelope(env)

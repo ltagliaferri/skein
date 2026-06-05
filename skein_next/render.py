@@ -150,7 +150,7 @@ def _render_footer(env: Mapping[str, Any]) -> str:
 
     if "raw" in links:
         lines.append(f"Raw source:  {links['raw']}")
-    lines.append(f"Resolve any address:  skein fetch {env['address']}")
+    lines.append(f"Resolve any address:  mesh fetch {env['address']}")
     return "\n".join(lines)
 
 
@@ -197,9 +197,9 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
         lines.append(_fence(nonce, "entry below", fenced_body))
     if env.get("next"):
         lines.append("")
-        lines.append(f"Next:  skein fetch {env['next']}")
+        lines.append(f"Next:  mesh fetch {env['next']}")
     lines.append("")
-    lines.append("Resolve any address:  skein fetch <address>")
+    lines.append("Resolve any address:  mesh fetch <address>")
     return ("\n".join(lines).rstrip() + "\n", nonce)
 
 

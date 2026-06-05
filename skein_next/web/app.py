@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -51,6 +51,10 @@ logger = logging.getLogger(__name__)
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_PORT = 9001  # legacy stays on 8001/8003; new station is 9001
+
+# Max addresses in one POST /resolve batch (fork D, pinned 256). Over-cap is
+# rejected whole rather than truncated, so a caller never silently loses the tail.
+BATCH_CAP = 256
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
 ENV_PROJECT = "SKEIN_NEXT_PROJECT"  # the stationfile-name bootstrap env
 
@@ -379,7 +383,7 @@ def create_app() -> FastAPI:
                 "profile": envelope_mod.CANON_PROFILE,
                 "sites": sites,
                 "total_folios": store.count_folios(),
-                "example": "skein fetch sha256::<digest>",
+                "example": "mesh fetch sha256::<digest>",
             },
             links={"catalog": "/"},
         )
@@ -518,6 +522,47 @@ def create_app() -> FastAPI:
         if is_html:
             return _render_folio_html(request, store, content_hash, row)
         return _folio_response(request, store, content_hash, repr_, row)
+
+    # --- batch resolve (fork D) ---------------------------------------------
+
+    def _resolve_one(store, address: str) -> dict:
+        """One batch element: a folio envelope, or an inline error envelope.
+
+        Adds no new trust surface — each element is resolved and built exactly as
+        a single GET resolve, so it is independently verifiable and cacheable by
+        its own hash. A bad address becomes a ``kind: error`` envelope in place,
+        never a failure of the whole batch.
+        """
+        if not isinstance(address, str):
+            return envelope_mod.build_error_envelope("invalid_address", str(address))
+        try:
+            content_hash = resolve_to_hash(address, store, local_authority=get_authority())
+        except ResolveError as e:
+            return envelope_mod.build_error_envelope(e.code, e.address, origin=e.origin)
+        row = store.get_folio(content_hash)
+        if row is None:
+            return envelope_mod.build_error_envelope("not_found", address)
+        return envelope_mod.build_folio_envelope(store, content_hash, row=row)
+
+    @app.post("/resolve")
+    def resolve_batch(
+        addresses: list = Body(..., embed=False),
+        store: SkeinNextStore = Depends(get_store),
+    ):
+        """Resolve a list of addresses to an array of envelopes, in request order.
+
+        The batch *wrapper* is derived (a query); each *element* is an independent
+        envelope (a stable folio or an inline error). Over the cap is rejected
+        whole (a single error envelope), so the caller never silently loses the
+        tail. POST-with-list, not a synthetic ``batch::`` address (URL length).
+        """
+        if len(addresses) > BATCH_CAP:
+            env = envelope_mod.build_error_envelope("batch_too_large", f"{len(addresses)} addresses")
+            return JSONResponse(env, status_code=413, headers={"Cache-Control": "no-store"})
+        results = [_resolve_one(store, a) for a in addresses]
+        # A batch is a POST result, never a cacheable GET; each element stays
+        # independently cacheable by its own hash when fetched singly.
+        return JSONResponse(results, headers={"Cache-Control": "no-store"})
 
     # --- search (HTML-only in Phase 1; search.json is slice 5) --------------
 

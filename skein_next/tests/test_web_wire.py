@@ -272,3 +272,45 @@ def test_bundle_served_when_signed(seeded, monkeypatch):
     assert r.json()["identity_scheme"] == "sigstore-public-v1"
     # The bundle is re-signable for an unchanged hash (slice 2), so it revalidates.
     assert r.headers["cache-control"] == "no-cache"
+
+
+# --- batch resolve (fork D) -------------------------------------------------
+
+
+def test_batch_resolve_array_in_order(client, seeded):
+    r = client.post("/resolve", json=[seeded["a"], seeded["b"]])
+    assert r.status_code == 200
+    envs = r.json()
+    assert [e["kind"] for e in envs] == ["folio", "folio"]
+    # request order preserved; each element is its own verifiable envelope
+    assert envs[0]["proof"]["content_hash"] == seeded["a"]
+    assert envs[1]["proof"]["content_hash"] == seeded["b"]
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_batch_resolve_errors_inline(client, seeded):
+    r = client.post("/resolve", json=[seeded["a"], "sha256::" + "0" * 64])
+    envs = r.json()
+    assert envs[0]["kind"] == "folio"
+    assert envs[1]["kind"] == "error" and envs[1]["body"]["found"] is False
+
+
+def test_batch_resolve_empty_is_empty_array(client):
+    r = client.post("/resolve", json=[])
+    assert r.status_code == 200 and r.json() == []
+
+
+def test_batch_resolve_over_cap_rejected_whole(client, seeded):
+    from skein_next.web.app import BATCH_CAP
+
+    r = client.post("/resolve", json=[seeded["a"]] * (BATCH_CAP + 1))
+    assert r.status_code == 413
+    assert r.json()["kind"] == "error"
+    assert r.json()["body"]["error"] == "batch_too_large"
+
+
+def test_batch_resolve_at_cap_ok(client, seeded):
+    from skein_next.web.app import BATCH_CAP
+
+    r = client.post("/resolve", json=[seeded["a"]] * BATCH_CAP)
+    assert r.status_code == 200 and len(r.json()) == BATCH_CAP

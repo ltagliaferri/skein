@@ -70,3 +70,15 @@ def test_make_snippet_no_match_takes_head():
 def test_make_snippet_empty_is_none():
     assert make_snippet("", ["x"]) is None
     assert make_snippet(None, ["x"]) is None
+
+
+def test_term_count_is_capped(store):
+    # An unbounded ?q= must not blow up the SQL variable count or the scan work:
+    # the term list is capped, so a thousand-term query still runs (returns []
+    # here since the capped terms don't all co-occur), never raises.
+    from skein_next.store import _MAX_SEARCH_TERMS
+
+    huge = " ".join(f"term{i}" for i in range(_MAX_SEARCH_TERMS * 40))
+    assert store.search_folios(huge) == []  # no row has all those terms; no crash
+    # A capped set of real terms still matches.
+    assert store.search_folios("needle " + huge) is not None

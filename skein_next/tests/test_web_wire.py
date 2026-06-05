@@ -356,6 +356,12 @@ def test_search_json_has_snippets(client):
     assert any(e["snippet"] for e in env["body"])
 
 
+def test_search_json_truncated_flag(client):
+    env = client.get("/search.json", params={"q": "body"}).json()
+    # A handful of results is well under the cap -> not truncated.
+    assert env["asserted"]["truncated"] is False
+
+
 def test_search_via_accept(client):
     r = client.get("/search", params={"q": "body"}, headers={"Accept": "application/json"})
     assert r.json()["kind"] == "search"

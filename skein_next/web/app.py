@@ -60,6 +60,10 @@ BATCH_CAP = 256
 # only run post-parse). 256 KiB comfortably holds 256 of the longest addresses
 # (web::authority::sha256::<64hex>#sha256::<64hex>) with JSON overhead.
 MAX_BATCH_BYTES = 256 * 1024
+
+# Max search results returned in one query; the envelope flags `truncated` when
+# the cap is hit so a consumer knows more may exist.
+SEARCH_LIMIT = 100
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
 ENV_PROJECT = "SKEIN_NEXT_PROJECT"  # the stationfile-name bootstrap env
 
@@ -608,16 +612,19 @@ def create_app() -> FastAPI:
 
     def _search_envelope(store, q: str) -> dict:
         terms = q.split()
-        rows = store.search_folios(q, limit=100) if q.strip() else []
+        rows = store.search_folios(q, limit=SEARCH_LIMIT) if q.strip() else []
         entries = [
             envelope_mod.folio_entry(r, snippet=make_snippet(r.get("content"), terms))
             for r in rows
         ]
+        # `truncated` is the honest signal that the result set was capped at the
+        # limit (more matches may exist, and L1 ranks only within that window — it
+        # is not a global relevance sort). A consumer can page/refine on it.
         return envelope_mod.build_collection_envelope(
             "search",
             "/search" + (f"?q={q}" if q else ""),
             entries,
-            asserted={"query": q, "count": len(entries)},
+            asserted={"query": q, "count": len(entries), "truncated": len(entries) >= SEARCH_LIMIT},
             links={"catalog": "/", "self": "/search"},
         )
 

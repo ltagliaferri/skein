@@ -256,11 +256,14 @@ def render_describe_markdown(doc: Mapping[str, Any]) -> str:
     ]
     for name, route in (doc.get("operations") or {}).items():
         lines.append(f"  {name}: {route}")
+    folios = totals.get("folios", 0)
+    sites = totals.get("sites", 0)
     lines += [
         "",
         f"Fence rule: {doc.get('nonce_fence')}",
         "",
-        f"Totals: {totals.get('folios', 0)} folios, {totals.get('sites', 0)} sites",
+        f"Totals: {folios} folio{'' if folios == 1 else 's'}, "
+        f"{sites} site{'' if sites == 1 else 's'}",
         f"Resolve any address:  {doc.get('example')}",
     ]
     return "\n".join(lines) + "\n"

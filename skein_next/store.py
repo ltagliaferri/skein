@@ -37,6 +37,12 @@ def _like_escape(s: str) -> str:
 _TITLE_WEIGHT = 3
 _BODY_WEIGHT = 1
 
+# Cap on distinct query terms. `?q=` is unauthenticated on a mesh-facing surface;
+# an unbounded term list drives O(terms x candidates x content) substring scans
+# and, on SQLite < 3.32 (999-variable limit), a >499-term query would raise. 32
+# terms is far more than any real query and bounds both the work and the binds.
+_MAX_SEARCH_TERMS = 32
+
 
 def _search_score(row: Mapping[str, Any], terms: List[str]) -> int:
     """Relevance of a folio for the search terms: title hits weigh over body hits."""
@@ -288,7 +294,7 @@ class SkeinNextStore:
         ``50%`` or ``a_b`` find those strings. (Not FTS5/BM25 — the new store has
         no full-text index; this is the modest L1 polish over substring matching.)
         """
-        terms = [t for t in query.split() if t]
+        terms = [t for t in query.split() if t][:_MAX_SEARCH_TERMS]
         if not terms:
             return []
         clause = " AND ".join(

@@ -269,6 +269,26 @@ def test_shipped_theme_static_served(client):
     assert "text/css" in r.headers["content-type"]
 
 
+def test_custom_theme_symlink_escape_blocked(seeded, monkeypatch, tmp_path):
+    # The /theme.css route re-checks containment at read time: a sheet swapped for
+    # a symlink pointing outside the data dir AFTER startup must not be disclosed.
+    themes = seeded["data_dir"] / "themes"
+    themes.mkdir(parents=True, exist_ok=True)
+    real = themes / "mine.css"
+    real.write_text("body { color: rebeccapurple; }", encoding="utf-8")
+    client = _make_client(
+        seeded["data_dir"], monkeypatch, stationfile={"name": "X", "theme": "themes/mine.css"},
+    )
+    assert "rebeccapurple" in client.get("/theme.css").text  # legit sheet served
+
+    secret = tmp_path / "outside-secret.txt"
+    secret.write_text("TOP SECRET", encoding="utf-8")
+    real.unlink()
+    real.symlink_to(secret)  # swap the sheet for a symlink escaping the data dir
+    escaped = client.get("/theme.css")
+    assert "TOP SECRET" not in escaped.text  # escape caught, nothing disclosed
+
+
 def test_custom_theme_served_from_data_dir(seeded, monkeypatch):
     themes = seeded["data_dir"] / "themes"
     themes.mkdir(parents=True, exist_ok=True)

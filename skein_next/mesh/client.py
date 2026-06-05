@@ -23,7 +23,7 @@ DEFAULT_INSTANCE = "http://127.0.0.1:9001"
 # distinct exit, so a transient trust-root problem never reads as forgery.
 _VERIFIER_UNAVAILABLE = frozenset({"OFFLINE_NO_TRUSTED_ROOT", "TRUST_ROOT_STALE"})
 
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_LOOPBACK_HOSTS = frozenset({"localhost", "::1"})
 
 # --- fork F exit codes ------------------------------------------------------
 EXIT_OK = 0  # resolved + verified, or resolved + unsigned (without --require-signed)
@@ -48,11 +48,59 @@ class FetchResult:
     markdown: Optional[str] = None
     remote: bool = False
     warning: Optional[str] = None
+    # Did the served content's hash bind to the REQUESTED address?  True = the
+    # address carried a digest and the content matched it; None = the address had
+    # no digest to pin against locally (an alias/legacy id), so the name->hash
+    # mapping is the station's word, not verified here.
+    pinned: Optional[bool] = None
 
 
 def _is_remote(instance: str) -> bool:
     host = (urlparse(instance).hostname or "").lower()
-    return host not in _LOOPBACK_HOSTS
+    if host in _LOOPBACK_HOSTS:
+        return False
+    # The whole 127.0.0.0/8 range is loopback, not just 127.0.0.1.
+    return not host.startswith("127.")
+
+
+def _pin_check(requested_address: Optional[str], actual_hash: str) -> Tuple[Optional[bool], Optional[str]]:
+    """Bind the requested address to the content's true identity (``actual_hash``).
+
+    Content addressing's one invariant is address == hash(content); this is where
+    the client enforces it against the station it does not trust. Returns
+    ``(matched, reason)``:
+
+    - ``(True, None)`` — the address carried a digest and the content matched it
+      (a full digest exactly, or a short digest as a prefix of the full hash).
+    - ``(False, reason)`` — the address carried a digest and the content did NOT
+      match: the station served something other than what was asked for.
+    - ``(None, reason)`` — the address has no locally-checkable digest (a bare
+      alias or migrated legacy id), so the name->hash mapping is the station's
+      word; the content still self-certifies, it just isn't pinned to the request.
+    """
+    if not requested_address:
+        return None, "no requested address to pin against"
+    from skein import address as addr
+
+    try:
+        parsed = addr.parse(requested_address)
+    except addr.AddressError:
+        return None, (
+            "requested address has no content-hash digest (alias/legacy id) — "
+            "the name->hash mapping is the station's word, not verified locally"
+        )
+    pin = parsed.fragment if parsed.fragment is not None else parsed.folio
+    algo, _sep, digest = actual_hash.partition("::")
+    if pin.algo != algo:
+        return False, f"address mismatch: requested {pin.algo}, served {algo}"
+    if pin.is_full:
+        if pin.digest != digest:
+            return False, "address mismatch: served content does not hash to the requested address"
+        return True, None
+    # A short digest pins by prefix: the full hash must extend it.
+    if not digest.startswith(pin.digest):
+        return False, "address mismatch: served hash does not extend the requested short hash"
+    return True, None
 
 
 def resolve(instance: str, address: str, *, timeout: float = 10.0) -> Tuple[Optional[dict], Optional[str]]:
@@ -74,18 +122,23 @@ def resolve(instance: str, address: str, *, timeout: float = 10.0) -> Tuple[Opti
         return None, f"instance returned non-JSON (HTTP {resp.status_code})"
 
 
-def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict]]:
-    """Strict, client-side verification of a resolved envelope (fork F).
+def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict], Optional[str]]:
+    """Strict, client-side verification of a resolved envelope's CONTENT (fork F).
 
-    Returns ``(state, exit_code, reason, identity)``. An error envelope is
-    not-resolved. A folio is verified over its ``proof`` + ``body``: a signed
-    folio runs the full §4 path; an unsigned folio is still integrity-checked
-    (the content hash must bind the body shown) so a station that serves a body
-    not matching its claimed address is caught as invalid, never reported clean.
+    Returns ``(state, exit_code, reason, identity, content_hash)`` where
+    ``content_hash`` is the hash RE-DERIVED from the body (the content's true
+    identity), or ``None`` when the envelope did not verify. This proves the
+    envelope is self-consistent and (if signed) authentically signed; binding the
+    content to the *requested address* is :func:`fetch`'s job (it holds the
+    request), via :func:`_pin_check`.
+
+    A signed folio runs the full §4 path. An unsigned folio is integrity-checked:
+    the content hash MUST be present and bind the body shown, so a station that
+    serves a body not matching its own claimed hash is caught as invalid.
     """
     if env.get("kind") == "error":
         reason = (env.get("body") or {}).get("error")
-        return "not_resolved", EXIT_NOT_RESOLVED, reason, None
+        return "not_resolved", EXIT_NOT_RESOLVED, reason, None, None
 
     proof = env.get("proof") or {}
     body = env.get("body") or {}
@@ -99,19 +152,24 @@ def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict]]
         wire["signature_bundle"] = json.dumps(bundle)
         verified, reason, identity = verify_wire_folio(wire)
         if verified:
-            return "verified", EXIT_OK, "verified", identity
+            # verify_wire_folio bound the signature to the body AND (when a
+            # content_hash is claimed) the body to that hash, so `claimed` is the
+            # verified identity to pin against.
+            return "verified", EXIT_OK, "verified", identity, claimed
         if reason in _VERIFIER_UNAVAILABLE:
-            return "unverified", EXIT_UNVERIFIED, reason, None
-        return "invalid", EXIT_SIGNATURE_INVALID, reason, None
+            return "unverified", EXIT_UNVERIFIED, reason, None, None
+        return "invalid", EXIT_SIGNATURE_INVALID, reason, None, None
 
     # Unsigned: integrity-level proof. Re-derive the hash and confirm it binds the
-    # body shown — the station's word is not trusted even for the hash.
+    # body shown — the station's word is not trusted even for the hash, and a
+    # missing content_hash is itself a failure (no identity to stand on).
     from .. import canon
     from ..identity import content_hash_for_bytes
 
-    if claimed and content_hash_for_bytes(canon.folio_canonical_bytes(wire)) != claimed:
-        return "invalid", EXIT_SIGNATURE_INVALID, "hash mismatch", None
-    return "unsigned", EXIT_OK, None, None
+    actual = content_hash_for_bytes(canon.folio_canonical_bytes(wire))
+    if not claimed or actual != claimed:
+        return "invalid", EXIT_SIGNATURE_INVALID, "hash mismatch", None, None
+    return "unsigned", EXIT_OK, None, None, actual
 
 
 def fetch(
@@ -122,6 +180,12 @@ def fetch(
     timeout: float = 10.0,
 ) -> FetchResult:
     """Resolve ``address`` against ``instance`` and strict-verify it (fork F).
+
+    Verification is two checks the station cannot fake: the content is
+    re-hashed and (if signed) the signature re-verified locally
+    (:func:`verify_envelope`), and that content hash is then bound to the
+    REQUESTED address (:func:`_pin_check`) — so a station serving content B under
+    a request for address A is caught as an address mismatch, not reported clean.
 
     ``--require-signed`` turns a resolved-but-unsigned result into a non-zero
     exit. Remote-unsigned content additionally carries a stderr-bound warning (it
@@ -135,8 +199,19 @@ def fetch(
             state="not_resolved", exit_code=EXIT_NOT_RESOLVED, reason=err, remote=remote,
         )
 
-    state, exit_code, reason, identity = verify_envelope(env)
+    state, exit_code, reason, identity, content_hash = verify_envelope(env)
     resolved = state != "not_resolved"
+    pinned: Optional[bool] = None
+
+    # Bind the verified content to the address the caller asked for. Only
+    # meaningful once the content itself verified (content_hash is set).
+    if content_hash is not None:
+        matched, pin_reason = _pin_check(address, content_hash)
+        if matched is False:
+            state, exit_code, reason, identity = "invalid", EXIT_SIGNATURE_INVALID, pin_reason, None
+        else:
+            pinned = matched  # True (pinned + matched) or None (no digest to pin)
+
     warning = None
     if state == "unsigned":
         if require_signed:
@@ -152,7 +227,7 @@ def fetch(
     return FetchResult(
         address=address, instance=instance, resolved=resolved, state=state,
         exit_code=exit_code, reason=reason, identity=identity, envelope=env,
-        markdown=markdown, remote=remote, warning=warning,
+        markdown=markdown, remote=remote, warning=warning, pinned=pinned,
     )
 
 
@@ -169,17 +244,33 @@ def _render(env: dict) -> str:
     return text
 
 
+def _pin_clause(result: FetchResult) -> str:
+    """How the verified content relates to the address the caller asked for."""
+    if result.pinned:
+        return "content hashes to the requested address"
+    return (
+        "could not pin to the requested address locally (alias/legacy id) — "
+        "the name->hash mapping is the station's word"
+    )
+
+
 def verdict_line(result: FetchResult) -> str:
-    """A one-line human verdict for stderr, built from the LOCAL verification."""
+    """A one-line human verdict for stderr, built from the LOCAL verification.
+
+    The ``invalid`` state covers both a bad signature and an address mismatch (the
+    station served content other than what was requested); the ``reason`` says
+    which. ``verified``/``unsigned`` carry whether the content pinned to the
+    requested address — an unpinned result is stated honestly, never as clean.
+    """
     if result.state == "verified":
         subject = (result.identity or {}).get("subject") or "verified"
         issuer = (result.identity or {}).get("issuer")
         who = f"{subject} ({issuer})" if issuer else subject
-        return f"VERIFIED — signed by {who}"
+        return f"VERIFIED — signed by {who}; {_pin_clause(result)}"
     if result.state == "unsigned":
-        return "UNSIGNED — integrity verified (content hash binds the body); no authorship proof"
+        return f"UNSIGNED — no authorship proof; {_pin_clause(result)}"
     if result.state == "unverified":
         return f"UNVERIFIED — signature present but verifier unavailable ({result.reason})"
     if result.state == "invalid":
-        return f"SIGNATURE INVALID — {result.reason}"
+        return f"INVALID — {result.reason}"
     return f"NOT RESOLVED — {result.reason or 'no folio at that address'}"

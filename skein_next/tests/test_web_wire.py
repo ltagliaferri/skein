@@ -314,3 +314,24 @@ def test_batch_resolve_at_cap_ok(client, seeded):
 
     r = client.post("/resolve", json=[seeded["a"]] * BATCH_CAP)
     assert r.status_code == 200 and len(r.json()) == BATCH_CAP
+
+
+def test_batch_resolve_oversized_body_rejected_before_parse(client):
+    from skein_next.web.app import MAX_BATCH_BYTES
+
+    # A body over the byte cap is rejected 413 (the DoS guard fires before the
+    # element-count cap, which can't run until after a parse).
+    big = "x" * (MAX_BATCH_BYTES + 1)
+    r = client.post("/resolve", content=big, headers={"content-type": "application/json"})
+    assert r.status_code == 413
+    assert r.json()["body"]["error"] == "batch_too_large"
+
+
+def test_batch_resolve_non_json_body(client):
+    r = client.post("/resolve", content=b"{not json", headers={"content-type": "application/json"})
+    assert r.status_code == 400 and r.json()["body"]["error"] == "invalid_batch"
+
+
+def test_batch_resolve_non_array_body(client):
+    r = client.post("/resolve", json={"addresses": []})
+    assert r.status_code == 400 and r.json()["body"]["error"] == "invalid_batch"

@@ -68,7 +68,7 @@ def _envelope(station_client, address):
 def test_unsigned_envelope_integrity_ok(wired, monkeypatch):
     station = TestClient(create_app())
     env = _envelope(station, wired["a"])
-    state, code, reason, identity = verify_envelope(env)
+    state, code, reason, identity, _vh = verify_envelope(env)
     assert state == "unsigned" and code == EXIT_OK
 
 
@@ -76,13 +76,13 @@ def test_unsigned_envelope_tampered_body_is_invalid(wired):
     station = TestClient(create_app())
     env = _envelope(station, wired["a"])
     env["body"]["content"] = "tampered — not the bytes that hash to the address"
-    state, code, reason, _ = verify_envelope(env)
+    state, code, reason, _, _vh = verify_envelope(env)
     assert state == "invalid" and code == EXIT_SIGNATURE_INVALID and reason == "hash mismatch"
 
 
 def test_error_envelope_is_not_resolved():
     env = {"kind": "error", "body": {"found": False, "error": "not_found"}}
-    state, code, reason, _ = verify_envelope(env)
+    state, code, reason, _, _vh = verify_envelope(env)
     assert state == "not_resolved" and code == EXIT_NOT_RESOLVED and reason == "not_found"
 
 
@@ -92,7 +92,7 @@ def test_signed_verified_maps_to_ok(monkeypatch):
            "proof": {"content_hash": "sha256::x", "signature_bundle": {"b": 1}}}
     monkeypatch.setattr(sign_mod, "verify_wire_folio",
                         lambda wf: (True, "verified", {"issuer": "iss", "subject": "alice@x"}))
-    state, code, reason, identity = verify_envelope(env)
+    state, code, reason, identity, _vh = verify_envelope(env)
     assert state == "verified" and code == EXIT_OK and identity["subject"] == "alice@x"
 
 
@@ -101,7 +101,7 @@ def test_signed_invalid_maps_to_invalid(monkeypatch):
                                      "created_at": "2026-01-01T00:00:00Z", "created_by": "a"},
            "proof": {"content_hash": "sha256::x", "signature_bundle": {"b": 1}}}
     monkeypatch.setattr(sign_mod, "verify_wire_folio", lambda wf: (False, "FAILED", None))
-    state, code, _, _ = verify_envelope(env)
+    state, code, _, _, _vh = verify_envelope(env)
     assert state == "invalid" and code == EXIT_SIGNATURE_INVALID
 
 
@@ -111,7 +111,7 @@ def test_signed_unverifiable_maps_to_unverified(monkeypatch):
            "proof": {"content_hash": "sha256::x", "signature_bundle": {"b": 1}}}
     monkeypatch.setattr(sign_mod, "verify_wire_folio",
                         lambda wf: (False, "OFFLINE_NO_TRUSTED_ROOT", None))
-    state, code, _, _ = verify_envelope(env)
+    state, code, _, _, _vh = verify_envelope(env)
     assert state == "unverified" and code == EXIT_UNVERIFIED
 
 
@@ -150,6 +150,39 @@ def test_fetch_instance_unreachable(seeded, monkeypatch):
     monkeypatch.setattr(mesh_client.requests, "get", boom)
     r = fetch(LOCAL, seeded["a"])
     assert not r.resolved and r.exit_code == EXIT_NOT_RESOLVED and "unreachable" in r.reason
+
+
+# --- address pinning (content addressing's invariant: address == hash(content)) -
+
+
+def test_full_hash_address_pins(wired):
+    # The requested address IS a full content hash, so the served content must
+    # hash to it — and does.
+    r = fetch(LOCAL, wired["a"])
+    assert r.state == "unsigned" and r.pinned is True
+
+
+def test_substituted_content_is_address_mismatch(wired, monkeypatch):
+    # A station that serves a self-consistent envelope for content X in answer to
+    # a request for a DIFFERENT address must be caught — content addressing's one
+    # invariant, enforced on the side that does not trust the station.
+    station = TestClient(create_app())
+    real_env = _envelope(station, wired["a"])  # self-consistent for a
+    monkeypatch.setattr(mesh_client, "resolve", lambda inst, addr, timeout=10.0: (real_env, None))
+    wrong = "sha256::" + "b" * 64  # a full hash that is NOT a's
+    r = fetch(LOCAL, wrong)
+    assert r.state == "invalid" and r.exit_code == EXIT_SIGNATURE_INVALID
+    assert "address mismatch" in r.reason
+
+
+def test_legacy_id_address_is_unpinned(wired, seeded):
+    # A bare migrated id carries no digest to pin against — resolves via the
+    # station's alias table, so the name->hash mapping is the station's word. The
+    # content still self-certifies; the verdict says so honestly (pinned is None).
+    with Station(seeded["data_dir"]) as st:
+        st.store.set_alias("finding-20260101-leg1", seeded["a"])
+    r = fetch(LOCAL, "finding-20260101-leg1")
+    assert r.resolved and r.state == "unsigned" and r.pinned is None
 
 
 # --- CLI --------------------------------------------------------------------

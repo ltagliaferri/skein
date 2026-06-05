@@ -104,6 +104,7 @@ def test_cli_browse_verbs(wired):
 
 
 def test_mcp_server_exposes_four_tools():
+    pytest.importorskip("mcp.server.fastmcp")  # the optional mesh-mcp extra
     from skein_next.mesh.mcp import build_server
 
     server = build_server(LOCAL)
@@ -114,6 +115,7 @@ def test_mcp_server_exposes_four_tools():
 
 def test_mcp_tools_call_the_routes(wired):
     # The tool callables delegate to the display helpers over the (shimmed) wire.
+    pytest.importorskip("mcp.server.fastmcp")  # the optional mesh-mcp extra
     from skein_next.mesh.mcp import build_server
 
     server = build_server(LOCAL)

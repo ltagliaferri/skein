@@ -86,7 +86,7 @@ def resolve_cmd(address, instance):
 @click.argument("query")
 @_INSTANCE
 def search_cmd(query, instance):
-    """Search the station's folios."""
+    """Search the station's folios (display; `mesh fetch` a result to verify it)."""
     click.echo(search_display(instance, query))
 
 
@@ -94,14 +94,14 @@ def search_cmd(query, instance):
 @click.argument("slug")
 @_INSTANCE
 def list_cmd(slug, instance):
-    """List a site's folios by SLUG."""
+    """List a site's folios by SLUG (display; `mesh fetch` a folio to verify it)."""
     click.echo(list_display(instance, slug))
 
 
 @cli.command(name="describe")
 @_INSTANCE
 def describe_cmd(instance):
-    """Describe the station (the well-known root)."""
+    """Describe the station — the well-known root (display, unverified metadata)."""
     click.echo(describe_display(instance))
 
 

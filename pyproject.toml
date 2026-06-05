@@ -39,7 +39,7 @@ dependencies = [
 [project.optional-dependencies]
 # The client-side mesh MCP wrapper (`mesh mcp`). Optional so the instance image
 # and `mesh fetch` stay lean — instances are HTTP-only and never run MCP.
-mesh-mcp = ["mcp>=1.0"]
+mesh-mcp = ["mcp>=1.2"]  # FastMCP (mcp.server.fastmcp) lands in the SDK at 1.2
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0",

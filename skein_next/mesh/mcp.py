@@ -44,17 +44,26 @@ def build_server(instance: str = DEFAULT_INSTANCE):
 
     @server.tool()
     def search(query: str) -> str:
-        """Search the station's folios; returns ranked results as agent markdown."""
+        """Search the station's folios; ranked results as agent markdown.
+
+        Display-trust: `mesh fetch` an individual result to verify it.
+        """
         return search_display(instance, query)
 
     @server.tool(name="list")
     def list_site(slug: str) -> str:
-        """List a site's folios (by slug) as agent markdown."""
+        """List a site's folios (by slug) as agent markdown.
+
+        Display-trust: `mesh fetch` an individual folio to verify it.
+        """
         return list_display(instance, slug)
 
     @server.tool()
     def describe() -> str:
-        """Describe the station: name, wire/profile, operations, and the fence rule."""
+        """Describe the station: name, wire/profile, operations, and the fence rule.
+
+        Display-trust: unverified station metadata.
+        """
         return describe_display(instance)
 
     return server

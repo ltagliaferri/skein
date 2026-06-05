@@ -19,6 +19,7 @@
     <li class="entry">
       <span class="type-tag">{{ e.type }}</span>
       <a href="{{ e.href }}">{{ e.title | clean_title(e.address) }}</a>
+      {% if e.snippet %}<p class="snippet">{{ e.snippet }}</p>{% endif %}
       <div class="meta crypto">{{ e.address }}</div>
     </li>
     {% else %}

@@ -248,6 +248,47 @@ def fetch(
     )
 
 
+# --- display-trust path (the browse verbs + MCP) ----------------------------
+#
+# These fetch what the station RENDERED (agent markdown) and return it as-is —
+# the display-trust convenience path (brief-20260603-dirz fork E). They do NOT
+# verify; the rendering carries the addresses/bundle links so an agent can
+# escalate to `mesh fetch` (resolve + strict verify) for a hard guarantee.
+# Verification and federation never route through here.
+
+_MARKDOWN_ACCEPT = "text/markdown"
+
+
+def _fetch_text(instance: str, path: str, *, params: Optional[dict] = None, timeout: float = 10.0) -> str:
+    """GET an agent-markdown rendering of a route; return the text (or an error line)."""
+    url = instance.rstrip("/") + path
+    try:
+        resp = requests.get(url, params=params, headers={"Accept": _MARKDOWN_ACCEPT}, timeout=timeout)
+    except requests.RequestException as e:
+        return f"error: instance unreachable: {e}"
+    return resp.text
+
+
+def resolve_display(instance: str, address: str, *, timeout: float = 10.0) -> str:
+    """A folio's agent-markdown rendering (display-trust; use ``fetch`` to verify)."""
+    return _fetch_text(instance, f"/folio/{quote(address, safe='')}", timeout=timeout)
+
+
+def search_display(instance: str, query: str, *, timeout: float = 10.0) -> str:
+    """Search results as agent markdown."""
+    return _fetch_text(instance, "/search", params={"q": query}, timeout=timeout)
+
+
+def list_display(instance: str, slug: str, *, timeout: float = 10.0) -> str:
+    """A site's folios as agent markdown."""
+    return _fetch_text(instance, f"/site/{quote(slug, safe='')}", timeout=timeout)
+
+
+def describe_display(instance: str, *, timeout: float = 10.0) -> str:
+    """The station's describe document (the well-known root) as agent markdown."""
+    return _fetch_text(instance, "/.well-known/skein", timeout=timeout)
+
+
 def _render(env: dict) -> str:
     """The agent-markdown rendering of a resolved envelope, for display."""
     from .. import render as render_mod

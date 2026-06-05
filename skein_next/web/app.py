@@ -51,6 +51,15 @@ logger = logging.getLogger(__name__)
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_PORT = 9001  # legacy stays on 8001/8003; new station is 9001
+
+# Max addresses in one POST /resolve batch (fork D, pinned 256). Over-cap is
+# rejected whole rather than truncated, so a caller never silently loses the tail.
+BATCH_CAP = 256
+
+# Max bytes of a POST /resolve body, checked before buffering (the count cap can
+# only run post-parse). 256 KiB comfortably holds 256 of the longest addresses
+# (web::authority::sha256::<64hex>#sha256::<64hex>) with JSON overhead.
+MAX_BATCH_BYTES = 256 * 1024
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
 ENV_PROJECT = "SKEIN_NEXT_PROJECT"  # the stationfile-name bootstrap env
 
@@ -379,7 +388,7 @@ def create_app() -> FastAPI:
                 "profile": envelope_mod.CANON_PROFILE,
                 "sites": sites,
                 "total_folios": store.count_folios(),
-                "example": "skein fetch sha256::<digest>",
+                "example": "mesh fetch sha256::<digest>",
             },
             links={"catalog": "/"},
         )
@@ -518,6 +527,82 @@ def create_app() -> FastAPI:
         if is_html:
             return _render_folio_html(request, store, content_hash, row)
         return _folio_response(request, store, content_hash, repr_, row)
+
+    # --- batch resolve (fork D) ---------------------------------------------
+
+    def _resolve_one(store, address: str) -> dict:
+        """One batch element: a folio envelope, or an inline error envelope.
+
+        Adds no new trust surface — each element is resolved and built exactly as
+        a single GET resolve, so it is independently verifiable and cacheable by
+        its own hash. A bad address becomes a ``kind: error`` envelope in place,
+        never a failure of the whole batch.
+        """
+        if not isinstance(address, str):
+            return envelope_mod.build_error_envelope("invalid_address", str(address))
+        try:
+            content_hash = resolve_to_hash(address, store, local_authority=get_authority())
+        except ResolveError as e:
+            return envelope_mod.build_error_envelope(e.code, e.address, origin=e.origin)
+        row = store.get_folio(content_hash)
+        if row is None:
+            return envelope_mod.build_error_envelope("not_found", address)
+        return envelope_mod.build_folio_envelope(store, content_hash, row=row)
+
+    def _batch_error(code: str, detail: str, status: int) -> Response:
+        env = envelope_mod.build_error_envelope(code, detail)
+        return JSONResponse(env, status_code=status, headers={"Cache-Control": "no-store"})
+
+    @app.post("/resolve")
+    async def resolve_batch(request: Request, store: SkeinNextStore = Depends(get_store)):
+        """Resolve a list of addresses to an array of envelopes, in request order.
+
+        The batch *wrapper* is derived (a query); each *element* is an independent
+        envelope (a stable folio or an inline error). POST-with-list, not a
+        synthetic ``batch::`` address (URL length).
+
+        The request is bounded by BYTES before it is buffered (``MAX_BATCH_BYTES``)
+        and by element COUNT after parse (``BATCH_CAP``); over either is rejected
+        WHOLE, never silently truncated, so the caller never loses the tail. The
+        byte cap is the DoS guard — the count cap alone can't run until after a
+        parse — and is defense-in-depth atop the fronting proxy's body limit.
+        ``batch_too_large`` / ``invalid_batch`` are batch-wrapper error codes,
+        distinct from the resolve §6 codes that ride each element.
+        """
+        import json
+
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > MAX_BATCH_BYTES:
+                    return _batch_error("batch_too_large", "request body too large", 413)
+            except ValueError:
+                pass
+
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_BATCH_BYTES:
+                return _batch_error("batch_too_large", "request body too large", 413)
+
+        try:
+            addresses = json.loads(body) if body else []
+        except ValueError:
+            return _batch_error("invalid_batch", "request body is not valid JSON", 400)
+        if not isinstance(addresses, list):
+            return _batch_error("invalid_batch", "request body must be a JSON array of addresses", 400)
+        if len(addresses) > BATCH_CAP:
+            return _batch_error("batch_too_large", f"{len(addresses)} addresses exceeds {BATCH_CAP}", 413)
+
+        # The route is async (to stream-bound the body), but _resolve_one does
+        # blocking SQLite reads — run the whole batch off the event loop so it
+        # doesn't stall other requests, the way the sync routes get the threadpool.
+        from starlette.concurrency import run_in_threadpool
+
+        results = await run_in_threadpool(lambda: [_resolve_one(store, a) for a in addresses])
+        # A batch is a POST result, never a cacheable GET; each element stays
+        # independently cacheable by its own hash when fetched singly.
+        return JSONResponse(results, headers={"Cache-Control": "no-store"})
 
     # --- search (HTML-only in Phase 1; search.json is slice 5) --------------
 

@@ -89,7 +89,7 @@ def test_folio_markdown_footer_has_full_addresses():
     assert "Site:        proj   sha256::" + "c" * 64 in text
     assert 'reference → "Brief B"   sha256::' + "b" * 64 in text
     assert "Raw source:  /folio/sha256::" + "a" * 64 + ".md" in text
-    assert "skein fetch sha256::" + "a" * 64 in text
+    assert "mesh fetch sha256::" + "a" * 64 in text
 
 
 def test_folio_markdown_nonce_dodges_content():

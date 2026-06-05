@@ -53,6 +53,9 @@ class FetchResult:
     # no digest to pin against locally (an alias/legacy id), so the name->hash
     # mapping is the station's word, not verified here.
     pinned: Optional[bool] = None
+    # How it pinned: "full" (exact full-digest match) | "prefix" (short-hash
+    # prefix bind, weaker) | None (unpinnable).
+    pin_kind: Optional[str] = None
 
 
 def _is_remote(instance: str) -> bool:
@@ -63,44 +66,47 @@ def _is_remote(instance: str) -> bool:
     return not host.startswith("127.")
 
 
-def _pin_check(requested_address: Optional[str], actual_hash: str) -> Tuple[Optional[bool], Optional[str]]:
+def _pin_check(
+    requested_address: Optional[str], actual_hash: str
+) -> Tuple[Optional[bool], Optional[str], Optional[str]]:
     """Bind the requested address to the content's true identity (``actual_hash``).
 
     Content addressing's one invariant is address == hash(content); this is where
     the client enforces it against the station it does not trust. Returns
-    ``(matched, reason)``:
+    ``(matched, kind, reason)``:
 
-    - ``(True, None)`` — the address carried a digest and the content matched it
-      (a full digest exactly, or a short digest as a prefix of the full hash).
-    - ``(False, reason)`` — the address carried a digest and the content did NOT
-      match: the station served something other than what was asked for.
-    - ``(None, reason)`` — the address has no locally-checkable digest (a bare
-      alias or migrated legacy id), so the name->hash mapping is the station's
-      word; the content still self-certifies, it just isn't pinned to the request.
+    - ``(True, "full", None)`` — a full-digest address, exact match.
+    - ``(True, "prefix", None)`` — a short-digest address, the full hash extends
+      it (a prefix bind: it constrains the station but is not full identity).
+    - ``(False, None, reason)`` — the address carried a digest and the content did
+      NOT match: the station served something other than what was asked for.
+    - ``(None, None, reason)`` — the address has no locally-checkable digest (a
+      bare alias or migrated legacy id), so the name->hash mapping is the
+      station's word; the content self-certifies, it just isn't pinned here.
     """
     if not requested_address:
-        return None, "no requested address to pin against"
+        return None, None, "no requested address to pin against"
     from skein import address as addr
 
     try:
         parsed = addr.parse(requested_address)
     except addr.AddressError:
-        return None, (
+        return None, None, (
             "requested address has no content-hash digest (alias/legacy id) — "
             "the name->hash mapping is the station's word, not verified locally"
         )
     pin = parsed.fragment if parsed.fragment is not None else parsed.folio
     algo, _sep, digest = actual_hash.partition("::")
     if pin.algo != algo:
-        return False, f"address mismatch: requested {pin.algo}, served {algo}"
+        return False, None, f"address mismatch: requested {pin.algo}, served {algo}"
     if pin.is_full:
         if pin.digest != digest:
-            return False, "address mismatch: served content does not hash to the requested address"
-        return True, None
+            return False, None, "address mismatch: served content does not hash to the requested address"
+        return True, "full", None
     # A short digest pins by prefix: the full hash must extend it.
     if not digest.startswith(pin.digest):
-        return False, "address mismatch: served hash does not extend the requested short hash"
-    return True, None
+        return False, None, "address mismatch: served hash does not extend the requested short hash"
+    return True, "prefix", None
 
 
 def resolve(instance: str, address: str, *, timeout: float = 10.0) -> Tuple[Optional[dict], Optional[str]]:
@@ -127,18 +133,23 @@ def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict],
 
     Returns ``(state, exit_code, reason, identity, content_hash)`` where
     ``content_hash`` is the hash RE-DERIVED from the body (the content's true
-    identity), or ``None`` when the envelope did not verify. This proves the
-    envelope is self-consistent and (if signed) authentically signed; binding the
-    content to the *requested address* is :func:`fetch`'s job (it holds the
-    request), via :func:`_pin_check`.
+    identity), or ``None`` when the envelope did not verify. Binding that hash to
+    the *requested address* is :func:`fetch`'s job (it holds the request), via
+    :func:`_pin_check`.
 
-    A signed folio runs the full §4 path. An unsigned folio is integrity-checked:
-    the content hash MUST be present and bind the body shown, so a station that
-    serves a body not matching its own claimed hash is caught as invalid.
+    The content hash is ALWAYS re-derived locally and is the thing returned — the
+    station's ``proof.content_hash`` is only cross-checked for consistency, never
+    trusted as the identity. (A signed folio may legally omit ``content_hash``,
+    since canon hashes only the body; returning the station's ``claimed`` there
+    would let an omitted hash skip the address pin entirely.) The signature, when
+    present, binds authorship to that same re-derived body.
     """
     if env.get("kind") == "error":
         reason = (env.get("body") or {}).get("error")
         return "not_resolved", EXIT_NOT_RESOLVED, reason, None, None
+
+    from .. import canon
+    from ..identity import content_hash_for_bytes
 
     proof = env.get("proof") or {}
     body = env.get("body") or {}
@@ -146,29 +157,27 @@ def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict],
     bundle = proof.get("signature_bundle")
     wire = {**body, "content_hash": claimed}
 
+    # The content's true identity, re-derived from the body. This — not the
+    # station's claim — is what gets pinned to the address.
+    actual = content_hash_for_bytes(canon.folio_canonical_bytes(wire))
+
+    # Cross-check: if the station claimed a hash, it must match the body it served.
+    if claimed is not None and actual != claimed:
+        return "invalid", EXIT_SIGNATURE_INVALID, "hash mismatch", None, None
+
     if bundle:
         from ..sign import verify_wire_folio  # lazy: keep Sigstore off unsigned reads
 
         wire["signature_bundle"] = json.dumps(bundle)
         verified, reason, identity = verify_wire_folio(wire)
         if verified:
-            # verify_wire_folio bound the signature to the body AND (when a
-            # content_hash is claimed) the body to that hash, so `claimed` is the
-            # verified identity to pin against.
-            return "verified", EXIT_OK, "verified", identity, claimed
+            return "verified", EXIT_OK, "verified", identity, actual
         if reason in _VERIFIER_UNAVAILABLE:
-            return "unverified", EXIT_UNVERIFIED, reason, None, None
+            # Authorship uncheckable, but integrity still binds the body — return
+            # the hash so fetch can still pin it to the requested address.
+            return "unverified", EXIT_UNVERIFIED, reason, None, actual
         return "invalid", EXIT_SIGNATURE_INVALID, reason, None, None
 
-    # Unsigned: integrity-level proof. Re-derive the hash and confirm it binds the
-    # body shown — the station's word is not trusted even for the hash, and a
-    # missing content_hash is itself a failure (no identity to stand on).
-    from .. import canon
-    from ..identity import content_hash_for_bytes
-
-    actual = content_hash_for_bytes(canon.folio_canonical_bytes(wire))
-    if not claimed or actual != claimed:
-        return "invalid", EXIT_SIGNATURE_INVALID, "hash mismatch", None, None
     return "unsigned", EXIT_OK, None, None, actual
 
 
@@ -200,18 +209,22 @@ def fetch(
         )
 
     state, exit_code, reason, identity, content_hash = verify_envelope(env)
-    resolved = state != "not_resolved"
     pinned: Optional[bool] = None
+    pin_kind: Optional[str] = None
 
-    # Bind the verified content to the address the caller asked for. Only
-    # meaningful once the content itself verified (content_hash is set).
+    # Bind the verified content to the address the caller asked for. Runs whenever
+    # the content itself verified (content_hash is set) — including unverified
+    # (authorship uncheckable but integrity-bound), so a substitution is caught
+    # even when the signature can't be reached.
     if content_hash is not None:
-        matched, pin_reason = _pin_check(address, content_hash)
+        matched, kind, pin_reason = _pin_check(address, content_hash)
         if matched is False:
             state, exit_code, reason, identity = "invalid", EXIT_SIGNATURE_INVALID, pin_reason, None
         else:
-            pinned = matched  # True (pinned + matched) or None (no digest to pin)
+            pinned = matched  # True (pinned) or None (no digest to pin against)
+            pin_kind = kind
 
+    resolved = state != "not_resolved"
     warning = None
     if state == "unsigned":
         if require_signed:
@@ -223,11 +236,15 @@ def fetch(
                 f"({authority}) — vouched only by that authority, no authorship proof."
             )
 
-    markdown = _render(env) if resolved else None
+    # Never print an `invalid` (substituted / bad-signature) body to stdout — a
+    # consumer reading stdout regardless of exit code must not ingest it. Only the
+    # verdict (stderr) and exit code signal the failure.
+    showable = state in ("verified", "unsigned", "unverified")
+    markdown = _render(env) if showable else None
     return FetchResult(
         address=address, instance=instance, resolved=resolved, state=state,
         exit_code=exit_code, reason=reason, identity=identity, envelope=env,
-        markdown=markdown, remote=remote, warning=warning, pinned=pinned,
+        markdown=markdown, remote=remote, warning=warning, pinned=pinned, pin_kind=pin_kind,
     )
 
 
@@ -246,8 +263,10 @@ def _render(env: dict) -> str:
 
 def _pin_clause(result: FetchResult) -> str:
     """How the verified content relates to the address the caller asked for."""
-    if result.pinned:
+    if result.pin_kind == "full":
         return "content hashes to the requested address"
+    if result.pin_kind == "prefix":
+        return "served hash extends the requested short hash (prefix bind, not full identity)"
     return (
         "could not pin to the requested address locally (alias/legacy id) — "
         "the name->hash mapping is the station's word"

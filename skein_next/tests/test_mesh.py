@@ -89,7 +89,7 @@ def test_error_envelope_is_not_resolved():
 def test_signed_verified_maps_to_ok(monkeypatch):
     env = {"kind": "folio", "body": {"type": "finding", "title": "t", "content": "c",
                                      "created_at": "2026-01-01T00:00:00Z", "created_by": "alice"},
-           "proof": {"content_hash": "sha256::x", "signature_bundle": {"b": 1}}}
+           "proof": {"signature_bundle": {"b": 1}}}
     monkeypatch.setattr(sign_mod, "verify_wire_folio",
                         lambda wf: (True, "verified", {"issuer": "iss", "subject": "alice@x"}))
     state, code, reason, identity, _vh = verify_envelope(env)
@@ -99,7 +99,7 @@ def test_signed_verified_maps_to_ok(monkeypatch):
 def test_signed_invalid_maps_to_invalid(monkeypatch):
     env = {"kind": "folio", "body": {"type": "f", "title": "t", "content": "c",
                                      "created_at": "2026-01-01T00:00:00Z", "created_by": "a"},
-           "proof": {"content_hash": "sha256::x", "signature_bundle": {"b": 1}}}
+           "proof": {"signature_bundle": {"b": 1}}}
     monkeypatch.setattr(sign_mod, "verify_wire_folio", lambda wf: (False, "FAILED", None))
     state, code, _, _, _vh = verify_envelope(env)
     assert state == "invalid" and code == EXIT_SIGNATURE_INVALID
@@ -108,7 +108,7 @@ def test_signed_invalid_maps_to_invalid(monkeypatch):
 def test_signed_unverifiable_maps_to_unverified(monkeypatch):
     env = {"kind": "folio", "body": {"type": "f", "title": "t", "content": "c",
                                      "created_at": "2026-01-01T00:00:00Z", "created_by": "a"},
-           "proof": {"content_hash": "sha256::x", "signature_bundle": {"b": 1}}}
+           "proof": {"signature_bundle": {"b": 1}}}
     monkeypatch.setattr(sign_mod, "verify_wire_folio",
                         lambda wf: (False, "OFFLINE_NO_TRUSTED_ROOT", None))
     state, code, _, _, _vh = verify_envelope(env)
@@ -183,6 +183,26 @@ def test_legacy_id_address_is_unpinned(wired, seeded):
         st.store.set_alias("finding-20260101-leg1", seeded["a"])
     r = fetch(LOCAL, "finding-20260101-leg1")
     assert r.resolved and r.state == "unsigned" and r.pinned is None
+    assert r.pin_kind is None
+
+
+def test_signed_substitution_via_omitted_content_hash_caught(wired, monkeypatch):
+    # fell-r2 BLOCKER: a signed envelope may legally OMIT proof.content_hash (canon
+    # hashes only the body). A station serving a validly-signed body B with no
+    # content_hash, in answer to a request for full hash A, must be caught as an
+    # address mismatch — not reported verified/exit-0. The pin runs against the
+    # RE-DERIVED body hash, never the station-supplied (here absent) claim.
+    env = {"kind": "folio",
+           "body": {"type": "finding", "title": "t", "content": "validly signed body B",
+                    "created_at": "2026-01-01T00:00:00Z", "created_by": "alice"},
+           "proof": {"signature_bundle": {"b": 1}}}  # note: NO content_hash
+    monkeypatch.setattr(mesh_client, "resolve", lambda inst, addr, timeout=10.0: (env, None))
+    monkeypatch.setattr(sign_mod, "verify_wire_folio",
+                        lambda wf: (True, "verified", {"issuer": "i", "subject": "alice@x"}))
+    r = fetch(LOCAL, "sha256::" + "a" * 64)  # request a full hash that is NOT B's
+    assert r.state == "invalid" and r.exit_code == EXIT_SIGNATURE_INVALID
+    assert "address mismatch" in r.reason
+    assert r.markdown is None  # the substituted body must not reach stdout
 
 
 # --- CLI --------------------------------------------------------------------

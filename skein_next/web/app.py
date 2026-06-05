@@ -594,7 +594,12 @@ def create_app() -> FastAPI:
         if len(addresses) > BATCH_CAP:
             return _batch_error("batch_too_large", f"{len(addresses)} addresses exceeds {BATCH_CAP}", 413)
 
-        results = [_resolve_one(store, a) for a in addresses]
+        # The route is async (to stream-bound the body), but _resolve_one does
+        # blocking SQLite reads — run the whole batch off the event loop so it
+        # doesn't stall other requests, the way the sync routes get the threadpool.
+        from starlette.concurrency import run_in_threadpool
+
+        results = await run_in_threadpool(lambda: [_resolve_one(store, a) for a in addresses])
         # A batch is a POST result, never a cacheable GET; each element stays
         # independently cacheable by its own hash when fetched singly.
         return JSONResponse(results, headers={"Cache-Control": "no-store"})

@@ -526,7 +526,7 @@ def test_verify_signature_mismatch_phrasing_is_case_insensitive():
 # A future upgrade that changes the strings will fail loudly with a clear
 # pointer at what to update in _map_sigstore_exception.
 
-_SIGSTORE_VERIFIED_VERSIONS = ("4.2",)
+_SIGSTORE_VERIFIED_VERSIONS = ("4.2", "4.3")
 
 
 def _sigstore_verifier_source() -> str:

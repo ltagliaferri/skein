@@ -17,10 +17,15 @@ are unchanged.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Union
 
 from knurl import canon as _knurl_canon
+
+# Fractional-seconds component of an ISO timestamp (the digits after ":SS."). The
+# lookbehind anchors it to the seconds field so it never matches a stray dot.
+_FRACTION_RE = re.compile(r"(?<=:\d\d)\.(\d+)")
 
 # The five fields that constitute folio identity (canon sorts keys, so order here
 # is just for readers). Kept explicit so callers and reviewers see the basis.
@@ -70,6 +75,11 @@ def _parse_timestamp(value: str) -> datetime:
     # so behavior is identical across supported interpreters.
     if s.endswith("Z") or s.endswith("z"):
         s = s[:-1] + "+00:00"
+    # Before 3.11, fromisoformat only accepts fractional seconds of exactly 3 or 6
+    # digits (".1" raises); 3.11+ accepts any length. Normalize the fraction to
+    # exactly 6 digits (right-pad, truncate beyond microsecond precision) so the
+    # parse — and thus the canonical hash input — is identical across 3.10-3.12.
+    s = _FRACTION_RE.sub(lambda m: "." + m.group(1)[:6].ljust(6, "0"), s)
     try:
         return datetime.fromisoformat(s)
     except ValueError as e:

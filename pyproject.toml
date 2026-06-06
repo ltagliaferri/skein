@@ -119,6 +119,20 @@ line_length = 100
 skip_gitignore = true
 skip = [".git", "__pycache__", ".venv", "build", "dist"]
 
+[tool.ruff]
+# CI gates on `ruff check` (the linter), not `ruff format` — the codebase is
+# hand-formatted (black/isort, 100 cols), and a wholesale ruff-format reflow would
+# churn carefully-written code for no bug-catching gain. Match the house width so
+# any width-sensitive rule agrees with black/isort.
+line-length = 100
+# docs/emoji-codec holds a standalone alphabet-generator script, not package source.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint.per-file-ignores]
+# The signing bit-flip probe deliberately imports after an explanatory setup
+# block (E402) — the staging is intentional, not an accident.
+"tests/test_signing/bit_flip_matrix_probe.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true

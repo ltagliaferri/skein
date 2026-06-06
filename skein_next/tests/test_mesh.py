@@ -7,7 +7,6 @@ verdict branches monkeypatch `sign.verify_wire_folio` (the crypto itself is the
 signing suite's job; here we pin the client's fork-F mapping over its result).
 """
 
-import json
 
 import pytest
 from fastapi.testclient import TestClient

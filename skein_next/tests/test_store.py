@@ -1,6 +1,6 @@
 """Tests for the content-hash-native store: folios, threads, aliases."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 

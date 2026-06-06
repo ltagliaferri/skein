@@ -562,7 +562,8 @@ def test_all_zero_flag_column_not_reported_as_loss(tmp_path, store):
             "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,"
             "title,content,status,content_hash,archived) VALUES (?,?,?,?,?,?,?,?,?,?)", r,
         )
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     sites_dir = make_sites_dir(tmp_path / "d", [])
     report = import_project(db, sites_dir, store)
     assert "archived" not in report.dropped_folio_columns
@@ -577,7 +578,8 @@ def test_all_zero_flag_column_not_reported_as_loss(tmp_path, store):
         ("brief-20260103-cccc", "brief", None, "2026-01-03T10:00:00.3+00:00",
          "x", "t", "c", "open", None, 1),
     )
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     store2 = SkeinNextStore(data_dir=tmp_path / ".skein-next2")
     report2 = import_project(db2, sites_dir, store2)
     assert report2.dropped_folio_columns.get("archived") == 1

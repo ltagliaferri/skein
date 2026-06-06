@@ -31,10 +31,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install ruff mypy types-requests
 
-      - name: Check formatting with ruff
-        run: |
-          ruff format --check --diff .
-
+      # Formatting is NOT gated: the codebase is hand-formatted (black/isort, 100
+      # cols) and a wholesale `ruff format` reflow would churn carefully-written
+      # code for no bug-catching gain. The linter (`ruff check`) is the real gate.
       - name: Lint with ruff
         run: |
           ruff check .

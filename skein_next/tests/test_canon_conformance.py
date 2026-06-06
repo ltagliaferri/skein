@@ -96,6 +96,24 @@ VECTORS = {
         ),
         content_hash="sha256::bc65ee7ef2982d0f1b195da687c34d0a232dde4354aa34c2cd70e244316c31f0",
     ),
+    # A >6-digit fraction TRUNCATES to microseconds (CPython's own behavior, which
+    # the fix's [:6] slice matches) — ".1234567" -> ".123456", the SAME canonical
+    # bytes/hash as the 6-digit vector above. Rounding would yield ".123457" and a
+    # different hash, so this vector pins truncation against a future edit.
+    "subsecond_long_ts": dict(
+        fields={
+            "type": "note",
+            "title": "t",
+            "content": "c",
+            "created_at": "2026-05-29T14:47:52.1234567+00:00",
+            "created_by": "a",
+        },
+        canonical_bytes=(
+            b'{"content":"c","created_at":"2026-05-29T14:47:52.123456+00:00",'
+            b'"created_by":"a","title":"t","type":"note"}'
+        ),
+        content_hash="sha256::b277b28b1e291d7c04e8e42f5d902f53a523d05adfc9cac045863452739f49d4",
+    ),
     # 'Z' normalizes to '+00:00' and whole seconds drop the fractional part.
     "wholesecond_z": dict(
         fields={

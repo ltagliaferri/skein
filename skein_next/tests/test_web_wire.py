@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 from skein import signing
 from skein_next import canon
 from skein_next.station import Station
-from skein_next.web.app import ENV_DATA_DIR, ENV_PROJECT, create_app, negotiate
+from skein_next.web.app import (
+    ENV_BASE_URL,
+    ENV_DATA_DIR,
+    ENV_PROJECT,
+    create_app,
+    negotiate,
+    public_base_url,
+)
 
 
 @pytest.fixture
@@ -53,7 +60,7 @@ def client(seeded, monkeypatch):
     "suffix,accept,ua,expected",
     [
         ("json", None, None, "json"),
-        ("md", None, None, "md_raw"),
+        ("md", None, None, "markdown"),
         (None, "application/json", None, "json"),
         (None, "text/markdown", None, "markdown"),
         (None, "text/html", "Mozilla/5.0", "html"),
@@ -67,6 +74,27 @@ def client(seeded, monkeypatch):
 )
 def test_negotiate(suffix, accept, ua, expected):
     assert negotiate(suffix, accept, ua) == expected
+
+
+class _FakeRequest:
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+
+def test_public_base_url_prefers_valid_config(monkeypatch):
+    monkeypatch.setenv(ENV_BASE_URL, "https://interskein.com/")
+    assert public_base_url(_FakeRequest("http://127.0.0.1:9001/")) == "https://interskein.com"
+
+
+def test_public_base_url_rejects_schemeless_config(monkeypatch):
+    # A scheme-less value would yield a non-absolute URL; ignore it and fall back.
+    monkeypatch.setenv(ENV_BASE_URL, "interskein.com")
+    assert public_base_url(_FakeRequest("http://127.0.0.1:9001/")) == "http://127.0.0.1:9001"
+
+
+def test_public_base_url_request_fallback(monkeypatch):
+    monkeypatch.delenv(ENV_BASE_URL, raising=False)
+    assert public_base_url(_FakeRequest("https://host.test/")) == "https://host.test"
 
 
 # --- folio representations --------------------------------------------------
@@ -138,11 +166,17 @@ def test_markdown_nonce_changes_per_fetch(client, seeded):
     assert n1 != n2
 
 
-def test_raw_md(client, seeded):
+def test_md_suffix_is_agent_markdown(client, seeded):
+    # Decision A (brief-20260606-7ddh): the `.md` URL serves the full agent markdown
+    # (opener + fenced body + fetchable references), not raw body. Raw body.content
+    # is reached via `.json`. Per-fetch nonce ⇒ no-store, not immutable.
     r = client.get(f"/folio/{seeded['a']}.md")
     assert r.status_code == 200
-    assert r.text == "# A\n\nbody A\n"
-    assert "immutable" in r.headers["cache-control"]
+    assert r.text.startswith("> SKEIN folio: " + seeded["a"])
+    assert "x-skein-nonce" in r.headers
+    assert r.headers["cache-control"] == "no-store"
+    assert "immutable" not in r.headers["cache-control"]
+    assert "body A" in r.text  # the body is still there, just framed
 
 
 def test_html_still_default_for_browser(client, seeded):

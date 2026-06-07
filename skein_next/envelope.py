@@ -375,7 +375,7 @@ def build_folio_envelope(
 
     links = {
         "self": _folio_href(content_hash),
-        "raw": f"{_folio_href(content_hash)}.md",
+        "markdown": f"{_folio_href(content_hash)}.md",
         "json": f"{_folio_href(content_hash)}.json",
         "catalog": "/",
     }

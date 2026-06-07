@@ -363,6 +363,7 @@ def render_describe_markdown(doc: Mapping[str, Any]) -> str:
         f"Wire:     {doc.get('wire')}",
         f"Profile:  {doc.get('profile')}",
         f"Address:  {doc.get('address_grammar')}",
+        f"HTML:     source order is {doc.get('html_source_order')}",
         "",
         "Operations:",
     ]

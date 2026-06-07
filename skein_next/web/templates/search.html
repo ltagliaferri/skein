@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {#
-  search.html — results from the search collection envelope (`env.body`). Search
-  is HTML-only in Phase 1; the machine search.json endpoint is slice 5.
+  search.html — results from the search collection envelope (`env.body`). The
+  machine representations are /search.json and /search.md (Accept-negotiated too).
 #}
 {% block title %}search — {{ station.name }}{% endblock %}
+{% block head_extra %}
+  <link rel="alternate" type="text/markdown" href="/search.md{% if q %}?q={{ q | urlencode }}{% endif %}">
+  <link rel="alternate" type="application/json" href="/search.json{% if q %}?q={{ q | urlencode }}{% endif %}">
+{% endblock %}
 {% block content %}
-<main class="skein-page">
+<main id="main" class="skein-page">
   <h1>Search</h1>
   <form class="search-form" action="/search" method="get" role="search">
     <input type="search" name="q" value="{{ q }}" placeholder="search folios" aria-label="search folios" autofocus>

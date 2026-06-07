@@ -406,6 +406,58 @@ def test_search_md(client):
     assert r.status_code == 200 and "Finding A" in r.text
 
 
+# --- content negotiation: Vary (theming rev 3 §5) ---------------------------
+
+
+def test_vary_accept_on_negotiated_responses(client, seeded):
+    # Every Accept/UA-negotiated representation must carry Vary: Accept so a shared
+    # cache keys on it (RFC 9110).
+    assert client.get(f"/folio/{seeded['a']}.json").headers.get("vary") == "Accept"
+    assert client.get(f"/folio/{seeded['a']}.md").headers.get("vary") == "Accept"
+    assert client.get(
+        f"/folio/{seeded['a']}", headers={"Accept": "text/html", "User-Agent": "Mozilla/5.0"}
+    ).headers.get("vary") == "Accept"
+    assert client.get("/.json").headers.get("vary") == "Accept"
+    assert client.get("/.well-known/skein.json").headers.get("vary") == "Accept"
+
+
+def test_describe_advertises_html_source_order(client):
+    assert client.get("/.well-known/skein.json").json()["html_source_order"] == "content-first"
+
+
+def test_base_css_drives_dark_mode_by_preference(client):
+    # Dark mode is preference-driven with a light fallback; the explicit-theme
+    # selector must not catch the no-override case (so OS preference can win).
+    css = client.get("/static/base.css").text
+    assert "@media (prefers-color-scheme: dark)" in css
+    assert ":root:not([data-theme])" in css
+    assert ".skip-link" in css and ":focus-visible" in css
+
+
+def test_default_theme_consumes_dark_tokens(client):
+    # The default theme must read the dark-aware tokens (so OS-preference dark
+    # restyles code blocks + separators), NOT hardcode colors behind a
+    # [data-theme="dark"] element override that an OS-dark page never matches.
+    css = client.get("/static/themes/ulm.css").text
+    assert "var(--code-bg)" in css and "var(--hairline)" in css
+    assert "[data-theme=" not in css  # no element-level explicit-theme-only overrides
+
+
+def test_bundle_error_omits_vary(client):
+    # The bundle subresource is fixed JSON (not Accept-negotiated); its error must
+    # not carry Vary: Accept.
+    r = client.get("/folio/sha256::" + "0" * 64 + "/bundle")
+    assert r.status_code == 404
+    assert "vary" not in r.headers
+
+
+def test_site_alternate_preserves_type_filter(client):
+    head = client.get("/site/proj?type=brief").text
+    head = head[: head.index("</head>")]
+    assert 'href="/site/proj.md?type=brief"' in head
+    assert 'href="/site/proj.json?type=brief"' in head
+
+
 # --- well-known / describe (slice 5) ----------------------------------------
 
 

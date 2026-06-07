@@ -78,8 +78,9 @@ h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2re
 }
 .metadata .cryptography { font-size: 0.92em; }
 
-/* The provenance card: a bordered block, accent on the left edge by state.
- * Restrained — a 2px rule, no shadow, no radius. */
+/* The provenance card: one native <details>, bordered, accent on the left edge by
+ * state. The <summary> is the verdict line (the disclosure toggle); the crypto
+ * detail unfolds below. Restrained — a 1px rule, no shadow, no radius. */
 .provenance {
   border: 1px solid var(--rule);
   border-left: 3px solid var(--prov, var(--muted));
@@ -87,25 +88,30 @@ h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2re
   margin: 0 0 1.75rem;
   font-size: 0.88rem;
 }
+.provenance > summary { cursor: pointer; }
 .provenance .verdict { font-weight: 600; color: var(--prov, var(--fg)); }
 .provenance .disclaimer { color: var(--muted); font-style: italic; }
 .provenance dl { margin: 0.5rem 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.6rem; }
 .provenance dt { color: var(--muted); }
 .provenance dd { margin: 0; }
-.provenance summary { cursor: pointer; color: var(--link); }
+
+/* Fork hatnote: a quiet "a newer version exists" note above the folio body. */
+.hatnote { font-size: 0.85rem; color: var(--muted); font-style: italic; border-bottom: 1px solid var(--rule); padding-bottom: 0.4rem; margin: 0 0 1rem; }
+
+/* Folio header: the content's type tag + title (distinct from the station chrome). */
+.folio-header { margin: 0 0 0.4rem; }
 
 /* Content-first: the body comes before chrome in the DOM. Generous measure. */
 .folio-body { margin: 0 0 2rem; }
 .folio-body h1, .folio-body h2, .folio-body h3 { letter-spacing: -0.01em; }
 .folio-body h2 { font-size: 1.25rem; border-bottom: 1px solid var(--rule); padding-bottom: 0.2rem; margin-top: 1.8rem; }
 .folio-body pre {
-  background: #f6f6f6;
+  background: var(--code-bg);
   border: 1px solid var(--rule);
   padding: 0.7rem 0.85rem;
   overflow-x: auto;
   font-size: 0.85rem;
 }
-[data-theme="dark"] .folio-body pre { background: #1c1c1c; }
 .folio-body code { font-size: 0.9em; }
 .folio-body blockquote {
   margin: 1rem 0;
@@ -114,22 +120,23 @@ h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2re
   color: var(--muted);
 }
 
-/* --- threads (cross-references) ------------------------------------------- */
+/* --- threads (cross-references) + lineage --------------------------------- */
 
-.threads { margin: 1.5rem 0 0; }
-.threads h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--rule); padding-bottom: 0.2rem; }
-.threads ul { list-style: none; padding: 0; margin: 0.4rem 0 1.25rem; }
-.threads li { padding: 0.2rem 0; border-bottom: 1px solid #eee; }
-[data-theme="dark"] .threads li { border-bottom-color: #222; }
-.threads .edge-type { font-family: var(--font-mono); font-size: 0.78em; color: var(--muted); }
-.threads .peer-address { font-size: 0.78em; color: var(--muted); }
+.threads, .lineage { margin: 1.5rem 0 0; }
+.threads h2, .lineage h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--rule); padding-bottom: 0.2rem; }
+.threads ul, .lineage ul { list-style: none; padding: 0; margin: 0.4rem 0 1.25rem; }
+.threads li, .lineage li { padding: 0.2rem 0; border-bottom: 1px solid var(--hairline); }
+.threads .edge-type, .lineage .edge-type { font-family: var(--font-mono); font-size: 0.78em; color: var(--muted); }
+.threads .peer-address, .lineage .peer-address { font-size: 0.78em; color: var(--muted); }
+/* Inline "Show all N" overflow for a dense group (display cap 8; the wire is uncapped). */
+.threads-more > summary { cursor: pointer; font-size: 0.8rem; color: var(--link); padding: 0.2rem 0; }
+.threads-more ul { margin-top: 0.2rem; }
 
 /* --- collections (index / site / search) --------------------------------- */
 
-.toc { margin: 1rem 0; }
+.toc, .index-section { margin: 1rem 0; }
 .entry-list, .site-list { list-style: none; padding: 0; margin: 0.5rem 0 1.5rem; }
-.entry-list li, .site-list li { padding: 0.35rem 0; border-bottom: 1px solid #eee; }
-[data-theme="dark"] .entry-list li, [data-theme="dark"] .site-list li { border-bottom-color: #222; }
+.entry-list li, .site-list li { padding: 0.35rem 0; border-bottom: 1px solid var(--hairline); }
 .entry .meta, .site-list .meta { font-size: 0.8rem; color: var(--muted); }
 .entry .snippet { font-size: 0.85rem; color: var(--muted); margin: 0.15rem 0; }
 .site-list .count { font-variant-numeric: tabular-nums; }
@@ -148,8 +155,8 @@ h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2re
 
 /* --- "For your agent" box ------------------------------------------------- */
 /* A handoff widget. Action-first, restrained; the link/address/command are the
- * cryptographic-mono artifacts. Narrow screens get a real <details> disclosure;
- * wide screens reveal the body and drop the toggle (always-open in the column). */
+ * cryptographic-mono artifacts. The box ships open (no-JS readers get the body);
+ * JS collapses it to a real <details> disclosure on a narrow viewport. */
 .for-agents { border: 1px solid var(--rule); border-left: 3px solid var(--muted); padding: 0.6rem 0.85rem; margin: 0 0 1.75rem; font-size: 0.88rem; }
 .for-agents .for-agents-title { font-weight: 600; }
 .for-agents summary { cursor: pointer; }

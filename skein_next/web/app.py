@@ -271,10 +271,6 @@ def _wants_machine(request: Request, suffix: Optional[str]) -> Optional[str]:
     return None if repr_ == "html" else repr_
 
 
-def _immutable_headers(content_hash: str) -> dict:
-    return {"ETag": f'"{content_hash}"', "Cache-Control": "public, immutable"}
-
-
 def _payload_etag(payload: bytes) -> str:
     import hashlib
 
@@ -295,7 +291,7 @@ def _json_revalidate(request: Request, env: dict, *, status: int = 200) -> Respo
 
     payload = json.dumps(env, ensure_ascii=False, separators=(",", ":")).encode()
     etag = _payload_etag(payload)
-    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    headers = {"ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept"}
     not_modified = _conditional(request, etag, headers)
     if not_modified is not None:
         return not_modified
@@ -315,17 +311,28 @@ def _folio_response(request: Request, store, content_hash: str, repr_: str, row)
     return PlainTextResponse(
         text,
         media_type=_MARKDOWN_MEDIA,
-        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store"},
+        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store", "Vary": "Accept"},
     )
 
 
 def _error_response(
-    request: Request, code: str, address: str, repr_: str, *, origin: Optional[str] = None
+    request: Request,
+    code: str,
+    address: str,
+    repr_: str,
+    *,
+    origin: Optional[str] = None,
+    vary: bool = True,
 ) -> Response:
     env = envelope_mod.build_error_envelope(code, address, origin=origin)
     status = _ERROR_STATUS.get(code, 400)
+    # ``vary=False`` for a non-negotiated subresource (the bundle JSON), whose
+    # representation does not depend on Accept; the negotiated routes default True.
+    base_headers = {"Cache-Control": "no-store"}
+    if vary:
+        base_headers["Vary"] = "Accept"
     if repr_ == "json":
-        return JSONResponse(env, status_code=status, headers={"Cache-Control": "no-store"})
+        return JSONResponse(env, status_code=status, headers=base_headers)
     # No X-Skein-Nonce here on purpose: an error envelope carries no untrusted
     # content, so render_error_markdown emits no fence — there is no close marker to
     # protect and nothing for a programmatic agent to split on. The nonce header is
@@ -334,20 +341,20 @@ def _error_response(
         render_mod.render_error_markdown(env, base_url=public_base_url(request)),
         status_code=status,
         media_type=_MARKDOWN_MEDIA,
-        headers={"Cache-Control": "no-store"},
+        headers=base_headers,
     )
 
 
 def _collection_response(request: Request, env: dict, repr_: str, *, title: str) -> Response:
     if repr_ == "json":
-        return JSONResponse(env, headers={"Cache-Control": "no-cache"})
+        return JSONResponse(env, headers={"Cache-Control": "no-cache", "Vary": "Accept"})
     text, nonce = render_mod.render_collection_markdown(
         env, title=title, base_url=public_base_url(request)
     )
     return PlainTextResponse(
         text,
         media_type=_MARKDOWN_MEDIA,
-        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store"},
+        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store", "Vary": "Accept"},
     )
 
 
@@ -385,8 +392,14 @@ def create_app() -> FastAPI:
     base_ctx = {"station": config, "token_css": token_css, "data_theme": data_theme}
 
     def html(request: Request, name: str, ctx: dict, *, status: int = 200) -> Response:
+        # Vary: Accept — HTML is one Accept/UA-negotiated representation among json
+        # and markdown, so a shared cache must key on Accept (RFC 9110 §12.5.5).
         return templates.TemplateResponse(
-            request, name, {**base_ctx, "request": request, **ctx}, status_code=status
+            request,
+            name,
+            {**base_ctx, "request": request, **ctx},
+            status_code=status,
+            headers={"Vary": "Accept"},
         )
 
     def html_error(request: Request, code: str, address: str) -> Response:
@@ -530,10 +543,10 @@ def create_app() -> FastAPI:
         try:
             content_hash = resolve_to_hash(address, store, local_authority=get_authority())
         except ResolveError as e:
-            return _error_response(request, e.code, e.address, "json", origin=e.origin)
+            return _error_response(request, e.code, e.address, "json", origin=e.origin, vary=False)
         bundle_json = store.get_signature(content_hash)
         if not bundle_json:
-            return _error_response(request, "not_found", f"{address}/bundle", "json")
+            return _error_response(request, "not_found", f"{address}/bundle", "json", vary=False)
         payload = bundle_json.encode()
         etag = _payload_etag(payload)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
@@ -719,6 +732,9 @@ def create_app() -> FastAPI:
             "wire": envelope_mod.SCHEMA,
             "profile": envelope_mod.CANON_PROFILE,
             "address_grammar": "rev3",
+            # The HTML view is content-first in source order (theming rev 3 O6a), so
+            # an agent/crawler knows the markup leads with content, not chrome.
+            "html_source_order": "content-first",
             "operations": {
                 "resolve": "GET /folio/{address}[.json|.md]",
                 "resolve_batch": "POST /resolve",
@@ -742,9 +758,9 @@ def create_app() -> FastAPI:
             return PlainTextResponse(
                 render_mod.render_describe_markdown(doc),
                 media_type=_MARKDOWN_MEDIA,
-                headers={"Cache-Control": "no-cache"},
+                headers={"Cache-Control": "no-cache", "Vary": "Accept"},
             )
-        return JSONResponse(doc, headers={"Cache-Control": "no-cache"})
+        return JSONResponse(doc, headers={"Cache-Control": "no-cache", "Vary": "Accept"})
 
     @app.get("/.well-known/skein")
     def well_known(request: Request, store: SkeinNextStore = Depends(get_store)):

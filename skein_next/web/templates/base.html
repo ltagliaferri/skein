@@ -1,9 +1,11 @@
 {#
   base.html — the semantic, hook-rich shell every page extends.
 
-  Content-first source order is a DOM guarantee (Patrick screen-reader hard req):
-  each page puts its primary content (the folio body, the listing) before nav
-  chrome where it can. The head links base.css, then the active theme, then an
+  The wire is the ordering guarantee, not CSS: each page emits its primary content
+  (the folio body, the listing) before nav chrome in source order, and base.css's
+  `reading-flow: source-order` keeps focus/AT order pinned to source even under a
+  grid-reordering theme (Patrick screen-reader hard req). A skip-link is first in
+  source on every page. The head links base.css, then the active theme, then an
   inline <style> with the stationfile token overrides (the no-CSS path) — last
   wins, so a token always beats the theme's default for that property.
 #}
@@ -25,10 +27,15 @@
     autoescaping would mangle legitimate CSS values like a quoted font name.
   #}
   {% if token_css %}<style>:root { {{ token_css | safe }} }</style>{% endif %}
+  {# Per-page in-band discovery of the wire representations (agent + reader-client). #}
+  {% block head_extra %}{% endblock %}
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="station-header">
-    <span class="station-name"><a href="/">{{ station.name }}</a></span>
+    <span class="station-name">
+      <a href="/">{% if station.logo %}<img class="station-logo" src="{{ station.logo }}" alt="">{% endif %}{{ station.name }}</a>
+    </span>
     {% if station.tagline %}<span class="tagline">{{ station.tagline }}</span>{% endif %}
     <nav class="station-nav" aria-label="station">
       <a href="/">overview</a>

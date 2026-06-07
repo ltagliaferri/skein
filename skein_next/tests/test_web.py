@@ -227,6 +227,92 @@ def test_folio_threads_in_and_out(client, seeded):
     assert "Finding A" in r.text
 
 
+def test_skip_link_and_main_landmark(client, seeded):
+    # Every page is skip-linkable: a skip-link first in source, landing on #main.
+    for path in ("/", f"/folio/{seeded['a']}", "/search?q=body", "/site/proj"):
+        r = client.get(path).text
+        assert '<a class="skip-link" href="#main">' in r
+        assert 'id="main"' in r
+
+
+def test_folio_head_advertises_wire_alternates(client, seeded):
+    r = client.get(f"/folio/{seeded['a']}").text
+    head = r[: r.index("</head>")]
+    assert f'rel="alternate" type="text/markdown" href="/folio/{seeded["a"]}.md"' in head
+    assert f'rel="alternate" type="application/json" href="/folio/{seeded["a"]}.json"' in head
+
+
+def test_token_palettes_layered_so_operator_override_wins(seeded, monkeypatch):
+    # The OS-dark rule (:root:not([data-theme])) out-specifies a plain inline
+    # :root, so without @layer an operator's accent would revert under OS dark.
+    # base.css layers its token palettes; the inline override stays unlayered and
+    # so wins regardless of specificity.
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "tokens": {"accent": "#ff0000"}},
+    )
+    css = TestClient(create_app()).get("/static/base.css").text
+    # the token palettes (incl. the OS-dark rule) live in the layer
+    assert "@layer skein-tokens {" in css
+    assert ":root:not([data-theme]) {" in css
+    page = client.get("/").text
+    # the inline operator override is a plain, unlayered :root rule (so it wins)
+    assert "<style>:root { --accent: #ff0000;" in page
+    assert "@layer" not in page
+
+
+def test_station_logo_renders_when_configured(seeded, monkeypatch):
+    client = _make_client(
+        seeded["data_dir"], monkeypatch,
+        stationfile={"name": "X", "logo": "/static/logo.svg"},
+    )
+    r = client.get("/").text
+    assert '<img class="station-logo" src="/static/logo.svg"' in r
+
+
+def test_folio_provenance_is_one_details(client, seeded):
+    # Theming rev 3 O7: provenance is a single native <details> whose <summary>
+    # carries the verdict; the crypto detail is the body (no separate inner expander).
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert '<details class="provenance provenance--unsigned"' in r
+    # the verdict word lives in the summary (always read by assistive tech)
+    summary = r[r.index('class="provenance'):]
+    summary = summary[: summary.index("</summary>")]
+    assert "UNSIGNED" in summary
+    assert "cryptographic detail" not in r  # the old nested expander is gone
+
+
+def test_folio_hatnote_and_lineage(seeded, monkeypatch):
+    # A superseded folio shows the fork hatnote (newer version) and a lineage nav.
+    with Station(seeded["data_dir"]) as st:
+        newer = st.post(type="finding", site="proj", title="Finding A v2",
+                        content="better", created_by="alice", created_at="2026-02-01T00:00:00Z")
+        st.store.save_thread(from_id=newer, to_id=seeded["a"], type="supersedes",
+                             created_at="2026-02-02T00:00:00Z")
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert 'class="hatnote"' in r and "A newer version of this folio exists" in r
+    assert 'class="lineage"' in r and "child (supersedes)" in r
+    # the newer folio shows its parent
+    r2 = client.get(f"/folio/{newer}").text
+    assert "parent (supersedes)" in r2
+
+
+def test_folio_thread_density_cap(seeded, monkeypatch):
+    # More than 8 peers in a group: the first 8 inline, the rest behind an inline
+    # "Show all N" <details> (no JS, no navigation); the wire stays uncapped.
+    with Station(seeded["data_dir"]) as st:
+        for i in range(9):
+            p = st.post(type="finding", site="proj", title=f"Peer {i}", content="x",
+                        created_by="alice", created_at=f"2026-04-{i + 1:02d}T00:00:00Z")
+            st.store.save_thread(from_id=seeded["a"], to_id=p, type="reference",
+                                 created_at=f"2026-05-{i + 1:02d}T00:00:00Z")
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert 'class="threads-more"' in r
+    assert "Show all 10" in r  # 9 new + the pre-existing reference to Brief B
+
+
 def test_folio_content_first_source_order(client, seeded):
     # Patrick screen-reader hard req: the folio body precedes the provenance /
     # threads chrome in the DOM.

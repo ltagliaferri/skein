@@ -6,13 +6,17 @@
 #}
 {% set asserted = env.asserted %}
 {% block title %}{{ station.name }}{% endblock %}
+{% block head_extra %}
+  <link rel="alternate" type="text/markdown" href="/.md">
+  <link rel="alternate" type="application/json" href="/.json">
+{% endblock %}
 {% block content %}
-<main class="skein-page">
+<main id="main" class="skein-page">
   <h1>{{ station.name }}</h1>
   {% if station.tagline %}<p class="tagline">{{ station.tagline }}</p>{% endif %}
   <p class="meta">{{ asserted.total_folios }} folios across {{ asserted.sites | length }} sites.</p>
 
-  <section class="toc" aria-label="sites">
+  <section class="index-section" aria-label="sites">
     <h2 class="section-heading">Sites</h2>
     <ul class="site-list">
       {% for site in asserted.sites %}
@@ -26,7 +30,7 @@
     </ul>
   </section>
 
-  <section class="toc" aria-label="recent folios">
+  <section class="index-section" aria-label="recent folios">
     <h2 class="section-heading">Recent folios</h2>
     <ul class="entry-list">
       {% for e in env.body %}

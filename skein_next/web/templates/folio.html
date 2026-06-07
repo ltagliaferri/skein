@@ -7,42 +7,151 @@
 
   Content-first DOM: the folio body (the content's own title + prose) comes
   first; provenance, metadata, and the cross-reference nav follow in a trailing
-  <aside>. A theme may visually float the aside up — it never reorders the DOM.
+  <aside>. A theme may visually float the aside up — but the wire is the ordering
+  guarantee; CSS reordering is presentation, never the source order an agent or a
+  screen reader walks.
 #}
 {% set body = env.body %}
 {% set proof = env.proof %}
 {% set asserted = env.asserted %}
 {% set links = env.links %}
+{% set lineage = asserted.lineage %}
+
+{#
+  One reference line (a thread or lineage peer): the edge label, the peer link (or
+  a not-held-locally note), and the peer's full content-address. `dir` is 'out' /
+  'in' for threads (arrow direction) or a lineage role ('parent'/'child'/
+  'sibling') shown with the relation type.
+#}
+{% macro ref_li(t, dir) %}
+        <li>
+          {% if dir == 'out' %}<span class="edge-type">{{ t.type }} →</span>
+          {% elif dir == 'in' %}<span class="edge-type">← {{ t.type }}</span>
+          {% else %}<span class="edge-type">{{ dir }} ({{ t.type }})</span>{% endif %}
+          {% if t.title %}<a href="{{ t.href }}">{{ t.title | clean_title(t.address) }}</a>
+          {% else %}<a href="{{ t.href }}">(peer not held locally)</a>{% endif %}
+          <span class="peer-address cryptography">{{ t.address }}</span>
+        </li>
+{% endmacro %}
+
+{#
+  A capped reference group: the first 8 inline, the rest behind an inline native
+  <details> "Show all N" (no JS, no navigation). The wire carries the full,
+  uncapped array (envelope is the source of truth); the cap is display-only, so
+  the count is just len().
+#}
+{% macro ref_group(items, dir) %}
+      <ul>
+        {% for t in items[:8] %}{{ ref_li(t, dir) }}{% endfor %}
+      </ul>
+      {% if items | length > 8 %}
+      <details class="threads-more">
+        <summary>Show all {{ items | length }}</summary>
+        <ul>
+          {% for t in items[8:] %}{{ ref_li(t, dir) }}{% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+{% endmacro %}
+
 {% block title %}{{ body.title | clean_title(env.address) }} — {{ station.name }}{% endblock %}
+{% block head_extra %}
+  <link rel="alternate" type="text/markdown" href="{{ links.markdown }}">
+  <link rel="alternate" type="application/json" href="{{ links.json }}">
+{% endblock %}
 {% block content %}
-<main class="skein-page">
+<main id="main" class="skein-page">
+  {% if asserted.superseded_by %}
+  {% set sb = asserted.superseded_by %}
+  {#
+    Fork hatnote (Wikipedia-style): a newer version exists. First in the DOM so a
+    reader is told the version is superseded before reading it.
+  #}
+  <p class="hatnote" role="note">
+    A newer version of this folio exists:
+    <a href="{{ sb.href }}">{{ sb.title | clean_title(sb.address) }}</a>
+  </p>
+  {% endif %}
+
   <article class="skein-folio">
-    <p class="type-tag">{{ body.type }}</p>
-    <h1>{{ body.title | clean_title(env.address) }}</h1>
+    <header class="folio-header">
+      <p class="type-tag">{{ body.type }}</p>
+      <h1>{{ body.title | clean_title(env.address) }}</h1>
+    </header>
     <div class="folio-body prose">
       {{ body_html | safe }}
     </div>
   </article>
 
   <aside class="folio-meta" aria-label="provenance and references">
-    <section class="provenance provenance--{{ prov_state }}" aria-label="provenance">
-      <p>
+    {#
+      Provenance is one native <details> (theming rev 3 O7): the <summary> carries
+      the verdict word + state (always read by assistive tech), the body holds the
+      cryptographic detail that native <details> correctly hides until expanded.
+    #}
+    <details class="provenance provenance--{{ prov_state }}" aria-label="provenance">
+      <summary>
         <span class="verdict">{{ asserted.verdict }}</span>
         <span class="disclaimer">[station claim — verify independently]</span>
-      </p>
-      <details>
-        <summary>cryptographic detail</summary>
-        <dl>
-          <dt>content hash</dt>
-          <dd class="crypto">{{ proof.content_hash }}</dd>
-          <dt>profile</dt>
-          <dd class="crypto">{{ proof.profile }}</dd>
-          {% if proof.signature_bundle %}
-          <dt>signature</dt>
-          <dd><a href="{{ links.bundle }}">signature bundle</a> (the verifiable material)</dd>
-          {% endif %}
-        </dl>
+      </summary>
+      <dl>
+        <dt>content hash</dt>
+        <dd class="cryptography">{{ proof.content_hash }}</dd>
+        <dt>profile</dt>
+        <dd class="cryptography">{{ proof.profile }}</dd>
+        {% if asserted.signer %}
+        {% if asserted.signer.issuer %}<dt>issuer</dt><dd class="cryptography">{{ asserted.signer.issuer }}</dd>{% endif %}
+        {% if asserted.signer.subject %}<dt>subject</dt><dd class="cryptography">{{ asserted.signer.subject }}</dd>{% endif %}
+        {% endif %}
+        {% if proof.signature_bundle %}
+        <dt>signature</dt>
+        <dd><a href="{{ links.bundle }}">signature bundle</a> (the verifiable material)</dd>
+        {% endif %}
+      </dl>
+    </details>
+
+    {#
+      "For your agent" — the handoff affordance (theming rev 3 §3). Rendered from
+      the envelope's links + address + signer; no HTML-only data. The .md link is
+      content-addressed, so a copied link pins this exact version. Ships open so a
+      no-JS / no-CSS reader always gets the body; JS collapses it on a narrow
+      viewport (the spec's "collapsed on mobile").
+    #}
+    {% set md_url = (base_url or '') ~ links.markdown %}
+    <section class="for-agents" aria-label="for your agent">
+      <details class="for-agents-toggle" open>
+        <summary><span class="for-agents-title">For your agent</span></summary>
+        <div class="for-agents-body">
+          <p>Copy the Markdown link to give this exact version to an AI assistant.</p>
+          <p class="for-agents-link">
+            <a class="cryptography" href="{{ md_url }}">{{ md_url }}</a>
+            <button type="button" class="copy-link" data-copy-target="agent-copy">Copy link</button>
+          </p>
+          <p class="for-agents-label">Address (paste into a SKEIN-aware tool):</p>
+          <p class="cryptography">{{ env.address }}</p>
+          <p class="for-agents-label">Run in a terminal:</p>
+          <p class="cryptography">mesh fetch {{ env.address }}</p>
+          <p class="for-agents-prov">
+            {% if asserted.signer %}
+            Signed{% if asserted.signer.subject %} by {{ asserted.signer.subject }}{% endif %}{% if links.bundle %} · <a href="{{ links.bundle }}">verify</a>{% endif %}
+            {% elif proof.signature_bundle %}
+            Signature present but not verified — see provenance{% if links.bundle %} · <a href="{{ links.bundle }}">verify</a>{% endif %}
+            {% else %}
+            Unsigned — operator-vouched.
+            {% endif %}
+          </p>
+        </div>
       </details>
+      {#
+        The clipboard payload: the link wrapped in cold-agent context so a fresh
+        assistant is oriented. Visually hidden AND aria-hidden (a screen reader
+        should not read the boilerplate); the JS reads textContent to copy it.
+      #}
+      <pre id="agent-copy" class="visually-hidden" aria-hidden="true">Read this SKEIN folio as Markdown. The URL is content-addressed, so it identifies
+this exact version:
+{{ md_url }}
+If it references other SKEIN addresses such as sha256::…, resolve them as Markdown
+by appending .md or by requesting Accept: text/markdown.</pre>
     </section>
 
     <dl class="metadata">
@@ -52,45 +161,67 @@
       {% if asserted.site %}
       <dt>site</dt><dd><a href="{{ asserted.site.href }}">{{ asserted.site.slug }}</a></dd>
       {% endif %}
-      <dt>address</dt><dd class="crypto">{{ env.address }}</dd>
+      <dt>address</dt><dd class="cryptography">{{ env.address }}</dd>
     </dl>
+
+    {% if lineage and (lineage.parents or lineage.children or lineage.siblings) %}
+    <nav class="lineage" aria-label="lineage">
+      <h2>Lineage</h2>
+      {% if lineage.parents %}{{ ref_group(lineage.parents, 'parent') }}{% endif %}
+      {% if lineage.children %}{{ ref_group(lineage.children, 'child') }}{% endif %}
+      {% if lineage.siblings %}{{ ref_group(lineage.siblings, 'sibling') }}{% endif %}
+    </nav>
+    {% endif %}
 
     {% if asserted.threads_out %}
     <nav class="threads threads-out" aria-label="references out">
       <h2>References</h2>
-      <ul>
-        {% for t in asserted.threads_out %}
-        <li>
-          <span class="edge-type">{{ t.type }} →</span>
-          {% if t.title %}<a href="{{ t.href }}">{{ t.title | clean_title(t.address) }}</a>
-          {% else %}<a href="{{ t.href }}">(peer not held locally)</a>{% endif %}
-          <span class="peer-address crypto">{{ t.address }}</span>
-        </li>
-        {% endfor %}
-      </ul>
+      {{ ref_group(asserted.threads_out, 'out') }}
     </nav>
     {% endif %}
 
     {% if asserted.threads_in %}
     <nav class="threads threads-in" aria-label="referenced by">
       <h2>Referenced by</h2>
-      <ul>
-        {% for t in asserted.threads_in %}
-        <li>
-          <span class="edge-type">← {{ t.type }}</span>
-          {% if t.title %}<a href="{{ t.href }}">{{ t.title | clean_title(t.address) }}</a>
-          {% else %}<a href="{{ t.href }}">(peer not held locally)</a>{% endif %}
-          <span class="peer-address crypto">{{ t.address }}</span>
-        </li>
-        {% endfor %}
-      </ul>
+      {{ ref_group(asserted.threads_in, 'in') }}
     </nav>
     {% endif %}
 
     <nav class="breadcrumb" aria-label="folio links">
-      <a href="{{ links.raw }}">raw source</a> ·
+      <a href="{{ links.markdown }}">markdown</a> ·
       <a href="{{ links.catalog }}">catalog</a>
     </nav>
   </aside>
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Copy the content-addressed .md link wrapped in cold-agent context. Progressive
+  // enhancement: with no JS (or no async clipboard) the link and the preamble are
+  // still in the DOM to copy by hand.
+  document.querySelectorAll(".copy-link").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var src = document.getElementById(btn.dataset.copyTarget);
+      if (!src || !navigator.clipboard) return;
+      navigator.clipboard.writeText(src.textContent).then(function () {
+        var prev = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () { btn.textContent = prev; }, 1500);
+      });
+    });
+  });
+
+  // The for-agents box ships open (so a no-JS reader always gets the body); on a
+  // narrow viewport collapse it to a real <details> disclosure. Re-syncs only when
+  // the viewport crosses the breakpoint, so a manual toggle in between is respected.
+  (function () {
+    var box = document.querySelector(".for-agents-toggle");
+    if (!box || !window.matchMedia) return;
+    var narrow = window.matchMedia("(max-width: 699px)");
+    function sync() { box.open = !narrow.matches; }
+    sync();
+    narrow.addEventListener("change", sync);
+  })();
+</script>
 {% endblock %}

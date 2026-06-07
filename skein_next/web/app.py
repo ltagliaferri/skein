@@ -4,7 +4,8 @@ One store, several representations chosen by content negotiation, all built from
 the SAME native wire envelope (``skein_next.envelope``):
 
 - **The machine wire** (the product) — the verifiable envelope served as JSON or
-  agent markdown, plus raw ``.md`` source.
+  self-orienting agent markdown (``.md`` or ``Accept: text/markdown``). The raw
+  folio ``body.content`` alone is reached via ``.json``.
 - **HTML** — the human view, rendered FROM that same envelope (slice 3). The
   legacy ``ContentHashAdapter`` is retired: JSON and HTML can no longer diverge
   on derived fields because they read the one envelope.
@@ -71,6 +72,16 @@ ENV_PROJECT = "SKEIN_NEXT_PROJECT"  # the stationfile-name bootstrap env
 # Phase 1 (bare-hash addresses).
 ENV_AUTHORITY = "SKEIN_NEXT_AUTHORITY"
 
+# The station's public origin (``https://host``), used ONLY to build the absolute
+# ``.md`` fetch URLs the agent-markdown opener and references advertise. It is a
+# display concern, deliberately decoupled from address resolution (ENV_AUTHORITY)
+# and from the client-controlled Host header: a configured value is deterministic
+# and immune to Host-header injection into the rendered markdown. When unset, the
+# renderer falls back to the request origin (convenient in dev), then to a
+# host-relative path. Set it in production (the instance is behind nginx, which by
+# default would otherwise leak the internal 127.0.0.1:9001 origin).
+ENV_BASE_URL = "SKEIN_NEXT_BASE_URL"
+
 _MARKDOWN_MEDIA = "text/markdown; charset=utf-8"
 
 # HTTP status for each resolve error code. The envelope is the product; the
@@ -125,8 +136,9 @@ def render_markdown(content: str) -> str:
     opens with ``# Title`` (the common case) would otherwise emit a second,
     near-duplicate ``<h1>`` — a redundant stop in a screen reader and a malformed
     outline. Demoting in-body headings (``#`` → ``h2``, capped at ``h6``) nests
-    them under the title, giving one clean heading outline. The raw ``.md`` and
-    the agent markdown keep the authored heading levels; only this HTML view nests.
+    them under the title, giving one clean heading outline. The agent markdown
+    (``.md``) and the raw ``body.content`` (via ``.json``) keep the authored
+    heading levels; only this HTML view nests.
     """
     if not content:
         return ""
@@ -143,6 +155,33 @@ def get_data_dir() -> Optional[str]:
 
 def get_authority() -> Optional[str]:
     return os.environ.get(ENV_AUTHORITY)
+
+
+def public_base_url(request: Request) -> str:
+    """The station's public origin for building absolute ``.md`` fetch URLs.
+
+    Prefers the configured ``SKEIN_NEXT_BASE_URL`` (deterministic, injection-proof
+    — see ENV_BASE_URL); falls back to the request origin in dev. Always returned
+    without a trailing slash; ``""`` only if neither is available, which the
+    renderer treats as "emit a host-relative path".
+    """
+    configured = os.environ.get(ENV_BASE_URL)
+    if configured:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(configured)
+        if parts.scheme and parts.netloc:
+            return configured.rstrip("/")
+        # A scheme-less value (e.g. "example.com") would yield a non-absolute
+        # "example.com/folio/…md", which is worse than the request fallback. Ignore
+        # it loudly rather than silently emit broken links.
+        logger.warning(
+            "ignoring malformed %s=%r (need an absolute scheme://host)", ENV_BASE_URL, configured
+        )
+    try:
+        return str(request.base_url).rstrip("/")
+    except Exception:
+        return ""
 
 
 def load_config() -> StationConfig:
@@ -191,17 +230,24 @@ def split_representation(ref: str) -> tuple[str, Optional[str]]:
 
 
 def negotiate(suffix: Optional[str], accept: Optional[str], user_agent: Optional[str]) -> str:
-    """Pick a representation: ``json`` | ``md_raw`` | ``markdown`` | ``html``.
+    """Pick a representation: ``json`` | ``markdown`` | ``html``.
 
     A ``.json``/``.md`` suffix wins. Then an explicit ``Accept``. Absent both, the
     User-Agent decides — a browser (``Mozilla``) gets HTML, a CLI/agent tool gets
     markdown, anything unrecognized defaults to HTML (the human surface stays the
     safe default; an agent that wants the wire says so via suffix/Accept/UA).
+
+    The ``.md`` suffix is the full, self-orienting agent markdown — the opener +
+    fenced body + fetchable references (brief-20260606-7ddh). This reconciles the
+    earlier "raw `.md` = body-only" split (ujwx rev 2) up to 7ddh's amendment: the
+    copyable ``.md`` URL the for-agents box hands to an assistant must itself orient
+    a cold agent, which a header-only (``Accept``) representation cannot. Raw
+    ``body.content`` is still reachable via ``.json``.
     """
     if suffix == "json":
         return "json"
     if suffix == "md":
-        return "md_raw"
+        return "markdown"
 
     accept = accept or ""
     if "application/json" in accept:
@@ -225,10 +271,6 @@ def _wants_machine(request: Request, suffix: Optional[str]) -> Optional[str]:
     return None if repr_ == "html" else repr_
 
 
-def _immutable_headers(content_hash: str) -> dict:
-    return {"ETag": f'"{content_hash}"', "Cache-Control": "public, immutable"}
-
-
 def _payload_etag(payload: bytes) -> str:
     import hashlib
 
@@ -249,7 +291,7 @@ def _json_revalidate(request: Request, env: dict, *, status: int = 200) -> Respo
 
     payload = json.dumps(env, ensure_ascii=False, separators=(",", ":")).encode()
     etag = _payload_etag(payload)
-    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    headers = {"ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept"}
     not_modified = _conditional(request, etag, headers)
     if not_modified is not None:
         return not_modified
@@ -262,46 +304,57 @@ def _folio_response(request: Request, store, content_hash: str, repr_: str, row)
     if repr_ == "json":
         return _json_revalidate(request, env)
 
-    if repr_ == "md_raw":
-        headers = _immutable_headers(content_hash)
-        not_modified = _conditional(request, headers["ETag"], headers)
-        if not_modified is not None:
-            return not_modified
-        return PlainTextResponse(
-            render_mod.render_raw_md(env), media_type=_MARKDOWN_MEDIA, headers=headers
-        )
-
-    text, nonce = render_mod.render_folio_markdown(env)
+    # `.md` and Accept: text/markdown both serve the full agent markdown (opener +
+    # fenced body + fetchable references). Per-fetch nonce ⇒ no-store; raw
+    # body.content is reached via `.json` (decision A / brief-20260606-7ddh).
+    text, nonce = render_mod.render_folio_markdown(env, base_url=public_base_url(request))
     return PlainTextResponse(
         text,
         media_type=_MARKDOWN_MEDIA,
-        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store"},
+        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store", "Vary": "Accept"},
     )
 
 
 def _error_response(
-    code: str, address: str, repr_: str, *, origin: Optional[str] = None
+    request: Request,
+    code: str,
+    address: str,
+    repr_: str,
+    *,
+    origin: Optional[str] = None,
+    vary: bool = True,
 ) -> Response:
     env = envelope_mod.build_error_envelope(code, address, origin=origin)
     status = _ERROR_STATUS.get(code, 400)
+    # ``vary=False`` for a non-negotiated subresource (the bundle JSON), whose
+    # representation does not depend on Accept; the negotiated routes default True.
+    base_headers = {"Cache-Control": "no-store"}
+    if vary:
+        base_headers["Vary"] = "Accept"
     if repr_ == "json":
-        return JSONResponse(env, status_code=status, headers={"Cache-Control": "no-store"})
+        return JSONResponse(env, status_code=status, headers=base_headers)
+    # No X-Skein-Nonce here on purpose: an error envelope carries no untrusted
+    # content, so render_error_markdown emits no fence — there is no close marker to
+    # protect and nothing for a programmatic agent to split on. The nonce header is
+    # a fenced-response signal; an unfenced error correctly omits it.
     return PlainTextResponse(
-        render_mod.render_error_markdown(env),
+        render_mod.render_error_markdown(env, base_url=public_base_url(request)),
         status_code=status,
         media_type=_MARKDOWN_MEDIA,
-        headers={"Cache-Control": "no-store"},
+        headers=base_headers,
     )
 
 
-def _collection_response(env: dict, repr_: str, *, title: str) -> Response:
+def _collection_response(request: Request, env: dict, repr_: str, *, title: str) -> Response:
     if repr_ == "json":
-        return JSONResponse(env, headers={"Cache-Control": "no-cache"})
-    text, nonce = render_mod.render_collection_markdown(env, title=title)
+        return JSONResponse(env, headers={"Cache-Control": "no-cache", "Vary": "Accept"})
+    text, nonce = render_mod.render_collection_markdown(
+        env, title=title, base_url=public_base_url(request)
+    )
     return PlainTextResponse(
         text,
         media_type=_MARKDOWN_MEDIA,
-        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store"},
+        headers={"X-Skein-Nonce": nonce, "Cache-Control": "no-store", "Vary": "Accept"},
     )
 
 
@@ -339,8 +392,14 @@ def create_app() -> FastAPI:
     base_ctx = {"station": config, "token_css": token_css, "data_theme": data_theme}
 
     def html(request: Request, name: str, ctx: dict, *, status: int = 200) -> Response:
+        # Vary: Accept — HTML is one Accept/UA-negotiated representation among json
+        # and markdown, so a shared cache must key on Accept (RFC 9110 §12.5.5).
         return templates.TemplateResponse(
-            request, name, {**base_ctx, "request": request, **ctx}, status_code=status
+            request,
+            name,
+            {**base_ctx, "request": request, **ctx},
+            status_code=status,
+            headers={"Vary": "Accept"},
         )
 
     def html_error(request: Request, code: str, address: str) -> Response:
@@ -410,16 +469,16 @@ def create_app() -> FastAPI:
         repr_ = _wants_machine(request, None)
         if repr_ is None:
             return html(request, "index.html", {"env": env})
-        return _collection_response(env, repr_, title=f"Catalog — {config.name}")
+        return _collection_response(request, env, repr_, title=f"Catalog — {config.name}")
 
     @app.get("/.json")
     def index_json(request: Request, store: SkeinNextStore = Depends(get_store)):
-        return _collection_response(_catalog_envelope(store), "json", title="Catalog")
+        return _collection_response(request, _catalog_envelope(store), "json", title="Catalog")
 
     @app.get("/.md")
     def index_md(request: Request, store: SkeinNextStore = Depends(get_store)):
         return _collection_response(
-            _catalog_envelope(store), "markdown", title=f"Catalog — {config.name}"
+            request, _catalog_envelope(store), "markdown", title=f"Catalog — {config.name}"
         )
 
     # --- site ---------------------------------------------------------------
@@ -462,11 +521,11 @@ def create_app() -> FastAPI:
         site_hash, rows = _site_rows(store, slug)
         if site_hash is None:
             if repr_ is not None:
-                return _error_response("not_found", f"/site/{slug}", repr_)
+                return _error_response(request, "not_found", f"/site/{slug}", repr_)
             return html_error(request, "not_found", f"/site/{slug}")
         env = _site_envelope(slug, site_hash, rows, type=type)
         if repr_ is not None:
-            return _collection_response(env, repr_, title=f"Site — {slug}")
+            return _collection_response(request, env, repr_, title=f"Site — {slug}")
         available_types = sorted({(r.get("type") or "folio") for r in rows})
         return html(
             request,
@@ -484,10 +543,10 @@ def create_app() -> FastAPI:
         try:
             content_hash = resolve_to_hash(address, store, local_authority=get_authority())
         except ResolveError as e:
-            return _error_response(e.code, e.address, "json", origin=e.origin)
+            return _error_response(request, e.code, e.address, "json", origin=e.origin, vary=False)
         bundle_json = store.get_signature(content_hash)
         if not bundle_json:
-            return _error_response("not_found", f"{address}/bundle", "json")
+            return _error_response(request, "not_found", f"{address}/bundle", "json", vary=False)
         payload = bundle_json.encode()
         etag = _payload_etag(payload)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
@@ -506,6 +565,7 @@ def create_app() -> FastAPI:
                 "env": env,
                 "body_html": body_html,
                 "prov_state": verdict_state(env["asserted"].get("verdict")),
+                "base_url": public_base_url(request),
             },
         )
 
@@ -528,12 +588,12 @@ def create_app() -> FastAPI:
         except ResolveError as e:
             if is_html:
                 return html_error(request, e.code, e.address)
-            return _error_response(e.code, e.address, repr_, origin=e.origin)
+            return _error_response(request, e.code, e.address, repr_, origin=e.origin)
         row = store.get_folio(content_hash)
         if row is None:
             if is_html:
                 return html_error(request, "not_found", address)
-            return _error_response("not_found", address, repr_)
+            return _error_response(request, "not_found", address, repr_)
 
         if is_html:
             return _render_folio_html(request, store, content_hash, row)
@@ -645,7 +705,7 @@ def create_app() -> FastAPI:
         repr_ = _wants_machine(request, None)
         if repr_ is None:
             return html(request, "search.html", {"env": env, "q": q})
-        return _collection_response(env, repr_, title=f"Search — {q}")
+        return _collection_response(request, env, repr_, title=f"Search — {q}")
 
     @app.get("/search.json")
     def search_json(
@@ -653,7 +713,7 @@ def create_app() -> FastAPI:
         q: str = Query("", description="Search query"),
         store: SkeinNextStore = Depends(get_store),
     ):
-        return _collection_response(_search_envelope(store, q), "json", title=f"Search — {q}")
+        return _collection_response(request, _search_envelope(store, q), "json", title=f"Search — {q}")
 
     @app.get("/search.md")
     def search_md(
@@ -661,7 +721,7 @@ def create_app() -> FastAPI:
         q: str = Query("", description="Search query"),
         store: SkeinNextStore = Depends(get_store),
     ):
-        return _collection_response(_search_envelope(store, q), "markdown", title=f"Search — {q}")
+        return _collection_response(request, _search_envelope(store, q), "markdown", title=f"Search — {q}")
 
     # --- well-known root / describe (the discovery + MCP `describe` target) --
 
@@ -672,6 +732,9 @@ def create_app() -> FastAPI:
             "wire": envelope_mod.SCHEMA,
             "profile": envelope_mod.CANON_PROFILE,
             "address_grammar": "rev3",
+            # The HTML view is content-first in source order (theming rev 3 O6a), so
+            # an agent/crawler knows the markup leads with content, not chrome.
+            "html_source_order": "content-first",
             "operations": {
                 "resolve": "GET /folio/{address}[.json|.md]",
                 "resolve_batch": "POST /resolve",
@@ -691,13 +754,13 @@ def create_app() -> FastAPI:
         # with no explicit preference gets JSON here, not an HTML view).
         repr_ = negotiate(suffix, request.headers.get("accept"), request.headers.get("user-agent"))
         doc = _describe(store)
-        if repr_ in ("markdown", "md_raw"):
+        if repr_ == "markdown":
             return PlainTextResponse(
                 render_mod.render_describe_markdown(doc),
                 media_type=_MARKDOWN_MEDIA,
-                headers={"Cache-Control": "no-cache"},
+                headers={"Cache-Control": "no-cache", "Vary": "Accept"},
             )
-        return JSONResponse(doc, headers={"Cache-Control": "no-cache"})
+        return JSONResponse(doc, headers={"Cache-Control": "no-cache", "Vary": "Accept"})
 
     @app.get("/.well-known/skein")
     def well_known(request: Request, store: SkeinNextStore = Depends(get_store)):

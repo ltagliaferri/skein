@@ -5,10 +5,10 @@
 #}
 {% block title %}not found — {{ station.name }}{% endblock %}
 {% block content %}
-<main class="skein-page">
+<main id="main" class="skein-page">
   <h1>Not resolved</h1>
   <p class="meta">{{ message }}</p>
-  {% if address %}<p class="crypto">{{ address }}</p>{% endif %}
+  {% if address %}<p class="cryptography">{{ address }}</p>{% endif %}
   <p><a href="/">Return to the catalog</a></p>
 </main>
 {% endblock %}

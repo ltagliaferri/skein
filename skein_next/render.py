@@ -84,15 +84,63 @@ def _fence(nonce: str, label: str, content: str) -> str:
     return f"{_open_marker(nonce, label)}\n{content}\n{_close_marker(nonce)}"
 
 
+# --- cold-agent opener + fetchable references (brief-20260606-7ddh) ----------
+#
+# Every `.md` opens with a two-line self-describing blockquote so an agent that
+# fetched the URL with zero prior SKEIN knowledge is oriented. The host is
+# explicit; the literal ``<address>`` is the exact SKEIN address string (bare
+# ``sha256::…`` or scoped ``web::…::sha256::…``) — the recipe, not a filled URL.
+# ``mesh fetch`` is the shipped client command (the ``mesh`` console-script); the
+# specs' "skein fetch" predates it.
+#
+# References (threads, lineage, collection entries) render as ready-to-fetch
+# ``.md`` URLs the agent follows directly, with the bare address alongside: the
+# URL is the immediate fetch target on this instance, the bare address is the
+# portable identity (dedup, cross-instance compare, verify, CLI). ``base_url`` is
+# the station's public origin (``https://host``), supplied by the caller; empty
+# falls back to a host-relative path so a no-config render still works.
+
+
+def _fetch_recipe_line(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    return f"> Fetch any SKEIN address as Markdown: {base}/folio/<address>.md  or  mesh fetch <address>"
+
+
+def _md_fetch_url(base_url: str, address: str) -> str:
+    """The absolute ``.md`` fetch URL for a SKEIN ``address``.
+
+    The address is percent-encoded into the path so a fragment-bearing or scoped
+    address — ``web::origin::sha256::<hash>#sha256::<verifier>`` — survives as a
+    real fetch target: a literal ``#`` would otherwise be parsed as a URL fragment
+    and dropped client-side, taking the ``.md`` suffix and the verifier with it.
+    ``:`` is kept readable (path-safe), so a bare ``sha256::<hash>`` is unchanged.
+    """
+    from urllib.parse import quote
+
+    return f"{base_url.rstrip('/')}/folio/{quote(_oneline(address), safe=':')}.md"
+
+
+def _ref_tail(ref: Mapping[str, Any], base_url: str) -> str:
+    """The ``<.md url>  (<bare address>)`` tail shared by every rendered reference."""
+    return f"{_md_fetch_url(base_url, ref['address'])}  ({_oneline(ref['address'])})"
+
+
+def _peer_label(thread: Mapping[str, Any]) -> str:
+    title = thread.get("title")
+    return f'"{_oneline(title)}"' if title else "(peer not held locally)"
+
+
 # --- folio ------------------------------------------------------------------
 
 
-def render_folio_markdown(env: Mapping[str, Any]) -> Tuple[str, str]:
+def render_folio_markdown(env: Mapping[str, Any], *, base_url: str = "") -> Tuple[str, str]:
     """Render a folio envelope to fenced agent markdown; return ``(text, nonce)``.
 
-    Control frame (address, provenance, breadcrumbs) bare; the folio body fenced.
-    Addresses are the full, untruncated handles so an agent can copy-resolve.
+    Opener + control frame (address, provenance, references) bare; the folio body
+    fenced. References carry the full ``.md`` URL and the bare address so an agent
+    can follow or copy-resolve.
     """
+    base_url = _oneline(base_url)  # station origin; flattened defensively (bare frame)
     body = env["body"]
     asserted = env["asserted"]
     links = env["links"]
@@ -101,12 +149,22 @@ def render_folio_markdown(env: Mapping[str, Any]) -> Tuple[str, str]:
 
     # The nonce must collide with nothing in the rendered output (§7: "the entire
     # rendered payload, titles and snippets included"), so feed it every authored
-    # string we will emit — the body, the verdict (carries the signer subject),
-    # the status, and every peer title in the footer.
-    peer_titles = [
-        t.get("title") or ""
-        for t in (asserted.get("threads_out", []) + asserted.get("threads_in", []))
-    ]
+    # string we will emit — the body, the verdict (carries the signer subject), the
+    # status, and every peer title in the footer: threads AND lineage (parents,
+    # children, siblings, superseded_by). Lineage peers are unsigned/forgeable like
+    # threads, so missing one here would reopen the fence pre-craft window.
+    lineage = asserted.get("lineage") or {}
+    peer_sources = (
+        asserted.get("threads_out", [])
+        + asserted.get("threads_in", [])
+        + lineage.get("parents", [])
+        + lineage.get("children", [])
+        + lineage.get("siblings", [])
+    )
+    peer_titles = [p.get("title") or "" for p in peer_sources]
+    superseded_by = asserted.get("superseded_by")
+    if superseded_by:
+        peer_titles.append(superseded_by.get("title") or "")
     nonce = fresh_nonce(
         content, title, asserted.get("verdict"), asserted.get("status"), *peer_titles
     )
@@ -123,15 +181,31 @@ def render_folio_markdown(env: Mapping[str, Any]) -> Tuple[str, str]:
     if "bundle" in links:
         head.append(f"Bundle:     {_oneline(links['bundle'])}")
 
-    parts: List[str] = ["\n".join(head), "", _fence(nonce, "folio content below", content), ""]
-    parts.append(_render_footer(env))
+    opener = (
+        f"> SKEIN folio: {_oneline(env['address'])} — content-addressed; "
+        "this address identifies these canonical bytes.\n"
+        f"{_fetch_recipe_line(base_url)}"
+    )
+    parts: List[str] = [
+        opener,
+        "",
+        "\n".join(head),
+        "",
+        _fence(nonce, "folio content below", content),
+        "",
+        _render_footer(env, base_url),
+    ]
     return ("\n".join(parts).rstrip() + "\n", nonce)
 
 
-def _render_footer(env: Mapping[str, Any]) -> str:
+def _render_footer(env: Mapping[str, Any], base_url: str) -> str:
     asserted = env["asserted"]
-    links = env["links"]
     lines: List[str] = [f"Status:      {_oneline(asserted.get('status')) or 'open'}"]
+
+    # The fork hatnote: a newer version exists (an incoming `supersedes` edge).
+    superseded_by = asserted.get("superseded_by")
+    if superseded_by:
+        lines.append(f"Newer version:  {_ref_tail(superseded_by, base_url)}")
 
     site = asserted.get("site")
     if site:
@@ -142,54 +216,60 @@ def _render_footer(env: Mapping[str, Any]) -> str:
             f"→ {_oneline(site['href'])}"
         )
 
+    # Edit lineage, partitioned from the generic threads (envelope._folio_lineage):
+    # parents (this folio's predecessors), children, and co-children (siblings). The
+    # relation type is shown in parens; the role (parent/child/sibling) is the label.
+    lineage = asserted.get("lineage") or {}
+    parents = lineage.get("parents", [])
+    children = lineage.get("children", [])
+    siblings = lineage.get("siblings", [])
+    if parents or children or siblings:
+        lines.append("Lineage:")
+        for p in parents:
+            lines.append(f"  parent ({_oneline(p['type'])}) → {_peer_label(p)}  {_ref_tail(p, base_url)}")
+        for c in children:
+            lines.append(f"  child ({_oneline(c['type'])}) ← {_peer_label(c)}  {_ref_tail(c, base_url)}")
+        for s in siblings:
+            lines.append(f"  sibling ({_oneline(s['type'])})  {_peer_label(s)}  {_ref_tail(s, base_url)}")
+
     # A thread peer that isn't held locally exposes its raw thread endpoint as
-    # `address`/`href` (envelope._folio_threads), and threads are unsigned and
+    # `address`/`href` (envelope._peer_ref), and threads are unsigned and
     # forgeable — so those, too, must be flattened before they go in the bare
-    # frame, not just the type/title (the fell-r2 catch).
+    # frame, not just the type/title (the fell-r2 catch). `_ref_tail` flattens both.
     out = asserted.get("threads_out", [])
     if out:
         lines.append("Threads out:")
         for t in out:
-            lines.append(
-                f"  {_oneline(t['type'])} → {_peer_label(t)}   "
-                f"{_oneline(t['address'])}   → {_oneline(t['href'])}"
-            )
+            lines.append(f"  {_oneline(t['type'])} → {_peer_label(t)}  {_ref_tail(t, base_url)}")
     inc = asserted.get("threads_in", [])
     if inc:
         lines.append("Threads in:")
         for t in inc:
-            lines.append(
-                f"  {_oneline(t['type'])} ← {_peer_label(t)}   "
-                f"{_oneline(t['address'])}   → {_oneline(t['href'])}"
-            )
+            lines.append(f"  {_oneline(t['type'])} ← {_peer_label(t)}  {_ref_tail(t, base_url)}")
 
-    if "raw" in links:
-        lines.append(f"Raw source:  {_oneline(links['raw'])}")
     lines.append(f"Resolve any address:  mesh fetch {_oneline(env['address'])}")
     return "\n".join(lines)
-
-
-def _peer_label(thread: Mapping[str, Any]) -> str:
-    title = thread.get("title")
-    return f'"{_oneline(title)}"' if title else "(peer not held locally)"
-
-
-def render_raw_md(env: Mapping[str, Any]) -> str:
-    """The folio ``body.content`` alone — for diffing/reading, not verification."""
-    return (env["body"].get("content") or "") + "\n"
 
 
 # --- collections ------------------------------------------------------------
 
 
-def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[str, str]:
+def render_collection_markdown(
+    env: Mapping[str, Any], *, title: str, base_url: str = ""
+) -> Tuple[str, str]:
     """Render a catalog/site/search envelope; return ``(text, nonce)``.
 
-    Each entry's control line (type, address, href) is bare; its untrusted title
-    and snippet are fenced, the same nonce separating consecutive entries (§7).
+    Opens with the collection opener (a generated listing, distinct from a
+    content-addressed folio). Each entry's control line is a ready-to-fetch ``.md``
+    URL + the bare address; its untrusted title and snippet are fenced, the same
+    nonce separating consecutive entries (§7).
     """
+    base_url = _oneline(base_url)  # station origin; flattened defensively (bare frame)
     entries = env["body"]
-    untrusted = []
+    # The collection's own address echoes a user-influenced string for search
+    # (/search?q=<query>); feed it to the nonce too, so §7's "collides with nothing
+    # in the entire rendered payload" holds even though the opener sits pre-fence.
+    untrusted = [env.get("address") or ""]
     for e in entries:
         untrusted.append(e.get("title") or "")
         untrusted.append(e.get("snippet") or "")
@@ -199,12 +279,14 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
     # author/ingest-controlled and stored verbatim (a slug can hold a newline), so
     # it is flattened like every other bare-frame value.
     lines: List[str] = [
+        _collection_opener(env, base_url),
+        "",
         f"{_oneline(title)}   (as_of {_oneline(env['as_of'])})",
         f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}.",
         "",
     ]
     for e in entries:
-        lines.append(f"[{_oneline(e['type'])}] {_oneline(e['address'])}   → {_oneline(e['href'])}")
+        lines.append(f"[{_oneline(e['type'])}] {_ref_tail(e, base_url)}")
         fenced_body = e.get("title") or ""
         snippet = e.get("snippet")
         if snippet:
@@ -218,21 +300,41 @@ def render_collection_markdown(env: Mapping[str, Any], *, title: str) -> Tuple[s
     return ("\n".join(lines).rstrip() + "\n", nonce)
 
 
+_COLLECTION_DESC = {
+    "search": "generated listing; entries are links to folios, not this page's content identity.",
+    "site": "generated site listing; entries are links to folios, not this page's content identity.",
+    "catalog": "generated catalog; entries are links to folios, not this page's content identity.",
+}
+
+
+def _collection_opener(env: Mapping[str, Any], base_url: str) -> str:
+    kind = env.get("kind", "catalog")
+    desc = _COLLECTION_DESC.get(kind, _COLLECTION_DESC["catalog"])
+    # env['address'] is this page's own path (/, /search?q=…, /site/<slug>).
+    page = f"{base_url.rstrip('/')}{_oneline(env['address'])}"
+    return f"> SKEIN collection: {page} — {desc}\n{_fetch_recipe_line(base_url)}"
+
+
 # --- error ------------------------------------------------------------------
 
 
-def render_error_markdown(env: Mapping[str, Any]) -> str:
+def render_error_markdown(env: Mapping[str, Any], *, base_url: str = "") -> str:
     """Render an error/absence envelope. No untrusted content, so no fence.
 
     ``address`` is the verbatim failing input echoed back (a percent-decoded path
     can carry a newline), so it is flattened like any other bare-frame value.
     """
+    base_url = _oneline(base_url)  # station origin; flattened defensively (bare frame)
     body = env["body"]
     links = env.get("links", {})
+    host = base_url.split("://", 1)[-1].rstrip("/") if base_url else "this station"
     # Every bare-frame value flattened for the uniform invariant — even though the
     # fetch path gates error envelopes out of rendering and these are otherwise
     # station-generated, so a future code path can't reopen the injection.
     lines = [
+        f"> SKEIN error: requested address was not resolved by {host or 'this station'}.",
+        _fetch_recipe_line(base_url),
+        "",
         "NOT RESOLVED",
         f"Address:  {_oneline(env['address'])}",
         f"Error:    {_oneline(body.get('error'))}",
@@ -261,6 +363,7 @@ def render_describe_markdown(doc: Mapping[str, Any]) -> str:
         f"Wire:     {doc.get('wire')}",
         f"Profile:  {doc.get('profile')}",
         f"Address:  {doc.get('address_grammar')}",
+        f"HTML:     source order is {doc.get('html_source_order')}",
         "",
         "Operations:",
     ]

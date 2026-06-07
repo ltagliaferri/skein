@@ -106,7 +106,7 @@ properties on `:root` (see `skein_next/web/static/base.css`).
   - `.skein-page` `.skein-folio` `.folio-body` `.prose`
   - `.provenance` + state modifiers `--verified` / `--invalid` / `--unverified`
     / `--unsigned`
-  - `.metadata` `.type-tag` `.crypto` (the monospace crypto-artifact marker)
+  - `.metadata` `.type-tag` `.cryptography` (the monospace crypto-artifact marker)
   - `.threads` `.threads-out` `.threads-in` `.lineage` `.breadcrumb`
   - `.toc` `.entry-list` `.entry` `.site-list` `.section-heading`
   - `.search-form` `.visually-hidden`

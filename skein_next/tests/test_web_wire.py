@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 from skein import signing
 from skein_next import canon
 from skein_next.station import Station
-from skein_next.web.app import ENV_DATA_DIR, ENV_PROJECT, create_app, negotiate
+from skein_next.web.app import (
+    ENV_BASE_URL,
+    ENV_DATA_DIR,
+    ENV_PROJECT,
+    create_app,
+    negotiate,
+    public_base_url,
+)
 
 
 @pytest.fixture
@@ -53,7 +60,7 @@ def client(seeded, monkeypatch):
     "suffix,accept,ua,expected",
     [
         ("json", None, None, "json"),
-        ("md", None, None, "md_raw"),
+        ("md", None, None, "markdown"),
         (None, "application/json", None, "json"),
         (None, "text/markdown", None, "markdown"),
         (None, "text/html", "Mozilla/5.0", "html"),
@@ -67,6 +74,27 @@ def client(seeded, monkeypatch):
 )
 def test_negotiate(suffix, accept, ua, expected):
     assert negotiate(suffix, accept, ua) == expected
+
+
+class _FakeRequest:
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+
+def test_public_base_url_prefers_valid_config(monkeypatch):
+    monkeypatch.setenv(ENV_BASE_URL, "https://interskein.com/")
+    assert public_base_url(_FakeRequest("http://127.0.0.1:9001/")) == "https://interskein.com"
+
+
+def test_public_base_url_rejects_schemeless_config(monkeypatch):
+    # A scheme-less value would yield a non-absolute URL; ignore it and fall back.
+    monkeypatch.setenv(ENV_BASE_URL, "interskein.com")
+    assert public_base_url(_FakeRequest("http://127.0.0.1:9001/")) == "http://127.0.0.1:9001"
+
+
+def test_public_base_url_request_fallback(monkeypatch):
+    monkeypatch.delenv(ENV_BASE_URL, raising=False)
+    assert public_base_url(_FakeRequest("https://host.test/")) == "https://host.test"
 
 
 # --- folio representations --------------------------------------------------
@@ -138,11 +166,17 @@ def test_markdown_nonce_changes_per_fetch(client, seeded):
     assert n1 != n2
 
 
-def test_raw_md(client, seeded):
+def test_md_suffix_is_agent_markdown(client, seeded):
+    # Decision A (brief-20260606-7ddh): the `.md` URL serves the full agent markdown
+    # (opener + fenced body + fetchable references), not raw body. Raw body.content
+    # is reached via `.json`. Per-fetch nonce ⇒ no-store, not immutable.
     r = client.get(f"/folio/{seeded['a']}.md")
     assert r.status_code == 200
-    assert r.text == "# A\n\nbody A\n"
-    assert "immutable" in r.headers["cache-control"]
+    assert r.text.startswith("> SKEIN folio: " + seeded["a"])
+    assert "x-skein-nonce" in r.headers
+    assert r.headers["cache-control"] == "no-store"
+    assert "immutable" not in r.headers["cache-control"]
+    assert "body A" in r.text  # the body is still there, just framed
 
 
 def test_html_still_default_for_browser(client, seeded):
@@ -370,6 +404,58 @@ def test_search_via_accept(client):
 def test_search_md(client):
     r = client.get("/search.md", params={"q": "body"})
     assert r.status_code == 200 and "Finding A" in r.text
+
+
+# --- content negotiation: Vary (theming rev 3 §5) ---------------------------
+
+
+def test_vary_accept_on_negotiated_responses(client, seeded):
+    # Every Accept/UA-negotiated representation must carry Vary: Accept so a shared
+    # cache keys on it (RFC 9110).
+    assert client.get(f"/folio/{seeded['a']}.json").headers.get("vary") == "Accept"
+    assert client.get(f"/folio/{seeded['a']}.md").headers.get("vary") == "Accept"
+    assert client.get(
+        f"/folio/{seeded['a']}", headers={"Accept": "text/html", "User-Agent": "Mozilla/5.0"}
+    ).headers.get("vary") == "Accept"
+    assert client.get("/.json").headers.get("vary") == "Accept"
+    assert client.get("/.well-known/skein.json").headers.get("vary") == "Accept"
+
+
+def test_describe_advertises_html_source_order(client):
+    assert client.get("/.well-known/skein.json").json()["html_source_order"] == "content-first"
+
+
+def test_base_css_drives_dark_mode_by_preference(client):
+    # Dark mode is preference-driven with a light fallback; the explicit-theme
+    # selector must not catch the no-override case (so OS preference can win).
+    css = client.get("/static/base.css").text
+    assert "@media (prefers-color-scheme: dark)" in css
+    assert ":root:not([data-theme])" in css
+    assert ".skip-link" in css and ":focus-visible" in css
+
+
+def test_default_theme_consumes_dark_tokens(client):
+    # The default theme must read the dark-aware tokens (so OS-preference dark
+    # restyles code blocks + separators), NOT hardcode colors behind a
+    # [data-theme="dark"] element override that an OS-dark page never matches.
+    css = client.get("/static/themes/ulm.css").text
+    assert "var(--code-bg)" in css and "var(--hairline)" in css
+    assert "[data-theme=" not in css  # no element-level explicit-theme-only overrides
+
+
+def test_bundle_error_omits_vary(client):
+    # The bundle subresource is fixed JSON (not Accept-negotiated); its error must
+    # not carry Vary: Accept.
+    r = client.get("/folio/sha256::" + "0" * 64 + "/bundle")
+    assert r.status_code == 404
+    assert "vary" not in r.headers
+
+
+def test_site_alternate_preserves_type_filter(client):
+    head = client.get("/site/proj?type=brief").text
+    head = head[: head.index("</head>")]
+    assert 'href="/site/proj.md?type=brief"' in head
+    assert 'href="/site/proj.json?type=brief"' in head
 
 
 # --- well-known / describe (slice 5) ----------------------------------------

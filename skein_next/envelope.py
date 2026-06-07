@@ -360,7 +360,7 @@ def build_folio_envelope(
 
     bundle_json = store.get_signature(content_hash)
     signature_bundle = _bundle_object(bundle_json)
-    verdict, _identity = folio_verdict(store, content_hash, row, bundle_json)
+    verdict, identity = folio_verdict(store, content_hash, row, bundle_json)
 
     # One query per direction; the cross-reference (threads) and lineage subsets are
     # partitioned from the SAME fetched lists, so the no-lineage common case adds no
@@ -396,6 +396,12 @@ def build_folio_envelope(
         },
         "asserted": {
             "verdict": verdict,
+            # The verified signer identity ({"issuer", "subject"}) or null — the
+            # station's word (it rides under asserted, never trusted without
+            # re-verifying the bundle). Surfaced so the provenance card and the
+            # for-agents box read the signer cleanly instead of parsing the verdict
+            # string; it is exactly what folio_verdict already computed.
+            "signer": identity,
             "status": store.latest_statuses([content_hash]).get(content_hash, "open"),
             "site": _folio_site(store, content_hash),
             "threads_out": threads_out,

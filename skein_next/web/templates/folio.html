@@ -34,15 +34,65 @@
         <summary>cryptographic detail</summary>
         <dl>
           <dt>content hash</dt>
-          <dd class="crypto">{{ proof.content_hash }}</dd>
+          <dd class="cryptography">{{ proof.content_hash }}</dd>
           <dt>profile</dt>
-          <dd class="crypto">{{ proof.profile }}</dd>
+          <dd class="cryptography">{{ proof.profile }}</dd>
           {% if proof.signature_bundle %}
           <dt>signature</dt>
           <dd><a href="{{ links.bundle }}">signature bundle</a> (the verifiable material)</dd>
           {% endif %}
         </dl>
       </details>
+    </section>
+
+    {#
+      "For your agent" — the handoff affordance (theming rev 3 §3). Rendered from
+      the envelope's links + address + signer; no HTML-only data. The .md link is
+      content-addressed, so a copied link pins this exact version. On a narrow
+      screen this is a collapsed <details>; on a wide screen the theme reveals the
+      body and hides the toggle (a real disclosure on mobile, always-open on desktop).
+    #}
+    {% set md_url = (base_url or '') ~ links.markdown %}
+    <section class="for-agents" aria-label="for your agent">
+      {#
+        Open by default so a no-JS / no-CSS reader always gets the body (a closed
+        <details> cannot be revealed by CSS — its content is content-visibility:
+        hidden until `open`). JS collapses it on a narrow viewport (the spec's
+        "collapsed on mobile"); the summary stays as the box's title/disclosure.
+      #}
+      <details class="for-agents-toggle" open>
+        <summary><span class="for-agents-title">For your agent</span></summary>
+        <div class="for-agents-body">
+          <p>Copy the Markdown link to give this exact version to an AI assistant.</p>
+          <p class="for-agents-link">
+            <a class="cryptography" href="{{ md_url }}">{{ md_url }}</a>
+            <button type="button" class="copy-link" data-copy-target="agent-copy">Copy link</button>
+          </p>
+          <p class="for-agents-label">Address (paste into a SKEIN-aware tool):</p>
+          <p class="cryptography">{{ env.address }}</p>
+          <p class="for-agents-label">Run in a terminal:</p>
+          <p class="cryptography">mesh fetch {{ env.address }}</p>
+          <p class="for-agents-prov">
+            {% if asserted.signer %}
+            Signed{% if asserted.signer.subject %} by {{ asserted.signer.subject }}{% endif %}{% if links.bundle %} · <a href="{{ links.bundle }}">verify</a>{% endif %}
+            {% elif proof.signature_bundle %}
+            Signature present but not verified — see provenance{% if links.bundle %} · <a href="{{ links.bundle }}">verify</a>{% endif %}
+            {% else %}
+            Unsigned — operator-vouched.
+            {% endif %}
+          </p>
+        </div>
+      </details>
+      {#
+        The clipboard payload: the link wrapped in cold-agent context so a fresh
+        assistant is oriented. Visually hidden but in the DOM, so copy works as
+        progressive enhancement and the link above is still usable with no JS.
+      #}
+      <pre id="agent-copy" class="visually-hidden" aria-hidden="true">Read this SKEIN folio as Markdown. The URL is content-addressed, so it identifies
+this exact version:
+{{ md_url }}
+If it references other SKEIN addresses such as sha256::…, resolve them as Markdown
+by appending .md or by requesting Accept: text/markdown.</pre>
     </section>
 
     <dl class="metadata">
@@ -52,7 +102,7 @@
       {% if asserted.site %}
       <dt>site</dt><dd><a href="{{ asserted.site.href }}">{{ asserted.site.slug }}</a></dd>
       {% endif %}
-      <dt>address</dt><dd class="crypto">{{ env.address }}</dd>
+      <dt>address</dt><dd class="cryptography">{{ env.address }}</dd>
     </dl>
 
     {% if asserted.threads_out %}
@@ -64,7 +114,7 @@
           <span class="edge-type">{{ t.type }} →</span>
           {% if t.title %}<a href="{{ t.href }}">{{ t.title | clean_title(t.address) }}</a>
           {% else %}<a href="{{ t.href }}">(peer not held locally)</a>{% endif %}
-          <span class="peer-address crypto">{{ t.address }}</span>
+          <span class="peer-address cryptography">{{ t.address }}</span>
         </li>
         {% endfor %}
       </ul>
@@ -80,7 +130,7 @@
           <span class="edge-type">← {{ t.type }}</span>
           {% if t.title %}<a href="{{ t.href }}">{{ t.title | clean_title(t.address) }}</a>
           {% else %}<a href="{{ t.href }}">(peer not held locally)</a>{% endif %}
-          <span class="peer-address crypto">{{ t.address }}</span>
+          <span class="peer-address cryptography">{{ t.address }}</span>
         </li>
         {% endfor %}
       </ul>
@@ -93,4 +143,35 @@
     </nav>
   </aside>
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Copy the content-addressed .md link wrapped in cold-agent context. Progressive
+  // enhancement: with no JS (or no async clipboard) the link and the preamble are
+  // still in the DOM to copy by hand.
+  document.querySelectorAll(".copy-link").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var src = document.getElementById(btn.dataset.copyTarget);
+      if (!src || !navigator.clipboard) return;
+      navigator.clipboard.writeText(src.textContent).then(function () {
+        var prev = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () { btn.textContent = prev; }, 1500);
+      });
+    });
+  });
+
+  // The for-agents box ships open (so a no-JS reader always gets the body); on a
+  // narrow viewport collapse it to a real <details> disclosure. Re-syncs only when
+  // the viewport crosses the breakpoint, so a manual toggle in between is respected.
+  (function () {
+    var box = document.querySelector(".for-agents-toggle");
+    if (!box || !window.matchMedia) return;
+    var narrow = window.matchMedia("(max-width: 699px)");
+    function sync() { box.open = !narrow.matches; }
+    sync();
+    narrow.addEventListener("change", sync);
+  })();
+</script>
 {% endblock %}

@@ -425,6 +425,24 @@ def test_verdict_signed(seeded, monkeypatch):
     assert identity["subject"] == "alice@example.com"
 
 
+def test_asserted_signer_is_none_when_unsigned(seeded):
+    env = env_mod.build_folio_envelope(seeded["store"], seeded["a"])
+    assert env["asserted"]["signer"] is None
+
+
+def test_asserted_signer_carries_identity_when_signed(seeded, monkeypatch):
+    _store_fake_bundle(seeded["store"], seeded["a"])
+    monkeypatch.setattr(
+        signing,
+        "verify_multi",
+        lambda cb, b: _verify_result(
+            signing.VerifyStatus.VERIFIED, issuer="iss", subject="alice@example.com"
+        ),
+    )
+    env = env_mod.build_folio_envelope(seeded["store"], seeded["a"])
+    assert env["asserted"]["signer"] == {"issuer": "iss", "subject": "alice@example.com"}
+
+
 def test_verdict_unverifiable_is_not_invalid(seeded, monkeypatch):
     _store_fake_bundle(seeded["store"], seeded["a"])
     monkeypatch.setattr(

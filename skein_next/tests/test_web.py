@@ -144,6 +144,82 @@ def test_folio_html_from_wire(client, seeded):
     assert "Brief B" in r.text            # threads_out peer title
 
 
+def test_folio_for_agents_box(client, seeded):
+    # The handoff widget: a content-addressed .md link + Copy button, the address,
+    # the mesh-fetch command, and the unsigned provenance line — all from the wire.
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert 'class="for-agents"' in r
+    assert "For your agent" in r
+    # the link is absolute (request-origin fallback in tests), not relative
+    assert f"http://testserver/folio/{seeded['a']}.md" in r
+    assert "copy-link" in r and 'id="agent-copy"' in r
+    assert f"mesh fetch {seeded['a']}" in r
+    assert "Unsigned — operator-vouched." in r
+    # the clipboard preamble orients a cold agent, and is hidden from assistive tech
+    assert "Read this SKEIN folio as Markdown" in r
+    assert 'id="agent-copy" class="visually-hidden" aria-hidden="true"' in r
+
+
+def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
+    from skein import signing
+    from skein_next import canon, profile
+
+    # attach a fake bundle + force verification to a known subject
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    from skein_next.store import SkeinNextStore
+
+    store = SkeinNextStore(seeded["data_dir"], check_same_thread=False)
+    row = store.get_folio(seeded["a"])
+    preimage = profile.profiled_preimage(profile.CANON_PROFILE_V1, canon.folio_canonical_bytes(row))
+    bundle = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1", bundles=["x"],
+        canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_V1,
+    )
+    store.set_signature(seeded["a"], bundle.model_dump_json())
+    store.close()
+    monkeypatch.setattr(
+        signing, "verify_multi",
+        lambda cb, b: signing.MultiVerifyResult(
+            results=[signing.VerifyResult(status=signing.VerifyStatus.VERIFIED,
+                                          issuer="iss", subject="alice@example.com")],
+            overall=signing.VerifyStatus.VERIFIED,
+        ),
+    )
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert "Signed by alice@example.com" in r
+    assert "Unsigned — operator-vouched." not in r
+
+
+def test_folio_for_agents_box_does_not_call_bad_signature_unsigned(seeded, monkeypatch):
+    # A folio with a bundle whose signature is INVALID must NOT read "Unsigned —
+    # operator-vouched" in the handoff box; it has a signature, just not a verified
+    # one. Understating that in the agent-handoff affordance is the wrong default.
+    from skein import signing
+    from skein_next import canon, profile
+    from skein_next.store import SkeinNextStore
+
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    store = SkeinNextStore(seeded["data_dir"], check_same_thread=False)
+    row = store.get_folio(seeded["a"])
+    preimage = profile.profiled_preimage(profile.CANON_PROFILE_V1, canon.folio_canonical_bytes(row))
+    bundle = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1", bundles=["x"],
+        canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_V1,
+    )
+    store.set_signature(seeded["a"], bundle.model_dump_json())
+    store.close()
+    monkeypatch.setattr(
+        signing, "verify_multi",
+        lambda cb, b: signing.MultiVerifyResult(
+            results=[signing.VerifyResult(status=signing.VerifyStatus.SIGNATURE_MISMATCH)],
+            overall=signing.VerifyStatus.SIGNATURE_MISMATCH,
+        ),
+    )
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert "Signature present but not verified" in r
+    assert "Unsigned — operator-vouched." not in r
+
+
 def test_folio_threads_in_and_out(client, seeded):
     # b is referenced BY a — the incoming edge must surface as "Referenced by".
     r = client.get(f"/folio/{seeded['b']}")

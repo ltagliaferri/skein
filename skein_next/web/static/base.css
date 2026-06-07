@@ -14,7 +14,7 @@
  *
  * The stable hooks (do not rename — themes depend on these):
  *   .station-header .station-nav .station-footer .breadcrumb
- *   .skein-folio .folio-body .metadata .type-tag .crypto
+ *   .skein-folio .folio-body .metadata .type-tag .cryptography
  *   .provenance (+ --verified/--invalid/--unverified/--unsigned)
  *   .threads .threads-out .threads-in .lineage .toc
  *   .entry-list .entry .site-list .prose (folio body prose links live here)
@@ -62,13 +62,13 @@ body {
   line-height: 1.5;
 }
 
-/* Crypto-artifact marker: hashes, signatures, addresses, profile strings.
- * Monospace says "this is a crypto artifact," not the page vibe. */
-.crypto, code, pre, .address {
+/* Cryptographic-artifact marker: hashes, signatures, addresses, profile strings.
+ * Monospace says "this is a cryptographic artifact," not the page vibe. */
+.cryptography, code, pre, .address {
   font-family: var(--font-mono);
 }
 
-.crypto, .address { word-break: break-all; }
+.cryptography, .address { word-break: break-all; }
 
 a { color: var(--link); }
 

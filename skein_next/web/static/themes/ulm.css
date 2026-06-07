@@ -3,7 +3,7 @@
  * Wikipedia information density × Dieter Rams / Vitsoe (Ulm School / Braun
  * "Gute Form") utilitarian functionalism (brief-20260522-0gjz):
  * high-contrast black-on-white, type-driven, restrained, generous whitespace,
- * monospace only as a crypto-artifact marker, grayscale + one accent
+ * monospace only as a cryptographic-artifact marker, grayscale + one accent
  * (green=verified, amber=wrapped, red=invalid). Color does not do structural
  * work; size and weight do.
  *
@@ -76,7 +76,7 @@ h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2re
   color: var(--muted);
   margin: 0 0 1.25rem;
 }
-.metadata .crypto { font-size: 0.92em; }
+.metadata .cryptography { font-size: 0.92em; }
 
 /* The provenance card: a bordered block, accent on the left edge by state.
  * Restrained — a 2px rule, no shadow, no radius. */
@@ -145,3 +145,18 @@ h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2re
 .search-form { display: flex; gap: 0.5rem; margin: 1rem 0 1.5rem; }
 .search-form input[type="search"] { flex: 1; font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--rule); background: var(--bg); color: var(--fg); }
 .search-form button { font: inherit; border: 1px solid var(--fg); background: var(--bg); color: var(--fg); padding: 0.4rem 1rem; cursor: pointer; }
+
+/* --- "For your agent" box ------------------------------------------------- */
+/* A handoff widget. Action-first, restrained; the link/address/command are the
+ * cryptographic-mono artifacts. Narrow screens get a real <details> disclosure;
+ * wide screens reveal the body and drop the toggle (always-open in the column). */
+.for-agents { border: 1px solid var(--rule); border-left: 3px solid var(--muted); padding: 0.6rem 0.85rem; margin: 0 0 1.75rem; font-size: 0.88rem; }
+.for-agents .for-agents-title { font-weight: 600; }
+.for-agents summary { cursor: pointer; }
+.for-agents p { margin: 0.45rem 0 0; }
+.for-agents .for-agents-label { color: var(--muted); margin-top: 0.7rem; }
+.for-agents .cryptography { font-size: 0.85em; display: block; margin-top: 0.15rem; }
+.for-agents .for-agents-link { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.6rem; }
+.for-agents .for-agents-link a { flex: 1; min-width: 0; }
+.for-agents .copy-link { font: inherit; font-size: 0.85em; border: 1px solid var(--fg); background: var(--bg); color: var(--fg); padding: 0.15rem 0.6rem; cursor: pointer; }
+.for-agents .for-agents-prov { margin-top: 0.7rem; color: var(--muted); }

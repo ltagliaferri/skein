@@ -552,6 +552,7 @@ def create_app() -> FastAPI:
                 "env": env,
                 "body_html": body_html,
                 "prov_state": verdict_state(env["asserted"].get("verdict")),
+                "base_url": public_base_url(request),
             },
         )
 

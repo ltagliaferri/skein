@@ -26,6 +26,13 @@ services:
       # fallback). Once a stationfile with a "name" exists it wins over this var,
       # so a rename rides the light deploy path; this stays a harmless fallback.
       - SKEIN_NEXT_PROJECT=interskein
+      # Public origin for the absolute .md fetch URLs the agent-markdown opener and
+      # the "For your agent" box advertise. Set explicitly because nginx fronts the
+      # instance on 127.0.0.1:9001 and the request origin would otherwise leak the
+      # internal host; a configured value is also immune to Host-header injection.
+      # interskein.com is the canonical name (the corpus is content-addressed, so
+      # the link resolves from darkive.org too).
+      - SKEIN_NEXT_BASE_URL=https://interskein.com
     volumes:
       - "${INTERSKEIN_CORPUS:?set INTERSKEIN_CORPUS to a project's .skein-next dir}:/data:ro"
     restart: unless-stopped

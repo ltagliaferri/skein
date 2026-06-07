@@ -143,7 +143,7 @@ def _render_footer(env: Mapping[str, Any]) -> str:
         )
 
     # A thread peer that isn't held locally exposes its raw thread endpoint as
-    # `address`/`href` (envelope._folio_threads), and threads are unsigned and
+    # `address`/`href` (envelope._peer_ref), and threads are unsigned and
     # forgeable — so those, too, must be flattened before they go in the bare
     # frame, not just the type/title (the fell-r2 catch).
     out = asserted.get("threads_out", [])

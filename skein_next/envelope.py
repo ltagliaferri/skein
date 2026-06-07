@@ -58,6 +58,31 @@ BODY_FIELDS = ("type", "title", "content", "created_at", "created_by")
 # status. Excluded from the folio graph, same rule the adapter's cross_refs uses.
 _STRUCTURAL_THREADS = frozenset({"within", "status"})
 
+# Edit-lineage edges. These are the four ``relation_type`` values the data model
+# (brief-20260511-8qj1 rev 4) defines for the child->parent edit edge — the typed
+# subset of threads that expresses versioning, not generic cross-reference. In
+# this thread-native store lineage IS these typed threads (there is no ``parent``
+# column; identity is the content hash and every relationship is a thread), so the
+# envelope derives the lineage block from them. The shape ``asserted.lineage``
+# exposes is source-agnostic: if a real ``parent`` field ever lands it can feed the
+# same block additively, with no wire change. An edge of one of these types is
+# surfaced ONLY in ``lineage`` — never also in the generic ``threads_out/in`` — the
+# same partition rule that already keeps ``within``/``status`` out of the graph.
+#
+# Direction (rev 4): the edge runs child -> parent (``from_id`` = the newer child,
+# ``to_id`` = the older parent), so for a folio F an OUTGOING lineage edge points at
+# F's parent and an INCOMING one is a child of F. ``supersedes`` is the linear edit
+# chain ("the child replaces the parent"); an incoming ``supersedes`` is therefore
+# the fork-hatnote "a newer version exists" signal.
+_LINEAGE_THREADS = frozenset({"supersedes", "forks", "responds_to", "imports_legacy"})
+
+# Bounds on the transitive descendant walk, so a pathological (or cyclic) lineage
+# can never turn one folio read into an unbounded crawl. The walk is breadth-first
+# with a visited set; it stops at either bound and the caller treats the result as
+# "at least these", never "exactly these".
+_DESCENDANTS_MAX = 256
+_DESCENDANTS_MAX_DEPTH = 64
+
 # A folio is stable (full content hash, immutable); a collection or error is a
 # query result, derived. ``validate_envelope`` enforces this mapping.
 _STABLE_KINDS = frozenset({"folio", "thread"})
@@ -145,54 +170,163 @@ def _folio_href(content_hash: str) -> str:
     return f"/folio/{content_hash}"
 
 
-def _folio_threads(store, content_hash: str, *, outgoing: bool) -> List[Dict[str, Any]]:
-    """The folio's cross-reference edges in one direction, native and labelled.
+def _peer_ref(store, content_hash: str, edge: Mapping[str, Any], *, outgoing: bool):
+    """Resolve one thread edge to a peer ref, or ``None`` if it is a self-edge.
 
-    Outgoing = edges this folio is the ``from_id`` of; incoming = the ``to_id``.
-    Membership/status edges are excluded (they surface as ``site``/``status``).
-    Each entry carries the thread type, the peer's title, the peer's full
-    ``address`` (the cross-instance-safe handle), and a station-local ``href``
-    (which 404s for a peer whose only instance is elsewhere — following uses the
-    address, not the href).
-
-    A folio is not its own neighbour: a self-edge is dropped whether the peer is
-    the folio's own hash OR a legacy id that aliases back to it.
+    The ref carries the thread type, the peer's title, the peer's full ``address``
+    (the cross-instance-safe handle), and a station-local ``href`` (which 404s for
+    a peer whose only instance is elsewhere — following uses the address, not the
+    href). A folio is not its own neighbour: a self-edge is dropped whether the
+    peer is the folio's own hash OR a legacy id that aliases back to it.
     """
-    edges = (
-        store.get_threads(from_id=content_hash)
-        if outgoing
-        else store.get_threads(to_id=content_hash)
-    )
+    peer = edge["to_id"] if outgoing else edge["from_id"]
+    if not peer or peer == content_hash:
+        return None
+    # Resolve the endpoint: a content hash directly, else a legacy id through the
+    # alias table. ``target`` is None when the peer is held nowhere local.
+    target = peer if store.get_folio(peer) else store.resolve_alias(peer)
+    if target == content_hash:
+        return None  # aliases back to this folio — not its own neighbour
+    prow = store.get_folio(target) if target else None
+    if prow is not None:
+        address = prow["content_hash"]
+        title = prow.get("title") or ""
+        href = _folio_href(address)
+    else:
+        # A peer with no local instance: still a real edge. Expose the raw
+        # endpoint as the address so a federating client can chase it.
+        address = peer
+        title = None
+        href = _folio_href(peer)
+    return {"type": edge["type"], "title": title, "address": address, "href": href}
+
+
+def _refs_from_edges(
+    store, content_hash: str, edges, *, outgoing: bool, lineage: bool
+) -> List[Dict[str, Any]]:
+    """Resolve+dedup the cross-reference (``lineage=False``) OR lineage
+    (``lineage=True``) subset of one already-fetched edge list.
+
+    Membership/status edges are always excluded (they surface as ``site``/the
+    status line). Lineage edges are partitioned to exactly one side of this gate so
+    a versioning edge appears in ``lineage`` and never also in ``threads_out/in``.
+    """
     out: List[Dict[str, Any]] = []
     seen = set()
     for edge in edges:
-        if edge["type"] in _STRUCTURAL_THREADS:
+        etype = edge["type"]
+        if etype in _STRUCTURAL_THREADS:
             continue
-        peer = edge["to_id"] if outgoing else edge["from_id"]
-        if not peer or peer == content_hash:
+        if (etype in _LINEAGE_THREADS) != lineage:
             continue
-        # Resolve the endpoint: a content hash directly, else a legacy id through
-        # the alias table. ``target`` is None when the peer is held nowhere local.
-        target = peer if store.get_folio(peer) else store.resolve_alias(peer)
-        if target == content_hash:
-            continue  # aliases back to this folio — not its own neighbour
-        prow = store.get_folio(target) if target else None
-        if prow is not None:
-            address = prow["content_hash"]
-            title = prow.get("title") or ""
-            href = _folio_href(address)
-        else:
-            # A peer with no local instance: still a real edge. Expose the raw
-            # endpoint as the address so a federating client can chase it.
-            address = peer
-            title = None
-            href = _folio_href(peer)
-        key = (edge["type"], address)
+        ref = _peer_ref(store, content_hash, edge, outgoing=outgoing)
+        if ref is None:
+            continue
+        key = (ref["type"], ref["address"])
         if key in seen:
             continue
         seen.add(key)
-        out.append({"type": edge["type"], "title": title, "address": address, "href": href})
+        out.append(ref)
     return out
+
+
+def _folio_descendants(
+    store, content_hash: str, children: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """The transitive forward closure over lineage children (breadth-first).
+
+    Seeded with the folio's already-resolved direct ``children`` (so the root's
+    incoming edges are not re-queried), then walks INCOMING lineage edges of each
+    locally-held descendant (children-of-children …). Bounded by
+    ``_DESCENDANTS_MAX``/``_DESCENDANTS_MAX_DEPTH`` and guarded by a visited set so
+    a cycle or a huge fork tree can't make one read unbounded. Only peers held
+    locally (a resolved content hash) are recursed into; a remote-only child is
+    listed but not chased. Order is breadth-first: nearer versions first.
+    """
+    seen = {content_hash}
+    out: List[Dict[str, Any]] = []
+    frontier: List[str] = []
+    for ref in children:
+        if len(out) >= _DESCENDANTS_MAX:
+            break
+        addr = ref["address"]
+        if addr in seen:
+            continue
+        seen.add(addr)
+        out.append(ref)
+        if ref["title"] is not None:  # held locally → safe to recurse
+            frontier.append(addr)
+    depth = 1
+    while frontier and depth < _DESCENDANTS_MAX_DEPTH and len(out) < _DESCENDANTS_MAX:
+        nxt: List[str] = []
+        for node in frontier:
+            for ref in _refs_from_edges(
+                store, node, store.get_threads(to_id=node), outgoing=False, lineage=True
+            ):
+                addr = ref["address"]
+                if addr in seen:
+                    continue
+                seen.add(addr)
+                out.append(ref)
+                if ref["title"] is not None:  # held locally → safe to recurse
+                    nxt.append(addr)
+                if len(out) >= _DESCENDANTS_MAX:
+                    break
+            if len(out) >= _DESCENDANTS_MAX:
+                break
+        frontier = nxt
+        depth += 1
+    return out
+
+
+def _folio_lineage(
+    store, content_hash: str, out_edges, in_edges
+) -> tuple[Dict[str, Any], Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Build the lineage block, the ``superseded_by`` ref, and the descendant list.
+
+    Reuses the two edge lists the envelope already fetched (one query per
+    direction), so a folio with no lineage costs no extra queries; the sibling and
+    descendant lookups fire only when parents / children actually exist.
+
+    Returns ``(lineage, superseded_by, descendants)`` where ``lineage`` is
+    ``{parents, children, siblings}``:
+
+    - ``parents`` — every OUTGOING lineage edge. Data model rev 4 mandates at most
+      one parent, so this is normally a 0- or 1-element list; a display layer takes
+      ``parents[0]`` for the singular "parent" UI. It is a list, not a scalar, so a
+      malformed corpus that carries more than one is surfaced in full rather than
+      silently truncated — the wire is load-bearing and must not hide corruption.
+    - ``children`` — every INCOMING lineage edge.
+    - ``siblings`` — co-children of this folio's parent(s), deduped, self excluded.
+
+    ``superseded_by`` is an INCOMING ``supersedes`` edge — the fork-hatnote "a newer
+    version exists" — and is a subset of ``children``.
+    """
+    parents = _refs_from_edges(store, content_hash, out_edges, outgoing=True, lineage=True)
+    children = _refs_from_edges(store, content_hash, in_edges, outgoing=False, lineage=True)
+
+    siblings: List[Dict[str, Any]] = []
+    seen_siblings = set()
+    # Co-children of each parent — only resolvable when the parent is held locally
+    # (its address is a content hash we can query for ITS children). Deduped across
+    # parents and against this folio itself.
+    for parent in parents:
+        if parent["title"] is None:
+            continue
+        parent_hash = parent["address"]
+        for ref in _refs_from_edges(
+            store, parent_hash, store.get_threads(to_id=parent_hash), outgoing=False, lineage=True
+        ):
+            if ref["address"] == content_hash or ref["address"] in seen_siblings:
+                continue
+            seen_siblings.add(ref["address"])
+            siblings.append(ref)
+
+    superseded_by = next((c for c in children if c["type"] == "supersedes"), None)
+    descendants = _folio_descendants(store, content_hash, children) if children else []
+
+    lineage = {"parents": parents, "children": children, "siblings": siblings}
+    return lineage, superseded_by, descendants
 
 
 def _folio_site(store, content_hash: str) -> Optional[Dict[str, Any]]:
@@ -228,9 +362,21 @@ def build_folio_envelope(
     signature_bundle = _bundle_object(bundle_json)
     verdict, _identity = folio_verdict(store, content_hash, row, bundle_json)
 
+    # One query per direction; the cross-reference (threads) and lineage subsets are
+    # partitioned from the SAME fetched lists, so the no-lineage common case adds no
+    # extra reads over the old two-query threads build.
+    out_edges = store.get_threads(from_id=content_hash)
+    in_edges = store.get_threads(to_id=content_hash)
+    threads_out = _refs_from_edges(store, content_hash, out_edges, outgoing=True, lineage=False)
+    threads_in = _refs_from_edges(store, content_hash, in_edges, outgoing=False, lineage=False)
+    lineage, superseded_by, descendants = _folio_lineage(
+        store, content_hash, out_edges, in_edges
+    )
+
     links = {
         "self": _folio_href(content_hash),
         "raw": f"{_folio_href(content_hash)}.md",
+        "json": f"{_folio_href(content_hash)}.json",
         "catalog": "/",
     }
     if signature_bundle is not None:
@@ -252,8 +398,11 @@ def build_folio_envelope(
             "verdict": verdict,
             "status": store.latest_statuses([content_hash]).get(content_hash, "open"),
             "site": _folio_site(store, content_hash),
-            "threads_out": _folio_threads(store, content_hash, outgoing=True),
-            "threads_in": _folio_threads(store, content_hash, outgoing=False),
+            "threads_out": threads_out,
+            "threads_in": threads_in,
+            "lineage": lineage,
+            "superseded_by": superseded_by,
+            "descendants": descendants,
         },
         "links": links,
         "next": None,

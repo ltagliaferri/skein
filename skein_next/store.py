@@ -12,12 +12,15 @@ folio columns — new-skein is thread-native from the start.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 
 from .identity import compute_folio_hash, compute_thread_hash, normalize_created_at
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DATA_DIR = Path(".skein-next")
 DB_FILENAME = "store.db"
@@ -193,8 +196,8 @@ class SkeinNextStore:
                 if conn is not None:
                     try:
                         conn.close()
-                    except Exception:
-                        pass
+                    except Exception as close_err:
+                        logger.warning("Failed to close connection after open error: %s", close_err)
         raise sqlite3.OperationalError(
             f"could not open {p} read-only (mode=ro or immutable=1): {last_err}"
         )

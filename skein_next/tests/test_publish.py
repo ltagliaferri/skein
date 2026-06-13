@@ -377,3 +377,78 @@ def test_ingress_route_round_trip_and_guards(client, tmp_path, monkeypatch):
 
     bad_shape = tc.post("/publish/v0/folios", json={"protocol": wire.PROTOCOL, "folios": "x"})
     assert bad_shape.status_code == 400
+
+
+# --- harden B: non-string canonical scalars break the body<->address binding --
+#
+# A non-str scalar (int/bool) serializes through knurl as a JSON number/bool, so
+# it slips past the wire integrity gate — but the store columns are TEXT, so
+# SQLite coerces 99->"99" / True->1 on insert and the served body re-hashes to a
+# DIFFERENT address than ingest bound. The canon layer now raises CanonError on
+# any non-str/non-None canonical field, which the gate maps to "invalid fields".
+
+
+@pytest.mark.parametrize("field", ["type", "title", "content", "created_by"])
+@pytest.mark.parametrize("bad_value", [99, True])
+def test_non_string_folio_field_is_rejected_invalid_fields(instance, field, bad_value):
+    wf = {
+        "content_hash": "sha256::" + "0" * 64,
+        "type": "finding",
+        "title": "T",
+        "content": "b",
+        "created_at": "2026-01-01T00:00:00Z",
+        "created_by": "t",
+    }
+    wf[field] = bad_value  # int/bool — passes knurl, breaks TEXT-affinity binding
+    ack = ingest(
+        instance, {"protocol": wire.PROTOCOL, "folios": [wf], "threads": [], "site_slugs": {}}
+    )
+    assert any(r["reason"] == "invalid fields" for r in ack["rejected"])
+    assert instance.store.count_folios() == 0
+
+
+@pytest.mark.parametrize("field", ["from_id", "to_id", "type", "weaver", "content"])
+@pytest.mark.parametrize("bad_value", [99, True])
+def test_non_string_thread_field_is_rejected_invalid_fields(instance, field, bad_value):
+    real = "sha256::" + "1" * 64
+    wt = {
+        "thread_hash": "sha256::" + "0" * 64,
+        "from_id": real,
+        "to_id": real,
+        "type": "reference",
+        "weaver": "t",
+        "created_at": "2026-01-01T00:00:00Z",
+        "content": "b",
+    }
+    wt[field] = bad_value
+    ack = ingest(
+        instance, {"protocol": wire.PROTOCOL, "folios": [], "threads": [wt], "site_slugs": {}}
+    )
+    assert any(r["reason"] == "invalid fields" for r in ack["threads"]["rejected"])
+    assert instance.store.count_threads() == 0
+
+
+def test_accepted_folio_and_thread_bodies_rehash_to_served_address(client, instance):
+    """Property: every ACCEPTED constituent's stored body re-hashes to its address.
+
+    This is the binding harden B protects — the served body and the address it is
+    keyed under can never disagree, because a body that wouldn't re-hash is
+    refused at ingest."""
+    client.create_site("specs", purpose="p", created_by="t")
+    a = client.post("finding", "specs", "A", "body a", created_by="t")
+    b = client.post("finding", "specs", "B", "body b", created_by="t")
+    client.store.save_thread(
+        from_id=a, to_id=b, type="reference", weaver="t", content=None,
+        created_at="2026-06-01T00:00:00+00:00",
+    )
+    batch = wire.build_batch(*collect_publish_set(client, site="specs"))
+    ingest(instance, batch)
+
+    for row in instance.store.list_folios():
+        served = wire.folio_to_wire(row)
+        assert wire.recompute_folio_hash(served) == row["content_hash"]
+    threads = instance.store.conn.execute("SELECT * FROM threads").fetchall()
+    assert threads  # the reference edge landed (both endpoints present)
+    for row in threads:
+        served = wire.thread_to_wire(dict(row))
+        assert wire.recompute_thread_hash(served) == row["thread_hash"]

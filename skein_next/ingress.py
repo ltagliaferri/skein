@@ -39,6 +39,7 @@ from . import canon, wire
 from . import sign as _sign
 from .authorization import default_bindings
 from .identity import content_hash_for_bytes
+from .store import bundle_hash_for
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,9 @@ def ingest(
 
     def write_attribution(constituent_hash: str, kind: str) -> None:
         """Record manifest + attribution (manifest row FIRST, ST8), INSERT OR
-        IGNORE — runs on BOTH the accept AND the 'existing' path (RS7/RS20)."""
+        IGNORE — runs on BOTH the accept AND the 'existing' path (RS7/RS20). Also
+        populates the manifest's VERIFIED signature verdict in verify_cache (the
+        ingress is the cache WRITER, VC6); the read path elides Sigstore on a hit."""
         station.store.add_manifest(
             mctx["root"], mctx["manifest_hash"], mctx["descriptor_json"],
             mctx["leaf_list_json"], mctx["bundle_json"], mctx["issuer"],
@@ -196,6 +199,10 @@ def ingest(
         )
         station.store.add_constituent_attribution(
             constituent_hash, kind, mctx["root"], mctx["issuer"], mctx["subject"]
+        )
+        station.store.verify_cache_put(
+            mctx["manifest_hash"], bundle_hash_for(mctx["bundle_json"]),
+            "VERIFIED", mctx["issuer"], mctx["subject"],
         )
 
     accepted: List[str] = []

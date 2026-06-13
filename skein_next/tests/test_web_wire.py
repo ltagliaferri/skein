@@ -289,15 +289,32 @@ def test_bundle_unsigned_is_404(client, seeded):
 
 
 def test_bundle_served_when_signed(seeded, monkeypatch):
-    # Attach a bundle sidecar, then the bundle route returns it verbatim.
-    with Station(seeded["data_dir"]) as st:
-        row = st.store.get_folio(seeded["a"])
+    # Cover the folio with a manifest; the bundle route returns the covering
+    # manifest's bundle verbatim (per-folio bundles no longer exist).
+    import json as _json
+
+    from skein_next import profile, sign as sign_mod
+    from skein_next.canon import manifest_descriptor_canonical_bytes
+    from skein_next.identity import content_hash_for_bytes
+
+    def signer(cb):
+        preimage = profile.profiled_preimage(profile.CANON_PROFILE_MANIFEST_V1, cb)
         bundle = signing.SignatureBundle(
-            identity_scheme="sigstore-public-v1",
-            bundles=["x"],
-            canonical_bytes=canon.folio_canonical_bytes(row),
+            identity_scheme="sigstore-public-v1", bundles=["x"],
+            canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_MANIFEST_V1,
         )
-        st.store.set_signature(seeded["a"], bundle.model_dump_json())
+        return sign_mod.SignedResult(bundle=bundle, issuer="https://idp", subject="alice")
+
+    with Station(seeded["data_dir"]) as st:
+        ms = sign_mod.sign_manifest([seeded["a"]], signer)
+        d = ms["descriptor"]
+        mh = content_hash_for_bytes(manifest_descriptor_canonical_bytes(d["root"], d["leaf_count"]))
+        with st.store.transaction():
+            st.store.add_manifest(d["root"], mh, _json.dumps(d, sort_keys=True),
+                                  _json.dumps(ms["leaf_list"]), ms["signature_bundle"],
+                                  "https://idp", "alice", d["leaf_count"])
+            st.store.add_constituent_attribution(seeded["a"], "folio", d["root"],
+                                                 "https://idp", "alice")
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
     monkeypatch.setenv(ENV_PROJECT, "interskein")
     client = TestClient(create_app())

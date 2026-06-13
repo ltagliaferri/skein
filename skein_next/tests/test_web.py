@@ -160,28 +160,50 @@ def test_folio_for_agents_box(client, seeded):
     assert 'id="agent-copy" class="visually-hidden" aria-hidden="true"' in r
 
 
-def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
-    from skein import signing
-    from skein_next import canon, profile
+def _cover_folio(data_dir, content_hash, *, subject="alice@example.com",
+                 issuer="https://idp", bind=True):
+    """Cover a folio with a manifest (+ optional binding) — the unified model's
+    replacement for the dissolved per-folio signature sidecar."""
+    import json
 
-    # attach a fake bundle + force verification to a known subject
-    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    from skein import signing
+    from skein_next import profile, sign as sign_mod
+    from skein_next.canon import manifest_descriptor_canonical_bytes
+    from skein_next.identity import content_hash_for_bytes
     from skein_next.store import SkeinNextStore
 
-    store = SkeinNextStore(seeded["data_dir"], check_same_thread=False)
-    row = store.get_folio(seeded["a"])
-    preimage = profile.profiled_preimage(profile.CANON_PROFILE_V1, canon.folio_canonical_bytes(row))
-    bundle = signing.SignatureBundle(
-        identity_scheme="sigstore-public-v1", bundles=["x"],
-        canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_V1,
-    )
-    store.set_signature(seeded["a"], bundle.model_dump_json())
+    def signer(cb):
+        preimage = profile.profiled_preimage(profile.CANON_PROFILE_MANIFEST_V1, cb)
+        bundle = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1", bundles=["x"],
+            canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_MANIFEST_V1,
+        )
+        return sign_mod.SignedResult(bundle=bundle, issuer=issuer, subject=subject)
+
+    ms = sign_mod.sign_manifest([content_hash], signer)
+    d = ms["descriptor"]
+    mh = content_hash_for_bytes(manifest_descriptor_canonical_bytes(d["root"], d["leaf_count"]))
+    store = SkeinNextStore(data_dir, check_same_thread=False)
+    with store.transaction():
+        store.add_manifest(d["root"], mh, json.dumps(d, sort_keys=True),
+                           json.dumps(ms["leaf_list"]), ms["signature_bundle"],
+                           issuer, subject, d["leaf_count"])
+        store.add_constituent_attribution(content_hash, "folio", d["root"], issuer, subject)
+    if bind:
+        store.add_binding(issuer, subject, role="author")
     store.close()
+
+
+def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
+    from skein import signing
+
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    _cover_folio(seeded["data_dir"], seeded["a"], subject="alice@example.com", bind=True)
     monkeypatch.setattr(
         signing, "verify_multi",
         lambda cb, b: signing.MultiVerifyResult(
             results=[signing.VerifyResult(status=signing.VerifyStatus.VERIFIED,
-                                          issuer="iss", subject="alice@example.com")],
+                                          issuer="https://idp", subject="alice@example.com")],
             overall=signing.VerifyStatus.VERIFIED,
         ),
     )
@@ -191,23 +213,13 @@ def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
 
 
 def test_folio_for_agents_box_does_not_call_bad_signature_unsigned(seeded, monkeypatch):
-    # A folio with a bundle whose signature is INVALID must NOT read "Unsigned —
-    # operator-vouched" in the handoff box; it has a signature, just not a verified
+    # A folio whose covering manifest's signature is INVALID must NOT read "Unsigned
+    # — operator-vouched" in the handoff box; it has a signature, just not a verified
     # one. Understating that in the agent-handoff affordance is the wrong default.
     from skein import signing
-    from skein_next import canon, profile
-    from skein_next.store import SkeinNextStore
 
     client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
-    store = SkeinNextStore(seeded["data_dir"], check_same_thread=False)
-    row = store.get_folio(seeded["a"])
-    preimage = profile.profiled_preimage(profile.CANON_PROFILE_V1, canon.folio_canonical_bytes(row))
-    bundle = signing.SignatureBundle(
-        identity_scheme="sigstore-public-v1", bundles=["x"],
-        canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_V1,
-    )
-    store.set_signature(seeded["a"], bundle.model_dump_json())
-    store.close()
+    _cover_folio(seeded["data_dir"], seeded["a"], bind=True)
     monkeypatch.setattr(
         signing, "verify_multi",
         lambda cb, b: signing.MultiVerifyResult(

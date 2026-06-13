@@ -25,6 +25,21 @@ def _now_iso() -> str:
     """A timezone-aware UTC isoformat stamp for first-insert timestamps."""
     return datetime.now(timezone.utc).isoformat()
 
+
+def bundle_hash_for(bundle_json: str) -> str:
+    """The verify_cache bundle key: sha256 over a manifest's stored bundle_json.
+
+    ONE shared helper for the ingress WRITER and the read READER, so they compute
+    the IDENTICAL key over the same ``manifests.bundle_json`` bytes and can never
+    disagree (VC11)."""
+    import hashlib
+
+    return hashlib.sha256(bundle_json.encode("utf-8")).hexdigest()
+
+
+# verify_multi statuses meaning "could not check" — never cached, must re-verify.
+_RECOVERABLE_VERIFY_STATUSES = frozenset({"TRUST_ROOT_STALE", "OFFLINE_NO_TRUSTED_ROOT"})
+
 DEFAULT_DATA_DIR = Path(".skein-next")
 DB_FILENAME = "store.db"
 
@@ -115,14 +130,6 @@ CREATE TABLE IF NOT EXISTS slugs (
     content_hash TEXT NOT NULL
 );
 
--- Signature overlay (DEPRECATED — superseded by the manifest model below; the
--- per-folio signature path is removed with the envelope folio_verdict rewrite,
--- Thread D). Kept transiently so the read path stays green during the migration.
-CREATE TABLE IF NOT EXISTS folio_signatures (
-    content_hash TEXT PRIMARY KEY,
-    bundle_json  TEXT NOT NULL
-);
-
 -- Manifest store (the unified signing model). One row per (manifest, signer): a
 -- publish signs ONE Merkle-root descriptor over EVERY constituent's content hash
 -- (folios AND threads). The (root, issuer, subject) TRIPLE PK lets two distinct
@@ -184,6 +191,22 @@ CREATE TABLE IF NOT EXISTS binding_events (
     vouched_by_issuer  TEXT,
     vouched_by_subject TEXT,
     at                 TEXT
+);
+
+-- Manifest signature-verdict cache. Keyed on (manifest_hash, bundle_hash); stores
+-- ONLY the expensive Sigstore SIGNATURE verdict (step 3 of the four-step read
+-- verdict). Membership (step 2) and binding (step 4) are recomputed LIVE per read
+-- and are deliberately OUT of this cache. The INGRESS is the sole writer; the read
+-- app opens mode=ro and never writes. A recoverable status (TRUST_ROOT_STALE /
+-- OFFLINE_NO_TRUSTED_ROOT) is NEVER cached (it must re-verify).
+CREATE TABLE IF NOT EXISTS verify_cache (
+    manifest_hash TEXT,
+    bundle_hash   TEXT,
+    status        TEXT,
+    issuer        TEXT,
+    subject       TEXT,
+    verified_at   TEXT,
+    PRIMARY KEY (manifest_hash, bundle_hash)
 );
 
 CREATE INDEX IF NOT EXISTS idx_manifests_hash ON manifests(manifest_hash);
@@ -676,24 +699,6 @@ class SkeinNextStore:
         rows = self.conn.execute("SELECT slug, content_hash FROM slugs ORDER BY slug").fetchall()
         return [(r["slug"], r["content_hash"]) for r in rows]
 
-    # --- signature overlay (sidecar) ----------------------------------------
-
-    def set_signature(self, content_hash: str, bundle_json: str) -> None:
-        """Store (or replace) a folio's signature bundle. Overlay, not identity."""
-        self.conn.execute(
-            "INSERT OR REPLACE INTO folio_signatures (content_hash, bundle_json) VALUES (?, ?)",
-            (content_hash, bundle_json),
-        )
-        self._maybe_commit()
-
-    def get_signature(self, content_hash: str) -> Optional[str]:
-        """A folio's signature bundle JSON, or ``None`` if it is unsigned."""
-        row = self.conn.execute(
-            "SELECT bundle_json FROM folio_signatures WHERE content_hash = ?",
-            (content_hash,),
-        ).fetchone()
-        return row["bundle_json"] if row else None
-
     # --- manifest store + constituent attribution (the unified signing model) --
 
     def add_manifest(
@@ -1002,6 +1007,53 @@ class SkeinNextStore:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY event_seq"
         return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    # --- verify_cache (the manifest SIGNATURE verdict cache, step 3 only) -----
+
+    def verify_cache_get(
+        self, manifest_hash: str, bundle_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        """A cached manifest signature verdict, or ``None`` on a miss.
+
+        A table-absent ``OperationalError`` (an old store predating the migration,
+        opened read-only with no DDL) is treated as a cache MISS — the real
+        deploy-ordering hazard where the read container races ahead of the ingress
+        migration (VC10). The read path degrades to in-process verify, never 500s."""
+        try:
+            row = self.conn.execute(
+                "SELECT * FROM verify_cache WHERE manifest_hash = ? AND bundle_hash = ?",
+                (manifest_hash, bundle_hash),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        return dict(row) if row else None
+
+    def verify_cache_put(
+        self,
+        manifest_hash: str,
+        bundle_hash: str,
+        status: str,
+        issuer: Optional[str] = None,
+        subject: Optional[str] = None,
+    ) -> None:
+        """Cache a STABLE manifest signature verdict. A recoverable status
+        (TRUST_ROOT_STALE / OFFLINE_NO_TRUSTED_ROOT) writes NO row (VC3/VC4) — it
+        must always re-verify."""
+        if status in _RECOVERABLE_VERIFY_STATUSES:
+            return
+        self.conn.execute(
+            """
+            INSERT OR REPLACE INTO verify_cache
+                (manifest_hash, bundle_hash, status, issuer, subject, verified_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (manifest_hash, bundle_hash, status, issuer, subject, _now_iso()),
+        )
+        self._maybe_commit()
+
+    def all_manifests(self) -> List[Dict[str, Any]]:
+        """Every manifest proof row — for the verify-cache backfill verb (VC9)."""
+        return [dict(r) for r in self.conn.execute("SELECT * FROM manifests").fetchall()]
 
     # --- reporting helpers --------------------------------------------------
 

@@ -544,10 +544,10 @@ def create_app() -> FastAPI:
             content_hash = resolve_to_hash(address, store, local_authority=get_authority())
         except ResolveError as e:
             return _error_response(request, e.code, e.address, "json", origin=e.origin, vary=False)
-        bundle_json = store.get_signature(content_hash)
-        if not bundle_json:
+        proof = store.get_constituent_proof(content_hash)
+        if proof is None or proof.get("proof_missing") or not proof.get("bundle_json"):
             return _error_response(request, "not_found", f"{address}/bundle", "json", vary=False)
-        payload = bundle_json.encode()
+        payload = proof["bundle_json"].encode()
         etag = _payload_etag(payload)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
         not_modified = _conditional(request, etag, headers)

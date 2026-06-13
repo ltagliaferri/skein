@@ -469,9 +469,10 @@ def test_ingress_non_dict_manifest_signature_passes_shape_gate(client):  # VM11
 def test_ingress_non_dict_manifest_signature_per_verdict_not_500(instance, client, bad):  # VM11
     # ON posture: a present-but-non-dict manifest_signature reaches the verifier and
     # every folio rejects with the WIRE-INTEGRITY reason 'manifest malformed' — never
-    # BatchShapeError, never a 500, never 'no manifest'. (The thread then rejects
-    # 'dangling endpoint' because its folio endpoints never landed — that earlier
-    # closed-graph check fires before manifest_decision; not the surface under test.)
+    # BatchShapeError, never a 500, never 'no manifest'. (The thread also rejects
+    # 'manifest malformed': under a globally-failed manifest the thread loop emits the
+    # manifest reason BEFORE present(), so constituents are judged identically. The
+    # assertion below covers the folios; the thread is the surface of FIX 2's tests.)
     _seed(client)
     _bind(instance)
     batch = _signed_batch(client)
@@ -570,3 +571,56 @@ def test_on_invokes_verifier_exactly_once(client, instance):  # FIX 1 (c)
     ack = ingest(instance, batch, verifier=spy, require_signed=True)
     assert spy.calls == 1
     assert len(ack["accepted"]) == 2 and len(ack["threads"]["accepted"]) == 1
+
+
+# --- FIX 2 (fell p3-r2 #2): global manifest failure rejects threads identically,
+# --- with the manifest/bind reason, BEFORE the per-thread present() check --------
+
+
+def test_on_malformed_manifest_rejects_every_constituent_identically(client, instance):  # FIX 2 (a)
+    # ON + a globally-malformed manifest (non-dict): EVERY constituent — both folios
+    # AND the within-thread between them — rejects bare 'manifest malformed'. The
+    # thread no longer reports 'dangling endpoint'; nothing is stored.
+    _seed(client)
+    _bind(instance)
+    batch = _signed_batch(client)  # site folio + finding folio + the within thread
+    batch["manifest_signature"] = 7  # non-dict -> WIRE-INTEGRITY 'manifest malformed'
+    ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
+    all_rejected = ack["rejected"] + ack["threads"]["rejected"]
+    assert len(ack["rejected"]) == 2 and len(ack["threads"]["rejected"]) == 1
+    assert all(r["reason"] == "manifest malformed" for r in all_rejected)
+    assert not ack["accepted"] and not ack["threads"]["accepted"]
+    assert instance.store.count_folios() == 0
+
+
+def test_on_valid_manifest_over_thread_not_endpoints_keeps_dangling(client, instance):  # FIX 2 (b)
+    # ON + a VALID bound manifest covering the thread's hash but NOT its endpoint
+    # folios: the endpoint folios reject 'not in manifest', and the thread (itself a
+    # member) reaches present() and rejects 'dangling endpoint' — present() is
+    # preserved under a verified+bound manifest.
+    _seed(client)
+    _bind(instance)
+    from skein_next import publish as pub
+    folios, threads, slugs = pub.collect_publish_set(client, site="specs")
+    batch = wire.build_batch(folios, threads, slugs)
+    assert batch["threads"], "need a within thread to exercise present()"
+    thread_hash = batch["threads"][0]["thread_hash"]
+    batch["manifest_signature"] = sign_mod.sign_manifest([thread_hash], _signer())
+    ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
+    assert ack["rejected"] and all(r["reason"] == "not in manifest" for r in ack["rejected"])
+    assert ack["threads"]["rejected"]
+    assert all(r["reason"] == "dangling endpoint" for r in ack["threads"]["rejected"])
+    assert instance.store.count_folios() == 0
+
+
+def test_on_unbound_signer_rejects_thread_with_bind_reason(client, instance):  # FIX 2 (c)
+    # ON + a VALID manifest whose signer is UNBOUND: the global bind failure rejects
+    # every constituent (folios AND the thread) with 'unbound signer' BEFORE present()
+    # — the thread does NOT report 'dangling endpoint'.
+    _seed(client)  # no binding added
+    batch = _signed_batch(client)  # site folio + finding folio + within thread
+    ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
+    all_rejected = ack["rejected"] + ack["threads"]["rejected"]
+    assert len(ack["rejected"]) == 2 and len(ack["threads"]["rejected"]) == 1
+    assert all(r["reason"] == "unbound signer" for r in all_rejected)
+    assert instance.store.count_folios() == 0

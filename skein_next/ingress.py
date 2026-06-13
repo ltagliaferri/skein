@@ -263,12 +263,25 @@ def ingest(
             if reason:
                 thread_rejected.append({"thread_hash": claimed, "reason": reason})
                 continue
-            # Refuse edges whose endpoints are not both on the instance — the graph
-            # stays closed (the client already filters; defense in depth).
+            # Under ON, a GLOBAL manifest failure (unverified, or a verified signer
+            # that is unbound/revoked) rejects EVERY constituent identically with the
+            # manifest/bind reason, BEFORE the per-thread present() check — so a
+            # broken manifest makes folios AND threads report the same reason (the
+            # unified-table principle; VM11). manifest_decision returns exactly that
+            # reason when not verified / not bound, so we reuse it here.
+            if require_signed and (not m_verified or not m_bound):
+                _, mreason = manifest_decision(claimed)
+                thread_rejected.append({"thread_hash": claimed, "reason": mreason})
+                continue
+            # The manifest verifies AND binds: present() can still legitimately yield
+            # 'dangling endpoint' for a member-thread whose endpoint folio did not
+            # land. Refuse edges whose endpoints are not both on the instance — the
+            # graph stays closed (the client already filters; defense in depth).
             if not present(wt.get("from_id")) or not present(wt.get("to_id")):
                 thread_rejected.append({"thread_hash": claimed, "reason": "dangling endpoint"})
                 continue
             if require_signed:
+                # Manifest verified + bound, so this can only fail 'not in manifest'.
                 admit, mreason = manifest_decision(claimed)
                 if not admit:
                     thread_rejected.append({"thread_hash": claimed, "reason": mreason})

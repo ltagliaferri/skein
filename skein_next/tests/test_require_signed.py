@@ -516,3 +516,57 @@ def test_ingress_malformed_manifest_per_verdict_not_500(client, instance):  # VM
     ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
     assert all(r["reason"] == "manifest malformed" for r in ack["rejected"])
     assert instance.store.count_folios() == 0
+
+
+# --- FIX 1 (fell p3-r2 #1): OFF is manifest-blind — never invoke the verifier --
+
+
+class SpyVerifier:
+    """Wraps a verifier and counts how many times it is invoked."""
+
+    def __init__(self, inner=_ok_verifier):
+        self._inner = inner
+        self.calls = 0
+
+    def __call__(self, canonical_bytes, bundle):
+        self.calls += 1
+        return self._inner(canonical_bytes, bundle)
+
+
+def _raising_verifier(canonical_bytes, bundle):
+    raise AssertionError("verify_wire_manifest must not be called under OFF")
+
+
+def test_off_never_invokes_verifier_with_present_manifest(client, instance):  # FIX 1 (a)
+    # OFF + a present, well-formed, VALID manifest_signature: the verifier is never
+    # called and every constituent admits on integrity + closed-graph alone.
+    _seed(client)
+    batch = _signed_batch(client)  # carries a valid manifest_signature
+    spy = SpyVerifier()
+    ack = ingest(instance, batch, verifier=spy, require_signed=False)
+    assert spy.calls == 0
+    assert len(ack["accepted"]) == 2 and ack["rejected"] == []
+    assert len(ack["threads"]["accepted"]) == 1 and ack["threads"]["rejected"] == []
+
+
+def test_off_with_raising_verifier_still_publishes(client, instance):  # FIX 1 (b)
+    # OFF must not even touch the verifier: a verifier that RAISES on any call would
+    # abort the publish if invoked. The publish still succeeds, proving OFF never
+    # invokes it (byte-identical to the pre-mesh posture).
+    _seed(client)
+    batch = _signed_batch(client)  # present, well-formed, valid manifest_signature
+    ack = ingest(instance, batch, verifier=_raising_verifier, require_signed=False)
+    assert len(ack["accepted"]) == 2 and ack["rejected"] == []
+    assert len(ack["threads"]["accepted"]) == 1
+
+
+def test_on_invokes_verifier_exactly_once(client, instance):  # FIX 1 (c)
+    # ON computes the manifest verdict ONCE: the verifier fires exactly once for the
+    # whole batch, regardless of constituent count.
+    _seed(client)
+    _bind(instance)
+    batch = _signed_batch(client)
+    spy = SpyVerifier()
+    ack = ingest(instance, batch, verifier=spy, require_signed=True)
+    assert spy.calls == 1
+    assert len(ack["accepted"]) == 2 and len(ack["threads"]["accepted"]) == 1

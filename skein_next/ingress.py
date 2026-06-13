@@ -132,7 +132,14 @@ def ingest(
     # --- compute the manifest verdict ONCE (before the per-item loops) --------
     has_manifest = "manifest_signature" in batch  # KEY-PRESENCE, not bool()
     m_verified, m_reason, m_identity = (False, "no manifest", None)
-    if has_manifest:
+    # OFF is manifest-blind (RS1/RS9): never call verify_wire_manifest — under OFF
+    # a real Sigstore verification (network/TUF, and an abort if the verifier
+    # raises) is NOT byte-identical to the pre-mesh posture. The verdict is only
+    # computed under ON, where the loops consult manifest_decision/attribution; the
+    # verify call fires exactly ONCE here. We keep has_manifest (key-presence) on
+    # the ON path so a present-but-non-dict value still reaches the verifier as the
+    # WIRE-INTEGRITY 'manifest malformed' verdict (VM11), distinct from 'no manifest'.
+    if has_manifest and require_signed:
         m_verified, m_reason, m_identity = _sign.verify_wire_manifest(
             batch["manifest_signature"], verifier
         )

@@ -256,3 +256,21 @@ def manifest_descriptor_fields(root: str, leaf_count: int) -> dict:
 def manifest_descriptor_canonical_bytes(root: str, leaf_count: int) -> bytes:
     """The canonical bytes of a manifest descriptor — what gets signed."""
     return _knurl_canon.serialize(manifest_descriptor_fields(root, leaf_count))
+
+
+def manifest_membership(leaf_list: List[str], signed_root: str, constituent_hash: str) -> bool:
+    """Whether ``constituent_hash`` is a member under ``signed_root`` (v0 recompute).
+
+    Membership is established ONLY by recomputing the root from the FULL leaf list
+    (re-run :func:`merkle_root` over the sorted-deduped leaves) and checking both
+    that it equals the signed root AND that the constituent's leaf datum is in the
+    decoded leaf set. There is NO inclusion-path / Merkle-audit-proof verifier in
+    v0 (VM10) — the inclusion-proof seam is a documented later feature. Total over
+    a malformed leaf_list / constituent address (returns False, never raises)."""
+    try:
+        recomputed = merkle_root_for_addresses(leaf_list)
+        datum = address_to_leaf_datum(constituent_hash)
+        members = {address_to_leaf_datum(a) for a in leaf_list}
+    except MerkleError:
+        return False
+    return recomputed == signed_root and datum in members

@@ -14,10 +14,16 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 
 from .identity import compute_folio_hash, compute_thread_hash, normalize_created_at
+
+
+def _now_iso() -> str:
+    """A timezone-aware UTC isoformat stamp for first-insert timestamps."""
+    return datetime.now(timezone.utc).isoformat()
 
 DEFAULT_DATA_DIR = Path(".skein-next")
 DB_FILENAME = "store.db"
@@ -109,14 +115,48 @@ CREATE TABLE IF NOT EXISTS slugs (
     content_hash TEXT NOT NULL
 );
 
--- Signature overlay (kept OUT of the folios table so identity stays the five
--- canonical fields and nothing else — same reason status/assignment are threads,
--- not columns). A folio's signature_bundle is data about one folio, not a
--- relationship, so it is a sidecar keyed by content hash rather than a thread.
+-- Signature overlay (DEPRECATED — superseded by the manifest model below; the
+-- per-folio signature path is removed with the envelope folio_verdict rewrite,
+-- Thread D). Kept transiently so the read path stays green during the migration.
 CREATE TABLE IF NOT EXISTS folio_signatures (
     content_hash TEXT PRIMARY KEY,
     bundle_json  TEXT NOT NULL
 );
+
+-- Manifest store (the unified signing model). One row per (manifest, signer): a
+-- publish signs ONE Merkle-root descriptor over EVERY constituent's content hash
+-- (folios AND threads). The (root, issuer, subject) TRIPLE PK lets two distinct
+-- bound signers each retain a proof over the identical constituent set (ST3 / the
+-- rev-5 B50 property); a bare-root PK would have shadowed the second.
+CREATE TABLE IF NOT EXISTS manifests (
+    root            TEXT,          -- the Merkle root ("sha256::<hex>"), signed anchor
+    manifest_hash   TEXT,          -- content address of the signed descriptor (lookup key)
+    descriptor_json TEXT NOT NULL, -- the canonical descriptor (root + leaf_count)
+    leaf_list_json  TEXT NOT NULL, -- the full sorted, deduped constituent hash list
+    bundle_json     TEXT NOT NULL, -- the single Sigstore bundle over the descriptor
+    issuer          TEXT,          -- verified manifest signer
+    subject         TEXT,
+    leaf_count      INTEGER,
+    created_at      TEXT,          -- IMMUTABLE first-insert timestamp
+    PRIMARY KEY (root, issuer, subject)
+);
+
+-- Unified constituent attribution: one row per covered constituent (a folio
+-- content_hash OR a thread_hash), pointing at its FIRST covering manifest
+-- (first-manifest-wins, Q3). The FK references the full proof triple, so the
+-- identity a constituent denormalizes is exactly the proof it resolves to
+-- (proof-signer == display-signer, ST6).
+CREATE TABLE IF NOT EXISTS constituent_attribution (
+    constituent_hash TEXT PRIMARY KEY, -- a folio content_hash OR a thread_hash
+    kind             TEXT NOT NULL,    -- 'folio' | 'thread' (triage/display)
+    root             TEXT NOT NULL,
+    issuer           TEXT NOT NULL,    -- denormalized manifest signer (display-authoritative)
+    subject          TEXT NOT NULL,
+    created_at       TEXT,
+    FOREIGN KEY (root, issuer, subject) REFERENCES manifests(root, issuer, subject)
+);
+
+CREATE INDEX IF NOT EXISTS idx_manifests_hash ON manifests(manifest_hash);
 
 CREATE INDEX IF NOT EXISTS idx_threads_from ON threads(from_id);
 CREATE INDEX IF NOT EXISTS idx_threads_to   ON threads(to_id);
@@ -171,6 +211,12 @@ class SkeinNextStore:
             self.data_dir.mkdir(parents=True, exist_ok=True)
             self.conn = sqlite3.connect(str(self.db_path), check_same_thread=check_same_thread)
             self.conn.row_factory = sqlite3.Row
+            # foreign_keys MUST be enabled at CONNECTION OPEN, OUTSIDE any
+            # transaction (inside one it is a silent no-op), and BEFORE the schema
+            # DDL — so the constituent_attribution FK is enforced from the first
+            # write (ST7). A dormant-FK store would pass FK-dependent cells by mere
+            # absence-of-raise.
+            self.conn.execute("PRAGMA foreign_keys=ON")
             self.conn.executescript(_SCHEMA)
             self.conn.commit()
         self._in_batch = False
@@ -596,6 +642,132 @@ class SkeinNextStore:
             (content_hash,),
         ).fetchone()
         return row["bundle_json"] if row else None
+
+    # --- manifest store + constituent attribution (the unified signing model) --
+
+    def add_manifest(
+        self,
+        root: str,
+        manifest_hash: str,
+        descriptor_json: str,
+        leaf_list_json: str,
+        bundle_json: str,
+        issuer: str,
+        subject: str,
+        leaf_count: int,
+    ) -> None:
+        """Record a manifest proof. INSERT OR IGNORE on the (root, issuer, subject)
+        triple, so the same signer re-publishing the same set is idempotent and
+        ``created_at`` is preserved (ST2/ST9); two distinct signers over one set
+        each retain their proof (ST3)."""
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO manifests
+                (root, manifest_hash, descriptor_json, leaf_list_json, bundle_json,
+                 issuer, subject, leaf_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                root,
+                manifest_hash,
+                descriptor_json,
+                leaf_list_json,
+                bundle_json,
+                issuer,
+                subject,
+                leaf_count,
+                _now_iso(),
+            ),
+        )
+        self._maybe_commit()
+
+    def get_manifest_proof(
+        self, root: str, issuer: str, subject: str
+    ) -> Optional[Dict[str, Any]]:
+        """The single manifest proof row for a (root, issuer, subject) triple."""
+        row = self.conn.execute(
+            "SELECT * FROM manifests WHERE root = ? AND issuer = ? AND subject = ?",
+            (root, issuer, subject),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_manifest_proofs_by_root(self, root: str) -> List[Dict[str, Any]]:
+        """The SET of proof rows for one constituent set (every signer of ``root``)."""
+        rows = self.conn.execute(
+            "SELECT * FROM manifests WHERE root = ? ORDER BY created_at, subject",
+            (root,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_manifest_by_hash(self, manifest_hash: str) -> Optional[Dict[str, Any]]:
+        """A manifest proof looked up by its content address (the indexed key)."""
+        row = self.conn.execute(
+            "SELECT * FROM manifests WHERE manifest_hash = ? LIMIT 1",
+            (manifest_hash,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def add_constituent_attribution(
+        self,
+        constituent_hash: str,
+        kind: str,
+        root: str,
+        issuer: str,
+        subject: str,
+    ) -> None:
+        """Attribute a covered constituent to its FIRST covering manifest.
+
+        INSERT OR IGNORE on the constituent hash (first-manifest-wins, Q3/ST4); a
+        later covering manifest persists as a proof row in ``manifests`` (ST3) but
+        does not re-point the constituent. With foreign_keys ON the manifest parent
+        must already exist (ST8) — the ingress writes the manifest row first in the
+        same savepoint."""
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO constituent_attribution
+                (constituent_hash, kind, root, issuer, subject, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (constituent_hash, kind, root, issuer, subject, _now_iso()),
+        )
+        self._maybe_commit()
+
+    def get_constituent_proof(self, constituent_hash: str) -> Optional[Dict[str, Any]]:
+        """Resolve a constituent to its covering manifest proof, or ``None``.
+
+        Joins constituent_attribution -> manifests on the proof triple. If the
+        manifest parent is ABSENT (a corrupted / mid-migration / FK-off dangling
+        state) the row still resolves to a ``proof_missing`` sentinel carrying the
+        denormalized (issuer, subject) — display-authoritative attribution degrades
+        gracefully, never a 500 (ST5)."""
+        attr = self.conn.execute(
+            "SELECT * FROM constituent_attribution WHERE constituent_hash = ?",
+            (constituent_hash,),
+        ).fetchone()
+        if attr is None:
+            return None
+        manifest = self.conn.execute(
+            "SELECT * FROM manifests WHERE root = ? AND issuer = ? AND subject = ?",
+            (attr["root"], attr["issuer"], attr["subject"]),
+        ).fetchone()
+        out: Dict[str, Any] = {
+            "constituent_hash": attr["constituent_hash"],
+            "kind": attr["kind"],
+            "root": attr["root"],
+            "issuer": attr["issuer"],
+            "subject": attr["subject"],
+            "created_at": attr["created_at"],
+        }
+        if manifest is None:
+            out["proof_missing"] = True
+            return out
+        out["proof_missing"] = False
+        out["manifest_hash"] = manifest["manifest_hash"]
+        out["descriptor_json"] = manifest["descriptor_json"]
+        out["leaf_list_json"] = manifest["leaf_list_json"]
+        out["bundle_json"] = manifest["bundle_json"]
+        out["leaf_count"] = manifest["leaf_count"]
+        return out
 
     # --- reporting helpers --------------------------------------------------
 

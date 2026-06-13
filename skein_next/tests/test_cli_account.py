@@ -151,6 +151,19 @@ def test_rotate_operator_onto_existing_active_author_promotes(tmp_path):  # D19
         assert "promoted" in [e["event"] for e in st.store.get_binding_events(I2, S2)]
 
 
+def test_rotate_operator_onto_self_is_refused_no_audit_mutation(tmp_path):  # harden D
+    """Rotating onto the CURRENT operator must refuse before any mutation, not
+    revoke-then-re-promote the same identity (which churns the audit trail with a
+    spurious rotated_out + promoted)."""
+    _run(tmp_path, "account", "init-operator", "--issuer", I, "--subject", S)
+    r = _run(tmp_path, "account", "rotate-operator", "--new-issuer", I, "--new-subject", S)
+    assert r.exit_code != 0 and "onto itself" in r.output
+    with _open(tmp_path) as st:
+        assert st.store.count_active_operators() == 1
+        # the audit trail shows ONLY the original creation — no rotated_out/promoted
+        assert [e["event"] for e in st.store.get_binding_events(I, S)] == ["created"]
+
+
 # --- D12: list --------------------------------------------------------------
 
 

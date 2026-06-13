@@ -203,3 +203,24 @@ def test_read_only_open_does_not_create_store(tmp_path):
     with pytest.raises(Exception):
         SkeinNextStore(data_dir=missing, read_only=True)
     assert not missing.exists()
+
+
+# --- harden E/F: defensive guards on sharp API edges ------------------------
+
+
+def test_promote_to_operator_on_missing_binding_raises_valueerror(store):
+    """Promoting a pair with no binding row must raise a clear ValueError naming
+    the pair — the UPDATE matches 0 rows, so without the guard the next line
+    dereferences None and raises an opaque AttributeError (harden E)."""
+    with pytest.raises(ValueError, match="no binding"):
+        store.promote_to_operator("https://idp", "ghost@example.com")
+
+
+def test_bundle_hash_for_none_raises_typeerror():
+    """bundle_json is NOT NULL in the schema (None is unreachable today), but the
+    helper raises a clear TypeError rather than an opaque AttributeError off
+    None.encode at this sharp edge (harden F)."""
+    from skein_next.store import bundle_hash_for
+
+    with pytest.raises(TypeError):
+        bundle_hash_for(None)

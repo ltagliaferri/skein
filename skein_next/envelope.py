@@ -161,8 +161,18 @@ def folio_verdict(
     import json as _json
 
     from . import canon
+    from .identity import compute_folio_hash
     from .sign import verify_wire_manifest
     from .store import bundle_hash_for
+
+    # Step 1 — INTEGRITY. Re-hash the stored row from the SAME canonical path
+    # create_folio used (identity.compute_folio_hash over the five canonical
+    # fields) and refuse to read SIGNED if the body no longer hashes to its
+    # content_hash key. A tampered body must never ride a warm verify_cache to a
+    # SIGNED verdict (81fm §C step 1, VC12). An UNTAMPERED row re-hashes to its
+    # content_hash and proceeds exactly as before.
+    if compute_folio_hash(row) != content_hash:
+        return ("NOT VERIFIED — integrity", None)
 
     if proof is None:
         proof = store.get_constituent_proof(content_hash)

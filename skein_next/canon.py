@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Mapping, Optional, Union
 
 from knurl import canon as _knurl_canon
+from knurl.canon import CanonError
 
 # Fractional-seconds component of an ISO timestamp (the digits after ":SS."). The
 # lookbehind anchors it to the seconds field so it never matches a stray dot.
@@ -87,18 +88,41 @@ def _parse_timestamp(value: str) -> datetime:
         raise ValueError(f"Unparseable created_at timestamp: {value!r}") from e
 
 
+def _require_str_or_none(name: str, value: Any) -> Optional[str]:
+    """Enforce the str-or-None canonical-scalar contract for one field.
+
+    Every canonical field except ``created_at`` (normalized separately) must be a
+    string or ``None``. A non-string scalar — int, bool, float — serializes as a
+    JSON number/bool through knurl, so it would pass the wire integrity gate; but
+    the store columns have TEXT affinity, so SQLite coerces ``99``->"99" and
+    ``True``->1 on insert, and the served body then re-hashes to a DIFFERENT
+    address than the one ingest bound (the body<->address binding breaks). Raising
+    ``CanonError`` here — the SAME error a float already triggers — routes such a
+    value through the wire gate's ``CanonError -> "invalid fields"`` rejection, so
+    it is refused at ingest for every caller that shares this canon path.
+    """
+    if value is not None and not isinstance(value, str):
+        raise CanonError(
+            f"canonical field {name!r} must be a string or None, got "
+            f"{type(value).__name__}"
+        )
+    return value
+
+
 def folio_canonical_fields(fields: Mapping[str, Any]) -> dict:
     """The immutable five-field dict with ``created_at`` normalized.
 
     Only ``type, title, content, created_at, created_by`` participate; any other
-    keys in ``fields`` are ignored.
+    keys in ``fields`` are ignored. Every field except ``created_at`` must be a
+    string or ``None`` (see :func:`_require_str_or_none` for why a non-str scalar
+    breaks the body<->address binding).
     """
     return {
-        "type": fields.get("type"),
-        "title": fields.get("title"),
-        "content": fields.get("content"),
+        "type": _require_str_or_none("type", fields.get("type")),
+        "title": _require_str_or_none("title", fields.get("title")),
+        "content": _require_str_or_none("content", fields.get("content")),
         "created_at": normalize_created_at(fields.get("created_at")),
-        "created_by": fields.get("created_by"),
+        "created_by": _require_str_or_none("created_by", fields.get("created_by")),
     }
 
 
@@ -115,14 +139,18 @@ def thread_canonical_fields(
     created_at: CreatedAt,
     content: Optional[str],
 ) -> dict:
-    """The six-field dict that constitutes a thread's identity (``created_at`` normalized)."""
+    """The six-field dict that constitutes a thread's identity (``created_at`` normalized).
+
+    Every field except ``created_at`` must be a string or ``None`` — a non-str
+    scalar breaks the body<->address binding under TEXT affinity, so it is
+    rejected here as ``CanonError`` (see :func:`_require_str_or_none`)."""
     return {
-        "from_id": from_id,
-        "to_id": to_id,
-        "type": type,
-        "weaver": weaver,
+        "from_id": _require_str_or_none("from_id", from_id),
+        "to_id": _require_str_or_none("to_id", to_id),
+        "type": _require_str_or_none("type", type),
+        "weaver": _require_str_or_none("weaver", weaver),
         "created_at": normalize_created_at(created_at),
-        "content": content,
+        "content": _require_str_or_none("content", content),
     }
 
 

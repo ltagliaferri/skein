@@ -38,6 +38,12 @@ from .canon import CANONICAL_FIELDS
 # ``canon_version``; surfaced as the envelope's ``proof.profile``.
 CANON_PROFILE_V1 = "skein.folio.canon/v1"
 
+# The v1 manifest profile string. The unified signing model signs a Merkle-root
+# DESCRIPTOR under this profile; the descriptor body is just ``root`` + ``leaf_count``
+# (Q1), and this string supplies the domain separation + algorithm / leaf-construction
+# binding (NOT in-body fields), exactly as a folio binds its recipe via its profile.
+CANON_PROFILE_MANIFEST_V1 = "skein.manifest.canon/v1"
+
 # The byte that separates the profile prefix from the canonical bytes. NUL cannot
 # occur in either region — the profile is a fixed ASCII token, and knurl canonical
 # JSON is UTF-8 with all control characters escaped — so the split is unambiguous.
@@ -69,7 +75,21 @@ _FOLIO_V1 = CanonProfile(
     hash_algo="sha256",
 )
 
-_REGISTRY: Dict[str, CanonProfile] = {_FOLIO_V1.profile: _FOLIO_V1}
+# The manifest descriptor profile, registered ALONGSIDE the folio profile from day
+# one (do NOT repeat the knurl-1.0 unknown-profile hard-fail, finding-20260608-8qsj).
+# The signed descriptor's field tuple is ('root', 'leaf_count'); kind 'manifest' is
+# pinned both directions at the verify seams (P6/P7).
+_MANIFEST_V1 = CanonProfile(
+    profile=CANON_PROFILE_MANIFEST_V1,
+    kind="manifest",
+    fields=("root", "leaf_count"),
+    hash_algo="sha256",
+)
+
+_REGISTRY: Dict[str, CanonProfile] = {
+    _FOLIO_V1.profile: _FOLIO_V1,
+    _MANIFEST_V1.profile: _MANIFEST_V1,
+}
 
 
 def get_profile(profile: str) -> CanonProfile:

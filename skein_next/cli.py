@@ -856,6 +856,120 @@ def verify(
         ctx.exit(1)
 
 
+# --- account bindings (operator / author authorization) ---------------------
+
+
+@cli.group()
+def account() -> None:
+    """Manage the instance's account bindings (operator + authors).
+
+    The authorization sidecar: who may write to this instance under require_signed.
+    Identity is the verified Sigstore (issuer, subject) pair. There is exactly one
+    active operator; authors are vouched for by the operator."""
+
+
+@account.command("init-operator")
+@click.option("--issuer", required=True, help="The operator's OIDC issuer.")
+@click.option("--subject", required=True, help="The operator's OIDC subject.")
+@click.pass_context
+def account_init_operator(ctx: click.Context, issuer: str, subject: str) -> None:
+    """Bootstrap the self-vouched root operator (refuses a second active one)."""
+    from .authorization import Principal, OperatorAlreadyBootstrapped, bootstrap_operator
+
+    with _open_station(ctx) as st:
+        try:
+            bootstrap_operator(st.store, Principal(issuer, subject))
+        except OperatorAlreadyBootstrapped as e:
+            raise click.ClickException(f"OperatorAlreadyBootstrapped: {e}")
+    click.echo(f"operator {issuer}/{subject}")
+
+
+@account.command("add")
+@click.option("--issuer", required=True)
+@click.option("--subject", required=True)
+@click.option("--role", default="author", type=click.Choice(["author"]))
+@click.pass_context
+def account_add(ctx: click.Context, issuer: str, subject: str, role: str) -> None:
+    """Add an author binding, vouched for by the active operator."""
+    with _open_station(ctx) as st:
+        op = st.store.get_operator()
+        if op is None:
+            raise click.ClickException("no operator; run init-operator first")
+        st.store.add_binding(
+            issuer, subject, role=role,
+            vouched_by_issuer=op.issuer, vouched_by_subject=op.subject,
+        )
+    click.echo(f"{role} {issuer}/{subject}")
+
+
+@account.command("revoke")
+@click.option("--issuer", required=True)
+@click.option("--subject", required=True)
+@click.pass_context
+def account_revoke(ctx: click.Context, issuer: str, subject: str) -> None:
+    """Revoke a binding (revocation is not deletion). Refuses the active operator."""
+    with _open_station(ctx) as st:
+        op = st.store.get_operator()
+        if op is not None and op.issuer == issuer and op.subject == subject:
+            raise click.ClickException(
+                "refusing to revoke the active operator; use account rotate-operator "
+                "to hand off, or init-operator after a deliberate teardown"
+            )
+        if not st.store.revoke_binding(issuer, subject):
+            raise click.ClickException(f"no active binding for {issuer}/{subject}")
+    click.echo(f"revoked {issuer}/{subject}")
+
+
+@account.command("rotate-operator")
+@click.option("--new-issuer", required=True)
+@click.option("--new-subject", required=True)
+@click.pass_context
+def account_rotate_operator(ctx: click.Context, new_issuer: str, new_subject: str) -> None:
+    """Hand off the operator role atomically (revoke old + install new in one tx)."""
+    with _open_station(ctx) as st:
+        old = st.store.get_operator()
+        if old is None:
+            raise click.ClickException("no operator to rotate; run init-operator")
+        with st.store.transaction():
+            st.store.revoke_binding(old.issuer, old.subject, event="rotated_out")
+            if st.store.get_binding(new_issuer, new_subject) is not None:
+                st.store.promote_to_operator(new_issuer, new_subject)  # preserves created_at
+            else:
+                st.store.add_binding(
+                    new_issuer, new_subject, role="operator",
+                    vouched_by_issuer=old.issuer, vouched_by_subject=old.subject,
+                    event="rotated_in",
+                )
+    click.echo(f"operator {new_issuer}/{new_subject}")
+
+
+@account.command("list")
+@click.option("--all", "show_all", is_flag=True, help="Include revoked bindings.")
+@click.pass_context
+def account_list(ctx: click.Context, show_all: bool) -> None:
+    """List bindings, one per line: ``<role> <issuer>/<subject>`` (a11y plain text)."""
+    with _open_station(ctx) as st:
+        for b in st.store.list_bindings(include_revoked=show_all):
+            suffix = " (revoked)" if b.revoked_at else ""
+            click.echo(f"{b.role} {b.issuer}/{b.subject}{suffix}")
+
+
+@cli.group()
+def maintenance() -> None:
+    """Instance maintenance verbs (run when the ingress is quiesced)."""
+
+
+@maintenance.command("verify-cache")
+@click.pass_context
+def maintenance_verify_cache(ctx: click.Context) -> None:
+    """Backfill the manifest signature-verdict cache over the stored corpus."""
+    from .ingress import backfill_verify_cache
+
+    with _open_station(ctx) as st:
+        n = backfill_verify_cache(st)
+    click.echo(f"backfilled {n} manifest verdict(s)")
+
+
 def main() -> None:
     """Entry point for the ``interskein`` console script."""
     cli(prog_name="interskein")

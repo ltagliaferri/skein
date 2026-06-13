@@ -304,6 +304,33 @@ def ingest(
     }
 
 
+def backfill_verify_cache(station: Station, verifier: "_sign.Verifier" = None) -> int:
+    """Populate verify_cache with the SIGNATURE verdict of every stored manifest.
+
+    The maintenance verb (run when the ingress is quiesced): over a corpus of
+    signed manifests it writes one stable verdict row per manifest, recomputing the
+    Sigstore verdict via verify_wire_manifest. Idempotent — a second run re-writes
+    the same rows (VC9). Returns the number of manifests processed."""
+    if verifier is None:
+        verifier = _sign.default_verifier
+    count = 0
+    for m in station.store.all_manifests():
+        manifest_signature = {
+            "descriptor": json.loads(m["descriptor_json"]),
+            "leaf_list": json.loads(m["leaf_list_json"]),
+            "signature_bundle": m["bundle_json"],
+        }
+        verified, reason, identity = _sign.verify_wire_manifest(manifest_signature, verifier)
+        status = "VERIFIED" if verified else reason
+        iss = (identity or {}).get("issuer") if identity else m["issuer"]
+        sub = (identity or {}).get("subject") if identity else m["subject"]
+        station.store.verify_cache_put(
+            m["manifest_hash"], bundle_hash_for(m["bundle_json"]), status, iss, sub
+        )
+        count += 1
+    return count
+
+
 ENV_REQUIRE_SIGNED = "SKEIN_NEXT_REQUIRE_SIGNED"
 
 
@@ -318,13 +345,45 @@ def _require_signed() -> bool:
     return os.environ.get(ENV_REQUIRE_SIGNED, "").strip().lower() in ("1", "true", "yes")
 
 
+class OperatorInvariantError(RuntimeError):
+    """The ingress startup invariant: under require_signed the active-operator count
+    MUST be exactly 1 (D13/D20). Refuses boot LOUD rather than running misconfigured."""
+
+
 def create_app() -> FastAPI:
+    require_signed = _require_signed()
+    # STARTUP INVARIANT (the ingress only — the read app is EXEMPT, D17): under
+    # require_signed the active operator count must be EXACTLY 1. Count 0 or >1
+    # refuses boot. The operator is read from the account_bindings sidecar, the
+    # single source of truth (D16), never a stationfile field.
+    if require_signed:
+        station = Station(_get_data_dir(), check_same_thread=False)
+        try:
+            n_ops = station.store.count_active_operators()
+        finally:
+            station.close()
+        if n_ops != 1:
+            if n_ops == 0:
+                raise OperatorInvariantError(
+                    "require_signed is on but no active operator exists; "
+                    "run 'interskein account init-operator' before starting the ingress"
+                )
+            raise OperatorInvariantError(
+                f"require_signed is on but {n_ops} active operators exist; the "
+                "single-active-operator invariant is violated — resolve with "
+                "'interskein account rotate-operator' / 'revoke' before starting"
+            )
+        logger.info("ingress starting with require_signed: 1 active operator present")
+    else:
+        logger.warning(
+            "ingress starting with require_signed OFF — unsigned content is accepted"
+        )
+
     app = FastAPI(
         title="SKEIN (next) — ingress",
         description="client->instance publish ingress",
         version="0.0.1",
     )
-    require_signed = _require_signed()
 
     @app.post("/publish/v0/folios")
     def publish_folios(batch: Dict[str, Any]) -> JSONResponse:

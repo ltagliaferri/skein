@@ -930,6 +930,11 @@ def account_rotate_operator(ctx: click.Context, new_issuer: str, new_subject: st
         old = st.store.get_operator()
         if old is None:
             raise click.ClickException("no operator to rotate; run init-operator")
+        if (new_issuer, new_subject) == (old.issuer, old.subject):
+            raise click.ClickException(
+                "refusing to rotate the operator onto itself "
+                f"({new_issuer}/{new_subject} is already the active operator)"
+            )
         with st.store.transaction():
             st.store.revoke_binding(old.issuer, old.subject, event="rotated_out")
             if st.store.get_binding(new_issuer, new_subject) is not None:

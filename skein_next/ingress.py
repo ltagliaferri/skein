@@ -80,6 +80,14 @@ def _validate_shape(batch: Dict[str, Any]) -> None:
     closed endpoints) and the manifest's semantic consistency are handled in the
     loop / the verifier. Without this, a body like ``{"folios": "x"}`` iterates a
     string and 500s instead of returning 400.
+
+    The ``manifest_signature`` is DELIBERATELY not shape-checked here. A present-
+    but-non-dict value (``None``, a string, a list, an int) is NOT a batch 400: it
+    flows to ``verify_wire_manifest`` (TOTAL over hostile input) and becomes the
+    per-constituent WIRE-INTEGRITY verdict 'manifest malformed' (VM11/VM12). Only a
+    WHOLLY ABSENT key is the ABSENCE bucket ('no manifest'). The ``mctx`` dict-
+    indexing downstream is gated on ``m_verified`` (False for any non-dict), so a
+    non-dict manifest never reaches dict-indexing and never 500s.
     """
     for key in ("folios", "threads"):
         value = batch.get(key, [])
@@ -87,18 +95,6 @@ def _validate_shape(batch: Dict[str, Any]) -> None:
             raise BatchShapeError(f"{key!r} must be a list of objects")
     if not isinstance(batch.get("site_slugs", {}), dict):
         raise BatchShapeError("'site_slugs' must be an object")
-    # Manifest pre-gate (C.2): a PRESENT manifest_signature must be a dict, with a
-    # dict descriptor and a list leaf_list when those keys appear. Gross container
-    # shape is a 400; the SEMANTIC consistency (root-vs-leaflist, leaf_count) is the
-    # verifier's per-item 'manifest malformed' verdict (VM12), never a 500.
-    if "manifest_signature" in batch:
-        ms = batch["manifest_signature"]
-        if not isinstance(ms, dict):
-            raise BatchShapeError("'manifest_signature' must be an object")
-        if "descriptor" in ms and not isinstance(ms["descriptor"], dict):
-            raise BatchShapeError("'manifest_signature.descriptor' must be an object")
-        if "leaf_list" in ms and not isinstance(ms["leaf_list"], list):
-            raise BatchShapeError("'manifest_signature.leaf_list' must be a list")
 
 
 def ingest(

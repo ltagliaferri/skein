@@ -19,7 +19,7 @@ from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
 from skein_next import profile, wire
 from skein_next import sign as sign_mod
 from skein_next.station import Station
-from skein_next.ingress import ingest, _validate_shape, BatchShapeError, create_app
+from skein_next.ingress import ingest, _validate_shape, create_app
 
 
 I = "https://accounts.google.com"
@@ -454,11 +454,57 @@ def test_reactivation_replay_accepted_on_rebind(client, instance):  # C44
 # --- VM11/VM12: ingress totality over a hostile manifest --------------------
 
 
-def test_ingress_non_dict_manifest_signature_is_400_not_500(client):  # VM11
-    batch = {"protocol": wire.PROTOCOL, "folios": [], "threads": [],
-             "site_slugs": {}, "manifest_signature": "a-string"}
-    with pytest.raises(BatchShapeError):
-        _validate_shape(batch)
+def test_ingress_non_dict_manifest_signature_passes_shape_gate(client):  # VM11
+    # A present-but-non-dict manifest_signature is NOT a batch 400: the shape gate
+    # lets it through so the verifier can return the per-constituent 'manifest
+    # malformed' verdict (frozen contract; see test below). Only gross container
+    # shapes (folios/threads/site_slugs) are this pre-gate's job.
+    for bad in ("a-string", None, ["leaf"], 7):
+        batch = {"protocol": wire.PROTOCOL, "folios": [], "threads": [],
+                 "site_slugs": {}, "manifest_signature": bad}
+        _validate_shape(batch)  # does not raise
+
+
+@pytest.mark.parametrize("bad", [None, "a-string", ["sha256::" + "0" * 64]])
+def test_ingress_non_dict_manifest_signature_per_verdict_not_500(instance, client, bad):  # VM11
+    # ON posture: a present-but-non-dict manifest_signature reaches the verifier and
+    # every folio rejects with the WIRE-INTEGRITY reason 'manifest malformed' — never
+    # BatchShapeError, never a 500, never 'no manifest'. (The thread then rejects
+    # 'dangling endpoint' because its folio endpoints never landed — that earlier
+    # closed-graph check fires before manifest_decision; not the surface under test.)
+    _seed(client)
+    _bind(instance)
+    batch = _signed_batch(client)
+    batch["manifest_signature"] = bad
+    ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
+    assert ack["rejected"], "expected the folios to be rejected"
+    assert all(r["reason"] == "manifest malformed" for r in ack["rejected"])
+    assert not ack["accepted"] and not ack["threads"]["accepted"]
+    assert instance.store.count_folios() == 0
+
+
+def test_ingress_absent_manifest_key_is_no_manifest(instance, client):  # VM11
+    # A WHOLLY ABSENT manifest_signature key is the ABSENCE bucket: 'no manifest',
+    # distinct from a present-but-malformed value.
+    _seed(client)
+    _bind(instance)
+    batch = _signed_batch(client)
+    del batch["manifest_signature"]
+    ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
+    assert ack["rejected"], "expected the folios to be rejected"
+    assert all(r["reason"] == "no manifest" for r in ack["rejected"])
+    assert instance.store.count_folios() == 0
+
+
+def test_ingress_non_dict_manifest_signature_off_unaffected(instance, client):  # VM11
+    # OFF posture is manifest-blind: a present-but-non-dict manifest_signature does
+    # not raise and does not block admission on integrity + closed-graph alone.
+    _seed(client)
+    batch = _signed_batch(client)
+    batch["manifest_signature"] = None
+    ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=False)
+    assert ack["accepted"], "OFF admits on integrity alone, manifest ignored"
+    assert not ack["rejected"]
 
 
 def test_ingress_malformed_manifest_per_verdict_not_500(client, instance):  # VM12

@@ -135,35 +135,79 @@ def folio_verdict(
     store,
     content_hash: str,
     row: Mapping[str, Any],
-    bundle_json: Optional[str] = None,
+    proof: Optional[Mapping[str, Any]] = None,
 ) -> tuple[str, Optional[Dict[str, Optional[str]]]]:
     """The station's provenance verdict line for a folio, and the signer identity.
 
-    This is an ``asserted`` claim — the station's word, to be re-derived by a
-    careful consumer, never trusted as fact. Unsigned content is honestly
-    operator-vouched (integrity only). For a signed folio it runs the display
-    verification path (same one the HTML provenance card uses), distinguishing a
-    bad signature from a verifier that could not be reached. The slice-2 strict,
-    domain-separated path replaces the call without changing this contract.
+    This is an ``asserted`` claim — the station's word, re-derivable by a careful
+    consumer. A folio's verdict derives from its COVERING MANIFEST under the
+    FOUR-STEP boundary verdict (81fm §C; fell-r1 FIX 2). A constituent is
+    'verified/SIGNED' iff ALL FOUR hold:
 
-    ``bundle_json`` may be passed by a caller that already read the sidecar (the
-    envelope builder), so a folio read does one signature fetch, not two.
-    """
-    if bundle_json is None:
-        bundle_json = store.get_signature(content_hash)
-    if not bundle_json:
+    1. INTEGRITY — the body re-hashes to its content_hash (stored identity).
+    2. MEMBERSHIP — the leaf is under the covering manifest's signed root (live
+       recompute, VM8).
+    3. SIGNATURE — the manifest signature verifies (Sigstore). This is the ONLY
+       step the verify_cache elides; on a miss it is computed in-process.
+    4. BINDING — the manifest signer is CURRENTLY bound + non-revoked. This is a
+       LIVE check, recomputed from account_bindings on EVERY read, NEVER cached
+       and never memoized from the stored manifest/attribution rows. A revocation
+       after ingest flips the read verdict with zero cache invalidation (VC15).
+
+    A folio with no covering manifest reads UNSIGNED. A currently unbound/revoked
+    signer reads NOT-VERIFIED ('unbound signer'/'revoked binding') — NOT SIGNED
+    with a display color (the retired rev-6 display-only judgment). ``proof`` may
+    be passed by a caller that already resolved it (the envelope builder)."""
+    import json as _json
+
+    from . import canon
+    from .sign import verify_wire_manifest
+    from .store import bundle_hash_for
+
+    if proof is None:
+        proof = store.get_constituent_proof(content_hash)
+    if proof is None:
         return ("UNSIGNED — operator-vouched, not cryptographically signed", None)
+    if proof.get("proof_missing"):
+        # attribution exists but the manifest parent is gone (corrupted / mid-
+        # migration); degrade gracefully rather than crash (ST5).
+        return ("NOT VERIFIED — proof missing", None)
 
-    from .sign import verify_wire_folio  # lazy: keep Sigstore off unsigned reads
+    root = proof["root"]
+    leaf_list = _json.loads(proof["leaf_list_json"])
+    issuer, subject = proof["issuer"], proof["subject"]
 
-    wire_folio = {**row, "signature_bundle": bundle_json}
-    verified, reason, identity = verify_wire_folio(wire_folio)
-    if verified:
-        subject = (identity or {}).get("subject")
-        return (f"SIGNED — {subject or 'verified'} (verified)", identity)
-    if reason in _VERIFIER_UNAVAILABLE:
-        return (f"UNVERIFIED — verifier unavailable ({reason})", None)
-    return (f"SIGNATURE INVALID — {reason}", None)
+    # Step 3 — SIGNATURE (the cache-elided expensive Sigstore step). A warm cache
+    # returns the stored verdict WITHOUT invoking Sigstore (VC8); a cold/absent
+    # cache computes in-process (VC7/VC10/VC14) and writes nothing (read app ro).
+    cached = store.verify_cache_get(proof["manifest_hash"], bundle_hash_for(proof["bundle_json"]))
+    if cached is not None:
+        sig_status = cached["status"]
+    else:
+        manifest_signature = {
+            "descriptor": _json.loads(proof["descriptor_json"]),
+            "leaf_list": leaf_list,
+            "signature_bundle": proof["bundle_json"],
+        }
+        verified, reason, _ = verify_wire_manifest(manifest_signature)
+        sig_status = "VERIFIED" if verified else reason
+    if sig_status != "VERIFIED":
+        if sig_status in _VERIFIER_UNAVAILABLE:
+            return (f"UNVERIFIED — verifier unavailable ({sig_status})", None)
+        return (f"SIGNATURE INVALID — {sig_status}", None)
+
+    # Step 2 — MEMBERSHIP (live recompute).
+    if not canon.manifest_membership(leaf_list, root, content_hash):
+        return ("NOT VERIFIED — not in manifest", None)
+
+    # Step 4 — BINDING (LIVE per read, never cached; verdict-bearing, not display).
+    binding = store.get_binding(issuer, subject)
+    if binding is None:
+        return ("NOT VERIFIED — unbound signer", None)
+    if binding.revoked_at is not None:
+        return ("NOT VERIFIED — revoked binding", None)
+
+    return (f"SIGNED — {subject or 'verified'} (verified)", {"issuer": issuer, "subject": subject})
 
 
 def _folio_href(content_hash: str) -> str:
@@ -358,9 +402,12 @@ def build_folio_envelope(
 
     body = {field: row.get(field) for field in BODY_FIELDS}
 
-    bundle_json = store.get_signature(content_hash)
-    signature_bundle = _bundle_object(bundle_json)
-    verdict, identity = folio_verdict(store, content_hash, row, bundle_json)
+    # Resolve the folio's covering manifest once; its bundle is the proof and the
+    # verdict's signature source (per-folio bundles no longer exist).
+    proof = store.get_constituent_proof(content_hash)
+    has_proof = proof is not None and not proof.get("proof_missing")
+    signature_bundle = _bundle_object(proof["bundle_json"]) if has_proof else None
+    verdict, identity = folio_verdict(store, content_hash, row, proof=proof)
 
     # One query per direction; the cross-reference (threads) and lineage subsets are
     # partitioned from the SAME fetched lists, so the no-lineage common case adds no

@@ -17,9 +17,10 @@ are unchanged.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime, timezone
-from typing import Any, Mapping, Optional, Union
+from typing import Any, List, Mapping, Optional, Union
 
 from knurl import canon as _knurl_canon
 
@@ -137,3 +138,139 @@ def thread_canonical_bytes(
     return _knurl_canon.serialize(
         thread_canonical_fields(from_id, to_id, type, weaver, created_at, content)
     )
+
+
+# --- Merkle manifest (RFC 6962) ---------------------------------------------
+#
+# The unified signing model signs a small *descriptor* over the Merkle root of a
+# publish's constituent content hashes (folios AND threads, kind-agnostic). The
+# tree is RFC 6962 §2.1 exactly — the construction Rekor uses — so a constituent's
+# membership is proven by recomputing the root from the full leaf list, with no
+# inclusion-proof code in v0 (finding-20260613-q0ha / boundary 81fm). Two domain
+# separations never collide: the 0x00/0x01 leaf/node prefixes live INSIDE the tree
+# over raw digests; the profile||NUL prefix (profile.py) is on the signed
+# descriptor preimage.
+
+_LEAF_PREFIX = b"\x00"
+_NODE_PREFIX = b"\x01"
+
+# A leaf datum is the RAW 32-byte SHA-256 digest decoded from a constituent's
+# ``sha256::<64 hex>`` address (Q4) — never the ASCII address string.
+_SHA256_ADDRESS_RE = re.compile(r"^sha256::([0-9a-f]{64})$")
+
+
+class MerkleError(ValueError):
+    """Base for Merkle-construction failures (a typed, total failure mode)."""
+
+
+class MalformedLeafAddress(MerkleError):
+    """A constituent address is not a well-formed ``sha256::<64 hex>`` (Q4/MK2)."""
+
+    def __init__(self, addr: Any):
+        super().__init__(f"malformed leaf address: {addr!r}")
+        self.addr = addr
+
+
+class EmptyManifest(MerkleError):
+    """A manifest with zero constituents — rejected, never a sentinel root (MK7)."""
+
+
+def address_to_leaf_datum(addr: str) -> bytes:
+    """Decode a ``sha256::<64 hex>`` address to its raw 32-byte leaf datum (MK1).
+
+    A malformed / non-sha256 / non-str address is rejected BEFORE tree
+    construction (MK2): v0 has exactly one hash algo, so a non-sha256 address can
+    never be a leaf.
+    """
+    if not isinstance(addr, str):
+        raise MalformedLeafAddress(addr)
+    m = _SHA256_ADDRESS_RE.match(addr)
+    if m is None:
+        raise MalformedLeafAddress(addr)
+    return bytes.fromhex(m.group(1))
+
+
+def merkle_leaf_hash(datum: bytes) -> bytes:
+    """RFC 6962 leaf hash: ``SHA256(0x00 || datum)`` (MK3)."""
+    return hashlib.sha256(_LEAF_PREFIX + datum).digest()
+
+
+def merkle_node_hash(left: bytes, right: bytes) -> bytes:
+    """RFC 6962 interior node hash: ``SHA256(0x01 || left || right)`` (MK3)."""
+    return hashlib.sha256(_NODE_PREFIX + left + right).digest()
+
+
+def _merkle_tree_hash(leaves: List[bytes]) -> bytes:
+    """RFC 6962 §2.1 MTH over an already sorted+deduped, non-empty list of data."""
+    n = len(leaves)
+    if n == 1:
+        return merkle_leaf_hash(leaves[0])
+    # k = the largest power of two STRICTLY less than n (RFC 6962 odd-node split;
+    # the lone promoted node rides up UNWRAPPED — no Bitcoin-style duplication).
+    k = 1
+    while k * 2 < n:
+        k *= 2
+    return merkle_node_hash(_merkle_tree_hash(leaves[:k]), _merkle_tree_hash(leaves[k:]))
+
+
+def merkle_root(leaf_data: List[bytes]) -> bytes:
+    """The RFC-6962 Merkle root over raw constituent digests.
+
+    Leaves are SORTED ASCENDING by raw digest then DEDUPED before the tree is
+    built (MK4), so the same constituent set yields a byte-identical root in any
+    input order and with duplicates. A manifest of one is its leaf hash with no
+    node applied (MK6); an empty manifest is rejected (MK7).
+    """
+    if not leaf_data:
+        raise EmptyManifest("empty manifest has no Merkle root")
+    unique = sorted(set(leaf_data))
+    return _merkle_tree_hash(unique)
+
+
+def merkle_root_for_addresses(addresses: List[str]) -> str:
+    """The ``sha256::<hex>`` framed root over a list of constituent addresses.
+
+    Each address is decoded to its raw leaf datum (rejecting a malformed one) and
+    fed to :func:`merkle_root`. Returns the framed address form so it can ride in
+    a descriptor / be compared to ``descriptor["root"]``.
+    """
+    data = [address_to_leaf_datum(a) for a in addresses]
+    return "sha256::" + merkle_root(data).hex()
+
+
+def dedup_leaf_count(addresses: List[str]) -> int:
+    """The signed ``leaf_count``: the number of DISTINCT leaf data (MK4/VM9)."""
+    return len({address_to_leaf_datum(a) for a in addresses})
+
+
+def manifest_descriptor_fields(root: str, leaf_count: int) -> dict:
+    """The signed descriptor body: just ``root`` + ``leaf_count`` (Q1/P4).
+
+    ``root`` is the ``sha256::<hex>`` Merkle root; ``leaf_count`` is the count of
+    DISTINCT leaves. The algorithm and leaf-construction binding live in the
+    PROFILE STRING (skein.manifest.canon/v1), not in the descriptor body.
+    """
+    return {"root": root, "leaf_count": leaf_count}
+
+
+def manifest_descriptor_canonical_bytes(root: str, leaf_count: int) -> bytes:
+    """The canonical bytes of a manifest descriptor — what gets signed."""
+    return _knurl_canon.serialize(manifest_descriptor_fields(root, leaf_count))
+
+
+def manifest_membership(leaf_list: List[str], signed_root: str, constituent_hash: str) -> bool:
+    """Whether ``constituent_hash`` is a member under ``signed_root`` (v0 recompute).
+
+    Membership is established ONLY by recomputing the root from the FULL leaf list
+    (re-run :func:`merkle_root` over the sorted-deduped leaves) and checking both
+    that it equals the signed root AND that the constituent's leaf datum is in the
+    decoded leaf set. There is NO inclusion-path / Merkle-audit-proof verifier in
+    v0 (VM10) — the inclusion-proof seam is a documented later feature. Total over
+    a malformed leaf_list / constituent address (returns False, never raises)."""
+    try:
+        recomputed = merkle_root_for_addresses(leaf_list)
+        datum = address_to_leaf_datum(constituent_hash)
+        members = {address_to_leaf_datum(a) for a in leaf_list}
+    except MerkleError:
+        return False
+    return recomputed == signed_root and datum in members

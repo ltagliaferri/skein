@@ -224,16 +224,16 @@ def publish(
         return {"folios": 0, "threads": 0, "dry_run": dry_run, "sent": False}
 
     batch = wire.build_batch(folios, threads, site_slugs=site_slugs)
-    # Sign at the boundary: attach a signature_bundle per folio and keep a
-    # client-side copy keyed by content hash to mirror the instance.
-    client_bundles: Dict[str, str] = {}
+    # Sign at the boundary: build ONE manifest = the Merkle root over EVERY
+    # constituent's content hash (folios AND threads), signed once (one OIDC
+    # ceremony). The manifest_signature rides at the top of the batch; per-folio
+    # bundles no longer exist (the unified signing model).
+    manifest_signature = None
     if signer is not None:
-        signed = []
-        for wf in batch["folios"]:
-            s = _sign.sign_wire_folio(wf, signer)
-            client_bundles[s["content_hash"]] = s["signature_bundle"]
-            signed.append(s)
-        batch["folios"] = signed
+        addresses = [wf["content_hash"] for wf in batch["folios"]]
+        addresses += [wt["thread_hash"] for wt in batch["threads"]]
+        manifest_signature = _sign.sign_manifest(addresses, signer)
+        batch["manifest_signature"] = manifest_signature
 
     summary: Dict[str, Any] = {
         "instance": instance,
@@ -262,8 +262,47 @@ def publish(
         h = f["content_hash"]
         if h in landed:
             station.record_published(h, instance, by=by)
-            if h in client_bundles:
-                station.store.set_signature(h, client_bundles[h])
             recorded.append(h)
+    # Mirror the manifest client-side under the client's own identity, so the
+    # client's record reflects what the instance now holds (SG2).
+    if manifest_signature is not None:
+        thread_landed = set(
+            (ack.get("threads") or {}).get("accepted", [])
+        ) | set((ack.get("threads") or {}).get("existing", []))
+        _mirror_manifest(station.store, manifest_signature, landed | thread_landed)
     summary["recorded_published"] = recorded
     return summary
+
+
+def _mirror_manifest(store, manifest_signature: Dict[str, Any], constituent_hashes: set) -> None:
+    """Record the manifest + constituent attribution on the client store.
+
+    The client keeps its own copy of the manifest it signed (manifest row before
+    attribution rows, same transaction), so its local read surface attributes the
+    same constituents to the same signer the instance does."""
+    import json
+
+    from .canon import manifest_descriptor_canonical_bytes
+    from .identity import content_hash_for_bytes
+
+    descriptor = manifest_signature["descriptor"]
+    root = descriptor["root"]
+    leaf_count = descriptor["leaf_count"]
+    manifest_hash = content_hash_for_bytes(
+        manifest_descriptor_canonical_bytes(root, leaf_count)
+    )
+    issuer, subject = manifest_signature["issuer"], manifest_signature["subject"]
+    with store.transaction():
+        store.add_manifest(
+            root,
+            manifest_hash,
+            json.dumps(descriptor, sort_keys=True),
+            json.dumps(manifest_signature["leaf_list"]),
+            manifest_signature["signature_bundle"],
+            issuer,
+            subject,
+            leaf_count,
+        )
+        for h in constituent_hashes:
+            kind = "folio" if store.get_folio(h) else "thread"
+            store.add_constituent_attribution(h, kind, root, issuer, subject)

@@ -17,15 +17,10 @@ import json
 import pytest
 
 from skein import signing
-from skein.signing import _test_factory
 
 from skein_next.station import Station
-from skein_next.ingress import ingest
-from skein_next import publish as pub_mod
 from skein_next import sign as sign_mod
 from skein_next import canon, profile, wire
-from skein_next.envelope import folio_verdict
-from skein_next.store import SkeinNextStore
 
 
 def _unsigned_jwt(aud="sigstore", issuer="https://accounts.google.com") -> str:
@@ -66,45 +61,12 @@ def _seed(station):
     return station.post("finding", "specs", "Design Overview", "rev-5 body", created_by="t")
 
 
-# --- real round-trip --------------------------------------------------------
-
-
-def test_sign_publish_verify_round_trip(client, instance, provider, monkeypatch):
-    """Sign at publish, verify at ingest, verify on read — through real signing.py."""
-    _test_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
-    _test_factory.install_verify_monkeypatch(monkeypatch)
-
-    f1 = _seed(client)
-    signer = sign_mod.make_oidc_signer(provider)
-
-    # Loop the publish straight into the instance's ingest (no HTTP hop).
-    monkeypatch.setattr(
-        pub_mod, "post_batch", lambda url, batch, timeout=30.0: ingest(instance, batch)
-    )
-    result = pub_mod.publish(client, "http://instance.example", site="specs", signer=signer)
-
-    assert result["signed"] is True
-    # Bundle landed on the instance AND was mirrored client-side.
-    assert instance.store.get_signature(f1) is not None
-    assert client.store.get_signature(f1) is not None
-    # The signed folio verifies on the instance's read surface (the wire verdict).
-    store = SkeinNextStore(instance.store.data_dir, read_only=True)
-    try:
-        verdict, identity = folio_verdict(store, f1, store.get_folio(f1))
-    finally:
-        store.close()
-    assert verdict.startswith("SIGNED")
-    assert identity and identity["issuer"]  # the fake cert's issuer/subject flow through
-
-
-def test_signature_bundle_is_overlay_not_identity(client, provider, monkeypatch):
-    """Attaching a signature must not change the folio's content hash."""
-    _test_factory.install_sign_monkeypatch(monkeypatch, provider=provider)
-    f1 = _seed(client)
-    wf = wire.folio_to_wire(client.store.get_folio(f1))
-    signed = sign_mod.sign_wire_folio(wf, sign_mod.make_oidc_signer(provider))
-    assert "signature_bundle" in signed
-    assert wire.recompute_folio_hash(signed) == f1  # overlay ignored by the hash
+# NOTE (Phase 3 migration): the per-folio signing round-trip and overlay cells
+# that lived here are dissolved with the per-folio signature path. Their coverage
+# moves to the unified manifest model: the publish->ingest->read round-trip is the
+# offline e2e (test_e2e_publish.py E1-E6); manifest acceptance/rejection is the RS
+# table (test_require_signed.py); manifest signing/verification is SG/VM
+# (test_verify_manifest.py).
 
 
 # --- fake signer/verifier branches -----------------------------------------
@@ -222,45 +184,6 @@ def test_strict_verifies_over_the_domain_separated_preimage():
     assert seen["bytes"] != canon.folio_canonical_bytes(wf)
 
 
-def test_ingest_rejects_a_failing_signature(client, instance):
-    f1 = _seed(client)
-    folios, threads, slugs = pub_mod.collect_publish_set(client, site="specs")
-    batch = wire.build_batch(folios, threads, slugs)
-    batch["folios"] = [sign_mod.sign_wire_folio(wf, _fake_signer) for wf in batch["folios"]]
-
-    ack = ingest(instance, batch, verifier=_bad_verifier)
-
-    assert all(a == [] for a in (ack["accepted"], ack["existing"]))
-    assert any(r["reason"].startswith("signature ") for r in ack["rejected"])
-    assert instance.store.count_folios() == 0
-    assert instance.store.get_signature(f1) is None
-
-
-def test_ingest_stores_bundle_on_valid_signature(client, instance):
-    _seed(client)
-    folios, threads, slugs = pub_mod.collect_publish_set(client, site="specs")
-    batch = wire.build_batch(folios, threads, slugs)
-    batch["folios"] = [sign_mod.sign_wire_folio(wf, _fake_signer) for wf in batch["folios"]]
-
-    ack = ingest(instance, batch, verifier=_ok_verifier)
-
-    assert len(ack["accepted"]) == 2  # site folio + finding
-    for h in ack["accepted"]:
-        assert instance.store.get_signature(h) is not None
-
-
-def test_require_signed_rejects_unsigned(client, instance):
-    _seed(client)
-    folios, threads, slugs = pub_mod.collect_publish_set(client, site="specs")
-    batch = wire.build_batch(folios, threads, slugs)  # unsigned
-
-    ack = ingest(instance, batch, require_signed=True)
-
-    assert ack["accepted"] == []
-    assert all(r["reason"] == "unsigned" for r in ack["rejected"])
-    assert instance.store.count_folios() == 0
-
-
 def test_require_signed_env_reaches_create_app(monkeypatch):
     from skein_next import ingress
 
@@ -336,28 +259,5 @@ def test_publish_signing_flag_guards(tmp_path):
     assert both.exit_code != 0 and "not both" in both.output
 
 
-def test_provenance_distinguishes_unverifiable_from_invalid(client, instance, monkeypatch):
-    """A trust-root-unavailable verdict must read UNVERIFIED, not SIGNATURE INVALID."""
-    _seed(client)
-    folios, threads, slugs = pub_mod.collect_publish_set(client, site="specs")
-    batch = wire.build_batch(folios, threads, slugs)
-    batch["folios"] = [sign_mod.sign_wire_folio(wf, _fake_signer) for wf in batch["folios"]]
-    ingest(instance, batch, verifier=_ok_verifier)  # store bundles
-
-    f = next(f for f in folios if f["type"] == "finding")["content_hash"]
-    store = SkeinNextStore(instance.store.data_dir, read_only=True)
-
-    def offline_verify(cb, bundle):
-        return signing.MultiVerifyResult(
-            results=[signing.VerifyResult(status=signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT)],
-            overall=signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT,
-        )
-
-    # default_verifier calls signing.verify_multi at call time, so patch there.
-    monkeypatch.setattr(signing, "verify_multi", offline_verify)
-    try:
-        verdict, _identity = folio_verdict(store, f, store.get_folio(f))
-    finally:
-        store.close()
-    assert verdict.startswith("UNVERIFIED")
-    assert "INVALID" not in verdict
+# test_provenance_distinguishes_unverifiable_from_invalid migrated to the manifest
+# read path (test_envelope.py, the folio_verdict-over-manifest cells).

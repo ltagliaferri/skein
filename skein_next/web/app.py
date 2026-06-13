@@ -362,7 +362,15 @@ def verdict_state(verdict: Optional[str]) -> str:
     """Map a folio verdict line to a provenance state class (the HTML accent).
 
     The label text carries the meaning; this only drives reinforcement color. The
-    four states mirror ``envelope.folio_verdict``'s prefixes.
+    five accents mirror ``envelope.folio_verdict``'s prefixes:
+
+    - ``SIGNED`` -> "verified"
+    - ``SIGNATURE INVALID`` -> "invalid"
+    - ``UNVERIFIED`` (signature present, verifier unavailable) -> "unverified"
+    - ``NOT VERIFIED`` (manifest verifies but signer unbound/revoked, or
+      membership/proof fails) -> "unverified" — a load-bearing not-verified state,
+      NEVER collapsed into the benign never-signed "unsigned" bucket below.
+    - ``UNSIGNED`` (never cryptographically signed) -> "unsigned" (final else).
     """
     v = verdict or ""
     if v.startswith("SIGNED"):
@@ -370,6 +378,8 @@ def verdict_state(verdict: Optional[str]) -> str:
     if v.startswith("SIGNATURE INVALID"):
         return "invalid"
     if v.startswith("UNVERIFIED"):
+        return "unverified"
+    if v.startswith("NOT VERIFIED"):
         return "unverified"
     return "unsigned"
 
@@ -544,10 +554,10 @@ def create_app() -> FastAPI:
             content_hash = resolve_to_hash(address, store, local_authority=get_authority())
         except ResolveError as e:
             return _error_response(request, e.code, e.address, "json", origin=e.origin, vary=False)
-        bundle_json = store.get_signature(content_hash)
-        if not bundle_json:
+        proof = store.get_constituent_proof(content_hash)
+        if proof is None or proof.get("proof_missing") or not proof.get("bundle_json"):
             return _error_response(request, "not_found", f"{address}/bundle", "json", vary=False)
-        payload = bundle_json.encode()
+        payload = proof["bundle_json"].encode()
         etag = _payload_etag(payload)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
         not_modified = _conditional(request, etag, headers)

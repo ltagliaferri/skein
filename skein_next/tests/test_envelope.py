@@ -389,18 +389,43 @@ def test_verdict_unsigned(seeded):
     assert identity is None
 
 
-def _store_fake_bundle(store, content_hash):
-    row = store.get_folio(content_hash)
-    from skein_next import canon, profile
+ISS, SUB = "https://idp", "alice@example.com"
 
-    preimage = profile.profiled_preimage(profile.CANON_PROFILE_V1, canon.folio_canonical_bytes(row))
-    bundle = signing.SignatureBundle(
-        identity_scheme="sigstore-public-v1",
-        bundles=["x"],
-        canonical_bytes=preimage,
-        canon_version=profile.CANON_PROFILE_V1,
-    )
-    store.set_signature(content_hash, bundle.model_dump_json())
+
+def _cover_with_manifest(store, content_hash, *, issuer=ISS, subject=SUB, bind=True,
+                         cache_status=None):
+    """Cover a folio with a manifest (+ optional binding), the unified model's
+    replacement for the per-folio signature sidecar. With ``cache_status`` a
+    verify_cache row is written (a WARM cache); otherwise the read computes live."""
+    import json
+
+    from skein_next import sign as sign_mod, profile
+    from skein_next.canon import manifest_descriptor_canonical_bytes
+    from skein_next.identity import content_hash_for_bytes
+    from skein_next.store import bundle_hash_for
+
+    def signer(cb):
+        preimage = profile.profiled_preimage(profile.CANON_PROFILE_MANIFEST_V1, cb)
+        bundle = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1", bundles=["x"],
+            canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_MANIFEST_V1,
+        )
+        return sign_mod.SignedResult(bundle=bundle, issuer=issuer, subject=subject)
+
+    ms = sign_mod.sign_manifest([content_hash], signer)
+    descriptor = ms["descriptor"]
+    root, lc = descriptor["root"], descriptor["leaf_count"]
+    mh = content_hash_for_bytes(manifest_descriptor_canonical_bytes(root, lc))
+    with store.transaction():
+        store.add_manifest(root, mh, json.dumps(descriptor, sort_keys=True),
+                           json.dumps(ms["leaf_list"]), ms["signature_bundle"],
+                           issuer, subject, lc)
+        store.add_constituent_attribution(content_hash, "folio", root, issuer, subject)
+        if cache_status is not None:
+            store.verify_cache_put(mh, bundle_hash_for(ms["signature_bundle"]),
+                                   cache_status, issuer, subject)
+    if bind:
+        store.add_binding(issuer, subject, role="author")
 
 
 def _verify_result(status, **kw):
@@ -409,20 +434,18 @@ def _verify_result(status, **kw):
     )
 
 
-def test_verdict_signed(seeded, monkeypatch):
-    _store_fake_bundle(seeded["store"], seeded["a"])
-    monkeypatch.setattr(
-        signing,
-        "verify_multi",
-        lambda cb, b: _verify_result(
-            signing.VerifyStatus.VERIFIED, issuer="iss", subject="alice@example.com"
-        ),
-    )
+def _patch_verify(monkeypatch, status, **kw):
+    monkeypatch.setattr(signing, "verify_multi", lambda cb, b: _verify_result(status, **kw))
+
+
+def test_verdict_signed(seeded, monkeypatch):  # VC13 happy path
+    _cover_with_manifest(seeded["store"], seeded["a"])
+    _patch_verify(monkeypatch, signing.VerifyStatus.VERIFIED, issuer=ISS, subject=SUB)
     verdict, identity = env_mod.folio_verdict(
         seeded["store"], seeded["a"], seeded["store"].get_folio(seeded["a"])
     )
     assert verdict == "SIGNED — alice@example.com (verified)"
-    assert identity["subject"] == "alice@example.com"
+    assert identity == {"issuer": ISS, "subject": SUB}
 
 
 def test_asserted_signer_is_none_when_unsigned(seeded):
@@ -431,25 +454,15 @@ def test_asserted_signer_is_none_when_unsigned(seeded):
 
 
 def test_asserted_signer_carries_identity_when_signed(seeded, monkeypatch):
-    _store_fake_bundle(seeded["store"], seeded["a"])
-    monkeypatch.setattr(
-        signing,
-        "verify_multi",
-        lambda cb, b: _verify_result(
-            signing.VerifyStatus.VERIFIED, issuer="iss", subject="alice@example.com"
-        ),
-    )
+    _cover_with_manifest(seeded["store"], seeded["a"])
+    _patch_verify(monkeypatch, signing.VerifyStatus.VERIFIED, issuer=ISS, subject=SUB)
     env = env_mod.build_folio_envelope(seeded["store"], seeded["a"])
-    assert env["asserted"]["signer"] == {"issuer": "iss", "subject": "alice@example.com"}
+    assert env["asserted"]["signer"] == {"issuer": ISS, "subject": SUB}
 
 
 def test_verdict_unverifiable_is_not_invalid(seeded, monkeypatch):
-    _store_fake_bundle(seeded["store"], seeded["a"])
-    monkeypatch.setattr(
-        signing,
-        "verify_multi",
-        lambda cb, b: _verify_result(signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT),
-    )
+    _cover_with_manifest(seeded["store"], seeded["a"])
+    _patch_verify(monkeypatch, signing.VerifyStatus.OFFLINE_NO_TRUSTED_ROOT)
     verdict, _ = env_mod.folio_verdict(
         seeded["store"], seeded["a"], seeded["store"].get_folio(seeded["a"])
     )
@@ -458,12 +471,8 @@ def test_verdict_unverifiable_is_not_invalid(seeded, monkeypatch):
 
 
 def test_verdict_invalid(seeded, monkeypatch):
-    _store_fake_bundle(seeded["store"], seeded["a"])
-    monkeypatch.setattr(
-        signing,
-        "verify_multi",
-        lambda cb, b: _verify_result(signing.VerifyStatus.SIGNATURE_MISMATCH),
-    )
+    _cover_with_manifest(seeded["store"], seeded["a"])
+    _patch_verify(monkeypatch, signing.VerifyStatus.SIGNATURE_MISMATCH)
     verdict, _ = env_mod.folio_verdict(
         seeded["store"], seeded["a"], seeded["store"].get_folio(seeded["a"])
     )
@@ -471,16 +480,73 @@ def test_verdict_invalid(seeded, monkeypatch):
 
 
 def test_signed_folio_envelope_carries_bundle_and_link(seeded, monkeypatch):
-    _store_fake_bundle(seeded["store"], seeded["a"])
-    monkeypatch.setattr(
-        signing,
-        "verify_multi",
-        lambda cb, b: _verify_result(signing.VerifyStatus.VERIFIED, issuer="iss", subject="sub"),
-    )
+    _cover_with_manifest(seeded["store"], seeded["a"])
+    _patch_verify(monkeypatch, signing.VerifyStatus.VERIFIED, issuer=ISS, subject="sub")
     env = env_mod.build_folio_envelope(seeded["store"], seeded["a"])
-    assert env["proof"]["signature_bundle"] is not None  # integrity + authorship
+    assert env["proof"]["signature_bundle"] is not None  # the covering manifest bundle
     assert env["proof"]["signature_bundle"]["identity_scheme"] == "sigstore-public-v1"
     assert env["links"]["bundle"] == f"/folio/{seeded['a']}/bundle"
+
+
+# --- VC12/VC13/VC15: the four-step read verdict, binding is LIVE -------------
+
+
+def test_constituent_verdict_derives_from_four_steps(seeded, monkeypatch):  # VC12
+    store, a = seeded["store"], seeded["a"]
+    _cover_with_manifest(store, a)
+    # all four steps hold -> verified
+    _patch_verify(monkeypatch, signing.VerifyStatus.VERIFIED, issuer=ISS, subject=SUB)
+    v, _ = env_mod.folio_verdict(store, a, store.get_folio(a))
+    assert v.startswith("SIGNED")
+    # flip step 3 (signature) -> SIGNATURE INVALID
+    _patch_verify(monkeypatch, signing.VerifyStatus.SIGNATURE_MISMATCH)
+    v, _ = env_mod.folio_verdict(store, a, store.get_folio(a))
+    assert v.startswith("SIGNATURE INVALID")
+    # flip step 4 (binding) -> NOT VERIFIED, even with signature VERIFIED
+    _patch_verify(monkeypatch, signing.VerifyStatus.VERIFIED, issuer=ISS, subject=SUB)
+    store.revoke_binding(ISS, SUB)
+    v, _ = env_mod.folio_verdict(store, a, store.get_folio(a))
+    assert v == "NOT VERIFIED — revoked binding"
+
+
+def test_folio_verdict_resolves_covering_manifest(seeded, monkeypatch):  # VC13
+    store, a = seeded["store"], seeded["a"]
+    _patch_verify(monkeypatch, signing.VerifyStatus.VERIFIED, issuer=ISS, subject=SUB)
+    # unbound signer reads NOT VERIFIED — unbound signer (not SIGNED-with-a-color)
+    _cover_with_manifest(store, a, bind=False)
+    v, ident = env_mod.folio_verdict(store, a, store.get_folio(a))
+    assert v == "NOT VERIFIED — unbound signer" and ident is None
+    # bind -> SIGNED
+    store.add_binding(ISS, SUB, role="author")
+    v, ident = env_mod.folio_verdict(store, a, store.get_folio(a))
+    assert v == "SIGNED — alice@example.com (verified)"
+    # revoke -> NOT VERIFIED — revoked binding
+    store.revoke_binding(ISS, SUB)
+    v, ident = env_mod.folio_verdict(store, a, store.get_folio(a))
+    assert v == "NOT VERIFIED — revoked binding" and ident is None
+
+
+def test_read_verdict_binding_is_live_not_cached(seeded, monkeypatch):  # VC15
+    store, a = seeded["store"], seeded["a"]
+    # WARM cache: VERIFIED signature row present; signer bound at ingest.
+    _cover_with_manifest(store, a, bind=True, cache_status="VERIFIED")
+    # spy the verifier: on a warm cache it must NOT be consulted (step 3 elided)
+    calls = []
+    monkeypatch.setattr(
+        signing, "verify_multi",
+        lambda cb, b: calls.append(1) or _verify_result(signing.VerifyStatus.VERIFIED),
+    )
+    # revoke the signer with NO cache invalidation
+    store.revoke_binding(ISS, SUB)
+    v, _ = env_mod.folio_verdict(store, a, store.get_folio(a))
+    assert v == "NOT VERIFIED — revoked binding"  # flips despite cached VERIFIED
+    assert calls == []  # signature step (3) was served from the warm cache
+    # symmetric: a never-bound signer reads unbound on a warm cache too
+    b = seeded["b"]
+    _cover_with_manifest(store, b, issuer="https://idp", subject="never@bound",
+                         bind=False, cache_status="VERIFIED")  # warm
+    v, _ = env_mod.folio_verdict(store, b, store.get_folio(b))
+    assert v == "NOT VERIFIED — unbound signer"
 
 
 # --- collection / error -----------------------------------------------------

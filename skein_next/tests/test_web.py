@@ -495,6 +495,13 @@ def test_verdict_state_mapping():
     assert verdict_state("SIGNED — alice (verified)") == "verified"
     assert verdict_state("SIGNATURE INVALID — bad sig") == "invalid"
     assert verdict_state("UNVERIFIED — verifier unavailable (X)") == "unverified"
+    # NOT VERIFIED — … is a load-bearing not-verified state (manifest verifies but
+    # signer unbound/revoked, or membership/proof fails); it gets the "unverified"
+    # accent, never the benign never-signed "unsigned" bucket.
+    assert verdict_state("NOT VERIFIED — revoked binding") == "unverified"
+    assert verdict_state("NOT VERIFIED — unbound signer") == "unverified"
+    assert verdict_state("NOT VERIFIED — not in manifest") == "unverified"
+    assert verdict_state("NOT VERIFIED — proof missing") == "unverified"
     assert verdict_state("UNSIGNED — operator-vouched") == "unsigned"
     assert verdict_state(None) == "unsigned"
 

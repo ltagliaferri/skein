@@ -362,7 +362,15 @@ def verdict_state(verdict: Optional[str]) -> str:
     """Map a folio verdict line to a provenance state class (the HTML accent).
 
     The label text carries the meaning; this only drives reinforcement color. The
-    four states mirror ``envelope.folio_verdict``'s prefixes.
+    five accents mirror ``envelope.folio_verdict``'s prefixes:
+
+    - ``SIGNED`` -> "verified"
+    - ``SIGNATURE INVALID`` -> "invalid"
+    - ``UNVERIFIED`` (signature present, verifier unavailable) -> "unverified"
+    - ``NOT VERIFIED`` (manifest verifies but signer unbound/revoked, or
+      membership/proof fails) -> "unverified" — a load-bearing not-verified state,
+      NEVER collapsed into the benign never-signed "unsigned" bucket below.
+    - ``UNSIGNED`` (never cryptographically signed) -> "unsigned" (final else).
     """
     v = verdict or ""
     if v.startswith("SIGNED"):
@@ -370,6 +378,8 @@ def verdict_state(verdict: Optional[str]) -> str:
     if v.startswith("SIGNATURE INVALID"):
         return "invalid"
     if v.startswith("UNVERIFIED"):
+        return "unverified"
+    if v.startswith("NOT VERIFIED"):
         return "unverified"
     return "unsigned"
 

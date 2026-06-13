@@ -93,46 +93,37 @@ def make_oidc_signer(
     oidc_provider: "signing.OIDCProviderConfig",
     identity_scheme: str = DEFAULT_IDENTITY_SCHEME,
     trust_root_pin: Optional[str] = None,
-    canon_profile: str = profile.CANON_PROFILE_V1,
+    canon_profile: str = profile.CANON_PROFILE_MANIFEST_V1,
 ) -> Signer:
-    """A Signer that signs each folio under ``oidc_provider`` via public Sigstore.
+    """A manifest Signer that signs a descriptor under ``oidc_provider`` via Sigstore.
 
     Producing the ``oidc_provider`` token is the interactive ceremony (a Google
-    login) — the caller owns it. One provider/session signs the whole publish
-    batch (the in-memory Fulcio cert is reused across the calls).
+    login) — the caller owns it. One provider/session signs the whole publish in
+    ONE ceremony (the single manifest over every constituent's hash).
 
-    Domain separation (§3-4): what gets signed is not the raw folio canonical
-    bytes but ``profiled_preimage(profile, canonical_bytes)`` — and the bundle
-    records that preimage as its ``canonical_bytes`` and the profile as its
-    ``canon_version``, so the verifier can reconstruct and check the exact same
-    domain-separated bytes.
+    The Signer return shape carries the VERIFIED identity (SG2): ``_sign`` reads
+    ``result.issuer``/``result.subject`` from ``signing.sign`` and returns a
+    :class:`SignedResult`, so ``sign_manifest`` can surface (issuer, subject). The
+    pre-change shape discarded the identity.
+
+    Domain separation (§3-4): what gets signed is ``profiled_preimage(profile,
+    descriptor_bytes)`` under the MANIFEST profile by default — the bundle records
+    that preimage as its ``canonical_bytes`` and the profile as its ``canon_version``.
     """
 
-    def _sign(canonical_bytes: bytes) -> "signing.SignatureBundle":
+    def _sign(canonical_bytes: bytes) -> SignedResult:
         preimage = profile.profiled_preimage(canon_profile, canonical_bytes)
-        result = signing.sign(preimage, oidc_provider)  # SignResult
-        return signing.SignatureBundle(
+        result = signing.sign(preimage, oidc_provider)  # SignResult (issuer/subject)
+        bundle = signing.SignatureBundle(
             identity_scheme=identity_scheme,
             bundles=[result.bundle_json],
             canonical_bytes=preimage,
             canon_version=canon_profile,
             trust_root_pin=trust_root_pin,
         )
+        return SignedResult(bundle=bundle, issuer=result.issuer, subject=result.subject)
 
     return _sign
-
-
-def sign_wire_folio(wire_folio: Mapping[str, Any], signer: Signer) -> Dict[str, Any]:
-    """Return a copy of ``wire_folio`` with a ``signature_bundle`` attached.
-
-    The bundle is JSON (canonical_bytes base64-encoded by the model). It is
-    overlay — ``signature_bundle`` is not one of the five canonical fields, so it
-    never enters the content hash.
-    """
-    bundle = signer(canon.folio_canonical_bytes(wire_folio))
-    signed = dict(wire_folio)
-    signed["signature_bundle"] = bundle.model_dump_json()
-    return signed
 
 
 def build_manifest(constituent_addresses: List[str]) -> Dict[str, Any]:

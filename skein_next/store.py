@@ -250,6 +250,7 @@ class SkeinNextStore:
             self.conn.executescript(_SCHEMA)
             self.conn.commit()
         self._in_batch = False
+        self._sp_counter = 0
 
     def _connect_read_only(self, check_same_thread: bool) -> sqlite3.Connection:
         """Open the store read-only, never writing the corpus. Tries ``mode=ro``
@@ -306,6 +307,26 @@ class SkeinNextStore:
             self.conn.commit()
         finally:
             self._in_batch = False
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """A nested SAVEPOINT for per-item isolation inside a batch transaction.
+
+        A block that raises rolls back ONLY this savepoint (its writes), then
+        re-raises — so the ingress can catch the exception, record a reject for
+        that one item, and let its siblings commit (RS13). Cheap and re-entrant
+        (each call gets a unique savepoint name)."""
+        self._sp_counter += 1
+        name = f"sp_{self._sp_counter}"
+        self.conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            self.conn.execute(f"ROLLBACK TO {name}")
+            self.conn.execute(f"RELEASE {name}")
+            raise
+        else:
+            self.conn.execute(f"RELEASE {name}")
 
     def __enter__(self) -> "SkeinNextStore":
         return self

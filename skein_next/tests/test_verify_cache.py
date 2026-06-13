@@ -140,6 +140,25 @@ def test_read_verdict_on_missing_verify_cache_table_degrades(tmp_path):  # VC10
     s.close()
 
 
+def test_verify_cache_get_propagates_non_table_operational_error(store):  # harden C
+    """Only the missing-table OperationalError is a cache miss; a real fault
+    ("database is locked", I/O error, SQL bug) must PROPAGATE, not be masked as a
+    miss that silently degrades every read to in-process verify (VC10 scope)."""
+    import sqlite3
+
+    class _LockedConn:
+        def execute(self, *a, **k):
+            raise sqlite3.OperationalError("database is locked")
+
+    real = store.conn
+    store.conn = _LockedConn()
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+            store.verify_cache_get(MH, BH)
+    finally:
+        store.conn = real  # restore so the fixture teardown can close cleanly
+
+
 # --- VC7/VC8/VC14: read-side cache behavior ---------------------------------
 
 
@@ -237,3 +256,42 @@ def test_correctness_holds_with_cold_or_absent_cache(tmp_path, monkeypatch):  # 
     sta.close()
     assert vw == vc == va  # the cache is an optimization, not a correctness dependency
     assert vw.startswith("SIGNED")
+
+
+# --- harden A: step-1 INTEGRITY re-hash precedes the signed path -------------
+#
+# A tampered body — one that no longer re-hashes to its content_hash key — must
+# never read SIGNED, even on a warm cache that would otherwise elide the
+# signature step. folio_verdict re-hashes the row FIRST (81fm §C step 1, VC12).
+
+
+@pytest.mark.parametrize("warm", [True, False], ids=["warm-cache", "cold-cache"])
+def test_tampered_folio_body_reads_not_verified_integrity(tmp_path, monkeypatch, warm):
+    from skein_next import envelope as env_mod
+
+    # An honest signed verdict path so the ONLY thing that changes is the tamper.
+    monkeypatch.setattr(
+        signing, "verify_multi",
+        lambda cb, b: MultiVerifyResult(
+            results=[VerifyResult(status=VerifyStatus.VERIFIED, issuer=I, subject=ALICE)],
+            overall=VerifyStatus.VERIFIED),
+    )
+    st, h = _seed_folio(tmp_path)
+    _cover(st.store, h, cache_status="VERIFIED" if warm else None, bind=True)
+
+    # Baseline: an untampered row reads SIGNED through the same path.
+    verdict, ident = env_mod.folio_verdict(st.store, h, st.store.get_folio(h))
+    assert verdict.startswith("SIGNED") and ident is not None
+
+    # Tamper the stored body directly (the address key is unchanged), so the body
+    # no longer hashes to its content_hash.
+    st.store.conn.execute(
+        "UPDATE folios SET content = ? WHERE content_hash = ?",
+        ("tampered body — was 'b'", h),
+    )
+    st.store.conn.commit()
+
+    verdict, ident = env_mod.folio_verdict(st.store, h, st.store.get_folio(h))
+    assert verdict == "NOT VERIFIED — integrity"
+    assert ident is None
+    st.close()

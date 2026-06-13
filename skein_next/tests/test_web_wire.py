@@ -7,7 +7,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from skein import signing
-from skein_next import canon
 from skein_next.station import Station
 from skein_next.web.app import (
     ENV_BASE_URL,

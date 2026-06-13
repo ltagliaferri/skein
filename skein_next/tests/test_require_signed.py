@@ -16,7 +16,7 @@ import pytest
 from skein import signing
 from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
 
-from skein_next import canon, profile, wire
+from skein_next import profile, wire
 from skein_next import sign as sign_mod
 from skein_next.station import Station
 from skein_next.ingress import ingest, _validate_shape, BatchShapeError, create_app
@@ -325,7 +325,6 @@ def test_ingress_exposes_no_binding_mutation_route():  # RS17
 
 def test_off_then_on_existing_body_acquires_attribution(client, instance):  # RS20
     _seed(client)
-    f = client.store.list_folios()[0]["content_hash"] if False else None
     from skein_next import publish as pub
     # 1) ingest the finding under OFF (no manifest, no attribution)
     folios, threads, slugs = pub.collect_publish_set(client, site="specs")

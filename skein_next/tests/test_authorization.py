@@ -13,7 +13,6 @@ from typing import Dict, Optional, Tuple
 
 import pytest
 
-from skein_next import authorization as authz
 from skein_next.authorization import (
     Binding,
     OperatorAlreadyBootstrapped,

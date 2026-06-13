@@ -827,7 +827,9 @@ class SkeinNextStore:
 
     # --- account bindings + audit (the authorization sidecar) ----------------
 
-    def _binding_from_row(self, row) -> "authorization.Binding":
+    def _binding_from_row(self, row) -> Any:
+        """Reconstruct an authorization.Binding from a row (imported lazily to
+        avoid a store<->authorization import cycle)."""
         from . import authorization
         return authorization.Binding(
             issuer=row["issuer"],

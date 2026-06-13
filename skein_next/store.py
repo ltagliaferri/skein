@@ -31,9 +31,15 @@ def bundle_hash_for(bundle_json: str) -> str:
 
     ONE shared helper for the ingress WRITER and the read READER, so they compute
     the IDENTICAL key over the same ``manifests.bundle_json`` bytes and can never
-    disagree (VC11)."""
+    disagree (VC11).
+
+    ``bundle_json`` is NOT NULL in the schema, so ``None`` is unreachable today;
+    the explicit ``TypeError`` keeps a future caller from getting an opaque
+    ``AttributeError`` off ``None.encode`` at this sharp API edge."""
     import hashlib
 
+    if bundle_json is None:
+        raise TypeError("bundle_hash_for requires a bundle_json string, got None")
     return hashlib.sha256(bundle_json.encode("utf-8")).hexdigest()
 
 
@@ -940,14 +946,24 @@ class SkeinNextStore:
         """Promote an EXISTING author row to operator, preserving created_at (D19).
 
         If the row is revoked it is reactivated and promoted (created_at preserved
-        by the same UPDATE). Logs a 'promoted' event."""
-        self.conn.execute(
+        by the same UPDATE). Logs a 'promoted' event.
+
+        Raises ``ValueError`` if no binding exists for the pair — the UPDATE would
+        match 0 rows and the subsequent ``get_binding`` would return ``None``,
+        so without this guard the next line ``AttributeError``s on ``None``. The
+        live caller (cli rotate-operator) guards with ``get_binding`` first; this
+        gives any future caller a meaningful error instead (D19)."""
+        cur = self.conn.execute(
             """
             UPDATE account_bindings SET role = 'operator', revoked_at = NULL
              WHERE issuer = ? AND subject = ?
             """,
             (issuer, subject),
         )
+        if cur.rowcount == 0:
+            raise ValueError(
+                f"cannot promote: no binding for {issuer!r}/{subject!r}"
+            )
         b = self.get_binding(issuer, subject)
         self._log_binding_event(
             issuer, subject, "promoted", "operator",
@@ -1020,14 +1036,21 @@ class SkeinNextStore:
         A table-absent ``OperationalError`` (an old store predating the migration,
         opened read-only with no DDL) is treated as a cache MISS — the real
         deploy-ordering hazard where the read container races ahead of the ingress
-        migration (VC10). The read path degrades to in-process verify, never 500s."""
+        migration (VC10). The read path degrades to in-process verify, never 500s.
+
+        ONLY the missing-table case is a miss. Any other OperationalError
+        ("database is locked", disk I/O error, a malformed SQL bug) is a real
+        fault that masquerading as a cache miss would silently paper over — those
+        propagate (VC10 intends exactly the table-absent hazard, nothing wider)."""
         try:
             row = self.conn.execute(
                 "SELECT * FROM verify_cache WHERE manifest_hash = ? AND bundle_hash = ?",
                 (manifest_hash, bundle_hash),
             ).fetchone()
-        except sqlite3.OperationalError:
-            return None
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
         return dict(row) if row else None
 
     def verify_cache_put(

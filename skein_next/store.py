@@ -156,6 +156,36 @@ CREATE TABLE IF NOT EXISTS constituent_attribution (
     FOREIGN KEY (root, issuer, subject) REFERENCES manifests(root, issuer, subject)
 );
 
+-- Account bindings (the per-instance authorization sidecar). A (issuer, subject)
+-- is authorized as 'operator' or 'author'; revoked_at NULL = active. created_at
+-- is set ONCE and preserved across revoke/reactivate (B5). The single-active-
+-- operator invariant is LOGIC-enforced (bootstrap refuses a second; rotate revokes
+-- the old in the same transaction), not a DB constraint — get_operator() resolves
+-- deterministically even under a corrupt two-operator state (B47).
+CREATE TABLE IF NOT EXISTS account_bindings (
+    issuer            TEXT,
+    subject           TEXT,
+    role              TEXT,   -- 'operator' | 'author'
+    vouched_by_issuer  TEXT,
+    vouched_by_subject TEXT,
+    created_at        TEXT,
+    revoked_at        TEXT,   -- NULL = active
+    PRIMARY KEY (issuer, subject)
+);
+
+-- Append-only binding audit: every lifecycle transition writes one event row in
+-- the same transaction as the mutation. Rows are INSERTed, never UPDATEd/DELETEd.
+CREATE TABLE IF NOT EXISTS binding_events (
+    event_seq          INTEGER PRIMARY KEY,  -- rowid; monotonic insertion order
+    issuer             TEXT,
+    subject            TEXT,
+    event              TEXT,  -- created|revoked|reactivated|rotated_in|rotated_out|promoted
+    role               TEXT,
+    vouched_by_issuer  TEXT,
+    vouched_by_subject TEXT,
+    at                 TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_manifests_hash ON manifests(manifest_hash);
 
 CREATE INDEX IF NOT EXISTS idx_threads_from ON threads(from_id);
@@ -768,6 +798,189 @@ class SkeinNextStore:
         out["bundle_json"] = manifest["bundle_json"]
         out["leaf_count"] = manifest["leaf_count"]
         return out
+
+    # --- account bindings + audit (the authorization sidecar) ----------------
+
+    def _binding_from_row(self, row) -> "authorization.Binding":
+        from . import authorization
+        return authorization.Binding(
+            issuer=row["issuer"],
+            subject=row["subject"],
+            role=row["role"],
+            vouched_by_issuer=row["vouched_by_issuer"],
+            vouched_by_subject=row["vouched_by_subject"],
+            created_at=row["created_at"],
+            revoked_at=row["revoked_at"],
+        )
+
+    def _log_binding_event(
+        self, issuer, subject, event, role, vouched_by_issuer, vouched_by_subject
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO binding_events
+                (issuer, subject, event, role, vouched_by_issuer, vouched_by_subject, at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (issuer, subject, event, role, vouched_by_issuer, vouched_by_subject, _now_iso()),
+        )
+
+    def get_binding(self, issuer: str, subject: str):
+        """The binding for a (issuer, subject) pair as a ``Binding``, or ``None``."""
+        row = self.conn.execute(
+            "SELECT * FROM account_bindings WHERE issuer = ? AND subject = ?",
+            (issuer, subject),
+        ).fetchone()
+        return self._binding_from_row(row) if row else None
+
+    def add_binding(
+        self,
+        issuer: str,
+        subject: str,
+        role: str = "author",
+        vouched_by_issuer: Optional[str] = None,
+        vouched_by_subject: Optional[str] = None,
+        event: Optional[str] = None,
+    ):
+        """Add (or reactivate) a binding; returns the resulting ``Binding``.
+
+        A fresh pair INSERTs with a 'created' event. A revoked pair REACTIVATES the
+        SAME row — revoked_at back to NULL, created_at PRESERVED (B5) — with a
+        'reactivated' event. An already-active pair is idempotent: one row,
+        created_at unchanged, NO event (B6). ``event`` overrides the audit verb
+        (e.g. 'rotated_in' during a rotation)."""
+        existing = self.conn.execute(
+            "SELECT * FROM account_bindings WHERE issuer = ? AND subject = ?",
+            (issuer, subject),
+        ).fetchone()
+        if existing is None:
+            self.conn.execute(
+                """
+                INSERT INTO account_bindings
+                    (issuer, subject, role, vouched_by_issuer, vouched_by_subject,
+                     created_at, revoked_at)
+                VALUES (?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (issuer, subject, role, vouched_by_issuer, vouched_by_subject, _now_iso()),
+            )
+            self._log_binding_event(
+                issuer, subject, event or "created", role,
+                vouched_by_issuer, vouched_by_subject,
+            )
+        elif existing["revoked_at"] is not None:
+            # reactivate the same row; created_at preserved (B5)
+            self.conn.execute(
+                """
+                UPDATE account_bindings
+                   SET revoked_at = NULL, role = ?,
+                       vouched_by_issuer = ?, vouched_by_subject = ?
+                 WHERE issuer = ? AND subject = ?
+                """,
+                (role, vouched_by_issuer, vouched_by_subject, issuer, subject),
+            )
+            self._log_binding_event(
+                issuer, subject, event or "reactivated", role,
+                vouched_by_issuer, vouched_by_subject,
+            )
+        # else: already active -> idempotent no-op, no event (B6)
+        self._maybe_commit()
+        return self.get_binding(issuer, subject)
+
+    def revoke_binding(self, issuer: str, subject: str, event: Optional[str] = None) -> bool:
+        """Revoke an ACTIVE binding (sets revoked_at; the row stays, B3). Returns
+        False if there is no active row to revoke (absent or already revoked, B4)
+        — no exception, no row created. ``event`` overrides the audit verb."""
+        cur = self.conn.execute(
+            """
+            UPDATE account_bindings SET revoked_at = ?
+             WHERE issuer = ? AND subject = ? AND revoked_at IS NULL
+            """,
+            (_now_iso(), issuer, subject),
+        )
+        if cur.rowcount == 0:
+            self._maybe_commit()
+            return False
+        existing = self.get_binding(issuer, subject)
+        self._log_binding_event(
+            issuer, subject, event or "revoked", existing.role,
+            existing.vouched_by_issuer, existing.vouched_by_subject,
+        )
+        self._maybe_commit()
+        return True
+
+    def promote_to_operator(self, issuer: str, subject: str):
+        """Promote an EXISTING author row to operator, preserving created_at (D19).
+
+        If the row is revoked it is reactivated and promoted (created_at preserved
+        by the same UPDATE). Logs a 'promoted' event."""
+        self.conn.execute(
+            """
+            UPDATE account_bindings SET role = 'operator', revoked_at = NULL
+             WHERE issuer = ? AND subject = ?
+            """,
+            (issuer, subject),
+        )
+        b = self.get_binding(issuer, subject)
+        self._log_binding_event(
+            issuer, subject, "promoted", "operator",
+            b.vouched_by_issuer, b.vouched_by_subject,
+        )
+        self._maybe_commit()
+        return b
+
+    def get_operator(self):
+        """The active operator, resolved DETERMINISTICALLY (ORDER BY created_at
+        LIMIT 1) — single-valued even under a corrupt two-operator state (B47).
+        ``None`` when no operator is active (B9)."""
+        row = self.conn.execute(
+            """
+            SELECT * FROM account_bindings
+             WHERE role = 'operator' AND revoked_at IS NULL
+             ORDER BY created_at, issuer, subject LIMIT 1
+            """
+        ).fetchone()
+        return self._binding_from_row(row) if row else None
+
+    def count_active_operators(self) -> int:
+        """Active-operator count — the startup invariant refuses boot on != 1 (D13/D20)."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM account_bindings WHERE role = 'operator' AND revoked_at IS NULL"
+        ).fetchone()[0]
+
+    def list_active_bindings(self) -> List[Any]:
+        """All active bindings as ``Binding`` objects, ordered by role then subject."""
+        rows = self.conn.execute(
+            """
+            SELECT * FROM account_bindings WHERE revoked_at IS NULL
+             ORDER BY role, issuer, subject
+            """
+        ).fetchall()
+        return [self._binding_from_row(r) for r in rows]
+
+    def list_bindings(self, include_revoked: bool = False) -> List[Any]:
+        """All bindings (active, plus revoked when ``include_revoked``)."""
+        sql = "SELECT * FROM account_bindings"
+        if not include_revoked:
+            sql += " WHERE revoked_at IS NULL"
+        sql += " ORDER BY role, issuer, subject"
+        return [self._binding_from_row(r) for r in self.conn.execute(sql).fetchall()]
+
+    def get_binding_events(
+        self, issuer: Optional[str] = None, subject: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """The append-only audit trail, in insertion order (optionally filtered)."""
+        clauses, params = [], []
+        if issuer is not None:
+            clauses.append("issuer = ?")
+            params.append(issuer)
+        if subject is not None:
+            clauses.append("subject = ?")
+            params.append(subject)
+        sql = "SELECT * FROM binding_events"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY event_seq"
+        return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
 
     # --- reporting helpers --------------------------------------------------
 

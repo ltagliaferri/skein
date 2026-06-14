@@ -895,11 +895,15 @@ def account_add(ctx: click.Context, issuer: str, subject: str, role: str) -> Non
         op = st.store.get_operator()
         if op is None:
             raise click.ClickException("no operator; run init-operator first")
-        st.store.add_binding(
+        b = st.store.add_binding(
             issuer, subject, role=role,
             vouched_by_issuer=op.issuer, vouched_by_subject=op.subject,
         )
-    click.echo(f"{role} {issuer}/{subject}")
+    # Echo the binding's ACTUAL stored role, not the requested one. Adding
+    # --role author onto the active operator hits add_binding's already-active
+    # idempotent no-op (the binding correctly STAYS operator); printing the
+    # requested "author" would misreport the stored state.
+    click.echo(f"{b.role} {issuer}/{subject}")
 
 
 @account.command("revoke")

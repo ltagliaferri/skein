@@ -809,10 +809,17 @@ class SkeinNextStore:
         correct verdict for an un-migrated/legacy folio. This is the SAME deploy-
         ordering hazard verify_cache_get already tolerates (VC10 / Fix C): the read
         container races ahead of the ingress migration, or new code serves an
-        un-migrated corpus. ONLY the missing-table case degrades; any other
-        OperationalError ("database is locked", I/O error, a SQL bug) is a real
-        fault that masquerading as "no proof" would silently paper over, so it
-        propagates (the Fix-C scope, exactly)."""
+        un-migrated corpus.
+
+        The degrade is SCOPED TO READ-ONLY stores. A read_write store ALWAYS runs
+        the schema migration on open (executescript), so a missing table there is a
+        genuine fault — not a deploy-ordering race — and must RAISE rather than be
+        silently masked. Only the read app (``read_only=True``) can legitimately
+        face an un-migrated/old corpus and degrade. ONLY the missing-table case
+        degrades (and only read-only); any other OperationalError ("database is
+        locked", I/O error, a SQL bug) is a real fault that masquerading as "no
+        proof" would silently paper over, so it propagates in BOTH modes (the Fix-C
+        scope, exactly)."""
         try:
             attr = self.conn.execute(
                 "SELECT * FROM constituent_attribution WHERE constituent_hash = ?",
@@ -825,7 +832,7 @@ class SkeinNextStore:
                 (attr["root"], attr["issuer"], attr["subject"]),
             ).fetchone()
         except sqlite3.OperationalError as exc:
-            if "no such table" in str(exc).lower():
+            if self.read_only and "no such table" in str(exc).lower():
                 return None
             raise
         out: Dict[str, Any] = {
@@ -883,17 +890,24 @@ class SkeinNextStore:
         binding" -> ``None`` -> folio_verdict reads NOT VERIFIED ('unbound signer')
         rather than 500ing. This is the read path's step-4 BINDING check against an
         un-migrated/partially-migrated corpus — the same deploy-ordering hazard the
-        verify_cache and manifest reads tolerate. ONLY the missing-table case
-        degrades; any other OperationalError propagates (the Fix-C scope). On the
-        write path the table always exists (ingress runs the migration), so this
-        branch never fires there and write-path strictness is unchanged."""
+        verify_cache and manifest reads tolerate.
+
+        The degrade is SCOPED TO READ-ONLY stores. ``get_binding`` is ALSO the
+        ingress authorization gate (ingress.py: the require_signed signer-binding
+        check), and that store is opened read_write — which ALWAYS runs the schema
+        migration on open. A missing account_bindings table there is therefore a
+        genuine schema fault, never a deploy-ordering race, and MUST RAISE so it
+        surfaces loud on the write path rather than being masked as an ordinary
+        'unbound signer' rejection. Only the read app (``read_only=True``) degrades.
+        ONLY the missing-table case degrades (and only read-only); any other
+        OperationalError propagates in BOTH modes (the Fix-C scope)."""
         try:
             row = self.conn.execute(
                 "SELECT * FROM account_bindings WHERE issuer = ? AND subject = ?",
                 (issuer, subject),
             ).fetchone()
         except sqlite3.OperationalError as exc:
-            if "no such table" in str(exc).lower():
+            if self.read_only and "no such table" in str(exc).lower():
                 return None
             raise
         return self._binding_from_row(row) if row else None

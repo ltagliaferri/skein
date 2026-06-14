@@ -19,6 +19,7 @@ same tolerance to every new-table query the READ path can reach
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -194,3 +195,83 @@ def test_covered_folio_with_account_bindings_table_absent_degrades(tmp_path, mon
         # and the envelope-building path serves it without raising.
         env = env_mod.build_folio_envelope(ro, h, row=row)
         assert env["asserted"]["verdict"] == "NOT VERIFIED — unbound signer"
+
+
+# --- the WRITE side: the missing-table tolerance must NOT bleed into a
+# read_write store. A read_write store ALWAYS runs the schema migration on open
+# (executescript), so a missing new-table there is a genuine schema fault — never
+# a deploy-ordering race — and MUST raise rather than be silently masked. This is
+# the deploy-fix: get_binding is ALSO the ingress authorization gate
+# (ingress.py:154), where a swallowed "no such table" would degrade a schema fault
+# into an ordinary 'unbound signer' rejection. The degrade is scoped to
+# read_only=True; read_write re-raises.
+
+
+def _open_rw_then_drop(data_dir, table):
+    """Seed a corpus, open a READ-WRITE store (migration runs, every table
+    present), then DROP ``table`` on that live connection so a subsequent query on
+    the SAME store hits a missing table that the migration cannot have re-created."""
+    with Station(data_dir) as st:
+        st.create_site("s", purpose="p", created_by="t")
+        st.post("finding", "s", "T", "body here", created_by="t")
+    store = SkeinNextStore(data_dir)  # read_write: migration ran, table exists
+    assert store.read_only is False
+    store.conn.execute(f"DROP TABLE {table}")
+    store.conn.commit()
+    return store
+
+
+def test_read_write_store_account_bindings_absent_raises(tmp_path):
+    """A read_write store whose account_bindings table is gone must RAISE on
+    get_binding — a missing table on the write store is a real schema fault."""
+    store = _open_rw_then_drop(tmp_path / ".skein-next", "account_bindings")
+    try:
+        with pytest.raises(sqlite3.OperationalError) as ei:
+            store.get_binding("https://idp", "alice@example.com")
+        assert "no such table" in str(ei.value).lower()
+    finally:
+        store.close()
+
+
+def test_read_write_store_constituent_attribution_absent_raises(tmp_path):
+    """Same scoping for get_constituent_proof: a read_write store with the
+    attribution table dropped must RAISE, not return None."""
+    store = _open_rw_then_drop(tmp_path / ".skein-next", "constituent_attribution")
+    try:
+        with pytest.raises(sqlite3.OperationalError) as ei:
+            store.get_constituent_proof("blake3:" + "0" * 64)
+        assert "no such table" in str(ei.value).lower()
+    finally:
+        store.close()
+
+
+def test_read_only_store_account_bindings_absent_degrades(tmp_path):
+    """The contrast pin: the IDENTICAL on-disk corpus, opened read_only, degrades
+    to None instead of raising — read app, un-migrated corpus, the tolerated case.
+    Dropping account_bindings (only) leaves constituent_attribution present, so
+    drop both to exercise both methods' degrade in read_only mode."""
+    store = _open_rw_then_drop(tmp_path / ".skein-next", "account_bindings")
+    store.conn.execute("DROP TABLE constituent_attribution")
+    store.conn.commit()
+    store.close()  # both tables now absent on disk
+    with SkeinNextStore(tmp_path / ".skein-next", read_only=True) as ro:
+        assert ro.read_only is True
+        assert ro.get_binding("https://idp", "alice@example.com") is None
+        assert ro.get_constituent_proof("blake3:" + "0" * 64) is None
+
+
+def test_normal_migrated_corpus_unaffected_both_modes(tmp_path):
+    """The fix must not touch a NORMAL migrated corpus: a present binding resolves
+    on a read_write store AND on a read_only store, with no raise either way."""
+    issuer, subject = "https://idp", "alice@example.com"
+    data_dir = tmp_path / ".skein-next"
+    with Station(data_dir) as st:
+        st.create_site("s", purpose="p", created_by="t")
+        st.store.add_binding(issuer, subject, role="author")
+    with SkeinNextStore(data_dir) as rw:  # read_write
+        assert rw.read_only is False
+        assert rw.get_binding(issuer, subject).subject == subject
+        assert rw.get_binding(issuer, "nobody@example.com") is None
+    with SkeinNextStore(data_dir, read_only=True) as ro:
+        assert ro.get_binding(issuer, subject).subject == subject
+        assert ro.get_binding(issuer, "nobody@example.com") is None

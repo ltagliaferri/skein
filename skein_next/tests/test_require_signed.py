@@ -189,6 +189,30 @@ def test_on_manifest_binding_gated_once(client, instance):  # RS8
     assert spy.get_binding_calls == 1
 
 
+def test_on_missing_account_bindings_table_raises_not_silent_reject(client, instance):
+    """Deploy-fix #1: a SCHEMA FAULT on the ingress authz gate must surface, not be
+    masked as an ordinary rejection. The read-path tolerance (a missing-table
+    OperationalError -> None) is scoped to read_only stores; the ingress store is
+    read_write, where a missing account_bindings table is a genuine fault. With a
+    verified manifest from a signer that WOULD bind, dropping account_bindings must
+    make ingest RAISE 'no such table' rather than silently reject as 'unbound
+    signer'."""
+    import sqlite3
+
+    _seed(client)
+    _bind(instance)
+    batch = _signed_batch(client)
+    # The ingress store is read_write (Station default); drop the authz table on its
+    # live connection so the get_binding gate hits a missing table.
+    assert instance.store.read_only is False
+    instance.store.conn.execute("DROP TABLE account_bindings")
+    instance.store.conn.commit()
+
+    with pytest.raises(sqlite3.OperationalError) as ei:
+        ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
+    assert "no such table" in str(ei.value).lower()
+
+
 def test_off_never_consults_bindings_or_manifest(client, instance):  # RS9
     _seed(client)
     batch = _signed_batch(client)  # carries a manifest, but OFF must ignore it

@@ -204,8 +204,9 @@ def publish(
     """Collect, push, and (on ack) record publish-state for a selection.
 
     Returns a result dict: the batch counts, the instance ack, and the folio
-    hashes that were marked published locally. On ``dry_run`` nothing is sent
-    and nothing is recorded — the collected set is returned for inspection.
+    hashes that were marked published locally. On ``dry_run`` nothing is sent,
+    SIGNED, or recorded — the collected set is returned for inspection (signing
+    runs the irreversible Sigstore ceremony, so it is gated to the real send).
 
     When ``signer`` is given, each folio is signed at this boundary (sign-at-
     publish) and its ``signature_bundle`` rides the wire; the client also keeps a
@@ -224,6 +225,25 @@ def publish(
         return {"folios": 0, "threads": 0, "dry_run": dry_run, "sent": False}
 
     batch = wire.build_batch(folios, threads, site_slugs=site_slugs)
+
+    # A dry run sends nothing to an instance and MUST NOT produce any external,
+    # irreversible artifact — so it short-circuits BEFORE the signing ceremony.
+    # With a real signer, sign_manifest runs the Sigstore flow: it consumes the
+    # short-lived OIDC token, issues a Fulcio cert, and writes a PERMANENT, PUBLIC
+    # Rekor transparency-log entry. None of that can be undone, and a dry run is
+    # precisely the case where nothing should leave the machine. Report the plan
+    # (what WOULD be published, and whether it would be signed) without signing.
+    if dry_run:
+        return {
+            "instance": instance,
+            "folios": len(folios),
+            "threads": len(threads),
+            "signed": signer is not None,
+            "dry_run": True,
+            "folio_hashes": [f["content_hash"] for f in folios],
+            "sent": False,
+        }
+
     # Sign at the boundary: build ONE manifest = the Merkle root over EVERY
     # constituent's content hash (folios AND threads), signed once (one OIDC
     # ceremony). The manifest_signature rides at the top of the batch; per-folio
@@ -243,9 +263,6 @@ def publish(
         "dry_run": dry_run,
         "folio_hashes": [f["content_hash"] for f in folios],
     }
-    if dry_run:
-        summary["sent"] = False
-        return summary
 
     ack = post_batch(instance, batch)
     summary["ack"] = ack

@@ -118,6 +118,32 @@ def test_e2e_bound_signed_publish_accepted(client, instance, provider, monkeypat
         ro.close()
 
 
+# --- dry-run must not run the Sigstore ceremony -----------------------------
+
+
+def test_dry_run_sign_never_invokes_the_signer(client):
+    """A dry run with --sign must NOT sign: signing runs the irreversible Sigstore
+    ceremony (Fulcio cert + a PERMANENT, PUBLIC Rekor entry), and a dry run sends
+    nothing to an instance. A signer that raises on invocation proves the ceremony
+    never happens on a dry run, yet the run still reports the would-publish plan."""
+
+    def exploding_signer(cb):  # the shape sign_manifest calls: cb -> SignedResult
+        raise AssertionError("dry-run must not invoke the signer (no Sigstore ceremony)")
+
+    result = pub_mod.publish(
+        client, "(dry-run)", site="specs", dry_run=True, signer=exploding_signer
+    )
+    # Succeeded WITHOUT signing, and reports the plan: it would publish, and (since
+    # a signer was supplied) it would be signed — without having signed anything.
+    assert result["sent"] is False
+    assert result["dry_run"] is True
+    assert result["signed"] is True
+    assert result["folios"] >= 1
+    assert "folio_hashes" in result and len(result["folio_hashes"]) == result["folios"]
+    # No real send happened, so there is no instance ack.
+    assert "ack" not in result
+
+
 # --- E2-E5: the gate logic end-to-end ---------------------------------------
 
 

@@ -801,17 +801,33 @@ class SkeinNextStore:
         manifest parent is ABSENT (a corrupted / mid-migration / FK-off dangling
         state) the row still resolves to a ``proof_missing`` sentinel carrying the
         denormalized (issuer, subject) — display-authoritative attribution degrades
-        gracefully, never a 500 (ST5)."""
-        attr = self.conn.execute(
-            "SELECT * FROM constituent_attribution WHERE constituent_hash = ?",
-            (constituent_hash,),
-        ).fetchone()
-        if attr is None:
-            return None
-        manifest = self.conn.execute(
-            "SELECT * FROM manifests WHERE root = ? AND issuer = ? AND subject = ?",
-            (attr["root"], attr["issuer"], attr["subject"]),
-        ).fetchone()
+        gracefully, never a 500 (ST5).
+
+        A table-absent ``OperationalError`` (an OLD/partial-schema corpus predating
+        the manifest migration, opened read-only with no DDL) is treated as "no
+        covering manifest" -> ``None`` -> the folio reads UNSIGNED, which is the
+        correct verdict for an un-migrated/legacy folio. This is the SAME deploy-
+        ordering hazard verify_cache_get already tolerates (VC10 / Fix C): the read
+        container races ahead of the ingress migration, or new code serves an
+        un-migrated corpus. ONLY the missing-table case degrades; any other
+        OperationalError ("database is locked", I/O error, a SQL bug) is a real
+        fault that masquerading as "no proof" would silently paper over, so it
+        propagates (the Fix-C scope, exactly)."""
+        try:
+            attr = self.conn.execute(
+                "SELECT * FROM constituent_attribution WHERE constituent_hash = ?",
+                (constituent_hash,),
+            ).fetchone()
+            if attr is None:
+                return None
+            manifest = self.conn.execute(
+                "SELECT * FROM manifests WHERE root = ? AND issuer = ? AND subject = ?",
+                (attr["root"], attr["issuer"], attr["subject"]),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
         out: Dict[str, Any] = {
             "constituent_hash": attr["constituent_hash"],
             "kind": attr["kind"],
@@ -860,11 +876,26 @@ class SkeinNextStore:
         )
 
     def get_binding(self, issuer: str, subject: str):
-        """The binding for a (issuer, subject) pair as a ``Binding``, or ``None``."""
-        row = self.conn.execute(
-            "SELECT * FROM account_bindings WHERE issuer = ? AND subject = ?",
-            (issuer, subject),
-        ).fetchone()
+        """The binding for a (issuer, subject) pair as a ``Binding``, or ``None``.
+
+        A table-absent ``OperationalError`` (an OLD/partial-schema corpus with no
+        account_bindings table, opened read-only with no DDL) is treated as "no
+        binding" -> ``None`` -> folio_verdict reads NOT VERIFIED ('unbound signer')
+        rather than 500ing. This is the read path's step-4 BINDING check against an
+        un-migrated/partially-migrated corpus — the same deploy-ordering hazard the
+        verify_cache and manifest reads tolerate. ONLY the missing-table case
+        degrades; any other OperationalError propagates (the Fix-C scope). On the
+        write path the table always exists (ingress runs the migration), so this
+        branch never fires there and write-path strictness is unchanged."""
+        try:
+            row = self.conn.execute(
+                "SELECT * FROM account_bindings WHERE issuer = ? AND subject = ?",
+                (issuer, subject),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
         return self._binding_from_row(row) if row else None
 
     def add_binding(

@@ -70,6 +70,21 @@ def test_account_add_requires_existing_operator(tmp_path):  # D5
     assert r.exit_code != 0 and "no operator" in r.output
 
 
+def test_account_add_on_active_operator_echoes_stored_role(tmp_path):
+    """`account add --role author` on the ACTIVE OPERATOR's own identity hits
+    add_binding's already-active idempotent no-op: the binding correctly STAYS
+    operator. The CLI must echo the STORED role ("operator"), not the requested
+    one ("author")."""
+    _run(tmp_path, "account", "init-operator", "--issuer", I, "--subject", S)
+    r = _run(tmp_path, "account", "add", "--issuer", I, "--subject", S, "--role", "author")
+    assert r.exit_code == 0
+    assert f"operator {I}/{S}" in r.output
+    assert "author" not in r.output  # the requested role is NOT echoed
+    with _open(tmp_path) as st:
+        b = st.store.get_binding(I, S)
+        assert b.role == "operator" and b.revoked_at is None  # unchanged in the store
+
+
 # --- D6-D8: revoke ----------------------------------------------------------
 
 

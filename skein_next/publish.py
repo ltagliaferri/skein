@@ -200,17 +200,23 @@ def publish(
     by: Optional[str] = None,
     dry_run: bool = False,
     signer: Optional["_sign.Signer"] = None,
+    signed_intent: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Collect, push, and (on ack) record publish-state for a selection.
 
     Returns a result dict: the batch counts, the instance ack, and the folio
-    hashes that were marked published locally. On ``dry_run`` nothing is sent
-    and nothing is recorded — the collected set is returned for inspection.
+    hashes that were marked published locally. On ``dry_run`` nothing is sent,
+    SIGNED, or recorded — the collected set is returned for inspection (signing
+    runs the irreversible Sigstore ceremony, so it is gated to the real send).
 
     When ``signer`` is given, each folio is signed at this boundary (sign-at-
     publish) and its ``signature_bundle`` rides the wire; the client also keeps a
     copy so its local record reflects what the instance now holds. Without a
     signer the batch crosses unsigned (the pre-mesh / prototype path).
+
+    ``signed_intent`` lets a ``dry_run`` report whether the real send WOULD sign
+    without constructing a signer (no OIDC login on a dry run); when omitted the
+    plan falls back to the presence of a ``signer``.
     """
     # Canonicalize the target once so eligibility, recording, and the endpoint
     # all key off one identity (a trailing slash must not fork the instance).
@@ -224,6 +230,29 @@ def publish(
         return {"folios": 0, "threads": 0, "dry_run": dry_run, "sent": False}
 
     batch = wire.build_batch(folios, threads, site_slugs=site_slugs)
+
+    # A dry run sends nothing to an instance and MUST NOT produce any external,
+    # irreversible artifact — so it short-circuits BEFORE the signing ceremony.
+    # With a real signer, sign_manifest runs the Sigstore flow: it consumes the
+    # short-lived OIDC token, issues a Fulcio cert, and writes a PERMANENT, PUBLIC
+    # Rekor transparency-log entry. None of that can be undone, and a dry run is
+    # precisely the case where nothing should leave the machine. Report the plan
+    # (what WOULD be published, and whether it would be signed) without signing.
+    # The signed-intent is taken from the caller's request — ``signed_intent``
+    # when given (so a dry run need not build a signer at all), else the presence
+    # of a signer — never from having actually signed anything.
+    if dry_run:
+        would_sign = signed_intent if signed_intent is not None else signer is not None
+        return {
+            "instance": instance,
+            "folios": len(folios),
+            "threads": len(threads),
+            "signed": would_sign,
+            "dry_run": True,
+            "folio_hashes": [f["content_hash"] for f in folios],
+            "sent": False,
+        }
+
     # Sign at the boundary: build ONE manifest = the Merkle root over EVERY
     # constituent's content hash (folios AND threads), signed once (one OIDC
     # ceremony). The manifest_signature rides at the top of the batch; per-folio
@@ -243,9 +272,6 @@ def publish(
         "dry_run": dry_run,
         "folio_hashes": [f["content_hash"] for f in folios],
     }
-    if dry_run:
-        summary["sent"] = False
-        return summary
 
     ack = post_batch(instance, batch)
     summary["ack"] = ack

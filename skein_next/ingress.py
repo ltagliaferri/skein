@@ -480,7 +480,17 @@ def create_app() -> FastAPI:
             # + full ASGI traceback per request (the log-amplification DoS this same
             # change set hardens against). A genuine (non-lock) OperationalError is a
             # real fault: re-raise it so it is not masked as transient.
-            if "lock" not in str(e).lower() and "busy" not in str(e).lower():
+            #
+            # Discriminate on the numeric SQLite result code (the robust signal):
+            # SQLITE_BUSY (5) / SQLITE_LOCKED (6) are the lock family. sqlite_errorcode
+            # exists on Python >= 3.11 and is set on driver-raised errors but is None
+            # on a manually-constructed exception, so fall back to the (stable) message
+            # text 'database is locked' / 'table is locked'.
+            code = getattr(e, "sqlite_errorcode", None)
+            is_lock = code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
+                code is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
+            )
+            if not is_lock:
                 raise
             logger.warning("ingress write-lock contention; returning 503: %s", e)
             return JSONResponse(

@@ -131,6 +131,27 @@ def test_write_lock_contention_returns_503_not_500(app_client, monkeypatch):
     assert "busy" in r.json()["error"]
 
 
+def test_real_write_lock_contention_returns_503(app_client, data_dir, tmp_path, monkeypatch):
+    # End-to-end: a genuinely held write lock makes the route's BEGIN IMMEDIATE
+    # time out and raise a DRIVER OperationalError (sqlite_errorcode = SQLITE_BUSY),
+    # exercising the numeric-code discrimination path (not the manual-exception
+    # fallback). Shrink busy_timeout so the contention resolves fast.
+    import skein_next.store as store_mod
+    from skein_next.store import SkeinNextStore
+
+    monkeypatch.setattr(store_mod, "BUSY_TIMEOUT_MS", 50)
+    holder = SkeinNextStore(data_dir, check_same_thread=False)
+    holder.conn.execute("BEGIN IMMEDIATE")  # hold the write lock
+    try:
+        r = app_client.post("/publish/v0/folios", json=_small_unsigned_batch(tmp_path))
+        assert r.status_code == 503
+        assert r.headers.get("Retry-After") == "1"
+        assert "busy" in r.json()["error"]
+    finally:
+        holder.conn.rollback()
+        holder.close()
+
+
 def test_genuine_operationalerror_is_not_masked_as_503(app_client, monkeypatch):
     # A non-lock OperationalError is a real fault and must NOT be masked as a
     # transient 503 — it re-raises (TestClient surfaces it as a server error).

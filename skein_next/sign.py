@@ -90,7 +90,11 @@ Verifier = Callable[[bytes, Any], "signing.MultiVerifyResult"]
 # the largest real batch yet still bounds the merkle recompute hard against a
 # hostile declared leaf_count. (Was 1_000_000 — far too loose for a public
 # endpoint; oracle flagged it both Phase-4 hardening rounds.)
-_MAX_LEAVES = 2048
+#
+# Public so the SIGNER side (publish.py) can fail fast against the SAME cap
+# before the irreversible Sigstore ceremony, instead of burning a Rekor entry on
+# a batch the verifier will reject. One source of truth for both sides.
+MAX_LEAVES = 2048
 
 
 def make_oidc_signer(
@@ -211,13 +215,18 @@ def verify_wire_manifest(
     ):
         return (False, "manifest malformed", None)
     leaf_list = manifest_signature.get("leaf_list")
-    if not isinstance(leaf_list, list) or not all(isinstance(x, str) for x in leaf_list):
+    if not isinstance(leaf_list, list):
         return (False, "manifest malformed", None)
     root = descriptor["root"]
     leaf_count = descriptor["leaf_count"]
-    # length-bound BEFORE any decode / merkle recompute (VM7): a hostile huge list
-    # is never processed into unbounded work.
-    if leaf_count < 0 or leaf_count > _MAX_LEAVES or len(leaf_list) > leaf_count:
+    # SIZE BOUND BEFORE any decode / merkle recompute AND before the per-element
+    # type scan (VM7): a hostile huge leaf_list is never processed into unbounded
+    # work. len(leaf_list) is O(1); checking it here means the all-isinstance scan
+    # below only ever runs on a list already bounded to <= leaf_count <= MAX_LEAVES.
+    if leaf_count < 0 or leaf_count > MAX_LEAVES or len(leaf_list) > leaf_count:
+        return (False, "manifest malformed", None)
+    # Now bounded — safe to scan every element's type.
+    if not all(isinstance(x, str) for x in leaf_list):
         return (False, "manifest malformed", None)
     raw = manifest_signature.get("signature_bundle")
     if raw is None:

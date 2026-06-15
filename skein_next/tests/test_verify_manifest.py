@@ -189,16 +189,29 @@ def test_verify_wire_manifest_leaf_count_over_max_rejects_before_merkle():  # VM
     # 'manifest malformed' by the length-bound (VM7), BEFORE any decode / merkle
     # recompute — so a public attacker cannot force unbounded work with a huge
     # declared count. leaf_list stays empty (len 0 <= leaf_count) so this exercises
-    # the leaf_count > _MAX_LEAVES branch specifically, not len(leaf_list) > leaf_count.
+    # the leaf_count > MAX_LEAVES branch specifically, not len(leaf_list) > leaf_count.
     ms = {
-        "descriptor": {"root": _addr(b"root"), "leaf_count": sign_mod._MAX_LEAVES + 1},
+        "descriptor": {"root": _addr(b"root"), "leaf_count": sign_mod.MAX_LEAVES + 1},
         "leaf_list": [],
         "signature_bundle": "ignored — the bound fires before the bundle is touched",
     }
     verified, reason, identity = sign_mod.verify_wire_manifest(ms, _binding_verifier)
     assert (verified, reason, identity) == (False, "manifest malformed", None)
     # the cap is a sane public ceiling, not the old 1M
-    assert sign_mod._MAX_LEAVES == 2048
+    assert sign_mod.MAX_LEAVES == 2048
+
+
+def test_verify_wire_manifest_non_string_leaf_within_bounds_still_rejects():  # VM7 reorder
+    # The size bound now runs BEFORE the per-element type scan. A leaf_list that is
+    # within the size bound but carries a non-string element must STILL reject
+    # 'manifest malformed' — i.e. reordering the guards did not drop the type check.
+    ms = {
+        "descriptor": {"root": _addr(b"root"), "leaf_count": 2},
+        "leaf_list": [A, 123],  # len 2 <= leaf_count 2, but 123 is not a str
+        "signature_bundle": "ignored — fails on the element-type scan",
+    }
+    verified, reason, identity = sign_mod.verify_wire_manifest(ms, _binding_verifier)
+    assert (verified, reason, identity) == (False, "manifest malformed", None)
 
 
 def test_membership_by_root_recompute():  # VM8

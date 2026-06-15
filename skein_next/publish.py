@@ -261,6 +261,18 @@ def publish(
     if signer is not None:
         addresses = [wf["content_hash"] for wf in batch["folios"]]
         addresses += [wt["thread_hash"] for wt in batch["threads"]]
+        # Fail fast against the SAME leaf cap the verifier enforces (_sign.MAX_LEAVES),
+        # BEFORE the Sigstore ceremony — otherwise a large publish would consume the
+        # OIDC token, issue a Fulcio cert, and write a PERMANENT public Rekor entry,
+        # only for the ingress to reject the whole batch as 'manifest malformed'.
+        # The cap is on DISTINCT leaves (build_manifest dedups), so count distinct.
+        distinct = len(set(addresses))
+        if distinct > _sign.MAX_LEAVES:
+            raise PublishError(
+                f"publish has {distinct} distinct constituents, over the "
+                f"{_sign.MAX_LEAVES}-leaf manifest cap; split it into smaller publishes "
+                "(refusing before the Sigstore ceremony so no transparency-log entry is burned)"
+            )
         manifest_signature = _sign.sign_manifest(addresses, signer)
         batch["manifest_signature"] = manifest_signature
 

@@ -41,6 +41,28 @@ def _seed_site(station):
     return f1, f2
 
 
+def test_publish_over_leaf_cap_fails_before_signing_ceremony(client, monkeypatch):
+    # A publish whose distinct constituent count exceeds the manifest leaf cap is
+    # refused BEFORE the irreversible Sigstore ceremony — so no Fulcio cert / Rekor
+    # entry is burned on a batch the ingress would reject as 'manifest malformed'.
+    from skein_next import sign as _sign
+
+    _seed_site(client)  # site + 2 findings = 3 distinct constituents
+    monkeypatch.setattr(_sign, "MAX_LEAVES", 2)  # force the corpus over the cap
+
+    def _never_called_signer(canonical_bytes):
+        raise AssertionError("signer must not run when the batch is over the cap")
+
+    with pytest.raises(PublishError) as ei:
+        pub_mod.publish(
+            client, "http://127.0.0.1:9", site="specs",
+            signer=_never_called_signer, dry_run=False,
+        )
+    msg = str(ei.value)
+    assert "over the 2-leaf manifest cap" in msg
+    assert "transparency-log" in msg  # names the reason the fast-fail exists
+
+
 def test_publish_round_trip_carries_folios_threads_and_status(client, instance):
     f1, f2 = _seed_site(client)
     folios, threads, slugs = collect_publish_set(client, site="specs")

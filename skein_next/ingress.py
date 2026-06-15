@@ -31,8 +31,9 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from .station import Station
 from . import canon, wire
@@ -63,6 +64,14 @@ def _constituent_manifest_reject_reason(m_reason: str) -> str:
 
 DEFAULT_PORT = 9101  # read web app is 9001; ingress is a distinct write surface
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
+
+# Absolute byte cap on a publish request body, enforced BEFORE the body is fully
+# buffered or JSON-parsed, so a hostile client cannot force unbounded parse/memory
+# work ahead of any verification. Matches the public route's nginx
+# client_max_body_size (1 MiB); the app cap is defense-in-depth for any path that
+# reaches the ingress without the fronting proxy (e.g. a loopback SSH tunnel). If
+# a legitimate publish ever needs more, bump BOTH this and the nginx cap together.
+MAX_BATCH_BYTES = 1024 * 1024
 
 
 def _get_data_dir() -> Any:
@@ -402,21 +411,54 @@ def create_app() -> FastAPI:
     )
 
     @app.post("/publish/v0/folios")
-    def publish_folios(batch: Dict[str, Any]) -> JSONResponse:
+    async def publish_folios(request: Request) -> JSONResponse:
+        # Bound the body by BYTES before buffering / parsing (content-length fast-
+        # path + a streaming guard), so a hostile client cannot force unbounded
+        # parse/memory work before any verification runs. Over the cap is rejected
+        # WHOLE (413), never truncated. Mirrors the read app's resolve batch cap and
+        # is defense-in-depth atop the fronting proxy's client_max_body_size.
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > MAX_BATCH_BYTES:
+                    return JSONResponse(status_code=413, content={"error": "request body too large"})
+            except ValueError:
+                pass
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_BATCH_BYTES:
+                return JSONResponse(status_code=413, content={"error": "request body too large"})
+
+        try:
+            batch = json.loads(body) if body else None
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": "request body is not valid JSON"})
+        if not isinstance(batch, dict):
+            return JSONResponse(status_code=400, content={"error": "request body must be a JSON object"})
         if batch.get("protocol") != wire.PROTOCOL:
             return JSONResponse(
                 status_code=400,
                 content={"error": f"unknown protocol {batch.get('protocol')!r}; "
                                   f"this instance speaks {wire.PROTOCOL!r}"},
             )
-        # Open a write station per request (own SQLite connection, threadpool-safe).
-        station = Station(_get_data_dir(), check_same_thread=False)
+
+        # ingest does blocking SQLite work; the route is async (to stream-bound the
+        # body), so run the open->ingest->close off the event loop the way the sync
+        # routes get the threadpool — a slow write never stalls body reads on other
+        # requests. The station (own SQLite connection) is created and closed inside
+        # the worker thread so it never crosses threads.
+        def _do_ingest() -> Any:
+            station = Station(_get_data_dir(), check_same_thread=False)
+            try:
+                return ingest(station, batch, require_signed=require_signed)
+            finally:
+                station.close()
+
         try:
-            ack = ingest(station, batch, require_signed=require_signed)
+            ack = await run_in_threadpool(_do_ingest)
         except BatchShapeError as e:
             return JSONResponse(status_code=400, content={"error": str(e)})
-        finally:
-            station.close()
         return JSONResponse(status_code=200, content=ack)
 
     return app

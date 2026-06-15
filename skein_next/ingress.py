@@ -483,12 +483,17 @@ def create_app() -> FastAPI:
             #
             # Discriminate on the numeric SQLite result code (the robust signal):
             # SQLITE_BUSY (5) / SQLITE_LOCKED (6) are the lock family. sqlite_errorcode
-            # exists on Python >= 3.11 and is set on driver-raised errors but is None
-            # on a manually-constructed exception, so fall back to the (stable) message
-            # text 'database is locked' / 'table is locked'.
+            # exists on Python >= 3.11 and is set on driver-raised errors but is absent
+            # on a manually-constructed exception. It reports the EXTENDED code, so mask
+            # to the primary byte (& 0xFF) before comparing — that catches lock-family
+            # extended codes too (e.g. BUSY_SNAPSHOT/LOCKED_SHAREDCACHE, which would
+            # arise only under WAL/shared-cache; this store is rollback-journal today
+            # but the mask keeps the check correct regardless). Fall back to the (stable)
+            # message text only when there is no code at all.
             code = getattr(e, "sqlite_errorcode", None)
-            is_lock = code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
-                code is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
+            primary = (code & 0xFF) if isinstance(code, int) else None
+            is_lock = primary in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
+                primary is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
             )
             if not is_lock:
                 raise

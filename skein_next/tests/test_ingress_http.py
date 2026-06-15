@@ -107,3 +107,38 @@ def test_valid_unsigned_publish_lands_through_async_route(app_client, tmp_path):
     # the site + finding folios are newly accepted
     assert len(ack["accepted"]) >= 2
     assert ack["rejected"] == []
+
+
+async def test_client_disconnect_midbody_is_handled_quietly(data_dir):
+    # A client that drops mid-body raises starlette ClientDisconnect inside the
+    # body-read loop. The route must catch it and return cleanly (no propagating
+    # exception, no ASGI traceback) — an adversary-controllable disconnect must
+    # not be a logged application error (log-amplification DoS). Driven directly
+    # against the endpoint with an ASGI receive that sends http.disconnect mid-stream.
+    from starlette.requests import ClientDisconnect, Request
+
+    app = create_app()
+    endpoint = next(
+        r.endpoint for r in app.routes
+        if getattr(r, "path", None) == "/publish/v0/folios"
+    )
+
+    messages = [
+        {"type": "http.request", "body": b'{"protocol":', "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive():
+        return messages.pop(0)
+
+    scope = {
+        "type": "http", "method": "POST", "path": "/publish/v0/folios",
+        "headers": [(b"content-type", b"application/json")], "query_string": b"",
+    }
+    request = Request(scope, receive)
+
+    try:
+        resp = await endpoint(request)  # must NOT raise ClientDisconnect
+    except ClientDisconnect:  # pragma: no cover - the bug this guards against
+        pytest.fail("ClientDisconnect leaked out of the route as an application error")
+    assert resp.status_code == 400

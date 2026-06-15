@@ -48,6 +48,10 @@ _RECOVERABLE_VERIFY_STATUSES = frozenset({"TRUST_ROOT_STALE", "OFFLINE_NO_TRUSTE
 
 DEFAULT_DATA_DIR = Path(".skein-next")
 DB_FILENAME = "store.db"
+# How long a write waits for a held lock before giving up (SQLite default is 0 =
+# fail instantly). 5s lets concurrent ingress writers serialize gracefully under
+# the public write surface; nginx rate-limiting bounds how many can pile up.
+BUSY_TIMEOUT_MS = 5000
 
 
 def _like_escape(s: str) -> str:
@@ -270,6 +274,17 @@ class SkeinNextStore:
             self.data_dir.mkdir(parents=True, exist_ok=True)
             self.conn = sqlite3.connect(str(self.db_path), check_same_thread=check_same_thread)
             self.conn.row_factory = sqlite3.Row
+            # Concurrent writers (the ingress opens a connection per request, run
+            # in a threadpool) would otherwise get an INSTANT 'database is locked'
+            # the moment two writes overlap — SQLite's default busy_timeout is 0.
+            # On the public write surface that silently dropped valid concurrent
+            # publishes AND mislabeled them 'invalid fields' (a transient lock is
+            # not malformed input). A non-zero busy_timeout makes writers WAIT for
+            # the lock and serialize gracefully (the intended single-writer
+            # posture) instead of failing. WAL is not an option here — the read
+            # surface mounts the corpus :ro (rollback-journal only); a busy_timeout
+            # serializes correctly under rollback-journal.
+            self.conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
             # foreign_keys MUST be enabled at CONNECTION OPEN, OUTSIDE any
             # transaction (inside one it is a silent no-op), and BEFORE the schema
             # DDL — so the constituent_attribution FK is enforced from the first
@@ -327,6 +342,16 @@ class SkeinNextStore:
         if self._in_batch:
             raise RuntimeError("transaction() is not re-entrant")
         self._in_batch = True
+        # BEGIN IMMEDIATE grabs the RESERVED (write) lock up front. A batch reads
+        # before it writes (the ingress does get_folio() then create_folio()); with
+        # a DEFERRED transaction two connections both take the SHARED read lock and
+        # then deadlock trying to upgrade to RESERVED — SQLite returns 'database is
+        # locked' INSTANTLY, NOT honoring busy_timeout (the busy handler is skipped
+        # on a would-be deadlock). IMMEDIATE means writers queue on the write lock
+        # from the start, so busy_timeout actually serializes them. This is what
+        # makes concurrent ingress publishes commit instead of being dropped (and
+        # mislabeled 'invalid fields'). Read-only stores never take this path.
+        self.conn.execute("BEGIN IMMEDIATE")
         try:
             yield self
         except BaseException:

@@ -34,6 +34,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
 from .station import Station
 from . import canon, wire
@@ -425,10 +426,21 @@ def create_app() -> FastAPI:
             except ValueError:
                 pass
         body = bytearray()
-        async for chunk in request.stream():
-            body += chunk
-            if len(body) > MAX_BATCH_BYTES:
-                return JSONResponse(status_code=413, content={"error": "request body too large"})
+        try:
+            async for chunk in request.stream():
+                body += chunk
+                if len(body) > MAX_BATCH_BYTES:
+                    return JSONResponse(status_code=413, content={"error": "request body too large"})
+        except ClientDisconnect:
+            # The client went away mid-body (a slow-loris that bails, a flaky
+            # network, or a deliberate probe). A disconnect is normal and fully
+            # adversary-controllable, so it must be handled QUIETLY — not raised
+            # as an ASGI application error. Left uncaught it logs a full traceback
+            # per abandoned request, which at flood rate is a cheap log-
+            # amplification DoS (disk fill + real-error burial) and breaks this
+            # module's 'never 500s over hostile input' contract. The socket is
+            # gone, so this response is discarded; we just stop cleanly.
+            return JSONResponse(status_code=400, content={"error": "client disconnected"})
 
         try:
             batch = json.loads(body) if body else None

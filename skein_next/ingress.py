@@ -445,7 +445,15 @@ def create_app() -> FastAPI:
 
         try:
             batch = json.loads(body) if body else None
-        except ValueError:
+        except (ValueError, RecursionError):
+            # ValueError covers malformed JSON and the UnicodeDecodeError/int-string
+            # limit subclasses. RecursionError is the OTHER thing json.loads can raise
+            # on hostile input: deeply-nested arrays/objects ([[[... ) blow Python's
+            # recursion limit. It is NOT a ValueError (it's a RuntimeError), so left
+            # uncaught it escapes to a 500 + full ASGI traceback per request — a cheap
+            # floodable log-amplification DoS (the 1 MiB body cap bounds BYTES, not
+            # nesting depth: '[' is one byte per level, so ~hundreds of thousands of
+            # levels fit under the cap). Reject it as the malformed JSON it is.
             return JSONResponse(status_code=400, content={"error": "request body is not valid JSON"})
         if not isinstance(batch, dict):
             return JSONResponse(status_code=400, content={"error": "request body must be a JSON object"})

@@ -81,6 +81,22 @@ def test_non_json_body_rejected_400(app_client):
     assert "not valid JSON" in r.json()["error"]
 
 
+def test_deeply_nested_json_rejected_400_not_500(app_client):
+    # Deeply-nested JSON (well under the 1 MiB byte cap — '[' is one byte per level)
+    # makes json.loads raise RecursionError, which is NOT a ValueError. Left uncaught
+    # it would escape to a 500 + traceback per request (log-amplification DoS). It
+    # must be rejected as malformed JSON (400), not crash.
+    depth = 200_000
+    payload = (b"[" * depth) + (b"]" * depth)
+    assert len(payload) < MAX_BATCH_BYTES  # the byte cap does NOT catch this
+    r = app_client.post(
+        "/publish/v0/folios", content=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 400
+    assert "not valid JSON" in r.json()["error"]
+
+
 def test_non_object_json_rejected_400(app_client):
     r = app_client.post(
         "/publish/v0/folios", content=b"[1, 2, 3]",

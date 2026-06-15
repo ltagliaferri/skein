@@ -109,6 +109,45 @@ def test_valid_unsigned_publish_lands_through_async_route(app_client, tmp_path):
     assert ack["rejected"] == []
 
 
+def test_write_lock_contention_returns_503_not_500(app_client, monkeypatch):
+    # A lock-acquisition timeout (BEGIN IMMEDIATE can't take the write lock within
+    # busy_timeout) surfaces as OperationalError on entry to transaction(), past
+    # the per-item handlers. The route must degrade to a retryable 503, NOT let it
+    # propagate to an uncaught 500 + traceback (the log-amplification DoS this
+    # change set hardens against).
+    import sqlite3
+    import skein_next.ingress as ing
+
+    def _locked(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(ing, "ingest", _locked)
+    r = app_client.post(
+        "/publish/v0/folios",
+        json={"protocol": wire.PROTOCOL, "folios": [], "threads": []},
+    )
+    assert r.status_code == 503
+    assert r.headers.get("Retry-After") == "1"
+    assert "busy" in r.json()["error"]
+
+
+def test_genuine_operationalerror_is_not_masked_as_503(app_client, monkeypatch):
+    # A non-lock OperationalError is a real fault and must NOT be masked as a
+    # transient 503 — it re-raises (TestClient surfaces it as a server error).
+    import sqlite3
+    import skein_next.ingress as ing
+
+    def _real_fault(*a, **k):
+        raise sqlite3.OperationalError("no such table: folios")
+
+    monkeypatch.setattr(ing, "ingest", _real_fault)
+    with pytest.raises(sqlite3.OperationalError):
+        app_client.post(
+            "/publish/v0/folios",
+            json={"protocol": wire.PROTOCOL, "folios": [], "threads": []},
+        )
+
+
 async def test_client_disconnect_midbody_is_handled_quietly(data_dir):
     # A client that drops mid-body raises starlette ClientDisconnect inside the
     # body-read loop. The route must catch it and return cleanly (no propagating

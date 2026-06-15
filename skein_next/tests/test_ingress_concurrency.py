@@ -12,9 +12,13 @@ busy_timeout so writers serialize and all valid writes commit.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import sqlite3
+
+import pytest
 
 from skein_next.station import Station
 from skein_next.ingress import ingest
+from skein_next.store import SkeinNextStore
 from skein_next import wire
 
 
@@ -64,3 +68,31 @@ def test_concurrent_writers_all_commit_none_mislabeled(tmp_path):
     finally:
         chk.close()
     assert persisted == n
+
+
+def test_failed_begin_immediate_does_not_wedge_store(tmp_path):
+    # If BEGIN IMMEDIATE times out (another connection holds the write lock longer
+    # than busy_timeout), transaction() raises but must leave the store CLEAN —
+    # _in_batch must NOT stay True (which would skip later commits and falsely trip
+    # the not-re-entrant guard). The store must be usable once the lock frees.
+    d = tmp_path / "s" / ".skein-next"
+    SkeinNextStore(d).close()  # materialize
+
+    holder = SkeinNextStore(d, check_same_thread=False)
+    victim = SkeinNextStore(d, check_same_thread=False)
+    victim.conn.execute("PRAGMA busy_timeout=50")  # expire the wait fast
+
+    holder.conn.execute("BEGIN IMMEDIATE")  # hold the write lock
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            with victim.transaction():
+                pass  # never reached — BEGIN IMMEDIATE fails to take the lock
+        assert victim._in_batch is False  # not wedged
+    finally:
+        holder.conn.rollback()
+        holder.close()
+
+    # lock is free now: the victim store re-enters transaction() cleanly
+    with victim.transaction():
+        pass
+    victim.close()

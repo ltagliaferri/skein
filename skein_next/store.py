@@ -341,7 +341,6 @@ class SkeinNextStore:
         """
         if self._in_batch:
             raise RuntimeError("transaction() is not re-entrant")
-        self._in_batch = True
         # BEGIN IMMEDIATE grabs the RESERVED (write) lock up front. A batch reads
         # before it writes (the ingress does get_folio() then create_folio()); with
         # a DEFERRED transaction two connections both take the SHARED read lock and
@@ -351,7 +350,13 @@ class SkeinNextStore:
         # from the start, so busy_timeout actually serializes them. This is what
         # makes concurrent ingress publishes commit instead of being dropped (and
         # mislabeled 'invalid fields'). Read-only stores never take this path.
+        #
+        # The BEGIN runs BEFORE _in_batch is set: if the lock can't be taken within
+        # busy_timeout it raises OperationalError and the store stays clean (no
+        # wedged _in_batch flag that would skip later commits / falsely trip the
+        # not-re-entrant guard). No transaction is open on a failed BEGIN.
         self.conn.execute("BEGIN IMMEDIATE")
+        self._in_batch = True
         try:
             yield self
         except BaseException:

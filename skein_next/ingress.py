@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
@@ -471,6 +472,22 @@ def create_app() -> FastAPI:
             ack = await run_in_threadpool(_do_ingest)
         except BatchShapeError as e:
             return JSONResponse(status_code=400, content={"error": str(e)})
+        except sqlite3.OperationalError as e:
+            # Write-lock contention beyond busy_timeout: BEGIN IMMEDIATE could not
+            # take the lock in time and raised on ENTRY to transaction(), before the
+            # per-item handlers, so it surfaces here. Degrade GRACEFULLY — a 503 the
+            # client can retry — instead of letting it propagate to an uncaught 500
+            # + full ASGI traceback per request (the log-amplification DoS this same
+            # change set hardens against). A genuine (non-lock) OperationalError is a
+            # real fault: re-raise it so it is not masked as transient.
+            if "lock" not in str(e).lower() and "busy" not in str(e).lower():
+                raise
+            logger.warning("ingress write-lock contention; returning 503: %s", e)
+            return JSONResponse(
+                status_code=503,
+                content={"error": "instance busy, retry shortly"},
+                headers={"Retry-After": "1"},
+            )
         return JSONResponse(status_code=200, content=ack)
 
     return app

@@ -184,6 +184,23 @@ def test_verify_wire_manifest_oversized_leaf_list_rejects_cleanly():  # VM7
     assert verified is False and reason == "manifest malformed"
 
 
+def test_verify_wire_manifest_leaf_count_over_max_rejects_before_merkle():  # VM7
+    # A hostile descriptor declaring leaf_count beyond the absolute cap is rejected
+    # 'manifest malformed' by the length-bound (VM7), BEFORE any decode / merkle
+    # recompute — so a public attacker cannot force unbounded work with a huge
+    # declared count. leaf_list stays empty (len 0 <= leaf_count) so this exercises
+    # the leaf_count > _MAX_LEAVES branch specifically, not len(leaf_list) > leaf_count.
+    ms = {
+        "descriptor": {"root": _addr(b"root"), "leaf_count": sign_mod._MAX_LEAVES + 1},
+        "leaf_list": [],
+        "signature_bundle": "ignored — the bound fires before the bundle is touched",
+    }
+    verified, reason, identity = sign_mod.verify_wire_manifest(ms, _binding_verifier)
+    assert (verified, reason, identity) == (False, "manifest malformed", None)
+    # the cap is a sane public ceiling, not the old 1M
+    assert sign_mod._MAX_LEAVES == 2048
+
+
 def test_membership_by_root_recompute():  # VM8
     ms = sign_mod.build_manifest([A, B])
     assert canon.manifest_membership(ms["leaf_list"], ms["root"], A) is True

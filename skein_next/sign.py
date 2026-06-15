@@ -85,8 +85,12 @@ Verifier = Callable[[bytes, Any], "signing.MultiVerifyResult"]
 
 # Absolute DoS cap on a manifest's declared leaf set, enforced at the verifier
 # before any decode / merkle recompute (VM7), so a hostile huge list is never
-# processed into unbounded work. Far above any real publish.
-_MAX_LEAVES = 1_000_000
+# processed into unbounded work. Sized for the PUBLIC write surface: a real
+# publish is a handful of leaves (the live migration was 5), so 2048 is ~400x
+# the largest real batch yet still bounds the merkle recompute hard against a
+# hostile declared leaf_count. (Was 1_000_000 — far too loose for a public
+# endpoint; oracle flagged it both Phase-4 hardening rounds.)
+_MAX_LEAVES = 2048
 
 
 def make_oidc_signer(

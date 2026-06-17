@@ -43,6 +43,22 @@ def _now_micros() -> str:
     return _iso_micros(datetime.now(timezone.utc))
 
 
+def sqlite_error_is_lock(e: sqlite3.OperationalError) -> bool:
+    """Whether an OperationalError is write-lock contention (SQLITE_BUSY/LOCKED).
+
+    Discriminate on the numeric SQLite result code (the robust signal): mask the
+    EXTENDED ``sqlite_errorcode`` (Python >= 3.11; absent on a hand-built exception)
+    to the primary byte so lock-family extended codes count too, and fall back to
+    the (stable) message text only when there is no code at all. Shared by the
+    ingress routes (transient lock -> retryable 503) and the store's best-effort
+    refund (a lost lock on a non-critical counter give-back is swallowed)."""
+    code = getattr(e, "sqlite_errorcode", None)
+    primary = (code & 0xFF) if isinstance(code, int) else None
+    return primary in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
+        primary is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
+    )
+
+
 def bundle_hash_for(bundle_json: str) -> str:
     """The verify_cache bundle key: sha256 over a manifest's stored bundle_json.
 
@@ -1327,14 +1343,24 @@ class SkeinNextStore:
         and eventually rate-limit a legitimate, already-successful redeemer (the
         INV-6 regression caught in fell r2). A bogus-proof attacker cannot reach
         this path (their verify fails), so the flood backstop is unaffected. Single
-        atomic UPDATE, floored at 0."""
-        self.conn.execute(
-            "UPDATE invites SET failed_attempts = "
-            "CASE WHEN failed_attempts > 0 THEN failed_attempts - 1 ELSE 0 END "
-            "WHERE token_hash = ?",
-            (token_hash,),
-        )
-        self._maybe_commit()
+        atomic UPDATE, floored at 0.
+
+        BEST-EFFORT on a write-lock: this runs AFTER the redeem has already
+        committed (the binding is durable), so a lost lock here must NOT surface as a
+        spurious 503 for a redeem that succeeded. A lock error is swallowed (the
+        counter merely over-counts by 1 and self-heals on the next success or window
+        rollover); any other OperationalError is a real fault and propagates."""
+        try:
+            self.conn.execute(
+                "UPDATE invites SET failed_attempts = "
+                "CASE WHEN failed_attempts > 0 THEN failed_attempts - 1 ELSE 0 END "
+                "WHERE token_hash = ?",
+                (token_hash,),
+            )
+            self._maybe_commit()
+        except sqlite3.OperationalError as exc:
+            if not sqlite_error_is_lock(exc):
+                raise
 
     def log_redeem_failure(self, token_hash: str, reason: Optional[str] = None) -> None:
         """Append a 'redeem_failed' audit event (operator forensics). The attempt

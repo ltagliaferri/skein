@@ -137,24 +137,32 @@ def redeem(
 
     now = datetime.now(timezone.utc)
     used = row.get("used_at") is not None
-    # Expiry blocks a FIRST redeem only; a burned invite stays idempotently
-    # redeemable by its bound identity (INV-6) regardless of expiry.
+    # Per-token flood cap (INV-5) applies ONLY to an UNUSED token. Its purpose is the
+    # leaked-but-UNUSED-token expensive-verify flood, where the prize is binding an
+    # innocent identity — a token not burned until success can drive repeated
+    # verifies. A BURNED token has no binding to steal (it is already bound, and the
+    # only consequential outcome left is the bound identity's idempotent OK_ALREADY),
+    # so capping its verifies would only let an attacker holding the spent token
+    # poison the counter and deny the legitimate author's lost-ack retry (INV-6).
+    # The residual crypto-DoS on a burned token is bounded by the nginx per-IP
+    # redeem_zone, the same front-line as every other crypto-doing route.
+    reserved = False
     if not used:
+        # Expiry blocks a FIRST redeem only; a burned invite stays idempotently
+        # redeemable by its bound identity (INV-6) regardless of expiry.
         expires = _parse(row.get("expires_at"))
         if expires is None or expires <= now:
             return RedeemResult(False, RedeemStatus.EXPIRED, "this invite has expired; ask the operator for a new one")
-
-    # Per-token flood cap (INV-5). An ADVISORY lock-free pre-check on the already-
-    # fetched row sheds a clear flood before taking any lock; the AUTHORITATIVE gate
-    # is the atomic conditional UPDATE in reserve_redeem_attempt (a check-then-act
-    # gate alone is racy — concurrent attempts all pass a stale read and all reach
-    # verify_multi). reserve counts the attempt tentatively; a verified success
-    # refunds it below, so only NET FAILURES accrue (INV-6: a bound author's
-    # idempotent retries never rate-limit themselves).
-    if _attempts_exceeded(row, now, attempt_cap, attempt_window_seconds):
-        return RedeemResult(False, RedeemStatus.RATE_LIMITED, "too many failed attempts on this invite; try again later")
-    if not station.store.reserve_redeem_attempt(token_hash, attempt_cap, attempt_window_seconds):
-        return RedeemResult(False, RedeemStatus.RATE_LIMITED, "too many failed attempts on this invite; try again later")
+        # An ADVISORY lock-free pre-check on the already-fetched row sheds a clear
+        # flood before taking any lock; the AUTHORITATIVE gate is the atomic
+        # conditional UPDATE in reserve_redeem_attempt (a check-then-act gate alone
+        # is racy). reserve counts the attempt tentatively; a verified success
+        # refunds it below, so only NET FAILURES accrue.
+        if _attempts_exceeded(row, now, attempt_cap, attempt_window_seconds):
+            return RedeemResult(False, RedeemStatus.RATE_LIMITED, "too many failed attempts on this invite; try again later")
+        if not station.store.reserve_redeem_attempt(token_hash, attempt_cap, attempt_window_seconds):
+            return RedeemResult(False, RedeemStatus.RATE_LIMITED, "too many failed attempts on this invite; try again later")
+        reserved = True
 
     # (b) verify_multi OUTSIDE any transaction, holding NO lock (INV-2 step b). The
     # binding is station-authoritative: token_hash is from OUR token, origin/route
@@ -177,8 +185,9 @@ def redeem(
     # success, not a failure. A burned token presented by a DIFFERENT (validly
     # signed) identity is a real reject and counts toward the flood cap.
     if used:
+        # No cap was reserved on the used path, so nothing to refund — the bound
+        # identity's idempotent retry always reaches here regardless of the counter.
         if row.get("bound_issuer") == issuer and row.get("bound_subject") == subject:
-            station.store.refund_redeem_attempt(token_hash)  # verified success: not a failure
             return RedeemResult(True, RedeemStatus.OK_ALREADY, "already redeemed (idempotent)", issuer, subject)
         station.store.log_redeem_failure(token_hash, reason="already redeemed")
         return RedeemResult(False, RedeemStatus.ALREADY_REDEEMED, "this invite has already been redeemed")
@@ -186,7 +195,8 @@ def redeem(
     # (c) the SHORT write transaction: CAS burn + bind (INV-2 step c / INV-3).
     cas = station.store.redeem_invite_cas(token_hash, issuer, subject)
     if cas == "redeemed":
-        station.store.refund_redeem_attempt(token_hash)  # verified success: not a failure
+        if reserved:
+            station.store.refund_redeem_attempt(token_hash)  # verified success: not a failure
         return RedeemResult(True, RedeemStatus.OK_REDEEMED, "redeemed", issuer, subject)
     if cas == "revoked_identity":
         return RedeemResult(
@@ -204,7 +214,8 @@ def redeem(
         and fresh.get("bound_issuer") == issuer
         and fresh.get("bound_subject") == subject
     ):
-        station.store.refund_redeem_attempt(token_hash)  # verified success: not a failure
+        if reserved:
+            station.store.refund_redeem_attempt(token_hash)  # verified success: not a failure
         return RedeemResult(True, RedeemStatus.OK_ALREADY, "already redeemed (idempotent)", issuer, subject)
     return RedeemResult(False, RedeemStatus.RACE_LOST, "this invite is no longer valid")
 

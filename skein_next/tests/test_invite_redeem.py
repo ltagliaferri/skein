@@ -366,6 +366,23 @@ def test_bad_attempts_then_success_then_idempotent_retry(station):
     assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
 
 
+def test_burned_token_flood_cannot_block_bound_author_retry(station):
+    # fell r3 (Codex): the cap applies ONLY to unused tokens, so an attacker who has
+    # the token AFTER redemption cannot poison the counter to deny the bound author's
+    # idempotent retry (INV-6). Malformed floods on a burned token are rejected but
+    # do NOT count toward the cap (no reserve on the used path).
+    token, th = _mint(station)
+    assert _do(station, token).ok  # fresh redeem (burns)
+    bad = {"nonce": "n", "issued_at": "t", "signature_bundle": "not-json"}
+    for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP * 4):  # far past cap
+        r = redeem_mod.redeem(station, token, bad, ORIGIN, verifier=_binding_verifier())
+        assert not r.ok and r.status == redeem_mod.RedeemStatus.PROOF_MALFORMED  # never rate_limited
+    assert station.store.get_invite_by_token_hash(th)["failed_attempts"] == 0  # counter not poisoned
+    # the bound author's lost-ack retry still succeeds despite the flood
+    r = _do(station, token)
+    assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
+
+
 def test_redeem_already_redeemed_by_other_identity(station):
     token, th = _mint(station)
     assert _do(station, token).ok

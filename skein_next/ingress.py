@@ -43,7 +43,7 @@ from . import sign as _sign
 from . import redeem as _redeem
 from .authorization import default_bindings
 from .identity import content_hash_for_bytes
-from .store import bundle_hash_for
+from .store import bundle_hash_for, sqlite_error_is_lock
 
 logger = logging.getLogger(__name__)
 
@@ -83,21 +83,10 @@ ENV_ORIGIN = "SKEIN_NEXT_ORIGIN"
 # per-IP limit_req zone (deploy/nginx).
 REDEEM_MAX_BYTES = 64 * 1024
 
-
-def _sqlite_error_is_lock(e: sqlite3.OperationalError) -> bool:
-    """Whether an OperationalError is write-lock contention (SQLITE_BUSY/LOCKED).
-
-    Discriminate on the numeric SQLite result code (the robust signal): mask the
-    EXTENDED ``sqlite_errorcode`` (Python >= 3.11; absent on a hand-built exception)
-    to the primary byte so lock-family extended codes count too, and fall back to
-    the (stable) message text only when there is no code at all. Shared by the
-    publish and redeem routes so a transient lock degrades to a retryable 503 on
-    both, and a genuine (non-lock) fault still surfaces."""
-    code = getattr(e, "sqlite_errorcode", None)
-    primary = (code & 0xFF) if isinstance(code, int) else None
-    return primary in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
-        primary is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
-    )
+# The publish + redeem routes both degrade a transient write-lock to a retryable
+# 503; the discrimination lives in store.sqlite_error_is_lock (also used by the
+# store's best-effort refund), one source of truth.
+_sqlite_error_is_lock = sqlite_error_is_lock
 
 # Absolute byte cap on a publish request body, enforced BEFORE the body is fully
 # buffered or JSON-parsed, so a hostile client cannot force unbounded parse/memory

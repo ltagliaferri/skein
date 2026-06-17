@@ -1278,9 +1278,11 @@ class SkeinNextStore:
         that hole. Returns True if a slot was reserved (proceed to crypto), False if
         the cap is already met within the live window (reject as rate-limited).
 
-        Counts EVERY verify attempt (the cost being bounded IS the crypto, success
-        or fail); a successful fresh redeem burns the token so the counter is moot
-        thereafter. Best-effort False on a vanished row."""
+        Counts each attempt TENTATIVELY (it cannot know the outcome before crypto);
+        a verified success calls :meth:`refund_redeem_attempt` to give its slot
+        back, so ``failed_attempts`` accrues only NET FAILURES — true to the column
+        name and not penalizing a bound author's idempotent retries (INV-6).
+        Best-effort False on a vanished row."""
         with self.transaction():
             row = self.conn.execute(
                 "SELECT failed_attempts, attempts_window_start FROM invites WHERE token_hash = ?",
@@ -1313,6 +1315,26 @@ class SkeinNextStore:
                     (now.isoformat(), token_hash),
                 )
             return True
+
+    def refund_redeem_attempt(self, token_hash: str) -> None:
+        """Refund one reserved verify slot after a VERIFIED success (INV-5/INV-6).
+
+        :meth:`reserve_redeem_attempt` tentatively counts EVERY attempt before
+        crypto (it cannot know the outcome yet). A legitimate success — a fresh
+        redeem or an idempotent re-redeem by the bound identity — then refunds its
+        reservation here, so the counter accrues only NET FAILURES. Without this, a
+        bound author's lost-ack retries (idempotent OK) would each consume a slot
+        and eventually rate-limit a legitimate, already-successful redeemer (the
+        INV-6 regression caught in fell r2). A bogus-proof attacker cannot reach
+        this path (their verify fails), so the flood backstop is unaffected. Single
+        atomic UPDATE, floored at 0."""
+        self.conn.execute(
+            "UPDATE invites SET failed_attempts = "
+            "CASE WHEN failed_attempts > 0 THEN failed_attempts - 1 ELSE 0 END "
+            "WHERE token_hash = ?",
+            (token_hash,),
+        )
+        self._maybe_commit()
 
     def log_redeem_failure(self, token_hash: str, reason: Optional[str] = None) -> None:
         """Append a 'redeem_failed' audit event (operator forensics). The attempt

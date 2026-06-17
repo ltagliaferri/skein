@@ -823,7 +823,10 @@ def redeem_invite(
 
     if not login:
         raise click.ClickException("redeem-invite needs --login (the Sigstore OIDC ceremony).")
-    origin = origin or _publish.canonical_instance(instance_url)
+    # Canonicalize the signed origin the SAME way the station canonicalizes
+    # SKEIN_NEXT_ORIGIN (publish.canonical_instance), whether it came from --origin
+    # or defaulted to --to, so an explicit but non-canonical --origin still matches.
+    origin = _publish.canonical_instance(origin or instance_url)
     # The Rekor-consent stop (hard human-confirm). Required especially under --oob on
     # a headless box where there is no other human-in-the-loop; abort if declined.
     if not yes:

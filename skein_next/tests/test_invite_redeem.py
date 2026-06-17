@@ -341,6 +341,31 @@ def test_redeem_idempotent_same_identity(station):
     assert (r2.issuer, r2.subject) == (ISSUER, SUBJECT)
 
 
+def test_idempotent_retries_do_not_exhaust_cap(station):
+    # INV-6 must survive the flood cap (fell r2): a bound author's lost-ack retries
+    # are verified successes and refund their reserved slot, so MANY more than `cap`
+    # retries all return OK_ALREADY — never rate_limited.
+    token, th = _mint(station)
+    assert _do(station, token).ok  # fresh redeem (burns)
+    for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP * 3):
+        r = _do(station, token)
+        assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
+    # net-failure counter stayed low (successes refunded their reservation)
+    assert station.store.get_invite_by_token_hash(th)["failed_attempts"] <= 1
+
+
+def test_bad_attempts_then_success_then_idempotent_retry(station):
+    # cap-1 bogus attempts, then a real redeem, then a lost-ack retry must succeed —
+    # the success refunds so the prior failures don't tip a legit retry over the cap.
+    token, th = _mint(station)
+    bad = {"nonce": "n", "issued_at": "t", "signature_bundle": "not-json"}
+    for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP - 1):
+        assert not redeem_mod.redeem(station, token, bad, ORIGIN, verifier=_binding_verifier()).ok
+    assert _do(station, token).ok  # real redeem succeeds (advisory cap not yet hit)
+    r = _do(station, token)  # lost-ack retry
+    assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
+
+
 def test_redeem_already_redeemed_by_other_identity(station):
     token, th = _mint(station)
     assert _do(station, token).ok

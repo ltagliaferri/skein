@@ -183,7 +183,8 @@ def redeem(
     # INV-6 — idempotent re-redeem. If the token is already burned AND bound to the
     # SAME identity now presenting a valid token-bound proof, a lost-ack retry is a
     # success, not a failure. A burned token presented by a DIFFERENT (validly
-    # signed) identity is a real reject and counts toward the flood cap.
+    # signed) identity is a real reject (logged for the operator); the used path
+    # does not reserve, so neither outcome touches the flood cap.
     if used:
         # The used path never reserves, so the bound identity's idempotent retry
         # always reaches here regardless of the counter (INV-6 holds unconditionally).

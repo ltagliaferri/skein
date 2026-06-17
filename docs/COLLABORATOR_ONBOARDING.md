@@ -15,7 +15,7 @@ the Rekor-consent stop for you to confirm.
 4. Your agent redeems the invite:
 
    ```bash
-   interskein redeem-invite <token> --to https://interskein.com --login
+   interskein redeem-invite <token> --to https://ingress.interskein.com --login
    ```
 
    This runs a Sigstore login (the human-accountability gate) and signs a proof

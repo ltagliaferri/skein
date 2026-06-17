@@ -1237,17 +1237,21 @@ class SkeinNextStore:
         return [dict(r) for r in self.conn.execute(sql).fetchall()]
 
     def revoke_invite(self, token_hash: str) -> bool:
-        """Revoke an ACTIVE (unrevoked) invite. Returns False if there is no such
-        row to revoke (absent or already revoked) — no exception, no row created.
+        """Revoke an OUTSTANDING (unredeemed, unrevoked) invite. Returns False if
+        there is no such row (absent, already revoked, OR already redeemed) — no
+        exception, no row created.
 
-        Revocation is independent of redemption: revoking an already-USED invite is
-        a no-op-shaped success only insofar as it sets revoked_at (the binding it
-        produced is revoked separately via ``account revoke``). The CAS redeem path
-        re-checks ``revoked_at IS NULL``, so revoking an unused invite that a race
-        is mid-redeeming is honored: whichever write commits first wins under the
-        single-writer lock."""
+        Restricted to ``used_at IS NULL`` so a REDEEMED invite cannot be revoked: a
+        redemption produces an account binding, and the operator revokes that
+        binding via ``account revoke`` — revoking the spent invite would only hide
+        its operator-visible 'redeemed by <subject>' state (the display state
+        prioritizes revoked_at) and make a legitimate idempotent re-redeem fail
+        early. The CAS redeem path re-checks ``revoked_at IS NULL``, so revoking an
+        unused invite that a race is mid-redeeming is honored under the single-
+        writer lock: whichever write commits first wins."""
         cur = self.conn.execute(
-            "UPDATE invites SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+            "UPDATE invites SET revoked_at = ? "
+            "WHERE token_hash = ? AND revoked_at IS NULL AND used_at IS NULL",
             (_now_iso(), token_hash),
         )
         if cur.rowcount == 0:
@@ -1257,46 +1261,64 @@ class SkeinNextStore:
         self._maybe_commit()
         return True
 
-    def bump_invite_failure(
-        self, token_hash: str, window_seconds: int, reason: Optional[str] = None
-    ) -> None:
-        """Record one FAILED redeem attempt against a token (INV-5 flood backstop).
+    def reserve_redeem_attempt(
+        self, token_hash: str, cap: int, window_seconds: int
+    ) -> bool:
+        """Atomically reserve one verify attempt against a token, or refuse (INV-5).
 
-        A rolling window: if the prior window has elapsed (or none exists) the
-        counter resets to 1 and the window restarts; otherwise it increments. A
-        leaked valid-but-unused token is not burned until a SUCCESSFUL redeem, so
-        without this an attacker could drive unbounded expensive verifies against
-        it; the pre-crypto gate reads ``failed_attempts`` and rejects once the cap
-        is hit within the window. Logs a 'redeem_failed' event (audit). Best-effort
-        on a vanished row (token revoked/redeemed between verify and bump)."""
-        row = self.conn.execute(
-            "SELECT failed_attempts, attempts_window_start FROM invites WHERE token_hash = ?",
-            (token_hash,),
-        ).fetchone()
-        if row is None:
-            self._maybe_commit()
-            return
-        now = datetime.now(timezone.utc)
-        window_start = row["attempts_window_start"]
-        within_window = False
-        if window_start is not None:
-            try:
-                started = datetime.fromisoformat(window_start)
-                within_window = (now - started).total_seconds() <= window_seconds
-            except ValueError:
-                within_window = False
-        if within_window:
-            new_count = (row["failed_attempts"] or 0) + 1
-            self.conn.execute(
-                "UPDATE invites SET failed_attempts = ? WHERE token_hash = ?",
-                (new_count, token_hash),
-            )
-        else:
-            self.conn.execute(
-                "UPDATE invites SET failed_attempts = 1, attempts_window_start = ? "
-                "WHERE token_hash = ?",
-                (now.isoformat(), token_hash),
-            )
+        The per-token flood backstop, made CONCURRENCY-SAFE: a leaked valid-but-
+        unused token is not burned until a SUCCESSFUL redeem, so an attacker holding
+        it could otherwise drive unbounded expensive ``verify_multi`` calls. This
+        reserves a slot in a SHORT write transaction (BEGIN IMMEDIATE) BEFORE the
+        crypto runs, so concurrent attempts serialize and EXACTLY ``cap`` get
+        through per rolling ``window_seconds``; the rest are refused here, cheaply,
+        with no crypto. A check-then-increment (read the count, verify, then bump)
+        is racy — N concurrent requests all pass the pre-check and all run the
+        expensive verify before any increment lands; this conditional UPDATE closes
+        that hole. Returns True if a slot was reserved (proceed to crypto), False if
+        the cap is already met within the live window (reject as rate-limited).
+
+        Counts EVERY verify attempt (the cost being bounded IS the crypto, success
+        or fail); a successful fresh redeem burns the token so the counter is moot
+        thereafter. Best-effort False on a vanished row."""
+        with self.transaction():
+            row = self.conn.execute(
+                "SELECT failed_attempts, attempts_window_start FROM invites WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+            if row is None:
+                return False
+            now = datetime.now(timezone.utc)
+            window_start = row["attempts_window_start"]
+            within_window = False
+            if window_start is not None:
+                try:
+                    started = datetime.fromisoformat(window_start)
+                    within_window = (now - started).total_seconds() <= window_seconds
+                except ValueError:
+                    within_window = False
+            if within_window:
+                if (row["failed_attempts"] or 0) >= cap:
+                    return False  # cap met this window — refuse before crypto
+                self.conn.execute(
+                    "UPDATE invites SET failed_attempts = failed_attempts + 1 "
+                    "WHERE token_hash = ?",
+                    (token_hash,),
+                )
+            else:
+                # window rolled over (or first attempt) — reset to 1, restart window
+                self.conn.execute(
+                    "UPDATE invites SET failed_attempts = 1, attempts_window_start = ? "
+                    "WHERE token_hash = ?",
+                    (now.isoformat(), token_hash),
+                )
+            return True
+
+    def log_redeem_failure(self, token_hash: str, reason: Optional[str] = None) -> None:
+        """Append a 'redeem_failed' audit event (operator forensics). The attempt
+        COUNTER is owned by :meth:`reserve_redeem_attempt` (reserved pre-crypto);
+        this is audit only. Best-effort — the row may have been redeemed/revoked by
+        a concurrent winner between the reserve and here."""
         self._log_invite_event(token_hash, "redeem_failed", detail=reason)
         self._maybe_commit()
 

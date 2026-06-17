@@ -153,6 +153,17 @@ def test_verify_redeem_wrong_origin_is_signature_mismatch():
     assert ok is False and reason == "SIGNATURE_MISMATCH"
 
 
+def test_verify_redeem_wrong_route_is_signature_mismatch():
+    # The route is a signed challenge field: a proof minted for one route cannot be
+    # replayed against another Sigstore-doing route on the same station.
+    token = "tok-xyz"
+    proof, _, _ = sign_mod.sign_redeem_proof(token, ORIGIN, _redeem_signer(), route="/other/route")
+    ok, reason, _ = sign_mod.verify_wire_redeem(
+        proof, hash_token(token), ORIGIN, sign_mod.REDEEM_ROUTE, _binding_verifier()
+    )
+    assert ok is False and reason == "SIGNATURE_MISMATCH"
+
+
 # --- INV-2/3: store CAS burn + revoked-binding guard ------------------------
 
 
@@ -289,6 +300,36 @@ def test_redeem_bad_proof_increments_and_caps(station):
     # cap hit -> next attempt rejected cheaply as rate-limited
     r = redeem_mod.redeem(station, token, bad, ORIGIN, verifier=_binding_verifier())
     assert r.status == redeem_mod.RedeemStatus.RATE_LIMITED
+
+
+def test_attempt_reservation_is_atomic_under_concurrency(tmp_path):
+    # INV-5 made concurrency-safe: many simultaneous reservations against one token
+    # let EXACTLY `cap` through (a check-then-act counter would let all through and
+    # lose increments to read/modify/write races).
+    import concurrent.futures as cf
+
+    inst = tmp_path / "inst" / ".skein-next"
+    s = Station(inst)
+    token, th = _mint(s)
+    s.close()
+    cap = 5
+
+    def reserve(_i):
+        st = Station(inst, check_same_thread=False)
+        try:
+            return st.store.reserve_redeem_attempt(th, cap, 600)
+        finally:
+            st.close()
+
+    with cf.ThreadPoolExecutor(max_workers=20) as ex:
+        outcomes = list(ex.map(reserve, range(20)))
+
+    assert outcomes.count(True) == cap  # exactly cap slots granted, no more
+    check = Station(inst, check_same_thread=False)
+    try:
+        assert check.store.get_invite_by_token_hash(th)["failed_attempts"] == cap
+    finally:
+        check.close()
 
 
 def test_redeem_idempotent_same_identity(station):

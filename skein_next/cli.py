@@ -795,7 +795,7 @@ def whoami(force_oob: bool, output_json: bool) -> None:
 
 @cli.command("redeem-invite")
 @click.argument("token")
-@click.option("--to", "instance_url", required=True, help="Instance origin (e.g. https://interskein.com).")
+@click.option("--to", "instance_url", required=True, help="Public write host from your invite blurb (e.g. https://ingress.interskein.com).")
 @click.option("--login", is_flag=True, help="Run the interactive Sigstore login here (required).")
 @click.option("--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (SSH/headless).")
 @click.option("--origin", default=None, help="Origin signed into the proof (default: the --to value).")
@@ -812,7 +812,7 @@ def redeem_invite(
     a proof that commits to THIS token + THIS station, and POSTs it to the instance,
     which atomically burns the invite and binds your discovered identity.
 
-      interskein redeem-invite <token> --to https://interskein.com --login
+      interskein redeem-invite <token> --to https://ingress.interskein.com --login
 
     On a headless box add --oob (out-of-band code flow). Redeeming writes your
     token's hash + your identity to the PUBLIC Rekor transparency log — you are

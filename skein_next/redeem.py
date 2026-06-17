@@ -73,23 +73,19 @@ class RedeemResult:
 
 
 def _parse(ts: Optional[str]) -> Optional[datetime]:
+    """Parse a stored ISO stamp to an aware UTC datetime (None on absent/garbage).
+
+    A naive stamp is assumed UTC; an aware one is converted to UTC — so a later
+    ``<= now`` comparison is always tz-consistent regardless of the stored offset."""
     if not ts:
         return None
     try:
         dt = datetime.fromisoformat(ts)
     except ValueError:
         return None
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-
-
-def _attempts_exceeded(row: dict, now: datetime, cap: int, window_seconds: int) -> bool:
-    """Whether this token has hit the failed-attempt cap within the live window."""
-    started = _parse(row.get("attempts_window_start"))
-    if started is None:
-        return False
-    if (now - started).total_seconds() > window_seconds:
-        return False  # window rolled over; the stale counter no longer applies
-    return (row.get("failed_attempts") or 0) >= cap
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def redeem(
@@ -131,18 +127,22 @@ def redeem(
         if expires is None or expires <= now:
             return RedeemResult(False, RedeemStatus.EXPIRED, "this invite has expired; ask the operator for a new one")
 
-    # Per-token flood cap (INV-5), still BEFORE any crypto.
-    if _attempts_exceeded(row, now, attempt_cap, attempt_window_seconds):
+    # Per-token flood cap (INV-5), enforced ATOMICALLY before any crypto: reserve a
+    # verify slot in a short write tx. A check-then-act gate is racy — concurrent
+    # attempts would all pass a pre-read and all reach verify_multi; the conditional
+    # UPDATE inside reserve_redeem_attempt lets exactly `cap` through per window.
+    if not station.store.reserve_redeem_attempt(token_hash, attempt_cap, attempt_window_seconds):
         return RedeemResult(False, RedeemStatus.RATE_LIMITED, "too many failed attempts on this invite; try again later")
 
     # (b) verify_multi OUTSIDE any transaction, holding NO lock (INV-2 step b). The
     # binding is station-authoritative: token_hash is from OUR token, origin/route
-    # are OURS — never wire-claimed.
+    # are OURS — never wire-claimed. The reserve above already committed and released
+    # its lock, so no transaction is open across this Sigstore round-trip.
     verified, vreason, identity = _sign.verify_wire_redeem(
         proof, token_hash, origin, route, verifier
     )
     if not verified:
-        station.store.bump_invite_failure(token_hash, attempt_window_seconds, reason=vreason)
+        station.store.log_redeem_failure(token_hash, reason=vreason)
         if vreason in _PROOF_SHAPE_REASONS:
             return RedeemResult(False, RedeemStatus.PROOF_MALFORMED, f"redeem proof rejected: {vreason}")
         return RedeemResult(False, RedeemStatus.PROOF_REJECTED, f"redeem proof rejected: {vreason}")
@@ -157,7 +157,7 @@ def redeem(
     if used:
         if row.get("bound_issuer") == issuer and row.get("bound_subject") == subject:
             return RedeemResult(True, RedeemStatus.OK_ALREADY, "already redeemed (idempotent)", issuer, subject)
-        station.store.bump_invite_failure(token_hash, attempt_window_seconds, reason="already redeemed")
+        station.store.log_redeem_failure(token_hash, reason="already redeemed")
         return RedeemResult(False, RedeemStatus.ALREADY_REDEEMED, "this invite has already been redeemed")
 
     # (c) the SHORT write transaction: CAS burn + bind (INV-2 step c / INV-3).

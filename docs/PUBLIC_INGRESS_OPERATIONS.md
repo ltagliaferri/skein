@@ -90,15 +90,26 @@ The ingress runs as a compose service sharing the served corpus read-write
 `SKEIN_NEXT_REQUIRE_SIGNED=1`.
 
 **`SKEIN_NEXT_ORIGIN` (required for `/invite/redeem`).** The redeem ceremony binds
-the collaborator's Sigstore proof to this station's canonical origin (the same
-string the collaborator passes as `--to`). Set it on the ingress service env:
+the collaborator's Sigstore proof to this station's canonical origin. **It must be
+the public host that actually serves `/invite/redeem`** — i.e. the same value the
+collaborator passes as `--to` — because that one value is both the POST endpoint
+and the signed-origin the station reconstructs. Per the vhost (`server_name
+ingress.interskein.com`) the served write host is `ingress.interskein.com`, so:
 
 ```yaml
   environment:
     - SKEIN_NEXT_DATA_DIR=/data
     - SKEIN_NEXT_REQUIRE_SIGNED=1
-    - SKEIN_NEXT_ORIGIN=https://interskein.com   # NEW — redeem token-binding
+    - SKEIN_NEXT_ORIGIN=https://ingress.interskein.com   # NEW — redeem token-binding
 ```
+
+The station canonicalizes this value the same way the client canonicalizes `--to`
+(lowercase scheme+host, drop default ports and trailing slash), so a stray trailing
+slash is tolerated. But the **host** must match where the route is served: if you
+front the write surface on the apex instead, set this to the apex and point
+collaborators there. **Confirm against the LIVE endpoint** (a real
+`redeem-invite ... --login` reaches the route and binds) in the hardening pass —
+a host mismatch fails closed (SIGNATURE_MISMATCH / unreachable), never silently.
 
 If it is unset, `/publish` is unaffected but `/invite/redeem` refuses to operate
 (returns 503 "redeem is not configured") — it cannot reconstruct a token-bound
@@ -131,12 +142,12 @@ fallback when you already know the identity.
 ```bash
 # 1. mint a one-time invite (token shown ONCE; only its hash is stored)
 interskein --data-dir /data account invite mint --role author \
-  --expires 7d --note "Alice" --origin https://interskein.com
+  --expires 7d --note "Alice" --origin https://ingress.interskein.com
 #    -> prints the token + a ready-to-send blurb. Send it to the collaborator
 #       OUT OF BAND (you vouch for the human, not the channel).
 
 # 2. the collaborator's agent redeems it (their side):
-#    interskein redeem-invite <token> --to https://interskein.com --login
+#    interskein redeem-invite <token> --to https://ingress.interskein.com --login
 #    -> a token-bound Sigstore ceremony auto-binds them as an author.
 
 # 3. see who redeemed (operator-visible — a hostile bind is detectable here):

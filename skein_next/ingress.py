@@ -439,9 +439,18 @@ def create_app() -> FastAPI:
         )
 
     # The station's authoritative origin for the redeem token-binding (INV-1). Read
-    # ONCE at app creation. If unset, the redeem route refuses to operate (it cannot
-    # reconstruct a token-bound challenge without it); /publish is unaffected.
-    redeem_origin = os.environ.get(ENV_ORIGIN)
+    # ONCE at app creation. CANONICALIZED with the same normalizer the client uses
+    # on its --to value (publish.canonical_instance: lowercase scheme+host, drop
+    # default ports and trailing slash) so the station reconstructs the EXACT string
+    # the collaborator signed over. Without this a trailing slash / uppercase scheme
+    # / explicit :443 in SKEIN_NEXT_ORIGIN would diverge from the client's
+    # canonicalized origin and SIGNATURE_MISMATCH every redeem (fail-closed, but an
+    # availability footgun). If unset, the redeem route refuses to operate; /publish
+    # is unaffected.
+    from .publish import canonical_instance as _canonical_instance
+
+    _raw_origin = os.environ.get(ENV_ORIGIN)
+    redeem_origin = _canonical_instance(_raw_origin) if _raw_origin else None
     if redeem_origin:
         logger.info("ingress redeem origin: %s", redeem_origin)
     else:

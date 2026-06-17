@@ -84,8 +84,7 @@ ENV_ORIGIN = "SKEIN_NEXT_ORIGIN"
 REDEEM_MAX_BYTES = 64 * 1024
 
 # The publish + redeem routes both degrade a transient write-lock to a retryable
-# 503; the discrimination lives in store.sqlite_error_is_lock (also used by the
-# store's best-effort refund), one source of truth.
+# 503; the discrimination lives in store.sqlite_error_is_lock — one source of truth.
 _sqlite_error_is_lock = sqlite_error_is_lock
 
 # Absolute byte cap on a publish request body, enforced BEFORE the body is fully

@@ -49,9 +49,9 @@ def sqlite_error_is_lock(e: sqlite3.OperationalError) -> bool:
     Discriminate on the numeric SQLite result code (the robust signal): mask the
     EXTENDED ``sqlite_errorcode`` (Python >= 3.11; absent on a hand-built exception)
     to the primary byte so lock-family extended codes count too, and fall back to
-    the (stable) message text only when there is no code at all. Shared by the
-    ingress routes (transient lock -> retryable 503) and the store's best-effort
-    refund (a lost lock on a non-critical counter give-back is swallowed)."""
+    the (stable) message text only when there is no code at all. Used by the ingress
+    publish + redeem routes to degrade a transient lock to a retryable 503 while a
+    genuine (non-lock) fault still surfaces."""
     code = getattr(e, "sqlite_errorcode", None)
     primary = (code & 0xFF) if isinstance(code, int) else None
     return primary in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
@@ -1294,11 +1294,13 @@ class SkeinNextStore:
         that hole. Returns True if a slot was reserved (proceed to crypto), False if
         the cap is already met within the live window (reject as rate-limited).
 
-        Counts each attempt TENTATIVELY (it cannot know the outcome before crypto);
-        a verified success calls :meth:`refund_redeem_attempt` to give its slot
-        back, so ``failed_attempts`` accrues only NET FAILURES — true to the column
-        name and not penalizing a bound author's idempotent retries (INV-6).
-        Best-effort False on a vanished row."""
+        Counts every attempt on the UNUSED-token path. The counter is consulted
+        ONLY here and in the advisory pre-check, both gated on ``not used`` — and the
+        token burns on the single success that follows a passing reserve, after
+        which the used-token idempotent path never reserves. So a verified success
+        needs no refund (the counter is never read again for this token), and a bound
+        author's idempotent retries are never cap-gated (INV-6). Best-effort False on
+        a vanished row."""
         with self.transaction():
             row = self.conn.execute(
                 "SELECT failed_attempts, attempts_window_start FROM invites WHERE token_hash = ?",
@@ -1331,36 +1333,6 @@ class SkeinNextStore:
                     (now.isoformat(), token_hash),
                 )
             return True
-
-    def refund_redeem_attempt(self, token_hash: str) -> None:
-        """Refund one reserved verify slot after a VERIFIED success (INV-5/INV-6).
-
-        :meth:`reserve_redeem_attempt` tentatively counts EVERY attempt before
-        crypto (it cannot know the outcome yet). A legitimate success — a fresh
-        redeem or an idempotent re-redeem by the bound identity — then refunds its
-        reservation here, so the counter accrues only NET FAILURES. Without this, a
-        bound author's lost-ack retries (idempotent OK) would each consume a slot
-        and eventually rate-limit a legitimate, already-successful redeemer (the
-        INV-6 regression caught in fell r2). A bogus-proof attacker cannot reach
-        this path (their verify fails), so the flood backstop is unaffected. Single
-        atomic UPDATE, floored at 0.
-
-        BEST-EFFORT on a write-lock: this runs AFTER the redeem has already
-        committed (the binding is durable), so a lost lock here must NOT surface as a
-        spurious 503 for a redeem that succeeded. A lock error is swallowed (the
-        counter merely over-counts by 1 and self-heals on the next success or window
-        rollover); any other OperationalError is a real fault and propagates."""
-        try:
-            self.conn.execute(
-                "UPDATE invites SET failed_attempts = "
-                "CASE WHEN failed_attempts > 0 THEN failed_attempts - 1 ELSE 0 END "
-                "WHERE token_hash = ?",
-                (token_hash,),
-            )
-            self._maybe_commit()
-        except sqlite3.OperationalError as exc:
-            if not sqlite_error_is_lock(exc):
-                raise
 
     def log_redeem_failure(self, token_hash: str, reason: Optional[str] = None) -> None:
         """Append a 'redeem_failed' audit event (operator forensics). The attempt

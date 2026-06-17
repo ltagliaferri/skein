@@ -342,21 +342,20 @@ def test_redeem_idempotent_same_identity(station):
 
 
 def test_idempotent_retries_do_not_exhaust_cap(station):
-    # INV-6 must survive the flood cap (fell r2): a bound author's lost-ack retries
-    # are verified successes and refund their reserved slot, so MANY more than `cap`
-    # retries all return OK_ALREADY — never rate_limited.
+    # INV-6 must survive the flood cap: a bound author's lost-ack retries hit the
+    # USED-token path, which never reserves, so MANY more than `cap` retries all
+    # return OK_ALREADY — never rate_limited, regardless of the counter.
     token, th = _mint(station)
     assert _do(station, token).ok  # fresh redeem (burns)
     for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP * 3):
         r = _do(station, token)
         assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
-    # net-failure counter stayed low (successes refunded their reservation)
-    assert station.store.get_invite_by_token_hash(th)["failed_attempts"] <= 1
 
 
 def test_bad_attempts_then_success_then_idempotent_retry(station):
-    # cap-1 bogus attempts, then a real redeem, then a lost-ack retry must succeed —
-    # the success refunds so the prior failures don't tip a legit retry over the cap.
+    # cap-1 bogus attempts, then a real redeem (still under the advisory cap), then a
+    # lost-ack retry must succeed — the burn moves it to the used path, which never
+    # reserves, so the prior failures cannot block the legit retry.
     token, th = _mint(station)
     bad = {"nonce": "n", "issued_at": "t", "signature_bundle": "not-json"}
     for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP - 1):
@@ -367,17 +366,19 @@ def test_bad_attempts_then_success_then_idempotent_retry(station):
 
 
 def test_burned_token_flood_cannot_block_bound_author_retry(station):
-    # fell r3 (Codex): the cap applies ONLY to unused tokens, so an attacker who has
-    # the token AFTER redemption cannot poison the counter to deny the bound author's
-    # idempotent retry (INV-6). Malformed floods on a burned token are rejected but
-    # do NOT count toward the cap (no reserve on the used path).
+    # fell r3/hardening: the cap applies ONLY to unused tokens, so an attacker who
+    # has the token AFTER redemption cannot poison the counter to deny the bound
+    # author's idempotent retry (INV-6). Malformed floods on a burned token are
+    # rejected but do NOT touch the counter (no reserve on the used path).
     token, th = _mint(station)
     assert _do(station, token).ok  # fresh redeem (burns)
+    after_burn = station.store.get_invite_by_token_hash(th)["failed_attempts"]
     bad = {"nonce": "n", "issued_at": "t", "signature_bundle": "not-json"}
     for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP * 4):  # far past cap
         r = redeem_mod.redeem(station, token, bad, ORIGIN, verifier=_binding_verifier())
         assert not r.ok and r.status == redeem_mod.RedeemStatus.PROOF_MALFORMED  # never rate_limited
-    assert station.store.get_invite_by_token_hash(th)["failed_attempts"] == 0  # counter not poisoned
+    # the burned-token flood never reserves, so the counter is unchanged (not poisoned)
+    assert station.store.get_invite_by_token_hash(th)["failed_attempts"] == after_burn
     # the bound author's lost-ack retry still succeeds despite the flood
     r = _do(station, token)
     assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY

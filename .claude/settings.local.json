@@ -18,7 +18,8 @@
       "Bash(for name in weftstone ply plumb bedrock keystone adamant knurl)",
       "Bash(do echo -n \"$name: \" pip index versions \"$name\")",
       "Bash(pip index:*)",
-      "mcp__spindle__spool_dashboard"
+      "mcp__spindle__spool_dashboard",
+      "Read(//home/patrick/projects/horizon/**)"
     ],
     "deny": [],
     "ask": []

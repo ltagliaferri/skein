@@ -28,7 +28,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 from skein import signing
 
 from . import canon, profile
-from .identity import content_hash_for_bytes
+from .identity import content_hash_for_bytes, hash_token
 
 DEFAULT_IDENTITY_SCHEME = "sigstore-public-v1"
 
@@ -42,26 +42,67 @@ DEFAULT_IDENTITY_SCHEME = "sigstore-public-v1"
 SIGSTORE_PROD_ISSUER = "https://oauth2.sigstore.dev/auth"
 
 
+@dataclass(frozen=True)
+class OIDCSession:
+    """A completed OIDC ceremony: the provider config plus the discovered identity.
+
+    ``subject`` is the OIDC identity (the email/SAN the IdentityToken carries) —
+    the SAME value Fulcio embeds in the leaf cert SAN that ``verify_multi`` later
+    extracts (modulo the verify-side NFC normalization), so it is what an
+    ``account add`` / a redeem bind will record. Reading it here closes the
+    subject-discovery gap WITHOUT a Fulcio cert or a Rekor entry (finding-20260615-61z7)."""
+
+    provider: "signing.OIDCProviderConfig"
+    issuer: str
+    subject: str
+
+
+def _identity_token(issuer_url: Optional[str], force_oob: bool) -> Any:
+    """Run the interactive Sigstore OIDC flow; return the raw IdentityToken."""
+    from sigstore.oidc import Issuer  # lazy: only the ceremony needs the browser flow
+
+    return Issuer(issuer_url or SIGSTORE_PROD_ISSUER).identity_token(force_oob=force_oob)
+
+
+def _provider_from_token(identity_token: Any) -> "signing.OIDCProviderConfig":
+    return signing.OIDCProviderConfig(
+        issuer=identity_token.issuer,
+        token=str(identity_token),
+        provider_id=None,
+    )
+
+
+def acquire_oidc_session(
+    issuer_url: Optional[str] = None,
+    force_oob: bool = False,
+) -> OIDCSession:
+    """Run the interactive Sigstore OIDC flow and return provider + identity.
+
+    The human-accountability gate: opens a browser (or, with ``force_oob``, prints
+    a URL to paste a code back — for SSH/headless). Reads ``issuer`` and the
+    discovered ``subject`` straight off the IdentityToken (no cert, no Rekor entry),
+    and packages a provider whose token signs under that identity. Network +
+    interactive by nature — exercised at the ceremony, not in CI."""
+    identity_token = _identity_token(issuer_url, force_oob)
+    return OIDCSession(
+        provider=_provider_from_token(identity_token),
+        issuer=identity_token.issuer,
+        subject=identity_token.identity,
+    )
+
+
 def acquire_oidc_provider(
     issuer_url: Optional[str] = None,
     force_oob: bool = False,
 ) -> "signing.OIDCProviderConfig":
     """Run the interactive Sigstore OIDC flow and return a ready provider config.
 
-    This is the human-accountability gate: it opens a browser (or, with
-    ``force_oob``, prints a URL to paste a code back — for SSH/headless) and
-    returns a short-lived token bound to the operator's identity. The token's own
-    issuer claim is used, so the v0 allowlist check in ``sign()`` passes. Network
-    + interactive by nature — exercised at the ceremony, not in CI.
+    The publish/sign path only needs the provider (it re-derives the verified
+    identity from the issued cert), so this never reads the IdentityToken's
+    ``identity`` — only its issuer + token. The token's own issuer claim is used, so
+    the v0 allowlist check in ``sign()`` passes.
     """
-    from sigstore.oidc import Issuer  # lazy: only the ceremony needs the browser flow
-
-    identity_token = Issuer(issuer_url or SIGSTORE_PROD_ISSUER).identity_token(force_oob=force_oob)
-    return signing.OIDCProviderConfig(
-        issuer=identity_token.issuer,
-        token=str(identity_token),
-        provider_id=None,
-    )
+    return _provider_from_token(_identity_token(issuer_url, force_oob))
 
 
 @dataclass(frozen=True)
@@ -181,6 +222,52 @@ def sign_manifest(
     }
 
 
+# The redeem route name — a SIGNED field of the redeem challenge (so the proof is
+# bound to this route and can't be replayed against some other Sigstore-doing
+# route) AND the literal path the ingress mounts. One source of truth for the
+# client signer, the station verifier, and the route decorator.
+REDEEM_ROUTE = "/invite/redeem"
+
+
+def sign_redeem_proof(
+    token: str,
+    origin: str,
+    redeem_signer: Signer,
+    route: str = REDEEM_ROUTE,
+    nonce: Optional[str] = None,
+    issued_at: Optional[str] = None,
+) -> Tuple[Dict[str, Any], str, str]:
+    """Build a TOKEN-BOUND redeem proof for the collaborator side (INV-1).
+
+    Computes the token hash, picks a fresh ``nonce`` (CSPRNG) and ``issued_at`` (UTC
+    ISO) unless supplied, builds the redeem-challenge canonical bytes, and signs them
+    via ``redeem_signer`` (a Signer over the REDEEM profile — build it with
+    ``make_oidc_signer(provider, canon_profile=profile.CANON_PROFILE_REDEEM_V1)``).
+    Returns ``(wire_proof, issuer, subject)`` where ``wire_proof`` is the minimal
+    dict the station needs: ``{"nonce", "issued_at", "signature_bundle"}``. The
+    plaintext token is NOT in the proof — only its hash rides, inside the signed
+    challenge bytes. The signing writes that token hash to the permanent public
+    Rekor log; acceptable under single-use + burn (INV-1)."""
+    import secrets
+    from datetime import datetime, timezone
+
+    if nonce is None:
+        nonce = secrets.token_hex(16)
+    if issued_at is None:
+        issued_at = datetime.now(timezone.utc).isoformat()
+    token_h = hash_token(token)
+    challenge_bytes = canon.redeem_challenge_canonical_bytes(
+        token_h, origin, route, nonce, issued_at
+    )
+    result = redeem_signer(challenge_bytes)  # SignedResult (carries verified identity)
+    proof = {
+        "nonce": nonce,
+        "issued_at": issued_at,
+        "signature_bundle": result.bundle.model_dump_json(),
+    }
+    return proof, result.issuer, result.subject
+
+
 def verify_wire_manifest(
     manifest_signature: Any, verifier: Verifier = None
 ) -> Tuple[bool, str, Optional[Dict[str, Optional[str]]]]:
@@ -284,6 +371,97 @@ def default_verifier(canonical_bytes: bytes, bundle: Any) -> "signing.MultiVerif
         return signing.verify_multi(canonical_bytes, bundle)
     finally:
         policy_logger.setLevel(previous)
+
+
+# Field bounds for a wire redeem proof, enforced before any canon/crypto work so a
+# hostile proof can never drive an unbounded preimage. The route already caps the
+# whole proof JSON (~64 KB), so these are defense-in-depth: a real nonce is a short
+# hex/uuid token and a real issued_at is a ~30-char ISO stamp.
+MAX_REDEEM_NONCE_LEN = 256
+MAX_REDEEM_ISSUED_AT_LEN = 64
+
+
+def verify_wire_redeem(
+    proof: Any,
+    token_hash: str,
+    origin: str,
+    route: str,
+    verifier: Verifier = None,
+) -> Tuple[bool, str, Optional[Dict[str, Optional[str]]]]:
+    """Verify a wire redeem proof — TOTAL over a hostile input (INV-1).
+
+    Mirrors :func:`verify_wire_manifest`: never raises, never 500s, returns
+    ``(verified, reason, identity)`` where identity is ``{"issuer","subject"}`` when
+    verified, else ``None``. The reason is always one of these DISJOINT BARE kinds:
+
+    - WIRE-INTEGRITY: 'proof malformed' (non-dict proof, missing/oversized
+      nonce/issued_at, missing/unparseable signature_bundle, un-canonicalizable
+      challenge), 'unknown profile', 'wrong kind'.
+    - CRYPTO FLOOR: the bare VerifyStatus value (e.g. 'SIGNATURE_MISMATCH').
+
+    The binding is STATION-AUTHORITATIVE: the caller passes the ``token_hash`` (the
+    SHA-256 of the token presented IN THE REQUEST, not a wire-claimed value), the
+    station ``origin``, and the ``route``. Only ``nonce`` + ``issued_at`` come from
+    the proof. The challenge bytes are reconstructed from those authoritative values
+    and handed to ``verify_multi``, which fails closed (canonical_mismatch ->
+    SIGNATURE_MISMATCH) if the bundle was signed over any different challenge — so a
+    harvested folio/manifest bundle ('wrong kind'), or a redeem bundle minted for a
+    different token/origin/route, can never bind. The token hash committed in the
+    signed challenge is written to the permanent public Rekor log on the
+    collaborator's side; that is acceptable under single-use + burn (stated, INV-1).
+    """
+    if verifier is None:
+        verifier = default_verifier
+
+    # Step 0 — SHAPE TOTALITY. A non-dict proof (incl. None) is 'proof malformed'.
+    if not isinstance(proof, dict):
+        return (False, "proof malformed", None)
+    nonce = proof.get("nonce")
+    issued_at = proof.get("issued_at")
+    if (
+        not isinstance(nonce, str)
+        or not isinstance(issued_at, str)
+        or len(nonce) > MAX_REDEEM_NONCE_LEN
+        or len(issued_at) > MAX_REDEEM_ISSUED_AT_LEN
+    ):
+        return (False, "proof malformed", None)
+    raw = proof.get("signature_bundle")
+    if not isinstance(raw, str):
+        return (False, "proof malformed", None)
+    try:
+        bundle = signing.SignatureBundle.model_validate_json(raw)
+    except Exception:  # noqa: BLE001 — any parse failure is a malformed proof
+        return (False, "proof malformed", None)
+
+    # Step 1 — PROFILE + KIND PIN. Unknown profile and wrong kind are DISTINCT. The
+    # kind pin is the wrong-kind cross-path guard: a folio/manifest bundle harvested
+    # from the public read surface resolves to kind 'folio'/'manifest' here and is
+    # rejected before any crypto.
+    try:
+        resolved = profile.get_profile(bundle.canon_version)
+    except profile.UnknownProfile:
+        return (False, "unknown profile", None)
+    if resolved.kind != "redeem":
+        return (False, "wrong kind", None)
+
+    # Step 2 — RECONSTRUCT the challenge from STATION-AUTHORITATIVE values + the
+    # proof's nonce/issued_at. token_hash/origin/route are NEVER taken from the wire.
+    try:
+        canonical = canon.redeem_challenge_canonical_bytes(
+            token_hash, origin, route, nonce, issued_at
+        )
+    except Exception:  # noqa: BLE001 — un-canonicalizable inputs -> malformed
+        return (False, "proof malformed", None)
+    preimage = profile.profiled_preimage(bundle.canon_version, canonical)
+
+    # Step 3 — INTEGRITY + AUTHORSHIP. verify_multi fails closed if the bundle's
+    # stored canonical_bytes diverge from the preimage reconstructed here, binding
+    # the signature to THIS exact challenge (token + origin + route + ceremony).
+    result = verifier(preimage, bundle)
+    if result.overall == signing.VerifyStatus.VERIFIED:
+        first = result.results[0]
+        return (True, "verified", {"issuer": first.issuer, "subject": first.subject})
+    return (False, result.overall.value, None)
 
 
 def verify_wire_folio(

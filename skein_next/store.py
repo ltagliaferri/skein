@@ -26,6 +26,23 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _iso_micros(dt: datetime) -> str:
+    """A FIXED-WIDTH UTC isoformat stamp (always 6 fractional digits, +00:00).
+
+    Used for invite ``expires_at`` and the ``now`` it is compared against in the
+    redeem CAS. ``datetime.isoformat()`` omits the fraction when microsecond==0,
+    giving variable-width strings whose lexicographic order can disagree with
+    chronological order across the fraction/no-fraction boundary; pinning
+    ``timespec='microseconds'`` makes every stamp the same width so the SQL
+    ``expires_at > ?`` inequality is a correct string compare."""
+    return dt.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _now_micros() -> str:
+    """Fixed-width UTC now() — the redeem-CAS / expiry comparison clock."""
+    return _iso_micros(datetime.now(timezone.utc))
+
+
 def bundle_hash_for(bundle_json: str) -> str:
     """The verify_cache bundle key: sha256 over a manifest's stored bundle_json.
 
@@ -201,6 +218,48 @@ CREATE TABLE IF NOT EXISTS binding_events (
     vouched_by_issuer  TEXT,
     vouched_by_subject TEXT,
     at                 TEXT
+);
+
+-- One-time invite tokens (the agent-mediated collaborator onboarding ceremony).
+-- token_hash is the SHA-256 of a >=256-bit CSPRNG token; the PLAINTEXT token is
+-- NEVER stored. Expiry is enforced in SQL (the CAS WHERE compares expires_at), not
+-- post-fetch. used_at NULL = unredeemed; redeeming BURNS it (sets used_at) and
+-- records the bound (issuer, subject) + redeemed_at, so a redemption is operator-
+-- visible (INV-4) and an exactly-once burn is a conditional UPDATE...WHERE rowcount
+-- check (INV-2). revoked_at NULL = active; an operator can revoke an unredeemed
+-- invite. failed_attempts + attempts_window_start are the per-token expensive-
+-- verify-flood backstop (INV-5): a leaked valid-but-unused token is not burned
+-- until a SUCCESSFUL redeem, so repeated bogus proofs against it are capped.
+-- expires_at is stored fixed-width (6 fractional digits, +00:00) so the SQL
+-- inequality in the CAS is a chronologically-correct lexicographic compare.
+CREATE TABLE IF NOT EXISTS invites (
+    token_hash            TEXT PRIMARY KEY,
+    role                  TEXT NOT NULL,
+    created_at            TEXT,
+    expires_at            TEXT NOT NULL,
+    used_at               TEXT,
+    revoked_at            TEXT,
+    vouched_by_issuer     TEXT,
+    vouched_by_subject    TEXT,
+    bound_issuer          TEXT,
+    bound_subject         TEXT,
+    redeemed_at           TEXT,
+    note                  TEXT,
+    failed_attempts       INTEGER NOT NULL DEFAULT 0,
+    attempts_window_start TEXT
+);
+
+-- Append-only invite audit (mirrors binding_events): minted / redeemed (with the
+-- bound identity) / revoked / redeem_failed. One row per lifecycle event, written
+-- in the same transaction as the mutation.
+CREATE TABLE IF NOT EXISTS invite_events (
+    event_seq    INTEGER PRIMARY KEY,  -- rowid; monotonic insertion order
+    token_hash   TEXT,
+    event        TEXT,  -- minted|redeemed|revoked|redeem_failed
+    bound_issuer TEXT,
+    bound_subject TEXT,
+    at           TEXT,
+    detail       TEXT   -- free-text (e.g. the reject reason on a redeem_failed)
 );
 
 -- Manifest signature-verdict cache. Keyed on (manifest_hash, bundle_hash); stores
@@ -1098,6 +1157,224 @@ class SkeinNextStore:
         sql = "SELECT * FROM binding_events"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY event_seq"
+        return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    # --- invites + invite audit (the onboarding ceremony) --------------------
+
+    def _log_invite_event(
+        self,
+        token_hash: str,
+        event: str,
+        bound_issuer: Optional[str] = None,
+        bound_subject: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO invite_events
+                (token_hash, event, bound_issuer, bound_subject, at, detail)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (token_hash, event, bound_issuer, bound_subject, _now_iso(), detail),
+        )
+
+    def mint_invite(
+        self,
+        token_hash: str,
+        role: str,
+        expires_at: datetime,
+        vouched_by_issuer: Optional[str] = None,
+        vouched_by_subject: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        """Record a freshly minted one-time invite (the operator side).
+
+        ``token_hash`` is the SHA-256 of the CSPRNG token (plaintext never stored).
+        ``expires_at`` is a ``datetime`` stored FIXED-WIDTH so the redeem CAS's SQL
+        inequality compares correctly. A plain ``INSERT`` (not OR IGNORE) so a
+        token_hash collision — astronomically unlikely for a >=256-bit token —
+        surfaces loudly rather than silently shadowing a prior invite. Logs a
+        'minted' event in the same transaction."""
+        self.conn.execute(
+            """
+            INSERT INTO invites
+                (token_hash, role, created_at, expires_at, vouched_by_issuer,
+                 vouched_by_subject, note, failed_attempts)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (
+                token_hash,
+                role,
+                _now_iso(),
+                _iso_micros(expires_at),
+                vouched_by_issuer,
+                vouched_by_subject,
+                note,
+            ),
+        )
+        self._log_invite_event(token_hash, "minted")
+        self._maybe_commit()
+
+    def get_invite_by_token_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
+        """The single invite row for a token hash, or ``None``. CHEAP — the
+        pre-crypto gate's lookup (INV-2 step a), run OUTSIDE any transaction."""
+        row = self.conn.execute(
+            "SELECT * FROM invites WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_invites(self, include_inactive: bool = True) -> List[Dict[str, Any]]:
+        """Every invite row, newest first (operator visibility, INV-4).
+
+        With ``include_inactive=False`` only OUTSTANDING invites (unredeemed,
+        unrevoked) are returned; otherwise used/revoked rows are included so a
+        hostile or completed redemption stays visible."""
+        sql = "SELECT * FROM invites"
+        if not include_inactive:
+            sql += " WHERE used_at IS NULL AND revoked_at IS NULL"
+        sql += " ORDER BY created_at DESC, token_hash"
+        return [dict(r) for r in self.conn.execute(sql).fetchall()]
+
+    def revoke_invite(self, token_hash: str) -> bool:
+        """Revoke an ACTIVE (unrevoked) invite. Returns False if there is no such
+        row to revoke (absent or already revoked) — no exception, no row created.
+
+        Revocation is independent of redemption: revoking an already-USED invite is
+        a no-op-shaped success only insofar as it sets revoked_at (the binding it
+        produced is revoked separately via ``account revoke``). The CAS redeem path
+        re-checks ``revoked_at IS NULL``, so revoking an unused invite that a race
+        is mid-redeeming is honored: whichever write commits first wins under the
+        single-writer lock."""
+        cur = self.conn.execute(
+            "UPDATE invites SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+            (_now_iso(), token_hash),
+        )
+        if cur.rowcount == 0:
+            self._maybe_commit()
+            return False
+        self._log_invite_event(token_hash, "revoked")
+        self._maybe_commit()
+        return True
+
+    def bump_invite_failure(
+        self, token_hash: str, window_seconds: int, reason: Optional[str] = None
+    ) -> None:
+        """Record one FAILED redeem attempt against a token (INV-5 flood backstop).
+
+        A rolling window: if the prior window has elapsed (or none exists) the
+        counter resets to 1 and the window restarts; otherwise it increments. A
+        leaked valid-but-unused token is not burned until a SUCCESSFUL redeem, so
+        without this an attacker could drive unbounded expensive verifies against
+        it; the pre-crypto gate reads ``failed_attempts`` and rejects once the cap
+        is hit within the window. Logs a 'redeem_failed' event (audit). Best-effort
+        on a vanished row (token revoked/redeemed between verify and bump)."""
+        row = self.conn.execute(
+            "SELECT failed_attempts, attempts_window_start FROM invites WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        if row is None:
+            self._maybe_commit()
+            return
+        now = datetime.now(timezone.utc)
+        window_start = row["attempts_window_start"]
+        within_window = False
+        if window_start is not None:
+            try:
+                started = datetime.fromisoformat(window_start)
+                within_window = (now - started).total_seconds() <= window_seconds
+            except ValueError:
+                within_window = False
+        if within_window:
+            new_count = (row["failed_attempts"] or 0) + 1
+            self.conn.execute(
+                "UPDATE invites SET failed_attempts = ? WHERE token_hash = ?",
+                (new_count, token_hash),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE invites SET failed_attempts = 1, attempts_window_start = ? "
+                "WHERE token_hash = ?",
+                (now.isoformat(), token_hash),
+            )
+        self._log_invite_event(token_hash, "redeem_failed", detail=reason)
+        self._maybe_commit()
+
+    def redeem_invite_cas(
+        self, token_hash: str, issuer: str, subject: str
+    ) -> str:
+        """The exactly-once burn + bind, in ONE short write transaction (INV-2/3).
+
+        Crypto (verify_multi) MUST already have run OUTSIDE this transaction — this
+        holds the single-writer lock (BEGIN IMMEDIATE) only for the cheap, bounded
+        burn-and-bind, never across the multi-second Sigstore round-trip. Returns a
+        status string:
+
+        - ``'redeemed'``         — the token was burned (CAS UPDATE matched exactly
+          one row) and ``(issuer, subject)`` bound fresh as the invite's role.
+        - ``'revoked_identity'`` — the identity currently holds a REVOKED binding;
+          NOTHING is burned or bound (INV-3: a self-service redeem must never
+          un-revoke an identity the operator deliberately revoked).
+        - ``'race_lost'``        — the conditional UPDATE matched 0 rows: a
+          concurrent redeem won, or the token became used/revoked/expired between
+          the cheap check and here. Nothing is bound; the caller re-reads for the
+          idempotent-success case (INV-6).
+
+        The revoked-binding guard, the CAS, and the bind all run under the same
+        BEGIN IMMEDIATE lock, so no concurrent revoke can interleave."""
+        with self.transaction():
+            inv = self.conn.execute(
+                "SELECT role, vouched_by_issuer, vouched_by_subject FROM invites "
+                "WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+            if inv is None:
+                return "race_lost"  # vanished between cheap check and here
+            # INV-3 — refuse to bind an identity that currently holds a REVOKED
+            # binding (add_binding would reactivate it, B5). Guard BEFORE the burn so
+            # nothing is consumed when we refuse.
+            existing = self.conn.execute(
+                "SELECT revoked_at FROM account_bindings WHERE issuer = ? AND subject = ?",
+                (issuer, subject),
+            ).fetchone()
+            if existing is not None and existing["revoked_at"] is not None:
+                return "revoked_identity"
+            now = _now_micros()
+            cur = self.conn.execute(
+                """
+                UPDATE invites
+                   SET used_at = ?, bound_issuer = ?, bound_subject = ?, redeemed_at = ?
+                 WHERE token_hash = ?
+                   AND used_at IS NULL
+                   AND revoked_at IS NULL
+                   AND expires_at > ?
+                """,
+                (now, issuer, subject, now, token_hash, now),
+            )
+            if cur.rowcount != 1:
+                return "race_lost"
+            # add_binding here cannot trip B5 reactivation: a revoked existing
+            # binding was rejected above, so existing is None (fresh INSERT) or
+            # active (idempotent no-op). Bind under the invite's role, vouched by
+            # whoever minted the invite (the operator).
+            self.add_binding(
+                issuer,
+                subject,
+                role=inv["role"],
+                vouched_by_issuer=inv["vouched_by_issuer"],
+                vouched_by_subject=inv["vouched_by_subject"],
+                event="redeemed",
+            )
+            self._log_invite_event(token_hash, "redeemed", issuer, subject)
+            return "redeemed"
+
+    def get_invite_events(self, token_hash: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The append-only invite audit trail, in insertion order (optionally filtered)."""
+        sql = "SELECT * FROM invite_events"
+        params: List[Any] = []
+        if token_hash is not None:
+            sql += " WHERE token_hash = ?"
+            params.append(token_hash)
         sql += " ORDER BY event_seq"
         return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
 

@@ -44,6 +44,17 @@ CANON_PROFILE_V1 = "skein.folio.canon/v1"
 # binding (NOT in-body fields), exactly as a folio binds its recipe via its profile.
 CANON_PROFILE_MANIFEST_V1 = "skein.manifest.canon/v1"
 
+# The v1 redeem profile string. The invite-redeem ceremony signs a REDEEM CHALLENGE
+# under this profile — a descriptor whose body binds the proof to the invite token
+# (its hash), the station origin, the route, and a per-ceremony nonce/issued-at
+# (INV-1). It is a DISTINCT kind from folio/manifest, so a harvested folio/manifest
+# bundle presented on the redeem path resolves to kind 'redeem' != its own and is
+# rejected 'wrong kind' before any crypto — and, conversely, a redeem bundle can
+# never cross into the publish path. The token-hash inside the signed challenge is
+# what makes a harvested redeem bundle for ANOTHER token fail closed
+# (canonical_mismatch -> SIGNATURE_MISMATCH).
+CANON_PROFILE_REDEEM_V1 = "skein.redeem.canon/v1"
+
 # The byte that separates the profile prefix from the canonical bytes. NUL cannot
 # occur in either region — the profile is a fixed ASCII token, and knurl canonical
 # JSON is UTF-8 with all control characters escaped — so the split is unambiguous.
@@ -86,9 +97,23 @@ _MANIFEST_V1 = CanonProfile(
     hash_algo="sha256",
 )
 
+# The redeem challenge profile, registered ALONGSIDE the others from day one (the
+# same anti-pattern guard as the manifest profile: never an unknown-profile hard
+# fail for our own kind). The signed challenge's field tuple is the redeem-binding
+# basis; kind 'redeem' is pinned at the verify seam (verify_wire_redeem), so a
+# folio/manifest bundle is 'wrong kind' there and a redeem bundle is 'wrong kind'
+# on the folio/manifest seams.
+_REDEEM_V1 = CanonProfile(
+    profile=CANON_PROFILE_REDEEM_V1,
+    kind="redeem",
+    fields=("token_hash", "origin", "route", "nonce", "issued_at"),
+    hash_algo="sha256",
+)
+
 _REGISTRY: Dict[str, CanonProfile] = {
     _FOLIO_V1.profile: _FOLIO_V1,
     _MANIFEST_V1.profile: _MANIFEST_V1,
+    _REDEEM_V1.profile: _REDEEM_V1,
 }
 
 

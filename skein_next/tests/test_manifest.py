@@ -154,6 +154,7 @@ def test_manifest_unknown_profile_hard_fails():  # P5 (registry half; verify sea
 def test_manifest_and_folio_kinds_distinct():  # P6/P7 (registry kinds)
     assert profile.get_profile(profile.CANON_PROFILE_MANIFEST_V1).kind == "manifest"
     assert profile.get_profile(profile.CANON_PROFILE_V1).kind == "folio"
-    # exactly these two kinds are registered
+    assert profile.get_profile(profile.CANON_PROFILE_REDEEM_V1).kind == "redeem"
+    # exactly these three kinds are registered; each profile is its own kind
     kinds = {p.kind for p in profile._REGISTRY.values()}
-    assert kinds == {"folio", "manifest"}
+    assert kinds == {"folio", "manifest", "redeem"}

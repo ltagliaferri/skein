@@ -286,6 +286,61 @@ def manifest_descriptor_canonical_bytes(root: str, leaf_count: int) -> bytes:
     return _knurl_canon.serialize(manifest_descriptor_fields(root, leaf_count))
 
 
+# --- redeem challenge (the invite-redeem ceremony preimage) ------------------
+#
+# The invite-redeem ceremony (INV-1) signs a small CHALLENGE descriptor that binds
+# the Sigstore proof to one specific invite token + this station + this route +
+# this ceremony. The signed bytes are these canonical bytes under the redeem
+# profile (profile.CANON_PROFILE_REDEEM_V1 supplies the domain separation). The
+# station RECONSTRUCTS these bytes from its OWN authoritative token_hash / origin /
+# route plus the client-supplied nonce + issued_at, then hands them to verify_multi,
+# which fails closed (canonical_mismatch -> SIGNATURE_MISMATCH) if the bundle was
+# signed over any different challenge — so a harvested bundle, or a proof minted for
+# another token/origin/route, can never bind here.
+
+# The five fields that constitute a redeem challenge (canon sorts keys; order here
+# is for readers). Must match profile._REDEEM_V1.fields exactly.
+REDEEM_CHALLENGE_FIELDS = ("token_hash", "origin", "route", "nonce", "issued_at")
+
+
+def redeem_challenge_fields(
+    token_hash: str,
+    origin: str,
+    route: str,
+    nonce: str,
+    issued_at: str,
+) -> dict:
+    """The five-field redeem-challenge dict — what the ceremony signs (INV-1).
+
+    Every field is a string. ``token_hash`` is the hex SHA-256 of the invite token
+    (the plaintext token never appears here, only its hash); ``origin`` is the
+    station's canonical origin (e.g. ``https://interskein.com``); ``route`` is the
+    redeem route name; ``nonce`` is a per-ceremony CSPRNG value; ``issued_at`` is an
+    ISO-8601 stamp. Non-str inputs are rejected (``CanonError``) on the same
+    body<->preimage-binding rationale as the folio/thread fields.
+    """
+    return {
+        "token_hash": _require_str_or_none("token_hash", token_hash),
+        "origin": _require_str_or_none("origin", origin),
+        "route": _require_str_or_none("route", route),
+        "nonce": _require_str_or_none("nonce", nonce),
+        "issued_at": _require_str_or_none("issued_at", issued_at),
+    }
+
+
+def redeem_challenge_canonical_bytes(
+    token_hash: str,
+    origin: str,
+    route: str,
+    nonce: str,
+    issued_at: str,
+) -> bytes:
+    """The canonical bytes of a redeem challenge — the preimage signed and verified."""
+    return _knurl_canon.serialize(
+        redeem_challenge_fields(token_hash, origin, route, nonce, issued_at)
+    )
+
+
 def manifest_membership(leaf_list: List[str], signed_root: str, constituent_hash: str) -> bool:
     """Whether ``constituent_hash`` is a member under ``signed_root`` (v0 recompute).
 

@@ -40,6 +40,7 @@ from starlette.requests import ClientDisconnect
 from .station import Station
 from . import canon, wire
 from . import sign as _sign
+from . import redeem as _redeem
 from .authorization import default_bindings
 from .identity import content_hash_for_bytes
 from .store import bundle_hash_for
@@ -66,6 +67,37 @@ def _constituent_manifest_reject_reason(m_reason: str) -> str:
 
 DEFAULT_PORT = 9101  # read web app is 9001; ingress is a distinct write surface
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
+
+# The station's canonical origin — a SIGNED field of the redeem challenge (INV-1).
+# The collaborator signs over this exact string; the station reconstructs the
+# challenge with its OWN configured value, so a proof minted for a different origin
+# fails closed. Set it in the deploy env (e.g. https://interskein.com). If unset,
+# the redeem route refuses to operate (it cannot verify a token-bound proof without
+# an authoritative origin) — /publish is unaffected.
+ENV_ORIGIN = "SKEIN_NEXT_ORIGIN"
+
+# Body cap for the redeem route — SMALLER than the publish cap: a redeem body is a
+# single {token, proof} object (a token string + one Sigstore bundle), never a
+# multi-folio batch. 64 KiB is generous for one bundle yet bounds parse/memory work
+# hard. Its own nginx location carries a matching client_max_body_size + a tighter
+# per-IP limit_req zone (deploy/nginx).
+REDEEM_MAX_BYTES = 64 * 1024
+
+
+def _sqlite_error_is_lock(e: sqlite3.OperationalError) -> bool:
+    """Whether an OperationalError is write-lock contention (SQLITE_BUSY/LOCKED).
+
+    Discriminate on the numeric SQLite result code (the robust signal): mask the
+    EXTENDED ``sqlite_errorcode`` (Python >= 3.11; absent on a hand-built exception)
+    to the primary byte so lock-family extended codes count too, and fall back to
+    the (stable) message text only when there is no code at all. Shared by the
+    publish and redeem routes so a transient lock degrades to a retryable 503 on
+    both, and a genuine (non-lock) fault still surfaces."""
+    code = getattr(e, "sqlite_errorcode", None)
+    primary = (code & 0xFF) if isinstance(code, int) else None
+    return primary in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
+        primary is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
+    )
 
 # Absolute byte cap on a publish request body, enforced BEFORE the body is fully
 # buffered or JSON-parsed, so a hostile client cannot force unbounded parse/memory
@@ -406,6 +438,18 @@ def create_app() -> FastAPI:
             "ingress starting with require_signed OFF — unsigned content is accepted"
         )
 
+    # The station's authoritative origin for the redeem token-binding (INV-1). Read
+    # ONCE at app creation. If unset, the redeem route refuses to operate (it cannot
+    # reconstruct a token-bound challenge without it); /publish is unaffected.
+    redeem_origin = os.environ.get(ENV_ORIGIN)
+    if redeem_origin:
+        logger.info("ingress redeem origin: %s", redeem_origin)
+    else:
+        logger.warning(
+            "ingress starting without %s — /invite/redeem will refuse to operate "
+            "until the station origin is configured", ENV_ORIGIN
+        )
+
     app = FastAPI(
         title="SKEIN (next) — ingress",
         description="client->instance publish ingress",
@@ -487,23 +531,10 @@ def create_app() -> FastAPI:
             # client can retry — instead of letting it propagate to an uncaught 500
             # + full ASGI traceback per request (the log-amplification DoS this same
             # change set hardens against). A genuine (non-lock) OperationalError is a
-            # real fault: re-raise it so it is not masked as transient.
-            #
-            # Discriminate on the numeric SQLite result code (the robust signal):
-            # SQLITE_BUSY (5) / SQLITE_LOCKED (6) are the lock family. sqlite_errorcode
-            # exists on Python >= 3.11 and is set on driver-raised errors but is absent
-            # on a manually-constructed exception. It reports the EXTENDED code, so mask
-            # to the primary byte (& 0xFF) before comparing — that catches lock-family
-            # extended codes too (e.g. BUSY_SNAPSHOT/LOCKED_SHAREDCACHE, which would
-            # arise only under WAL/shared-cache; this store is rollback-journal today
-            # but the mask keeps the check correct regardless). Fall back to the (stable)
-            # message text only when there is no code at all.
-            code = getattr(e, "sqlite_errorcode", None)
-            primary = (code & 0xFF) if isinstance(code, int) else None
-            is_lock = primary in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
-                primary is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
-            )
-            if not is_lock:
+            # real fault: re-raise it so it is not masked as transient. The lock
+            # discrimination (numeric result-code, extended-code masked to the
+            # primary byte, message-text fallback) is shared with the redeem route.
+            if not _sqlite_error_is_lock(e):
                 raise
             logger.warning("ingress write-lock contention; returning 503: %s", e)
             return JSONResponse(
@@ -512,6 +543,91 @@ def create_app() -> FastAPI:
                 headers={"Retry-After": "1"},
             )
         return JSONResponse(status_code=200, content=ack)
+
+    @app.post(_sign.REDEEM_ROUTE)
+    async def invite_redeem(request: Request) -> JSONResponse:
+        # A SECOND hand-written public Sigstore-doing route. It REPLICATES the
+        # /publish hardening shell line-for-line — it does NOT inherit it (INV-5):
+        # a SMALLER body cap (the body is one {token, proof}), content-length
+        # fast-path + streaming guard, quiet ClientDisconnect, JSON-parse (incl
+        # RecursionError) -> 400, blocking work off the event loop with the Station
+        # opened+closed inside the worker, and SQLite-lock -> retryable 503.
+        if not redeem_origin:
+            # Misconfiguration, not hostile input: without an authoritative origin a
+            # token-bound proof cannot be reconstructed, so refuse rather than verify
+            # against a wrong/empty origin. 503 (operator-fixable), not a 500.
+            return JSONResponse(
+                status_code=503,
+                content={"error": "redeem is not configured on this instance"},
+            )
+
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > REDEEM_MAX_BYTES:
+                    return JSONResponse(status_code=413, content={"error": "request body too large"})
+            except ValueError:
+                pass
+        body = bytearray()
+        try:
+            async for chunk in request.stream():
+                body += chunk
+                if len(body) > REDEEM_MAX_BYTES:
+                    return JSONResponse(status_code=413, content={"error": "request body too large"})
+        except ClientDisconnect:
+            # Adversary-controllable disconnect handled QUIETLY (no ASGI traceback /
+            # log-amplification), exactly as /publish does.
+            return JSONResponse(status_code=400, content={"error": "client disconnected"})
+
+        try:
+            payload = json.loads(body) if body else None
+        except (ValueError, RecursionError):
+            # RecursionError (deeply-nested JSON) is a RuntimeError, not a ValueError;
+            # catching it here is the same just-merged /publish fix — left uncaught it
+            # is a floodable 500 + traceback per request.
+            return JSONResponse(status_code=400, content={"error": "request body is not valid JSON"})
+        if not isinstance(payload, dict):
+            return JSONResponse(status_code=400, content={"error": "request body must be a JSON object"})
+        token = payload.get("token")
+        proof = payload.get("proof")
+        if not isinstance(token, str) or not token:
+            return JSONResponse(status_code=400, content={"error": "missing or invalid 'token'"})
+
+        # The redeem orchestration does the cheap checks, the crypto (OUTSIDE any
+        # lock), and the short CAS burn+bind. Run it off the event loop with the
+        # Station opened + closed inside the worker thread so its SQLite connection
+        # never crosses threads (the /publish threadpool discipline).
+        def _do_redeem() -> "_redeem.RedeemResult":
+            station = Station(_get_data_dir(), check_same_thread=False)
+            try:
+                return _redeem.redeem(station, token, proof, redeem_origin)
+            finally:
+                station.close()
+
+        try:
+            result = await run_in_threadpool(_do_redeem)
+        except sqlite3.OperationalError as e:
+            # The burn transaction (BEGIN IMMEDIATE in redeem_invite_cas) could not
+            # take the write lock in time. Degrade to a retryable 503; a genuine
+            # (non-lock) fault re-raises. verify_multi runs OUTSIDE the lock, so a
+            # slow Sigstore round-trip never produces this (INV-2).
+            if not _sqlite_error_is_lock(e):
+                raise
+            logger.warning("redeem write-lock contention; returning 503: %s", e)
+            return JSONResponse(
+                status_code=503,
+                content={"error": "instance busy, retry shortly"},
+                headers={"Retry-After": "1"},
+            )
+
+        http_status = _redeem.HTTP_STATUS.get(result.status, 400)
+        content: Dict[str, Any] = {"ok": result.ok, "status": result.status}
+        if result.ok:
+            content["issuer"] = result.issuer
+            content["subject"] = result.subject
+        else:
+            content["error"] = result.reason
+        return JSONResponse(status_code=http_status, content=content)
 
     return app
 

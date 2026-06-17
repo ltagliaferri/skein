@@ -89,6 +89,28 @@ The ingress runs as a compose service sharing the served corpus read-write
 (`/opt/interskein/compose.yaml` on the droplet), bound `127.0.0.1:9101`, with
 `SKEIN_NEXT_REQUIRE_SIGNED=1`.
 
+**`SKEIN_NEXT_ORIGIN` (required for `/invite/redeem`).** The redeem ceremony binds
+the collaborator's Sigstore proof to this station's canonical origin (the same
+string the collaborator passes as `--to`). Set it on the ingress service env:
+
+```yaml
+  environment:
+    - SKEIN_NEXT_DATA_DIR=/data
+    - SKEIN_NEXT_REQUIRE_SIGNED=1
+    - SKEIN_NEXT_ORIGIN=https://interskein.com   # NEW — redeem token-binding
+```
+
+If it is unset, `/publish` is unaffected but `/invite/redeem` refuses to operate
+(returns 503 "redeem is not configured") — it cannot reconstruct a token-bound
+challenge without an authoritative origin. Redeem works under
+`require_signed` ON **or** OFF (it is orthogonal to the publish gate); only the
+*consequence* of being a bound author differs.
+
+The redeem route also needs its nginx `location = /invite/redeem` (its own tighter
+`redeem_zone` and a 64 KiB body cap) — both are in
+`deploy/nginx/ingress.interskein.com.conf`; redeploy the vhost (step 3) when adding
+redeem.
+
 **Boot invariant:** under `require_signed` the ingress refuses to boot unless
 exactly **one** active operator exists. Bootstrap the operator before first boot:
 
@@ -99,9 +121,43 @@ interskein --data-dir /data account init-operator \
 
 ## Authorizing a collaborator
 
-A collaborator can write only after the operator binds their verified identity.
+There are two paths. **Invite (preferred)** is agent-mediated and self-service:
+the operator mints a one-time token, the collaborator's agent redeems it, and the
+binding happens automatically — no subject relay. **Manual `account add`** is the
+fallback when you already know the identity.
+
+### Invite flow (preferred)
 
 ```bash
+# 1. mint a one-time invite (token shown ONCE; only its hash is stored)
+interskein --data-dir /data account invite mint --role author \
+  --expires 7d --note "Alice" --origin https://interskein.com
+#    -> prints the token + a ready-to-send blurb. Send it to the collaborator
+#       OUT OF BAND (you vouch for the human, not the channel).
+
+# 2. the collaborator's agent redeems it (their side):
+#    interskein redeem-invite <token> --to https://interskein.com --login
+#    -> a token-bound Sigstore ceremony auto-binds them as an author.
+
+# 3. see who redeemed (operator-visible — a hostile bind is detectable here):
+interskein --data-dir /data account invite list
+#    redeemed author by alice@example.com at 2026-... "Alice" <hash>
+
+# revoke an OUTSTANDING invite before it is redeemed (by token, or --hash <prefix>)
+interskein --data-dir /data account invite revoke --hash <hash-prefix>
+```
+
+If a redemption binds an identity you did not expect, revoke the *binding* with
+`account revoke` (below) — a revoked identity cannot self-readmit via a later
+redeem.
+
+### Manual fallback (`account add`)
+
+```bash
+# the collaborator runs this and reads back issuer + subject (no Rekor entry):
+interskein whoami            # -> issuer https://accounts.google.com
+                             #    subject their-email@example.com
+
 # add an author (vouched for by the active operator)
 interskein --data-dir /data account add --role author \
   --issuer https://accounts.google.com --subject their-email@example.com
@@ -109,21 +165,14 @@ interskein --data-dir /data account add --role author \
 # list current bindings (one per line: <role> <issuer>/<subject>)
 interskein --data-dir /data account list
 
-# revoke (revocation is not deletion; takes effect live, next read/publish)
+# revoke a binding (revocation is not deletion; takes effect live, next read/publish)
 interskein --data-dir /data account revoke \
   --issuer https://accounts.google.com --subject their-email@example.com
 ```
 
-The collaborator must communicate their OIDC **issuer** and **subject** to the
-operator out-of-band (the operator trusts the person, not a channel). For Google
-the issuer is `https://accounts.google.com` and the subject is their email.
-
-> **Onboarding-UX gap (pairing pending):** `interskein login` prints the issuer
-> and the token but **not** the subject — the exact value `account add --subject`
-> needs. A collaborator currently has to know their subject out of band. Closing
-> this (a `whoami`-style helper that prints `(issuer, subject)` after login) is
-> the open UX item for the collaborator-facing publish doc. See
-> finding-20260615-61z7.
+`interskein whoami` closes the old subject-discovery gap: it prints the exact
+`(issuer, subject)` the cert will carry, read off the OIDC identity token without
+creating a Rekor entry (finding-20260615-61z7).
 
 ## Verifying the deployment
 
@@ -152,6 +201,39 @@ done; echo
 # non-POST method on the route -> 405
 curl -s -o /dev/null -w '%{http_code}\n' "$SUB"                        # 405
 ```
+
+Redeem-route probes (no valid token needed — these exercise the hardening shell):
+
+```bash
+RED=https://ingress.interskein.com/invite/redeem
+
+# unknown token -> 409 (rejected cheaply, before any crypto)
+curl -s -w '\n%{http_code}\n' -X POST "$RED" -H 'Content-Type: application/json' \
+  -d '{"token":"definitely-not-a-real-token","proof":{}}'             # 409 unknown_token
+
+# malformed JSON -> 400 ; missing token -> 400
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$RED" \
+  -H 'Content-Type: application/json' -d '{not json'                   # 400
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$RED" \
+  -H 'Content-Type: application/json' -d '{"proof":{}}'               # 400
+
+# oversized body (>64 KiB) -> 413 before parse
+head -c 70000 /dev/zero | tr '\0' 'x' > /tmp/big-redeem
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$RED" \
+  -H 'Content-Type: application/json' --data-binary @/tmp/big-redeem   # 413
+
+# tighter rate limit than publish (5 r/m) -> 429s sooner under a burst
+for i in $(seq 1 8); do
+  curl -s -o /dev/null -w '%{http_code} ' -X POST "$RED" \
+    -H 'Content-Type: application/json' -d '{"token":"x","proof":{}}'
+done; echo
+
+# if SKEIN_NEXT_ORIGIN is unset on the ingress -> 503 "redeem is not configured"
+```
+
+The full redeem round-trip (a real `interskein redeem-invite ... --login`) needs an
+interactive OIDC ceremony — see the collaborator onboarding doc
+(`docs/COLLABORATOR_ONBOARDING.md`).
 
 The full signed round-trip (a real `interskein publish --sign --login`) needs an
 interactive OIDC ceremony — see the collaborator publish doc.

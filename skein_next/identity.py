@@ -56,6 +56,21 @@ def content_hash_for_bytes(canonical_bytes: bytes) -> str:
     return "sha256::" + digest.split(":", 1)[1]
 
 
+def hash_token(token: str) -> str:
+    """The hex SHA-256 of an invite token — its at-rest identity (INV/schema).
+
+    The plaintext token is NEVER stored; only this hash. ONE helper so the mint
+    side, the redeem ceremony (the token-bound challenge), and the store's
+    lookup/CAS all compute the IDENTICAL hash and can never disagree. Returns a
+    bare 64-char lowercase hex digest (NOT the ``sha256::`` address form — this is a
+    secret's fingerprint, not a content address)."""
+    import hashlib
+
+    if not isinstance(token, str):
+        raise TypeError(f"hash_token requires a str token, got {type(token).__name__}")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def compute_folio_hash(fields: Mapping[str, Any]) -> str:
     """Compute a folio's content hash from its five canonical fields.
 

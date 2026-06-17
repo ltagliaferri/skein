@@ -192,6 +192,38 @@ def post_batch(instance_url: str, batch: Dict[str, Any], timeout: float = 30.0) 
         raise PublishError(f"could not reach instance at {endpoint}: {e.reason}") from e
 
 
+def post_redeem(
+    instance_url: str, token: str, proof: Dict[str, Any], timeout: float = 60.0
+) -> Tuple[int, Dict[str, Any]]:
+    """POST a redeem to an instance's ``/invite/redeem``; return ``(status, body)``.
+
+    Unlike :func:`post_batch`, a non-2xx is NOT raised: the redeem route returns a
+    typed JSON reason on a logical rejection (used/expired/revoked token, bad
+    proof), and the CLI needs to surface that reason, so a 4xx/409/429 status comes
+    back with its parsed body. Only a genuine TRANSPORT failure raises
+    :class:`PublishError`. Timeout is generous — the station verifies a Sigstore
+    bundle (Fulcio chain + Rekor inclusion) before answering."""
+    from .sign import REDEEM_ROUTE
+
+    endpoint = canonical_instance(instance_url) + REDEEM_ROUTE
+    body = json.dumps({"token": token, "proof": proof}).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint, data=body, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        try:
+            return e.code, json.loads(detail)
+        except ValueError:
+            return e.code, {"error": detail}
+    except urllib.error.URLError as e:
+        raise PublishError(f"could not reach instance at {endpoint}: {e.reason}") from e
+
+
 def publish(
     station: Station,
     instance_url: str,

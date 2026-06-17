@@ -32,6 +32,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 import click
 
 from .bridge import ImportReport, import_project
+from .identity import hash_token
 from . import publish as _publish
 from .publish import PublishError
 from .station import (
@@ -732,6 +733,17 @@ def publish(
         click.echo(f"{len(rejected_threads)} link(s) not carried:")
         for r in rejected_threads:
             click.echo(f"  {_short(r.get('thread_hash') or '?', 24)} - {r.get('reason')}")
+    # An 'unbound signer' rejection means a valid signature by an identity this
+    # instance doesn't yet authorize. Point at the discovery + onboarding path
+    # (the server reject reason is the frozen contract string; this is a
+    # client-side hint, naming the path to fix it — finding-20260615-61z7).
+    all_rejects = list(ack.get("rejected", [])) + list(rejected_threads)
+    if any((r.get("reason") == "unbound signer") for r in all_rejects):
+        click.echo(
+            "hint: your signing identity is not an author on this instance yet. "
+            "Run 'interskein whoami' to see it, then ask the operator for an invite "
+            "and 'interskein redeem-invite <token> --to <instance> --login'."
+        )
 
 
 @cli.command()
@@ -755,6 +767,89 @@ def login() -> None:
     provider = _sign.acquire_oidc_provider()
     click.echo(f"signed in as {provider.issuer}", err=True)
     click.echo(provider.token)
+
+
+@cli.command()
+@click.option("--oob", "force_oob", is_flag=True, help="Out-of-band code flow (no local browser, e.g. SSH/headless).")
+@click.option("--json", "output_json", is_flag=True)
+def whoami(force_oob: bool, output_json: bool) -> None:
+    """Run the Sigstore login and print your verified identity (issuer + subject).
+
+    Closes the subject-discovery gap for the manual ``account add`` fallback: the
+    subject printed here is the email the cert SAN will carry, read straight off the
+    OIDC identity token — NO Fulcio cert and NO Rekor entry are created. Diagnostics
+    go to stderr so the values capture cleanly.
+
+      interskein whoami           # browser login, prints issuer + subject
+      interskein whoami --oob     # SSH/headless code flow
+    """
+    from . import sign as _sign
+
+    session = _sign.acquire_oidc_session(force_oob=force_oob)
+    if output_json:
+        _emit_json({"issuer": session.issuer, "subject": session.subject})
+        return
+    click.echo(f"issuer {session.issuer}")
+    click.echo(f"subject {session.subject}")
+
+
+@cli.command("redeem-invite")
+@click.argument("token")
+@click.option("--to", "instance_url", required=True, help="Instance origin (e.g. https://interskein.com).")
+@click.option("--login", is_flag=True, help="Run the interactive Sigstore login here (required).")
+@click.option("--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (SSH/headless).")
+@click.option("--origin", default=None, help="Origin signed into the proof (default: the --to value).")
+@click.option("--yes", is_flag=True, help="Skip the Rekor-consent confirmation (you have already consented).")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def redeem_invite(
+    ctx: click.Context, token: str, instance_url: str, login: bool,
+    force_oob: bool, origin: Optional[str], yes: bool, output_json: bool,
+) -> None:
+    """Redeem an invite TOKEN: a token-bound Sigstore ceremony binds you as an author.
+
+    The collaborator side of onboarding. Runs the interactive Sigstore login, signs
+    a proof that commits to THIS token + THIS station, and POSTs it to the instance,
+    which atomically burns the invite and binds your discovered identity.
+
+      interskein redeem-invite <token> --to https://interskein.com --login
+
+    On a headless box add --oob (out-of-band code flow). Redeeming writes your
+    token's hash + your identity to the PUBLIC Rekor transparency log — you are
+    asked to confirm first (the human-accountability stop); --yes skips the prompt.
+    """
+    from . import sign as _sign
+    from . import profile as _profile
+
+    if not login:
+        raise click.ClickException("redeem-invite needs --login (the Sigstore OIDC ceremony).")
+    origin = origin or _publish.canonical_instance(instance_url)
+    # The Rekor-consent stop (hard human-confirm). Required especially under --oob on
+    # a headless box where there is no other human-in-the-loop; abort if declined.
+    if not yes:
+        click.confirm(
+            "Redeeming signs with your identity and writes a record to the PUBLIC "
+            "Rekor transparency log (your invite token's hash and your email become "
+            "permanently public). Continue?",
+            abort=True,
+        )
+    session = _sign.acquire_oidc_session(force_oob=force_oob)
+    signer = _sign.make_oidc_signer(
+        session.provider, canon_profile=_profile.CANON_PROFILE_REDEEM_V1
+    )
+    proof, _issuer, _subject = _sign.sign_redeem_proof(token, origin, signer)
+    try:
+        status, body = _publish.post_redeem(instance_url, token, proof)
+    except PublishError as e:
+        raise click.ClickException(str(e))
+    if output_json:
+        _emit_json({"http_status": status, **body})
+        return
+    if body.get("ok"):
+        click.echo(f"redeemed — bound as author: {body.get('subject')}")
+    else:
+        reason = body.get("error") or body.get("status") or "unknown error"
+        raise click.ClickException(f"redeem failed ({status}): {reason}")
 
 
 @cli.command()
@@ -966,6 +1061,173 @@ def account_list(ctx: click.Context, show_all: bool) -> None:
         for b in st.store.list_bindings(include_revoked=show_all):
             suffix = " (revoked)" if b.revoked_at else ""
             click.echo(f"{b.role} {b.issuer}/{b.subject}{suffix}")
+
+
+# --- account invite (one-time collaborator onboarding tokens) ----------------
+
+_DURATION_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def _parse_duration(s: str):
+    """Parse a ``30m`` / ``24h`` / ``7d`` / ``3600s`` duration to a timedelta."""
+    import re
+    from datetime import timedelta
+
+    m = re.fullmatch(r"\s*(\d+)\s*([smhd])\s*", s or "")
+    if not m:
+        raise click.ClickException("--expires must look like 30m, 24h, 7d, or 3600s")
+    return timedelta(seconds=int(m.group(1)) * _DURATION_UNITS[m.group(2)])
+
+
+def _invite_state(row: Dict[str, Any], now) -> str:
+    """Derive the display state of an invite row (revoked > redeemed > expired > outstanding)."""
+    from datetime import datetime, timezone
+
+    if row.get("revoked_at"):
+        return "revoked"
+    if row.get("used_at"):
+        return "redeemed"
+    exp = row.get("expires_at")
+    if exp:
+        try:
+            dt = datetime.fromisoformat(exp)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt <= now:
+                return "expired"
+        except ValueError:
+            pass
+    return "outstanding"
+
+
+def _invite_line(row: Dict[str, Any], state: str) -> str:
+    """One screen-reader line for an invite (plain text: ``<description> <id>``)."""
+    note = f' "{row["note"]}"' if row.get("note") else ""
+    short = (row.get("token_hash") or "?")[:12]
+    role = row.get("role") or "author"
+    if state == "redeemed":
+        return f"redeemed {role} by {row.get('bound_subject')} at {row.get('redeemed_at')}{note} {short}"
+    if state == "outstanding":
+        return f"outstanding {role} expires {row.get('expires_at')}{note} {short}"
+    return f"{state} {role}{note} {short}"
+
+
+def _resolve_invite_hash(st, prefix: str) -> str:
+    """Resolve a token-hash prefix to exactly one invite's full hash, or error."""
+    matches = [
+        r["token_hash"] for r in st.store.list_invites(include_inactive=True)
+        if r["token_hash"] == prefix or r["token_hash"].startswith(prefix)
+    ]
+    matches = sorted(set(matches))
+    if not matches:
+        raise click.ClickException(f"no invite matching hash {prefix!r}")
+    if len(matches) > 1:
+        raise click.ClickException(f"ambiguous hash prefix {prefix!r} matches {len(matches)} invites")
+    return matches[0]
+
+
+@account.group("invite")
+def account_invite() -> None:
+    """Mint, list, and revoke one-time collaborator invites.
+
+    An invite is a bearer token the operator sends out of band (vouching for a
+    human). The collaborator's agent redeems it via ``interskein redeem-invite``,
+    which runs a token-bound Sigstore ceremony and auto-binds the discovered
+    identity as an author. The plaintext token is shown ONCE at mint and never
+    stored — only its hash."""
+
+
+@account_invite.command("mint")
+@click.option("--role", default="author", type=click.Choice(["author"]))
+@click.option("--expires", default="7d", help="Validity window (e.g. 30m, 24h, 7d). Default 7d.")
+@click.option("--note", default=None, help="Operator note (who this invite is for).")
+@click.option("--origin", default=None, help="Station origin for the blurb (default: $SKEIN_NEXT_ORIGIN).")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def account_invite_mint(
+    ctx: click.Context, role: str, expires: str, note: Optional[str],
+    origin: Optional[str], output_json: bool,
+) -> None:
+    """Mint a one-time invite; print the token + a ready-to-send blurb (token shown ONCE)."""
+    import secrets
+    from datetime import datetime, timezone
+
+    delta = _parse_duration(expires)
+    origin = origin or os.environ.get("SKEIN_NEXT_ORIGIN")
+    token = secrets.token_urlsafe(32)  # 32 bytes = 256-bit CSPRNG token
+    token_h = hash_token(token)
+    expires_at = datetime.now(timezone.utc) + delta
+    with _open_station(ctx) as st:
+        op = st.store.get_operator()
+        if op is None:
+            raise click.ClickException("no operator; run 'interskein account init-operator' first")
+        st.store.mint_invite(
+            token_h, role, expires_at,
+            vouched_by_issuer=op.issuer, vouched_by_subject=op.subject, note=note,
+        )
+    expires_iso = expires_at.isoformat()
+    if output_json:
+        _emit_json({
+            "token": token, "token_hash": token_h, "role": role,
+            "expires_at": expires_iso, "note": note, "origin": origin,
+        })
+        return
+    origin_display = origin or "<your-instance-origin>"
+    blurb = (
+        f"You're invited to publish on {origin_display}. Hand this entire message to "
+        f"your coding agent.\n\n"
+        f"One-time invite token (expires {expires_iso}):\n  {token}\n\n"
+        f"Your agent: follow the bootstrap pack at {origin_display}/onboarding to install "
+        f"the verified interskein CLI (verify the signed install spec FIRST), then redeem:\n\n"
+        f"  interskein redeem-invite {token} --to {origin_display} --login\n\n"
+        f"Redeeming runs a Sigstore login and writes a record to the PUBLIC Rekor "
+        f"transparency log; on a headless box, confirm before proceeding. After "
+        f"redeeming you're bound as an author and can publish signed content."
+    )
+    click.echo(f"invite token (one-time, expires {expires_iso}):")
+    click.echo(f"  {token}")
+    click.echo(f"hash {token_h[:12]}")
+    if not origin:
+        click.echo(
+            "warning: no origin (set $SKEIN_NEXT_ORIGIN or pass --origin) — the blurb "
+            "below has a placeholder; fill it in before sending.", err=True,
+        )
+    click.echo("\n--- send this to the collaborator (out of band) ---")
+    click.echo(blurb)
+
+
+@account_invite.command("list")
+@click.option("--all", "show_all", is_flag=True, help="Include revoked + expired invites.")
+@click.pass_context
+def account_invite_list(ctx: click.Context, show_all: bool) -> None:
+    """List invites, one per line (a11y plain text). Redeemed invites show the bound identity."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    with _open_station(ctx) as st:
+        rows = st.store.list_invites(include_inactive=True)
+    for r in rows:
+        state = _invite_state(r, now)
+        # Default view shows outstanding + redeemed (the operator-actionable states);
+        # --all also surfaces revoked/expired. Redemptions are visible by default so
+        # a hostile bind is directly detectable (INV-4).
+        if not show_all and state in ("revoked", "expired"):
+            continue
+        click.echo(_invite_line(r, state))
+
+
+@account_invite.command("revoke")
+@click.argument("token_or_hash")
+@click.option("--hash", "is_hash", is_flag=True,
+              help="Treat the argument as a token hash (or prefix from 'invite list'), not a plaintext token.")
+@click.pass_context
+def account_invite_revoke(ctx: click.Context, token_or_hash: str, is_hash: bool) -> None:
+    """Revoke an outstanding invite (by plaintext token, or --hash for a hash/prefix)."""
+    with _open_station(ctx) as st:
+        token_h = _resolve_invite_hash(st, token_or_hash) if is_hash else hash_token(token_or_hash)
+        if not st.store.revoke_invite(token_h):
+            raise click.ClickException(f"no active invite to revoke ({token_h[:12]})")
+    click.echo(f"revoked invite {token_h[:12]}")
 
 
 @cli.group()

@@ -249,6 +249,43 @@ interactive OIDC ceremony — see the collaborator onboarding doc
 The full signed round-trip (a real `interskein publish --sign --login`) needs an
 interactive OIDC ceremony — see the collaborator publish doc.
 
+## Schema migration (invite/redeem tables)
+
+The invite/redeem bundle adds two tables to the corpus — `invites` and
+`invite_events`. The migration is **purely additive and automatic**: the store's
+`CREATE TABLE IF NOT EXISTS` DDL runs on every read_write open (the ingress open),
+so the first time the new ingress image opens the served corpus the two tables
+materialize. There is **no `ALTER`, no data backfill, no downtime step**.
+Validated on a copy of a pre-migration corpus in
+`skein_next/tests/test_invite_redeem_migration.py`:
+
+- Opening read_write materializes both tables (empty); **every pre-existing
+  folio/thread/binding row is byte-identical** afterward.
+- The migration is **idempotent** (a second open changes nothing).
+- The **read surface (`:ro` mount) is unaffected** — the read path never queries
+  the invite tables (only `store.py`/`cli.py` do), so their absence-then-presence
+  is invisible to it. No read-app restart is needed for the migration.
+- Under `require_signed=OFF` a publish is **byte-identical** whether or not the
+  tables exist (they are write-surface state `/publish` never reads).
+
+Deploy steps:
+
+```bash
+# 1. predeploy backup (same convention as the existing full-restore backups)
+ssh root@45.55.249.33 'cp /srv/interskein/corpus/store.db \
+  /srv/interskein/corpus/store.db.bak-predeploy-$(date +%Y%m%d-%H%M%S)'
+# 2. roll the ingress image; first read_write open runs the additive DDL.
+# 3. confirm the tables materialized (and stayed empty until first mint):
+ssh root@45.55.249.33 "sqlite3 /srv/interskein/corpus/store.db \
+  \"SELECT name FROM sqlite_master WHERE name IN ('invites','invite_events');\""
+#    -> invites / invite_events
+```
+
+Migration rollback: the tables are additive and unused by `/publish` and under
+`require_signed`, so **leaving them in place is harmless**. A true revert is the
+predeploy corpus restore below (which drops them back); the `require_signed=OFF`
+config-flip rollback is byte-identical with or without them.
+
 ## Rollback
 
 Rollback is a **config flip**, byte-identical to the pre-mesh posture:
@@ -276,3 +313,13 @@ shared writable volume in rollback-journal mode (not WAL — the read mount is
 `:ro`). The read surface tolerates the ingress writing underneath it (the
 read-path missing-table tolerance is read-only-scoped). Validate read-path health
 while the ingress is under write load before declaring a deploy good.
+
+**Threadpool sizing vs. the redeem rate limit.** Each `/invite/redeem` does a
+multi-second Sigstore `verify_multi` OFF the write lock, but ON an anyio
+threadpool worker. The verify provably holds no DB lock (so a slow redeem never
+wedges publishes — `skein_next/tests/.../test_verify_multi_holds_no_write_lock`),
+but a large burst of concurrent slow verifies can saturate the default ~40-thread
+pool and inflate other requests' latency (graceful — no 500s, no lock wedge; it is
+pool capacity, not the DB). The `redeem_zone` 5 r/m per-IP cap is the front-line
+that keeps real traffic far below this; if you ever raise that cap, raise the
+uvicorn/anyio threadpool to match. Not a code fix — an operator tuning knob.

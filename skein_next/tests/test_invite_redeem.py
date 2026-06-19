@@ -274,6 +274,31 @@ def test_redeem_unknown_token_cheap(station, monkeypatch):
     assert calls["n"] == 0  # rejected BEFORE crypto
 
 
+@pytest.mark.parametrize(
+    "bad_token",
+    [
+        "\ud800",            # lone HIGH surrogate
+        "tok-\udfff-tail",   # lone LOW surrogate mid-string
+        "\ud800\udc00",  # high+low surrogate pair as separate (unpaired) codepoints
+    ],
+)
+def test_redeem_surrogate_token_unknown_cheap(station, monkeypatch, bad_token):
+    # A token carrying a lone/paired UTF-16 surrogate cannot be UTF-8-encoded, so
+    # hash_token would raise UnicodeEncodeError. Such a string can never equal a
+    # stored hex token, so redeem() must treat it as the SAME cheap UNKNOWN reject
+    # as any invalid token — never raising (the never-500s contract) and never
+    # reaching crypto or even the lookup.
+    calls = _crypto_calls(monkeypatch)
+
+    def _boom(*a, **k):  # the lookup must not be reached either (no hash computed)
+        raise AssertionError("token-hash lookup reached on an unencodable token")
+
+    monkeypatch.setattr(station.store, "get_invite_by_token_hash", _boom)
+    r = redeem_mod.redeem(station, bad_token, {"x": 1}, ORIGIN, verifier=_binding_verifier())
+    assert not r.ok and r.status == redeem_mod.RedeemStatus.UNKNOWN
+    assert calls["n"] == 0  # rejected BEFORE crypto
+
+
 def test_redeem_revoked_invite_cheap(station, monkeypatch):
     token, th = _mint(station)
     station.store.revoke_invite(th)
@@ -330,6 +355,39 @@ def test_attempt_reservation_is_atomic_under_concurrency(tmp_path):
         assert check.store.get_invite_by_token_hash(th)["failed_attempts"] == cap
     finally:
         check.close()
+
+
+def test_reserve_attempt_naive_window_start_does_not_raise(station):
+    # Defensive totality: reserve_redeem_attempt is documented best-effort/total over
+    # stored values. The only live writer stores aware-UTC, but a NAIVE stored stamp
+    # must NOT raise — (now - naive) would be a TypeError that the old `except
+    # ValueError` did not catch. A naive stamp is treated as UTC (mirroring _parse),
+    # so the window is measured correctly rather than mis-windowed.
+    token, th = _mint(station)
+    cap = redeem_mod.REDEEM_ATTEMPT_CAP
+    naive_now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    assert "+" not in naive_now and "Z" not in naive_now  # genuinely naive
+
+    # cap already met, window started "now" (naive) -> within the live window ->
+    # refuse, cheaply, with no raise (the count is honored under naive->UTC).
+    station.store.conn.execute(
+        "UPDATE invites SET failed_attempts = ?, attempts_window_start = ? WHERE token_hash = ?",
+        (cap, naive_now, th),
+    )
+    station.store.conn.commit()
+    assert station.store.reserve_redeem_attempt(th, cap, 600) is False
+    assert station.store.get_invite_by_token_hash(th)["failed_attempts"] == cap
+
+    # a naive stamp far in the past -> window rolled over -> reserve resets to a fresh
+    # window and grants the slot (correct windowing, still no raise).
+    stale_naive = (datetime.now(timezone.utc) - timedelta(seconds=4000)).replace(tzinfo=None).isoformat()
+    station.store.conn.execute(
+        "UPDATE invites SET failed_attempts = ?, attempts_window_start = ? WHERE token_hash = ?",
+        (cap, stale_naive, th),
+    )
+    station.store.conn.commit()
+    assert station.store.reserve_redeem_attempt(th, cap, 600) is True
+    assert station.store.get_invite_by_token_hash(th)["failed_attempts"] == 1
 
 
 def test_redeem_idempotent_same_identity(station):
@@ -544,6 +602,17 @@ def test_route_missing_token_400(app_client):
 
 def test_route_unknown_token_409(app_client):
     r = _post(app_client, "tok-nope-" + "q" * 32, _proof("tok-nope-" + "q" * 32))
+    assert r.status_code == 409
+    assert r.json()["status"] == redeem_mod.RedeemStatus.UNKNOWN
+
+
+def test_route_surrogate_token_not_500(app_client):
+    # A token carrying a lone UTF-16 surrogate is a valid non-empty JSON string, so it
+    # passes the route's str-check and reaches redeem(); hash_token's .encode("utf-8")
+    # cannot encode a surrogate. The redeem() guard turns this into the cheap UNKNOWN
+    # reject (409) rather than a floodable 500 + traceback (the never-500s contract).
+    body = b'{"token":"\\ud800","proof":{}}'
+    r = app_client.post(sign_mod.REDEEM_ROUTE, content=body, headers={"Content-Type": "application/json"})
     assert r.status_code == 409
     assert r.json()["status"] == redeem_mod.RedeemStatus.UNKNOWN
 

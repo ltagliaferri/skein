@@ -1314,8 +1314,16 @@ class SkeinNextStore:
             if window_start is not None:
                 try:
                     started = datetime.fromisoformat(window_start)
+                    # A NAIVE stored stamp is assumed UTC (mirroring redeem._parse), so
+                    # the aware-vs-naive subtraction below can't raise TypeError and the
+                    # window is measured correctly rather than mis-windowed. The except
+                    # also catches TypeError as a belt-and-suspenders: no stored-stamp
+                    # shape can make this best-effort/total function raise — an
+                    # unparseable stamp falls back to a fresh window (within_window False).
+                    if started.tzinfo is None:
+                        started = started.replace(tzinfo=timezone.utc)
                     within_window = (now - started).total_seconds() <= window_seconds
-                except ValueError:
+                except (ValueError, TypeError):
                     within_window = False
             if within_window:
                 if (row["failed_attempts"] or 0) >= cap:

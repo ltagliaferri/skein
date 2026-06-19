@@ -126,7 +126,16 @@ def redeem(
     # is treated as unknown (cheap, no crypto, no existence oracle beyond "invalid").
     if not isinstance(token, str) or not token:
         return RedeemResult(False, RedeemStatus.UNKNOWN, "unknown or invalid invite token")
-    token_hash = hash_token(token)
+    # A real invite token is CSPRNG hex — pure ASCII. A string carrying a lone UTF-16
+    # surrogate (e.g. '\ud800') cannot be UTF-8-encoded, so hash_token would raise
+    # UnicodeEncodeError; but such a string can never equal a stored hex token either,
+    # so it is just another UNKNOWN — the SAME cheap reject, reached before any crypto
+    # and leaking no existence oracle. Guarding here (not the route) keeps redeem()'s
+    # "never raises over hostile input except a genuine SQLite lock" contract total.
+    try:
+        token_hash = hash_token(token)
+    except UnicodeEncodeError:
+        return RedeemResult(False, RedeemStatus.UNKNOWN, "unknown or invalid invite token")
 
     # (a) CHEAP token-hash lookup OUTSIDE any transaction (INV-2 step a).
     row = station.store.get_invite_by_token_hash(token_hash)

@@ -127,8 +127,15 @@ exactly **one** active operator exists. Bootstrap the operator before first boot
 
 ```bash
 interskein --data-dir /data account init-operator \
-  --issuer https://accounts.google.com --subject patricksmyth01@gmail.com
+  --issuer https://oauth2.sigstore.dev/auth --subject patricksmyth01@gmail.com
 ```
+
+> **Issuer note:** a human Sigstore login (`interskein login` / `--login`) goes
+> through the Sigstore Dex broker, which mints the token with
+> `issuer = https://oauth2.sigstore.dev/auth` — **not** `https://accounts.google.com`.
+> The `init-operator` binding and your signing identity must use the same issuer or
+> `can_write()` will reject your own publish. Use `interskein whoami` to confirm
+> the issuer your login produces before bootstrapping.
 
 ## Authorizing a collaborator
 
@@ -166,19 +173,19 @@ redeem.
 
 ```bash
 # the collaborator runs this and reads back issuer + subject (no Rekor entry):
-interskein whoami            # -> issuer https://accounts.google.com
+interskein whoami            # -> issuer https://oauth2.sigstore.dev/auth
                              #    subject their-email@example.com
 
 # add an author (vouched for by the active operator)
 interskein --data-dir /data account add --role author \
-  --issuer https://accounts.google.com --subject their-email@example.com
+  --issuer https://oauth2.sigstore.dev/auth --subject their-email@example.com
 
 # list current bindings (one per line: <role> <issuer>/<subject>)
 interskein --data-dir /data account list
 
 # revoke a binding (revocation is not deletion; takes effect live, next read/publish)
 interskein --data-dir /data account revoke \
-  --issuer https://accounts.google.com --subject their-email@example.com
+  --issuer https://oauth2.sigstore.dev/auth --subject their-email@example.com
 ```
 
 `interskein whoami` closes the old subject-discovery gap: it prints the exact

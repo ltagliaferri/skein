@@ -18,10 +18,13 @@ isn't just cosmetic: a binding under the wrong issuer still fails.
 
 from __future__ import annotations
 
+import base64
+import json
+
 import pytest
 
 from skein import signing
-from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
+from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus, _test_factory
 
 from skein_next import profile, wire
 from skein_next import sign as sign_mod
@@ -108,4 +111,94 @@ def test_google_bootstrap_broker_sign_rejected(client, instance):
     assert ack["accepted"] == [], "mismatch should not have been accepted"
     assert all(r["reason"] == "unbound signer" for r in ack["rejected"]), (
         f"expected 'unbound signer', got: {[r['reason'] for r in ack['rejected']]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helpers for the two new guard tests below.
+# ---------------------------------------------------------------------------
+
+
+def _make_jwt(aud: str = "sigstore", issuer: str = BROKER) -> str:
+    """Unsigned JWT with aud and iss claims — enough to pass signing.sign()'s guard."""
+    def _b64(d: dict) -> str:
+        raw = json.dumps(d, separators=(",", ":"), sort_keys=True).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    header = _b64({"alg": "none", "typ": "JWT"})
+    payload = _b64({"aud": aud, "iss": issuer, "sub": ALICE})
+    return f"{header}.{payload}."
+
+
+# ---------------------------------------------------------------------------
+# Guard test 1: the _build_bundle DEFAULT (no explicit issuer/provider)
+# ---------------------------------------------------------------------------
+
+
+def test_default_issuer_is_broker_accepted(client, instance, monkeypatch):
+    """_build_bundle's no-issuer/no-provider fallback must be the broker, not Google.
+
+    The fix flipped signing._SIGSTORE_PROD_BROKER from accounts.google.com to the
+    broker. This test exercises that fallback: install_sign_monkeypatch is called
+    with provider=None so _build_bundle opts["provider"] is None and no opts["issuer"]
+    is present. _build_bundle then falls back to _SIGSTORE_PROD_BROKER — the cert it
+    mints carries that issuer and sign() extracts it for SignedResult.issuer. We bind
+    ONLY the broker on the instance; if the fallback were still google, the extracted
+    issuer would be google, the binding lookup would miss, and ingest would reject with
+    'unbound signer' — so the test fails on a revert.
+
+    Routing through ingest (rather than just inspecting the cert) is chosen because
+    it closes the full loop: default issuer → cert → verify extraction → binding lookup
+    → accept/reject. A cert-only assertion would not catch a verifier that re-maps the
+    issuer before the binding check.
+    """
+    # install_sign_monkeypatch with provider=None: _sign_state["provider"] = None,
+    # so _build_bundle falls through to the _SIGSTORE_PROD_BROKER default.
+    _test_factory.install_sign_monkeypatch(monkeypatch, provider=None)
+    _test_factory.install_verify_monkeypatch(monkeypatch)
+
+    # OIDCProviderConfig with broker issuer passes sign()'s allowlist + aud checks;
+    # the factory ignores the provider's issuer when building the cert (provider=None
+    # in _sign_state means _build_bundle uses the _SIGSTORE_PROD_BROKER literal).
+    broker_provider = signing.OIDCProviderConfig(
+        issuer=BROKER,
+        token=_make_jwt(issuer=BROKER),
+        provider_id=None,
+    )
+    signer = sign_mod.make_oidc_signer(broker_provider)
+
+    instance.store.add_binding(BROKER, ALICE, role="operator",
+                               vouched_by_issuer=BROKER, vouched_by_subject=ALICE)
+
+    batch = _seed_and_batch(client, signer)
+    ack = ingest(instance, batch, require_signed=True)
+    assert ack["accepted"], (
+        "publish rejected — the cert issuer from _build_bundle default does not "
+        "match the broker binding; check signing._SIGSTORE_PROD_BROKER default"
+    )
+    assert ack["rejected"] == [], f"unexpected rejections: {ack['rejected']}"
+
+
+# ---------------------------------------------------------------------------
+# Guard test 2: the CLI --oidc-issuer DEFAULT
+# ---------------------------------------------------------------------------
+
+
+def test_cli_publish_oidc_issuer_default_is_broker():
+    """The publish CLI --oidc-issuer option must default to SIGSTORE_PROD_ISSUER.
+
+    Guards cli.py's _BROKER_ISSUER default against drift back to accounts.google.com.
+    A wrong default would silently supply the wrong issuer to an operator who doesn't
+    pass --oidc-issuer explicitly, producing a cert that no correctly-bootstrapped
+    instance would accept.
+    """
+    from skein_next.cli import publish as publish_cmd
+
+    issuer_param = next(
+        (p for p in publish_cmd.params if p.name == "oidc_issuer"),
+        None,
+    )
+    assert issuer_param is not None, "--oidc-issuer param not found on publish command"
+    assert issuer_param.default == sign_mod.SIGSTORE_PROD_ISSUER, (
+        f"--oidc-issuer default is {issuer_param.default!r}, expected "
+        f"SIGSTORE_PROD_ISSUER={sign_mod.SIGSTORE_PROD_ISSUER!r}"
     )

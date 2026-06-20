@@ -185,6 +185,16 @@ interskein --data-dir /data account revoke \
 `(issuer, subject)` the cert will carry, read off the OIDC identity token without
 creating a Rekor entry (finding-20260615-61z7).
 
+> **Cert issuer vs token issuer (empirically confirmed 2026-06-20):**
+> A human Sigstore login goes through the Dex broker
+> (`https://oauth2.sigstore.dev/auth`) for the OIDC ceremony, but Fulcio mints a
+> cert whose issuer extension carries the **federated upstream provider** — for a
+> Google login that is `https://accounts.google.com`.  `can_write()` keys on the
+> cert issuer, not the token issuer.  `interskein whoami` prints the **token**
+> issuer (the broker); do not bootstrap a binding from that value.  To discover the
+> real cert issuer, decode an actual stored cert or signed manifest, or use the
+> invite/redeem flow (it auto-binds the cert identity, no manual issuer needed).
+
 ## Verifying the deployment
 
 ```bash

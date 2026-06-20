@@ -165,11 +165,14 @@ redeem.
 ### Manual fallback (`account add`)
 
 ```bash
-# the collaborator runs this and reads back issuer + subject (no Rekor entry):
-interskein whoami            # -> issuer https://accounts.google.com
+# the collaborator runs this to read back their SUBJECT (no Rekor entry):
+interskein whoami            # -> issuer https://oauth2.sigstore.dev/auth   (the broker
+                             #       TOKEN issuer — NOT the cert issuer; see note below)
                              #    subject their-email@example.com
 
-# add an author (vouched for by the active operator)
+# add an author (vouched for by the active operator). The --issuer is the CERT
+# issuer (the federated upstream provider), e.g. https://accounts.google.com for a
+# Google login — NOT the broker value whoami prints. See the note below.
 interskein --data-dir /data account add --role author \
   --issuer https://accounts.google.com --subject their-email@example.com
 
@@ -181,9 +184,11 @@ interskein --data-dir /data account revoke \
   --issuer https://accounts.google.com --subject their-email@example.com
 ```
 
-`interskein whoami` closes the old subject-discovery gap: it prints the exact
-`(issuer, subject)` the cert will carry, read off the OIDC identity token without
-creating a Rekor entry (finding-20260615-61z7).
+`interskein whoami` closes the old SUBJECT-discovery gap: it prints the verified
+subject (the email the cert SAN will carry), read off the OIDC identity token
+without creating a Rekor entry (finding-20260615-61z7). Its **issuer** value is the
+token/broker issuer, which differs from the cert issuer used by the binding — see
+the note below; take the binding `--issuer` from there, not from `whoami`.
 
 > **Cert issuer vs token issuer (empirically confirmed 2026-06-20):**
 > A human Sigstore login goes through the Dex broker

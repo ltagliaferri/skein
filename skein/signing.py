@@ -263,14 +263,6 @@ _V0_OIDC_ALLOWLIST: frozenset[str] = frozenset(
     }
 )
 
-# The Sigstore prod Dex broker — the issuer every human interactive flow
-# produces. Used as the fake signer's default so test fixtures model reality:
-# a signer that defaults to accounts.google.com is self-consistent in tests
-# but wrong vs the real flow (direct-Google is not reachable for human flows;
-# see _V0_OIDC_ALLOWLIST comment above). Mirrors skein_next.sign.SIGSTORE_PROD_ISSUER;
-# kept as a literal here to avoid importing the heavier skein_next package.
-_SIGSTORE_PROD_BROKER = "https://oauth2.sigstore.dev/auth"
-
 
 _OID_ISSUER_V2 = "1.3.6.1.4.1.57264.1.8"
 _OID_ISSUER_LEGACY = "1.3.6.1.4.1.57264.1.1"
@@ -2368,7 +2360,7 @@ class _TestFactory:
         identity = opts.get("identity", "alice@example.com")
         provider = opts.get("provider")
         issuer = opts.get("issuer") or (
-            provider.issuer if provider is not None else _SIGSTORE_PROD_BROKER
+            provider.issuer if provider is not None else "https://accounts.google.com"
         )
         san_type = opts.get("san_type", "rfc822Name")
         san_value = opts.get("san_value", identity)

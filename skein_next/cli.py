@@ -47,11 +47,6 @@ from .station import (
 ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
 ENV_AGENT = "SKEIN_NEXT_AGENT"
 
-# Sigstore prod Dex broker — the issuer every human interactive flow produces.
-# Kept as a literal to avoid pulling sigstore into startup; matches
-# skein_next.sign.SIGSTORE_PROD_ISSUER and skein.signing._SIGSTORE_PROD_BROKER.
-_BROKER_ISSUER = "https://oauth2.sigstore.dev/auth"
-
 
 def _default_author() -> Optional[str]:
     return os.environ.get(ENV_AGENT) or os.environ.get("SKEIN_AGENT")
@@ -646,7 +641,7 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
 @click.option("--sign", "do_sign", is_flag=True, help="Sign each folio at the boundary (needs --login or --oidc-token).")
 @click.option("--login", is_flag=True, help="With --sign: run the interactive Sigstore login here.")
 @click.option("--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (no local browser, e.g. SSH).")
-@click.option("--oidc-issuer", default=_BROKER_ISSUER, help="OIDC issuer for --sign --oidc-token.")
+@click.option("--oidc-issuer", default="https://accounts.google.com", help="OIDC issuer for --sign --oidc-token.")
 @click.option("--oidc-token", default=None, help="OIDC JWT for --sign ('-' reads stdin).")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context

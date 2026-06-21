@@ -1249,6 +1249,11 @@ def maintenance_verify_cache(ctx: click.Context) -> None:
     click.echo(f"backfilled {n} manifest verdict(s)")
 
 
+from .shard_cli import shard as _shard_group  # noqa: E402
+
+cli.add_command(_shard_group)
+
+
 def main() -> None:
     """Entry point for the ``interskein`` console script."""
     cli(prog_name="interskein")

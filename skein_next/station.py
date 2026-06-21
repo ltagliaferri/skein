@@ -377,6 +377,17 @@ class Station:
     def search(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         return self.store.search_folios(query, limit=limit)
 
+    def folios_by_type(
+        self, type: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Station-wide list of folios of one ``type`` (oldest-first).
+
+        The local equivalent of legacy ``GET /folios?type=<type>`` — used by the
+        shard ``triage``/``inspect`` verbs to gather tender folios across the
+        station, not within a single site.
+        """
+        return self.store.folios_by_type(type, limit=limit)
+
     def list_sites(self) -> List[Tuple[str, Optional[Dict[str, Any]]]]:
         """All ``(slug, site_folio)`` pairs, ordered by slug.
 

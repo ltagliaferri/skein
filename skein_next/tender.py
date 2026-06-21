@@ -52,27 +52,32 @@ def parse_tender_meta(content: Optional[str]) -> Optional[Dict[str, Any]]:
     fenced text is not valid JSON, or the JSON is not an object — so callers can
     treat "no usable meta" as a single condition.
 
-    The writer always appends the meta block LAST, so the real envelope is the
-    one introduced by the FINAL marker. This matters because the body is built
-    from agent-authored text (e.g. a commit message) that could itself contain a
-    decoy marker + fence. We anchor on the last marker via ``rfind`` and match
-    from there, rather than scanning for the last regex match — a non-overlapping
-    scan could let an earlier *unclosed* decoy fence swallow the real block's
-    closing fence and lose it entirely.
+    The real envelope is the LAST marker that actually introduces a valid
+    ```json fence holding a JSON object. We scan marker occurrences right to
+    left and return the first such match. This is robust to two kinds of decoy:
+    a marker + fence in the agent-authored body (the real block is appended
+    after it), and the marker string appearing inside a meta *value* (it can't
+    be followed by a real fence, so its anchored match fails and we keep scanning
+    left). Anchoring each attempt at the marker position — rather than taking the
+    last of a non-overlapping regex scan — also stops an earlier *unclosed* decoy
+    fence from swallowing the real block's closing fence.
     """
     if not content:
         return None
-    idx = content.rfind(TENDER_META_MARKER)
-    if idx == -1:
-        return None
-    m = _META_RE.match(content, idx)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group("json"))
-    except (json.JSONDecodeError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
+    search_end = len(content)
+    while True:
+        idx = content.rfind(TENDER_META_MARKER, 0, search_end)
+        if idx == -1:
+            return None
+        m = _META_RE.match(content, idx)
+        if m:
+            try:
+                data = json.loads(m.group("json"))
+            except (json.JSONDecodeError, ValueError):
+                data = None
+            if isinstance(data, dict):
+                return data
+        search_end = idx  # this marker wasn't the envelope; look further left
 
 
 def latest_tenders_by_worktree(

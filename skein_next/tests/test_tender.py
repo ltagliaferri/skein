@@ -85,6 +85,18 @@ def test_unclosed_decoy_fence_in_body_does_not_swallow_real_meta():
     assert parse_tender_meta(content) == SAMPLE_META
 
 
+def test_marker_string_inside_a_meta_value_is_not_mistaken_for_the_envelope():
+    # A meta value (e.g. a free-text reviewer or an oddly named file) that itself
+    # contains the literal marker must not shadow the envelope: the inner marker
+    # sits inside the JSON and can't be followed by a real fence, so the parser
+    # skips it and recovers the true meta.
+    meta = dict(SAMPLE_META)
+    meta["reviewer"] = f"weird {TENDER_META_MARKER} reviewer"
+    meta["files_modified"] = [f"{TENDER_META_MARKER}.py"]
+    content = render_tender_content("## Tender\n\nsummary", meta)
+    assert parse_tender_meta(content) == meta
+
+
 def test_missing_meta_returns_none():
     assert parse_tender_meta("just some prose, no meta block") is None
     assert parse_tender_meta("") is None

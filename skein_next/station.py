@@ -83,7 +83,7 @@ def _now_utc() -> datetime:
 def _short(content_hash: str, length: int = 12) -> str:
     """A git-style short address: ``sha256::`` + the first ``length`` hex chars."""
     if content_hash.startswith("sha256::"):
-        return "sha256::" + content_hash[len("sha256::"):][:length]
+        return "sha256::" + content_hash[len("sha256::") :][:length]
     return content_hash[:length]
 
 
@@ -127,9 +127,7 @@ class Station:
         """
         if algo != "sha256":
             return []
-        framed = self.store.find_by_prefix(
-            f"{algo}::{prefix}", limit=_PREFIX_CANDIDATE_CAP
-        )
+        framed = self.store.find_by_prefix(f"{algo}::{prefix}", limit=_PREFIX_CANDIDATE_CAP)
         return [h.split("::", 1)[1] for h in framed]
 
     def resolve_ref(self, ref: str) -> Optional[str]:
@@ -180,6 +178,27 @@ class Station:
             raise AmbiguousReference(ref, [f"sha256::{c}" for c in matches])
         return None
 
+    # --- sites --------------------------------------------------------------
+
+    def _resolve_site_hash(self, slug: str) -> Optional[str]:
+        """Resolve a slug to its hash, but only if it points at a ``type=site``
+        folio. ``None`` otherwise.
+
+        A site is by definition a ``type=site`` folio, and the slug table is not
+        site-exclusive (agent names are slugged too), so a slug resolving to a
+        non-site folio is not a site. Every site-facing verb routes through this
+        so the "a site is a type=site folio" invariant holds uniformly across the
+        write (:meth:`post`) and read (:meth:`get_site`, :meth:`folios_in_site`,
+        :meth:`list_sites`) surface.
+        """
+        site_hash = self.store.resolve_slug(slug)
+        if not site_hash:
+            return None
+        folio = self.store.get_folio(site_hash)
+        if not folio or folio.get("type") != "site":
+            return None
+        return site_hash
+
     # --- write --------------------------------------------------------------
 
     def post(
@@ -193,12 +212,17 @@ class Station:
     ) -> str:
         """Create a folio and attach it to ``site`` with a ``within`` thread.
 
-        ``site`` is a slug that must already exist (raises :class:`UnknownSite`
-        otherwise — the station never silently invents a site). Returns the new
-        folio's content hash. Idempotent: re-posting identical fields into the
-        same site yields the same hash and the same single membership edge.
+        ``site`` is a slug that must already resolve to a ``type=site`` folio
+        (raises :class:`UnknownSite` otherwise — the station never silently
+        invents a site, and never attaches a folio "within" a non-site). The
+        slug table is not site-exclusive — agent names are slugged too — so a
+        slug resolving to a non-site folio is rejected here, mirroring the legacy
+        server, which validated the target was a real site before writing.
+        Returns the new folio's content hash. Idempotent: re-posting identical
+        fields into the same site yields the same hash and the same single
+        membership edge.
         """
-        site_hash = self.store.resolve_slug(site)
+        site_hash = self._resolve_site_hash(site)
         if not site_hash:
             raise UnknownSite(site)
         folio_hash = self.store.create_folio(
@@ -302,9 +326,7 @@ class Station:
         callers asking "where does this live" want the distinct set.
         """
         seen: List[str] = []
-        for t in self.store.get_threads(
-            from_id=content_hash, type=self.PUBLISHED_THREAD
-        ):
+        for t in self.store.get_threads(from_id=content_hash, type=self.PUBLISHED_THREAD):
             target = t.get("to_id")
             if target and target not in seen:
                 seen.append(target)
@@ -364,12 +386,13 @@ class Station:
     ) -> List[Dict[str, Any]]:
         """Folios that are members of ``site`` (via ``within`` threads).
 
-        Raises :class:`UnknownSite` if the slug is unknown. Optionally filtered
-        to one folio ``type``. The store does the membership join, ordering by
-        ``created_at`` *before* applying ``limit`` so the window is the stable
-        earliest-N, not an arbitrary slice. ``limit=None`` returns all members.
+        Raises :class:`UnknownSite` if the slug is unknown or names a non-site
+        folio. Optionally filtered to one folio ``type``. The store does the
+        membership join, ordering by ``created_at`` *before* applying ``limit``
+        so the window is the stable earliest-N, not an arbitrary slice.
+        ``limit=None`` returns all members.
         """
-        site_hash = self.store.resolve_slug(site)
+        site_hash = self._resolve_site_hash(site)
         if not site_hash:
             raise UnknownSite(site)
         return self.store.folios_in_site(site_hash, type=type, limit=limit)
@@ -377,19 +400,34 @@ class Station:
     def search(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         return self.store.search_folios(query, limit=limit)
 
-    def list_sites(self) -> List[Tuple[str, Optional[Dict[str, Any]]]]:
-        """All ``(slug, site_folio)`` pairs, ordered by slug.
+    def folios_by_type(self, type: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Station-wide list of folios of one ``type`` (oldest-first).
 
-        ``site_folio`` is ``None`` only if the slug table points at a hash with
-        no folio row (a corrupt station) — surfaced rather than hidden.
+        The local equivalent of legacy ``GET /folios?type=<type>`` — used by the
+        shard ``triage``/``inspect`` verbs to gather tender folios across the
+        station, not within a single site.
         """
-        return [
-            (slug, self.store.get_folio(site_hash))
-            for slug, site_hash in self.store.list_slugs()
-        ]
+        return self.store.folios_by_type(type, limit=limit)
+
+    def list_sites(self) -> List[Tuple[str, Optional[Dict[str, Any]]]]:
+        """All ``(slug, site_folio)`` pairs for real sites, ordered by slug.
+
+        A non-site slug (e.g. a Stage-2 agent name) is not a site and is omitted.
+        ``site_folio`` is ``None`` only if the slug table points at a hash with
+        no folio row (a corrupt station) — that case is still surfaced rather
+        than hidden, since it can't be told apart from a site by its (missing)
+        type and silently dropping it would hide real corruption.
+        """
+        out: List[Tuple[str, Optional[Dict[str, Any]]]] = []
+        for slug, site_hash in self.store.list_slugs():
+            folio = self.store.get_folio(site_hash)
+            if folio is not None and folio.get("type") != "site":
+                continue
+            out.append((slug, folio))
+        return out
 
     def get_site(self, slug: str) -> Optional[Dict[str, Any]]:
-        site_hash = self.store.resolve_slug(slug)
+        site_hash = self._resolve_site_hash(slug)
         return self.store.get_folio(site_hash) if site_hash else None
 
     def thread_graph(self, ref: str) -> Optional[Dict[str, Any]]:

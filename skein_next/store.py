@@ -513,6 +513,24 @@ class SkeinNextStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def folios_by_type(
+        self, type: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """All folios of one ``type``, ordered oldest-first by (created_at, hash).
+
+        The faithful local equivalent of legacy ``GET /folios?type=<type>`` — a
+        station-wide query by type, not scoped to a site. Ordered ascending so a
+        caller selecting "the newest per key" gets it as the last write wins;
+        ``content_hash`` breaks created_at ties deterministically.
+        """
+        sql = "SELECT * FROM folios WHERE type = ? ORDER BY created_at, content_hash"
+        params: List[Any] = [type]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self.conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
     def search_folios(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Folios matching ``query``, AND-of-terms, ranked title-over-body (L1).
 

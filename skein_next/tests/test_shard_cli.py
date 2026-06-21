@@ -143,6 +143,28 @@ def test_tender_rejects_a_non_site_slug(project, tmp_path):
     assert "not found" in r.output
 
 
+def test_spawn_thread_from_id_is_agent_weaver_is_operator(project, tmp_path):
+    """The spawn tag thread is authored BY the operator ABOUT the shard's agent:
+    from_id = the --agent value, weaver = the operator (SKEIN_NEXT_AGENT)."""
+    from skein_next.station import Station
+
+    data_dir = tmp_path / ".skein-next"
+    r = CliRunner().invoke(
+        cli,
+        ["--data-dir", str(data_dir), "shard", "spawn", "--agent", "shard-agent"],
+        env={"SKEIN_NEXT_AGENT": "operator-x"},
+    )
+    assert r.exit_code == 0, r.output
+
+    with Station(data_dir) as st:
+        tags = st.store.get_threads(type="tag")
+    assert len(tags) == 1
+    thread = tags[0]
+    assert thread["from_id"] == "shard-agent"
+    assert thread["weaver"] == "operator-x"
+    assert thread["from_id"] != thread["weaver"]
+
+
 def test_shards_shortcut_lists(project, tmp_path):
     """The hidden top-level `shards` alias mirrors `shard list`."""
     data_dir = tmp_path / ".skein-next"

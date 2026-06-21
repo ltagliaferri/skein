@@ -155,8 +155,15 @@ def test_resolve_ref_malformed_address_returns_none(station):
     # Structurally-invalid addresses resolve to None, never raise to the caller.
     # Includes the floor boundary: a bare short hash under 8 hex (which the
     # scheme rejects) must return None, not crash.
-    for bad in ("sha256::", "::sha256::abc", "sha256::xyz", "a::b::c::d",
-                "sha256::dead", "sha256::deadbe", "sha256"):
+    for bad in (
+        "sha256::",
+        "::sha256::abc",
+        "sha256::xyz",
+        "a::b::c::d",
+        "sha256::dead",
+        "sha256::deadbe",
+        "sha256",
+    ):
         assert station.resolve_ref(bad) is None
 
 
@@ -209,6 +216,16 @@ def test_post_requires_existing_site(station):
         station.post(type="finding", site="ghost", title="t")
 
 
+def test_post_rejects_a_slug_that_is_not_a_site(station):
+    # The slug table is not site-exclusive (agent names get slugged too). A slug
+    # resolving to a non-site folio is not a valid post target — you cannot post
+    # a folio "within" a non-site.
+    agent_hash = station.store.create_folio({"type": "agent", "title": "an-agent"})
+    station.store.set_slug("an-agent", agent_hash)
+    with pytest.raises(UnknownSite):
+        station.post(type="finding", site="an-agent", title="t")
+
+
 def test_post_creates_folio_and_within_edge(station):
     station.create_site("proj", purpose="a project")
     h = station.post(type="finding", site="proj", title="found it", content="body", created_by="me")
@@ -220,8 +237,12 @@ def test_post_creates_folio_and_within_edge(station):
 
 def test_post_is_idempotent(station):
     station.create_site("proj")
-    a = station.post(type="finding", site="proj", title="t", content="c", created_at="2026-01-01T00:00:00Z")
-    b = station.post(type="finding", site="proj", title="t", content="c", created_at="2026-01-01T00:00:00Z")
+    a = station.post(
+        type="finding", site="proj", title="t", content="c", created_at="2026-01-01T00:00:00Z"
+    )
+    b = station.post(
+        type="finding", site="proj", title="t", content="c", created_at="2026-01-01T00:00:00Z"
+    )
     assert a == b
     # one folio, and exactly one membership edge
     assert len(station.folios_in_site("proj")) == 1
@@ -247,7 +268,9 @@ def test_folios_in_site_limit_returns_earliest_by_created_at(station):
     station.create_site("proj")
     hashes = [
         station.post(
-            type="finding", site="proj", title=f"f{i}",
+            type="finding",
+            site="proj",
+            title=f"f{i}",
             created_at=f"2026-01-0{i + 1}T00:00:00Z",
         )
         for i in range(5)

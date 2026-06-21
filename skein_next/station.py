@@ -83,7 +83,7 @@ def _now_utc() -> datetime:
 def _short(content_hash: str, length: int = 12) -> str:
     """A git-style short address: ``sha256::`` + the first ``length`` hex chars."""
     if content_hash.startswith("sha256::"):
-        return "sha256::" + content_hash[len("sha256::"):][:length]
+        return "sha256::" + content_hash[len("sha256::") :][:length]
     return content_hash[:length]
 
 
@@ -127,9 +127,7 @@ class Station:
         """
         if algo != "sha256":
             return []
-        framed = self.store.find_by_prefix(
-            f"{algo}::{prefix}", limit=_PREFIX_CANDIDATE_CAP
-        )
+        framed = self.store.find_by_prefix(f"{algo}::{prefix}", limit=_PREFIX_CANDIDATE_CAP)
         return [h.split("::", 1)[1] for h in framed]
 
     def resolve_ref(self, ref: str) -> Optional[str]:
@@ -193,13 +191,21 @@ class Station:
     ) -> str:
         """Create a folio and attach it to ``site`` with a ``within`` thread.
 
-        ``site`` is a slug that must already exist (raises :class:`UnknownSite`
-        otherwise — the station never silently invents a site). Returns the new
-        folio's content hash. Idempotent: re-posting identical fields into the
-        same site yields the same hash and the same single membership edge.
+        ``site`` is a slug that must already resolve to a ``type=site`` folio
+        (raises :class:`UnknownSite` otherwise — the station never silently
+        invents a site, and never attaches a folio "within" a non-site). The
+        slug table is not site-exclusive — agent names are slugged too — so a
+        slug resolving to a non-site folio is rejected here, mirroring the legacy
+        server, which validated the target was a real site before writing.
+        Returns the new folio's content hash. Idempotent: re-posting identical
+        fields into the same site yields the same hash and the same single
+        membership edge.
         """
         site_hash = self.store.resolve_slug(site)
         if not site_hash:
+            raise UnknownSite(site)
+        site_folio = self.store.get_folio(site_hash)
+        if not site_folio or site_folio.get("type") != "site":
             raise UnknownSite(site)
         folio_hash = self.store.create_folio(
             {
@@ -302,9 +308,7 @@ class Station:
         callers asking "where does this live" want the distinct set.
         """
         seen: List[str] = []
-        for t in self.store.get_threads(
-            from_id=content_hash, type=self.PUBLISHED_THREAD
-        ):
+        for t in self.store.get_threads(from_id=content_hash, type=self.PUBLISHED_THREAD):
             target = t.get("to_id")
             if target and target not in seen:
                 seen.append(target)
@@ -377,9 +381,7 @@ class Station:
     def search(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         return self.store.search_folios(query, limit=limit)
 
-    def folios_by_type(
-        self, type: str, limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    def folios_by_type(self, type: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Station-wide list of folios of one ``type`` (oldest-first).
 
         The local equivalent of legacy ``GET /folios?type=<type>`` — used by the
@@ -395,8 +397,7 @@ class Station:
         no folio row (a corrupt station) — surfaced rather than hidden.
         """
         return [
-            (slug, self.store.get_folio(site_hash))
-            for slug, site_hash in self.store.list_slugs()
+            (slug, self.store.get_folio(site_hash)) for slug, site_hash in self.store.list_slugs()
         ]
 
     def get_site(self, slug: str) -> Optional[Dict[str, Any]]:

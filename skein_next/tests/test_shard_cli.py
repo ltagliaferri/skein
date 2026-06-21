@@ -115,6 +115,44 @@ def test_spawn_tender_triage_merge_cleanup_round_trip(project, tmp_path):
     assert tenders.exit_code == 0, tenders.output
 
 
+def test_tender_rejects_a_non_site_slug(project, tmp_path):
+    """A slug pointing at a non-site folio (e.g. a Stage-2 agent name) is not a
+    valid tender target — only type=site slugs are, matching legacy GET /sites."""
+    from skein_next.station import Station
+
+    data_dir = tmp_path / ".skein-next"
+    _run(data_dir, "site", "create", "shard-review")
+
+    # Register a slug that resolves to a non-site folio, as Stage 2 will for
+    # agent names. Reuse the existing shard-review site folio as a stand-in
+    # target and slug it under a non-site name via a brand-new agent folio.
+    with Station(data_dir) as st:
+        agent_hash = st.store.create_folio({"type": "agent", "title": "some-agent", "content": "x"})
+        st.store.set_slug("some-agent", agent_hash)
+
+    _run(data_dir, "shard", "spawn", "--agent", "tester")
+    worktree_name = shard_engine.list_shards(active_only=True)[0]["worktree_name"]
+    worktree_path = shard_engine.list_shards(active_only=True)[0]["worktree_path"]
+    with open(f"{worktree_path}/g.py", "w") as fh:
+        fh.write("y = 2\n")
+    _git(worktree_path, "add", "g.py")
+    _git(worktree_path, "commit", "-qm", "work")
+
+    r = _run(data_dir, "shard", "tender", worktree_name, "--site", "some-agent")
+    assert r.exit_code != 0
+    assert "not found" in r.output
+
+
+def test_shards_shortcut_lists(project, tmp_path):
+    """The hidden top-level `shards` alias mirrors `shard list`."""
+    data_dir = tmp_path / ".skein-next"
+    _run(data_dir, "shard", "spawn", "--agent", "tester")
+    worktree_name = shard_engine.list_shards(active_only=True)[0]["worktree_name"]
+    r = _run(data_dir, "shards")
+    assert r.exit_code == 0, r.output
+    assert worktree_name in r.output
+
+
 def test_triage_picks_latest_tender_after_confidence_change(project, tmp_path):
     """A re-tender at a new confidence is a new folio; triage shows the newest."""
     data_dir = tmp_path / ".skein-next"

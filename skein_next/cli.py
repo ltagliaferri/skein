@@ -161,62 +161,76 @@ class _StoreCounts(NamedTuple):
     aliases: int
 
 
-def _fidelity_failures(
-    report: ImportReport, counts: _StoreCounts
-) -> List[Tuple[str, str]]:
+def _fidelity_failures(report: ImportReport, counts: _StoreCounts) -> List[Tuple[str, str]]:
     """Return failed hard invariants as ``(invariant, offending counts)`` pairs."""
     failures: List[Tuple[str, str]] = []
 
     # Store reconciliation — the authoritative checks (findings 1-3).
     expected_folios = report.folios_carried + report.sites_carried
     if counts.folios != expected_folios:
-        failures.append((
-            "count_folios() == folios_carried + sites_carried",
-            f"store has {counts.folios}, expected {expected_folios} "
-            f"({report.folios_carried} folios + {report.sites_carried} sites)",
-        ))
+        failures.append(
+            (
+                "count_folios() == folios_carried + sites_carried",
+                f"store has {counts.folios}, expected {expected_folios} "
+                f"({report.folios_carried} folios + {report.sites_carried} sites)",
+            )
+        )
     expected_threads = report.threads_carried + report.within_threads
     if counts.threads != expected_threads:
-        failures.append((
-            "count_threads() == threads_carried + within_threads",
-            f"store has {counts.threads}, expected {expected_threads} "
-            f"({report.threads_carried} carried + {report.within_threads} within)",
-        ))
+        failures.append(
+            (
+                "count_threads() == threads_carried + within_threads",
+                f"store has {counts.threads}, expected {expected_threads} "
+                f"({report.threads_carried} carried + {report.within_threads} within)",
+            )
+        )
     if counts.aliases != report.folios_carried:
-        failures.append((
-            "count_aliases() == folios_carried",
-            f"store has {counts.aliases}, expected {report.folios_carried}",
-        ))
+        failures.append(
+            (
+                "count_aliases() == folios_carried",
+                f"store has {counts.aliases}, expected {report.folios_carried}",
+            )
+        )
 
     # Documented tripwires.
     if report.folio_hash_collisions != 0:
-        failures.append((
-            "folio_hash_collisions == 0",
-            f"{report.folio_hash_collisions} collisions",
-        ))
+        failures.append(
+            (
+                "folio_hash_collisions == 0",
+                f"{report.folio_hash_collisions} collisions",
+            )
+        )
     if report.actor_endpoints_dropped != 0:
-        failures.append((
-            "actor_endpoints_dropped == 0",
-            f"{report.actor_endpoints_dropped} dropped: {report.dropped_examples}",
-        ))
+        failures.append(
+            (
+                "actor_endpoints_dropped == 0",
+                f"{report.actor_endpoints_dropped} dropped: {report.dropped_examples}",
+            )
+        )
     if report.folios_with_site_id and report.sites_seen == 0:
-        failures.append((
-            "sites imported when folios reference them",
-            f"{report.folios_with_site_id} folios carry a site_id but 0 sites "
-            "were seen (empty or missing sites dir)",
-        ))
+        failures.append(
+            (
+                "sites imported when folios reference them",
+                f"{report.folios_with_site_id} folios carry a site_id but 0 sites "
+                "were seen (empty or missing sites dir)",
+            )
+        )
 
     # Internal-consistency self-tally.
     if report.folios_carried != report.folios_seen:
-        failures.append((
-            "folios_carried == folios_seen",
-            f"carried {report.folios_carried} of {report.folios_seen} seen",
-        ))
+        failures.append(
+            (
+                "folios_carried == folios_seen",
+                f"carried {report.folios_carried} of {report.folios_seen} seen",
+            )
+        )
     if report.sites_carried != report.sites_seen:
-        failures.append((
-            "sites_carried == sites_seen",
-            f"carried {report.sites_carried} of {report.sites_seen} seen",
-        ))
+        failures.append(
+            (
+                "sites_carried == sites_seen",
+                f"carried {report.sites_carried} of {report.sites_seen} seen",
+            )
+        )
     return failures
 
 
@@ -237,15 +251,9 @@ def _surfaced_losses(report: ImportReport) -> List[str]:
     if report.sites_skipped_no_id:
         parts.append(f"sites_skipped_no_id={report.sites_skipped_no_id}")
     if report.dropped_folio_columns:
-        parts.append(
-            "dropped_folio_columns="
-            + ",".join(sorted(report.dropped_folio_columns))
-        )
+        parts.append("dropped_folio_columns=" + ",".join(sorted(report.dropped_folio_columns)))
     if report.dropped_thread_columns:
-        parts.append(
-            "dropped_thread_columns="
-            + ",".join(sorted(report.dropped_thread_columns))
-        )
+        parts.append("dropped_thread_columns=" + ",".join(sorted(report.dropped_thread_columns)))
     return parts
 
 
@@ -312,9 +320,7 @@ def _run_import(
     """
     db_path, sd_path = _resolve_legacy_paths(project_root, legacy_db, sites_dir)
     if db_path is None:
-        raise click.ClickException(
-            "give a PROJECT_ROOT, or both --legacy-db and --sites-dir."
-        )
+        raise click.ClickException("give a PROJECT_ROOT, or both --legacy-db and --sites-dir.")
     if not Path(db_path).is_file():
         raise click.ClickException(f"no legacy database at {db_path}")
     # A sites dir DERIVED from a project root must exist, mirroring the db check
@@ -577,9 +583,7 @@ def sites(ctx: click.Context, output_json: bool) -> None:
     with _open_station(ctx) as station:
         pairs = station.list_sites()
         if output_json:
-            _emit_json(
-                [{"slug": slug, "folio": folio} for slug, folio in pairs]
-            )
+            _emit_json([{"slug": slug, "folio": folio} for slug, folio in pairs])
             return
         if not pairs:
             click.echo("(no sites)")
@@ -635,13 +639,34 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
 @cli.command()
 @click.argument("refs", nargs=-1)
 @click.option("--site", "site_slug", default=None, help="Publish every folio in this site.")
-@click.option("--to", "instance_url", default=None, help="Instance publish URL (e.g. http://127.0.0.1:9101).")
-@click.option("--by", "created_by", default=None, help="Author recording the publish (default: $SKEIN_NEXT_AGENT).")
+@click.option(
+    "--to", "instance_url", default=None, help="Instance publish URL (e.g. http://127.0.0.1:9101)."
+)
+@click.option(
+    "--by",
+    "created_by",
+    default=None,
+    help="Author recording the publish (default: $SKEIN_NEXT_AGENT).",
+)
 @click.option("--dry-run", is_flag=True, help="Show what would be published; send nothing.")
-@click.option("--sign", "do_sign", is_flag=True, help="Sign each folio at the boundary (needs --login or --oidc-token).")
+@click.option(
+    "--sign",
+    "do_sign",
+    is_flag=True,
+    help="Sign each folio at the boundary (needs --login or --oidc-token).",
+)
 @click.option("--login", is_flag=True, help="With --sign: run the interactive Sigstore login here.")
-@click.option("--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (no local browser, e.g. SSH).")
-@click.option("--oidc-issuer", default="https://accounts.google.com", help="OIDC issuer for --sign --oidc-token.")
+@click.option(
+    "--oob",
+    "force_oob",
+    is_flag=True,
+    help="With --login: out-of-band code flow (no local browser, e.g. SSH).",
+)
+@click.option(
+    "--oidc-issuer",
+    default="https://accounts.google.com",
+    help="OIDC issuer for --sign --oidc-token.",
+)
 @click.option("--oidc-token", default=None, help="OIDC JWT for --sign ('-' reads stdin).")
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
@@ -770,7 +795,12 @@ def login() -> None:
 
 
 @cli.command()
-@click.option("--oob", "force_oob", is_flag=True, help="Out-of-band code flow (no local browser, e.g. SSH/headless).")
+@click.option(
+    "--oob",
+    "force_oob",
+    is_flag=True,
+    help="Out-of-band code flow (no local browser, e.g. SSH/headless).",
+)
 @click.option("--json", "output_json", is_flag=True)
 def whoami(force_oob: bool, output_json: bool) -> None:
     """Run the Sigstore login and print your verified identity (issuer + subject).
@@ -795,16 +825,33 @@ def whoami(force_oob: bool, output_json: bool) -> None:
 
 @cli.command("redeem-invite")
 @click.argument("token")
-@click.option("--to", "instance_url", required=True, help="Public write host from your invite blurb (e.g. https://ingress.interskein.com).")
+@click.option(
+    "--to",
+    "instance_url",
+    required=True,
+    help="Public write host from your invite blurb (e.g. https://ingress.interskein.com).",
+)
 @click.option("--login", is_flag=True, help="Run the interactive Sigstore login here (required).")
-@click.option("--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (SSH/headless).")
-@click.option("--origin", default=None, help="Origin signed into the proof (default: the --to value).")
-@click.option("--yes", is_flag=True, help="Skip the Rekor-consent confirmation (you have already consented).")
+@click.option(
+    "--oob", "force_oob", is_flag=True, help="With --login: out-of-band code flow (SSH/headless)."
+)
+@click.option(
+    "--origin", default=None, help="Origin signed into the proof (default: the --to value)."
+)
+@click.option(
+    "--yes", is_flag=True, help="Skip the Rekor-consent confirmation (you have already consented)."
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def redeem_invite(
-    ctx: click.Context, token: str, instance_url: str, login: bool,
-    force_oob: bool, origin: Optional[str], yes: bool, output_json: bool,
+    ctx: click.Context,
+    token: str,
+    instance_url: str,
+    login: bool,
+    force_oob: bool,
+    origin: Optional[str],
+    yes: bool,
+    output_json: bool,
 ) -> None:
     """Redeem an invite TOKEN: a token-bound Sigstore ceremony binds you as an author.
 
@@ -999,8 +1046,11 @@ def account_add(ctx: click.Context, issuer: str, subject: str, role: str) -> Non
         if op is None:
             raise click.ClickException("no operator; run init-operator first")
         b = st.store.add_binding(
-            issuer, subject, role=role,
-            vouched_by_issuer=op.issuer, vouched_by_subject=op.subject,
+            issuer,
+            subject,
+            role=role,
+            vouched_by_issuer=op.issuer,
+            vouched_by_subject=op.subject,
         )
     # Echo the binding's ACTUAL stored role, not the requested one. Adding
     # --role author onto the active operator hits add_binding's already-active
@@ -1048,8 +1098,11 @@ def account_rotate_operator(ctx: click.Context, new_issuer: str, new_subject: st
                 st.store.promote_to_operator(new_issuer, new_subject)  # preserves created_at
             else:
                 st.store.add_binding(
-                    new_issuer, new_subject, role="operator",
-                    vouched_by_issuer=old.issuer, vouched_by_subject=old.subject,
+                    new_issuer,
+                    new_subject,
+                    role="operator",
+                    vouched_by_issuer=old.issuer,
+                    vouched_by_subject=old.subject,
                     event="rotated_in",
                 )
     click.echo(f"operator {new_issuer}/{new_subject}")
@@ -1118,14 +1171,17 @@ def _invite_line(row: Dict[str, Any], state: str) -> str:
 def _resolve_invite_hash(st, prefix: str) -> str:
     """Resolve a token-hash prefix to exactly one invite's full hash, or error."""
     matches = [
-        r["token_hash"] for r in st.store.list_invites(include_inactive=True)
+        r["token_hash"]
+        for r in st.store.list_invites(include_inactive=True)
         if r["token_hash"] == prefix or r["token_hash"].startswith(prefix)
     ]
     matches = sorted(set(matches))
     if not matches:
         raise click.ClickException(f"no invite matching hash {prefix!r}")
     if len(matches) > 1:
-        raise click.ClickException(f"ambiguous hash prefix {prefix!r} matches {len(matches)} invites")
+        raise click.ClickException(
+            f"ambiguous hash prefix {prefix!r} matches {len(matches)} invites"
+        )
     return matches[0]
 
 
@@ -1144,12 +1200,18 @@ def account_invite() -> None:
 @click.option("--role", default="author", type=click.Choice(["author"]))
 @click.option("--expires", default="7d", help="Validity window (e.g. 30m, 24h, 7d). Default 7d.")
 @click.option("--note", default=None, help="Operator note (who this invite is for).")
-@click.option("--origin", default=None, help="Station origin for the blurb (default: $SKEIN_NEXT_ORIGIN).")
+@click.option(
+    "--origin", default=None, help="Station origin for the blurb (default: $SKEIN_NEXT_ORIGIN)."
+)
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
 def account_invite_mint(
-    ctx: click.Context, role: str, expires: str, note: Optional[str],
-    origin: Optional[str], output_json: bool,
+    ctx: click.Context,
+    role: str,
+    expires: str,
+    note: Optional[str],
+    origin: Optional[str],
+    output_json: bool,
 ) -> None:
     """Mint a one-time invite; print the token + a ready-to-send blurb (token shown ONCE)."""
     import secrets
@@ -1165,15 +1227,25 @@ def account_invite_mint(
         if op is None:
             raise click.ClickException("no operator; run 'interskein account init-operator' first")
         st.store.mint_invite(
-            token_h, role, expires_at,
-            vouched_by_issuer=op.issuer, vouched_by_subject=op.subject, note=note,
+            token_h,
+            role,
+            expires_at,
+            vouched_by_issuer=op.issuer,
+            vouched_by_subject=op.subject,
+            note=note,
         )
     expires_iso = expires_at.isoformat()
     if output_json:
-        _emit_json({
-            "token": token, "token_hash": token_h, "role": role,
-            "expires_at": expires_iso, "note": note, "origin": origin,
-        })
+        _emit_json(
+            {
+                "token": token,
+                "token_hash": token_h,
+                "role": role,
+                "expires_at": expires_iso,
+                "note": note,
+                "origin": origin,
+            }
+        )
         return
     origin_display = origin or "<your-instance-origin>"
     blurb = (
@@ -1193,7 +1265,8 @@ def account_invite_mint(
     if not origin:
         click.echo(
             "warning: no origin (set $SKEIN_NEXT_ORIGIN or pass --origin) — the blurb "
-            "below has a placeholder; fill it in before sending.", err=True,
+            "below has a placeholder; fill it in before sending.",
+            err=True,
         )
     click.echo("\n--- send this to the collaborator (out of band) ---")
     click.echo(blurb)
@@ -1221,8 +1294,12 @@ def account_invite_list(ctx: click.Context, show_all: bool) -> None:
 
 @account_invite.command("revoke")
 @click.argument("token_or_hash")
-@click.option("--hash", "is_hash", is_flag=True,
-              help="Treat the argument as a token hash (or prefix from 'invite list'), not a plaintext token.")
+@click.option(
+    "--hash",
+    "is_hash",
+    is_flag=True,
+    help="Treat the argument as a token hash (or prefix from 'invite list'), not a plaintext token.",
+)
 @click.pass_context
 def account_invite_revoke(ctx: click.Context, token_or_hash: str, is_hash: bool) -> None:
     """Revoke an outstanding invite (by plaintext token, or --hash for a hash/prefix)."""
@@ -1250,8 +1327,10 @@ def maintenance_verify_cache(ctx: click.Context) -> None:
 
 
 from .shard_cli import shard as _shard_group  # noqa: E402
+from .shard_cli import shards_shortcut as _shards_shortcut  # noqa: E402
 
 cli.add_command(_shard_group)
+cli.add_command(_shards_shortcut)
 
 
 def main() -> None:

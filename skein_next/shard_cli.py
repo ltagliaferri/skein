@@ -144,6 +144,16 @@ def shard(ctx: click.Context, project_path: Optional[str]) -> None:
             raise click.ClickException(str(e))
 
 
+@click.command(name="shards", hidden=True)
+@click.option("--active", is_flag=True, help="Show only active SHARDs")
+@click.option("--agent", "filter_agent", help="Filter by shard name")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.pass_context
+def shards_shortcut(ctx, active, filter_agent, output_json):
+    """Shortcut for 'interskein shard list'."""
+    ctx.invoke(shard_list, active=active, filter_agent=filter_agent, output_json=output_json)
+
+
 @shard.command("spawn")
 @click.option("--agent", "spawn_agent", required=True, help="Agent ID for this SHARD")
 @click.option("--brief", help="Brief ID this SHARD relates to")
@@ -189,11 +199,15 @@ def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
         )
         try:
             with _open_station(ctx) as station:
+                # from_id is the shard's own agent (the subject), but the weaver
+                # is whoever ran the spawn — the operator, not the shard's agent.
+                # Legacy left weaver to the server's X-Agent-Id (the current CLI
+                # agent), keeping from_id = the spawned agent; preserve that split.
                 thread_hash = station.store.save_thread(
                     from_id=spawn_agent,
                     to_id=brief if brief else spawn_agent,
                     type="tag",
-                    weaver=spawn_agent,
+                    weaver=_default_author(),
                     content=thread_content,
                 )
             shard_info["thread_id"] = thread_hash
@@ -1006,7 +1020,13 @@ def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence
         raise click.ClickException(f"Failed to gather metadata: {e}")
 
     with _open_station(ctx) as station:
-        available_site_ids = [slug for slug, _ in station.list_sites()]
+        # Only true sites are valid tender targets. The slug table is not
+        # site-exclusive (Stage 2 registers agent names as slugs too), so filter
+        # to type=site folios — the faithful equivalent of legacy GET /sites,
+        # which never surfaced non-site slugs.
+        available_site_ids = [
+            slug for slug, folio in station.list_sites() if folio and folio.get("type") == "site"
+        ]
 
         if not site:
             derived = None

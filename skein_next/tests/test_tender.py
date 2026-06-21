@@ -71,6 +71,20 @@ def test_decoy_marker_in_body_does_not_shadow_real_meta():
     assert parse_tender_meta(content) != decoy
 
 
+def test_unclosed_decoy_fence_in_body_does_not_swallow_real_meta():
+    # A body whose prose contains the marker + an UNCLOSED ```json fence. A
+    # left-to-right non-overlapping regex scan would let this decoy consume the
+    # real (appended) block's closing fence and lose it; anchoring on the last
+    # marker recovers the real meta.
+    body = (
+        "## Tender\n\nPasted an old half-tender:\n\n"
+        + f"{TENDER_META_MARKER}\n```json\n"
+        + '{"worktree_name": "WRONG", "confidence": 1\n'  # no closing fence
+    )
+    content = render_tender_content(body, SAMPLE_META)
+    assert parse_tender_meta(content) == SAMPLE_META
+
+
 def test_missing_meta_returns_none():
     assert parse_tender_meta("just some prose, no meta block") is None
     assert parse_tender_meta("") is None

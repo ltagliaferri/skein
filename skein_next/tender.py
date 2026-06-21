@@ -52,17 +52,22 @@ def parse_tender_meta(content: Optional[str]) -> Optional[Dict[str, Any]]:
     fenced text is not valid JSON, or the JSON is not an object — so callers can
     treat "no usable meta" as a single condition.
 
-    The writer always appends the meta block LAST, so the LAST match is the real
-    envelope. This matters because the body is built from agent-authored text
-    (e.g. a commit message), which could itself contain a decoy marker + fence;
-    taking the last match means such a decoy in the prose can't shadow the meta.
+    The writer always appends the meta block LAST, so the real envelope is the
+    one introduced by the FINAL marker. This matters because the body is built
+    from agent-authored text (e.g. a commit message) that could itself contain a
+    decoy marker + fence. We anchor on the last marker via ``rfind`` and match
+    from there, rather than scanning for the last regex match — a non-overlapping
+    scan could let an earlier *unclosed* decoy fence swallow the real block's
+    closing fence and lose it entirely.
     """
     if not content:
         return None
-    matches = list(_META_RE.finditer(content))
-    if not matches:
+    idx = content.rfind(TENDER_META_MARKER)
+    if idx == -1:
         return None
-    m = matches[-1]
+    m = _META_RE.match(content, idx)
+    if not m:
+        return None
     try:
         data = json.loads(m.group("json"))
     except (json.JSONDecodeError, ValueError):

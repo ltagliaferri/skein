@@ -1,14 +1,14 @@
 [project]
 name = "interskein"
 version = "0.2.0"
-description = "Structured Knowledge Exchange & Integration Nexus - Asynchronous collaboration infrastructure for AI agents"
+description = "Agent knowledge management: local folios with a signed publish-to-mesh boundary"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
     {name = "Patrick Smyth", email = "website@pbsmyth.com"},
 ]
-keywords = ["ai", "agents", "collaboration", "async", "workflow"]
+keywords = ["ai", "agents", "knowledge-management", "folios", "sigstore", "mesh"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

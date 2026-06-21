@@ -95,10 +95,11 @@ interskein status "$FOLIO" investigating
 interskein close "$FOLIO"
 ```
 
-Serve the local read-only web surface:
+Serve the local read-only web surface. `SKEIN_NEXT_PROJECT` sets the station's
+display name; `serve` renders the whole station, not a single site:
 
 ```bash
-export SKEIN_NEXT_PROJECT=release-notes
+export SKEIN_NEXT_PROJECT=my-station
 interskein serve --host 127.0.0.1 --port 9001
 ```
 
@@ -107,10 +108,20 @@ interskein serve --host 127.0.0.1 --port 9001
 If you already have a legacy `.skein` project, import it into the content-hash
 station. The source project is read-only during import.
 
-You can re-run the import or verify pass. The target station is selected by
-`SKEIN_NEXT_DATA_DIR` or `--data-dir`. Run `interskein import` or
-`interskein verify` against a real legacy project root, and include `--verify`
-when you want the import fidelity invariants enforced immediately.
+The target station is selected by `SKEIN_NEXT_DATA_DIR` or `--data-dir`. Import a
+legacy project root with `interskein import`, adding `--verify` to enforce the
+import-fidelity invariants immediately:
+
+```bash
+interskein import /path/to/legacy-project --verify
+```
+
+To re-check an existing import without redoing it, run `interskein verify`
+against the same project root (it takes no `--verify` flag):
+
+```bash
+interskein verify /path/to/legacy-project
+```
 
 ## Reading The Mesh
 
@@ -118,16 +129,18 @@ when you want the import fidelity invariants enforced immediately.
 `mesh fetch` is the strict path: it resolves an address, verifies the returned
 folio locally, and exits non-zero on verification failures.
 
-Describe the default station:
-
-```bash
-mesh describe
-```
-
-Read from a specific station:
+Describe a station (point `--from` at any mesh station):
 
 ```bash
 mesh describe --from https://interskein.com
+```
+
+With no `--from`, `mesh` targets a local station at `http://127.0.0.1:9001` (the
+one `interskein serve --port 9001` brings up), so the bare form below only works
+while that local server is running:
+
+```bash
+mesh describe
 ```
 
 Search a station:

@@ -226,6 +226,25 @@ def test_post_rejects_a_slug_that_is_not_a_site(station):
         station.post(type="finding", site="an-agent", title="t")
 
 
+def test_site_read_apis_ignore_non_site_slugs(station):
+    # The "a site is a type=site folio" invariant holds across the read surface
+    # too: a non-site slug is invisible to get_site/list_sites and unqueryable
+    # via folios_in_site.
+    station.create_site("real-site")
+    agent_hash = station.store.create_folio({"type": "agent", "title": "an-agent"})
+    station.store.set_slug("an-agent", agent_hash)
+
+    assert station.get_site("an-agent") is None
+    assert station.get_site("real-site") is not None
+
+    slugs = [slug for slug, _ in station.list_sites()]
+    assert "real-site" in slugs
+    assert "an-agent" not in slugs
+
+    with pytest.raises(UnknownSite):
+        station.folios_in_site("an-agent")
+
+
 def test_post_creates_folio_and_within_edge(station):
     station.create_site("proj", purpose="a project")
     h = station.post(type="finding", site="proj", title="found it", content="body", created_by="me")

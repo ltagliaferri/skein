@@ -51,12 +51,18 @@ def parse_tender_meta(content: Optional[str]) -> Optional[Dict[str, Any]]:
     Returns ``None`` (not a partial dict) when the marker/fence is missing, the
     fenced text is not valid JSON, or the JSON is not an object — so callers can
     treat "no usable meta" as a single condition.
+
+    The writer always appends the meta block LAST, so the LAST match is the real
+    envelope. This matters because the body is built from agent-authored text
+    (e.g. a commit message), which could itself contain a decoy marker + fence;
+    taking the last match means such a decoy in the prose can't shadow the meta.
     """
     if not content:
         return None
-    m = _META_RE.search(content)
-    if not m:
+    matches = list(_META_RE.finditer(content))
+    if not matches:
         return None
+    m = matches[-1]
     try:
         data = json.loads(m.group("json"))
     except (json.JSONDecodeError, ValueError):

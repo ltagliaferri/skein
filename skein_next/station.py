@@ -178,6 +178,27 @@ class Station:
             raise AmbiguousReference(ref, [f"sha256::{c}" for c in matches])
         return None
 
+    # --- sites --------------------------------------------------------------
+
+    def _resolve_site_hash(self, slug: str) -> Optional[str]:
+        """Resolve a slug to its hash, but only if it points at a ``type=site``
+        folio. ``None`` otherwise.
+
+        A site is by definition a ``type=site`` folio, and the slug table is not
+        site-exclusive (agent names are slugged too), so a slug resolving to a
+        non-site folio is not a site. Every site-facing verb routes through this
+        so the "a site is a type=site folio" invariant holds uniformly across the
+        write (:meth:`post`) and read (:meth:`get_site`, :meth:`folios_in_site`,
+        :meth:`list_sites`) surface.
+        """
+        site_hash = self.store.resolve_slug(slug)
+        if not site_hash:
+            return None
+        folio = self.store.get_folio(site_hash)
+        if not folio or folio.get("type") != "site":
+            return None
+        return site_hash
+
     # --- write --------------------------------------------------------------
 
     def post(
@@ -201,11 +222,8 @@ class Station:
         fields into the same site yields the same hash and the same single
         membership edge.
         """
-        site_hash = self.store.resolve_slug(site)
+        site_hash = self._resolve_site_hash(site)
         if not site_hash:
-            raise UnknownSite(site)
-        site_folio = self.store.get_folio(site_hash)
-        if not site_folio or site_folio.get("type") != "site":
             raise UnknownSite(site)
         folio_hash = self.store.create_folio(
             {
@@ -368,12 +386,13 @@ class Station:
     ) -> List[Dict[str, Any]]:
         """Folios that are members of ``site`` (via ``within`` threads).
 
-        Raises :class:`UnknownSite` if the slug is unknown. Optionally filtered
-        to one folio ``type``. The store does the membership join, ordering by
-        ``created_at`` *before* applying ``limit`` so the window is the stable
-        earliest-N, not an arbitrary slice. ``limit=None`` returns all members.
+        Raises :class:`UnknownSite` if the slug is unknown or names a non-site
+        folio. Optionally filtered to one folio ``type``. The store does the
+        membership join, ordering by ``created_at`` *before* applying ``limit``
+        so the window is the stable earliest-N, not an arbitrary slice.
+        ``limit=None`` returns all members.
         """
-        site_hash = self.store.resolve_slug(site)
+        site_hash = self._resolve_site_hash(site)
         if not site_hash:
             raise UnknownSite(site)
         return self.store.folios_in_site(site_hash, type=type, limit=limit)
@@ -391,17 +410,24 @@ class Station:
         return self.store.folios_by_type(type, limit=limit)
 
     def list_sites(self) -> List[Tuple[str, Optional[Dict[str, Any]]]]:
-        """All ``(slug, site_folio)`` pairs, ordered by slug.
+        """All ``(slug, site_folio)`` pairs for real sites, ordered by slug.
 
+        A non-site slug (e.g. a Stage-2 agent name) is not a site and is omitted.
         ``site_folio`` is ``None`` only if the slug table points at a hash with
-        no folio row (a corrupt station) — surfaced rather than hidden.
+        no folio row (a corrupt station) — that case is still surfaced rather
+        than hidden, since it can't be told apart from a site by its (missing)
+        type and silently dropping it would hide real corruption.
         """
-        return [
-            (slug, self.store.get_folio(site_hash)) for slug, site_hash in self.store.list_slugs()
-        ]
+        out: List[Tuple[str, Optional[Dict[str, Any]]]] = []
+        for slug, site_hash in self.store.list_slugs():
+            folio = self.store.get_folio(site_hash)
+            if folio is not None and folio.get("type") != "site":
+                continue
+            out.append((slug, folio))
+        return out
 
     def get_site(self, slug: str) -> Optional[Dict[str, Any]]:
-        site_hash = self.store.resolve_slug(slug)
+        site_hash = self._resolve_site_hash(slug)
         return self.store.get_folio(site_hash) if site_hash else None
 
     def thread_graph(self, ref: str) -> Optional[Dict[str, Any]]:

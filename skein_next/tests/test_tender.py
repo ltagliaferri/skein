@@ -55,6 +55,22 @@ def test_prose_containing_a_json_fence_is_not_mistaken_for_meta():
     assert parse_tender_meta(content) == SAMPLE_META
 
 
+def test_decoy_marker_in_body_does_not_shadow_real_meta():
+    # The body is built from agent-authored text (e.g. a commit message) which
+    # could itself contain the marker + a json fence. The real meta is always
+    # appended LAST, so the parser must recover it, not the decoy in the prose.
+    decoy = {"worktree_name": "WRONG", "confidence": 1, "status": "abandoned"}
+    body = (
+        "## Tender\n\nCommit message quoting an old tender:\n\n"
+        + f"{TENDER_META_MARKER}\n```json\n"
+        + '{"worktree_name": "WRONG", "confidence": 1, "status": "abandoned"}\n'
+        + "```\n"
+    )
+    content = render_tender_content(body, SAMPLE_META)
+    assert parse_tender_meta(content) == SAMPLE_META
+    assert parse_tender_meta(content) != decoy
+
+
 def test_missing_meta_returns_none():
     assert parse_tender_meta("just some prose, no meta block") is None
     assert parse_tender_meta("") is None

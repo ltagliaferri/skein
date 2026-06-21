@@ -67,3 +67,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Operator runbook — box IP / root SSH; keep private (lives in ~/production/digitalocean/interskein/)
+docs/PUBLIC_INGRESS_OPERATIONS.md

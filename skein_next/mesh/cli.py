@@ -30,7 +30,7 @@ _INSTANCE = click.option(
 
 
 @click.group()
-@click.version_option(package_name="skein")
+@click.version_option(package_name="interskein")
 def cli() -> None:
     """Read the content-hash mesh over the HTTP wire."""
 
@@ -110,7 +110,7 @@ def describe_cmd(instance):
 def mcp_cmd(instance):
     """Run the client-side MCP server (stdio), wrapping resolve/search/list/describe.
 
-    Needs the optional MCP dependency: pip install skein[mesh-mcp].
+    Needs the optional MCP dependency: pip install interskein[mesh-mcp].
     """
     from .mcp import run as run_mcp
 
@@ -118,7 +118,7 @@ def mcp_cmd(instance):
         run_mcp(instance)  # FastMCP is imported lazily inside; absent extra -> ImportError
     except ImportError as e:  # pragma: no cover - exercised only without the extra
         raise click.ClickException(
-            "the MCP server needs the optional 'mcp' package: pip install skein[mesh-mcp]"
+            "the MCP server needs the optional 'mcp' package: pip install interskein[mesh-mcp]"
         ) from e
 
 

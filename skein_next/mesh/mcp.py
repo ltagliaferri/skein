@@ -11,7 +11,7 @@ agent-markdown rendering (which carries addresses + the bundle link), so an agen
 can escalate to ``mesh fetch`` (resolve + strict local verify) when it needs a
 hard guarantee. Verification and federation never route through MCP.
 
-The ``mcp`` package is an optional dependency (``pip install skein[mesh-mcp]``);
+The ``mcp`` package is an optional dependency (``pip install interskein[mesh-mcp]``);
 it is imported lazily here so ``mesh fetch`` and the browse verbs work without it.
 """
 

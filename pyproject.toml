@@ -1,5 +1,5 @@
 [project]
-name = "skein"
+name = "interskein"
 version = "0.2.0"
 description = "Structured Knowledge Exchange & Integration Nexus - Asynchronous collaboration infrastructure for AI agents"
 readme = "README.md"
@@ -60,9 +60,9 @@ interskein = "skein_next.cli:main"
 mesh = "skein_next.mesh.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/smythp/skein"
-Repository = "https://github.com/smythp/skein"
-Documentation = "https://github.com/smythp/skein/blob/main/README.md"
+Homepage = "https://github.com/spiritengine/skein"
+Repository = "https://github.com/spiritengine/skein"
+Documentation = "https://github.com/spiritengine/skein/blob/main/README.md"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

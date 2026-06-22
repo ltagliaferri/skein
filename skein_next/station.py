@@ -712,6 +712,7 @@ class Station:
         description: Optional[str] = None,
         capabilities: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        ignited_from: Optional[str] = None,
         created_at: Any = None,
     ) -> str:
         """Register an agent: mint its ``type=agent`` folio + guard its name.
@@ -735,6 +736,11 @@ class Station:
           succession behavior; the dead-code ignite is not resurrected).
         - name held by a DIFFERENT agent → :class:`AgentNameTaken` (rollback). A
           second live agent must not steal an in-use name.
+
+        ``ignited_from`` (a brief folio hash) is the brief-handoff trail: when set,
+        an ``ignited_from`` edge agent → brief is written INSIDE this same
+        transaction, so a registered agent always carries its readable handoff edge
+        — never a committed agent folio with the trail missing.
         """
         if not agent_id:
             raise ValueError("register_agent requires a non-empty agent_id")
@@ -844,6 +850,27 @@ class Station:
                 content=_INITIAL_STATUS,
                 created_at=stamp,
             )
+            if ignited_from:
+                # The brief must be a real folio, or the trail is asymmetric: the
+                # agent would show an outgoing ignited_from edge while the brief's
+                # graph shows no matching incoming one. Reject inside the lock so
+                # the whole registration rolls back — no agent folio left pointing
+                # at a phantom brief. (The CLI pre-resolves the brief, so this guards
+                # only direct service-layer callers.)
+                if not self.store.get_folio(ignited_from):
+                    raise UnknownFolio(ignited_from)
+                # The brief-handoff trail, written INSIDE the registration
+                # transaction (the roster single-write discipline, §5) so a
+                # committed agent folio always carries its readable ignited_from
+                # edge. created_at pinned to the folio stamp so a byte-identical
+                # re-ignite from the same brief collapses to one edge.
+                self.store.save_thread(
+                    from_id=folio_hash,
+                    to_id=ignited_from,
+                    type=self.IGNITE_HANDOFF_THREAD,
+                    weaver=agent_id,
+                    created_at=stamp,
+                )
         return folio_hash
 
     def _resolve_agent(self, ref: str) -> str:
@@ -1247,3 +1274,152 @@ class Station:
     ) -> Optional[Dict[str, Any]]:
         """The most recent yield in a chain before ``before_task_id`` (or ``None``)."""
         return self.store.get_previous_yield(chain_id, before_task_id)
+
+    # --- intranet + handoff (the agent-coordination port, Stage 3) ------------
+    #
+    # Stage 3 is the PULL side of the legacy intranet: the parts an agent reads
+    # when it ORIENTS or when it opens a resource, never pushed into a running
+    # session. Three capabilities, all thread/folio reads — no new state machine,
+    # no sidecar table:
+    #
+    # - reply / replies — comment on a resource (issue/brief/finding/…). A
+    #   ``type=reply`` thread from the author to the resource folio; readable in the
+    #   resource's thread-tree when you open the folio. (Distinct from the dead
+    #   agent-to-agent ``message``, which needed delivery into a live session.)
+    # - resolve_mantle — find a ``type=mantle`` role folio by id or name, so
+    #   ``ignite --mantle`` can pull the role at session birth.
+    #
+    # The brief-handoff trail (the ``ignited_from`` agent → brief edge) is written
+    # by :meth:`register_agent` itself via its ``ignited_from`` parameter, inside
+    # the registration transaction, so the edge can never be left half-written.
+
+    REPLY_THREAD = "reply"
+    IGNITE_HANDOFF_THREAD = "ignited_from"
+
+    def _agent_hash_or_ref(self, ref: Optional[str]) -> Optional[str]:
+        """An agent reference resolved to its folio hash, or the ref unchanged.
+
+        Used for a reply's ``from_id`` so the resource's thread graph can resolve
+        the peer to the author's agent folio (who replied), not just an opaque
+        string. A non-agent or unknown ref (someone replying without a roster
+        folio) falls through verbatim — the reply still records the author in its
+        ``weaver``, exactly as the legacy server kept raw actor ids on threads.
+        """
+        if not ref:
+            return ref
+        try:
+            return self._resolve_agent(ref)
+        except (UnknownAgent, AmbiguousReference):
+            return ref
+
+    def reply(
+        self,
+        resource: str,
+        message: str,
+        by: str,
+        created_at: Any = None,
+    ) -> str:
+        """Comment on a resource: a ``reply`` thread from the author to it.
+
+        ``resource`` is any reference :meth:`resolve_ref` accepts (a folio hash,
+        short prefix, or legacy id); it must resolve to a FOLIO, else
+        :class:`UnknownFolio`. Replying to a thread (legacy allowed ``reply
+        thread-abc``) is intentionally NOT ported: a thread is not an openable
+        folio, so a reply-to-a-thread would never surface as a pull-read — the
+        whole point of a reply here. The edge runs author → resource so it surfaces
+        as an INCOMING reply when the resource's thread graph is walked (the
+        pull-read in :meth:`replies` and the ``folio`` view).
+
+        ``by`` is the author and is required — a reply always has an author, as the
+        legacy server enforced; an empty ``by`` raises :class:`ValueError` rather
+        than minting an unattributable comment. It is recorded as the thread's
+        ``weaver`` and, when it names a roster agent, also becomes the ``from_id``
+        so the peer resolves to that agent folio. Returns the reply thread's hash.
+        Idempotent on identical (resource, message, author, time): the thread hash
+        dedups, matching every other thread write.
+        """
+        if not by:
+            raise ValueError("reply requires an author (by)")
+        resource_hash = self.resolve_ref(resource)
+        if not resource_hash:
+            raise UnknownFolio(resource)
+        return self.store.save_thread(
+            from_id=self._agent_hash_or_ref(by),
+            to_id=resource_hash,
+            type=self.REPLY_THREAD,
+            weaver=by,
+            content=message,
+            created_at=created_at if created_at is not None else _now_utc(),
+        )
+
+    def replies(self, resource: str) -> List[Dict[str, Any]]:
+        """The replies on a resource, oldest-first — the pull-read of its comments.
+
+        Each item carries the ``author`` (the thread's ``weaver``, falling back to
+        the raw ``from_id`` when a thread predates weaver-stamping), the ``message``
+        (the thread content), ``created_at``, and ``thread_hash``. Raises
+        :class:`UnknownFolio` if ``resource`` does not resolve. Ordering is the
+        store's stable ``created_at, thread_hash`` so a fixed conversation renders
+        identically every read.
+        """
+        resource_hash = self.resolve_ref(resource)
+        if not resource_hash:
+            raise UnknownFolio(resource)
+        out: List[Dict[str, Any]] = []
+        for t in self.store.get_threads(to_id=resource_hash, type=self.REPLY_THREAD):
+            out.append(
+                {
+                    "author": t.get("weaver") or t.get("from_id"),
+                    "message": t.get("content"),
+                    "created_at": t.get("created_at"),
+                    "thread_hash": t.get("thread_hash"),
+                    "from_id": t.get("from_id"),
+                }
+            )
+        return out
+
+    def resolve_mantle(self, name: str) -> Optional[Dict[str, Any]]:
+        """Find a ``type=mantle`` role folio by id or name; ``None`` if there is none.
+
+        Resolution mirrors the legacy ``ignite --mantle`` lookup:
+
+        1. a direct reference — a ``mantle-…`` legacy id, a content hash, or an
+           alias — but only if it resolves to a ``type=mantle`` folio (a stray hash
+           pointing at some other folio is not a mantle);
+        2. otherwise an exact, case-insensitive title match among mantle folios;
+        3. otherwise the first mantle whose title contains ``name``.
+
+        Title resolution scans only ``type=mantle`` folios, so a same-named issue or
+        brief can never masquerade as a role. The substring tie-break is title-only
+        and oldest-first (deterministic), a deliberate simplification of the legacy
+        ``/search`` ranked lookup — exact matches, the common case, agree. The
+        skein-side mantle is a folio in THIS station; horizon owns its own mantle
+        registry and is untouched here.
+
+        An ambiguous short-hash ``name`` raises :class:`AmbiguousReference` (it is
+        not swallowed into a misleading "not found"), so ``ignite --mantle`` reports
+        the ambiguity the same way every other resolver does. An empty/whitespace
+        ``name`` returns ``None`` rather than matching every mantle on the empty
+        substring.
+        """
+        name = (name or "").strip()
+        if not name:
+            return None
+        # AmbiguousReference is deliberately NOT caught: a multi-match short hash is
+        # an ambiguity to surface, not an unresolved ref to fall through. A plain
+        # role name is not a valid address, so resolve_ref returns None for it (no
+        # exception) and we fall through to the title search below.
+        ref_hash = self.resolve_ref(name)
+        if ref_hash:
+            folio = self.store.get_folio(ref_hash)
+            if folio and folio.get("type") == "mantle":
+                return folio
+        mantles = self.store.folios_by_type("mantle")
+        lowered = name.lower()
+        for folio in mantles:
+            if (folio.get("title") or "").lower() == lowered:
+                return folio
+        for folio in mantles:
+            if lowered in (folio.get("title") or "").lower():
+                return folio
+        return None

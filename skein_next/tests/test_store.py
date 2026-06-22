@@ -55,6 +55,18 @@ def test_created_at_stored_normalized_regardless_of_input(store):
     assert store.get_folio(h1)["created_at"] == "2026-05-29T14:47:52+00:00"
 
 
+# --- schema indexes ---------------------------------------------------------
+
+
+def test_folios_query_indexes_present(store):
+    # created_by backs the activity feed / complete's artifact scan; type backs
+    # shard triage and the Stage-2 disjoint-namespace register guard. Both are
+    # full-table query paths, so both columns must carry an index.
+    names = {row["name"] for row in store.conn.execute("PRAGMA index_list(folios)")}
+    assert "idx_folios_created_by" in names
+    assert "idx_folios_type" in names
+
+
 # --- idempotency ------------------------------------------------------------
 
 

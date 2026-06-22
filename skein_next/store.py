@@ -331,6 +331,8 @@ CREATE INDEX IF NOT EXISTS idx_threads_from ON threads(from_id);
 CREATE INDEX IF NOT EXISTS idx_threads_to   ON threads(to_id);
 CREATE INDEX IF NOT EXISTS idx_threads_type ON threads(type);
 CREATE INDEX IF NOT EXISTS idx_folios_created_at ON folios(created_at);
+CREATE INDEX IF NOT EXISTS idx_folios_created_by ON folios(created_by);
+CREATE INDEX IF NOT EXISTS idx_folios_type ON folios(type);
 """
 
 

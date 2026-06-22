@@ -26,6 +26,7 @@ import click
 
 from .station import (
     AgentNameTaken,
+    AmbiguousReference,
     IllegalAgentTransition,
     Station,
     UnknownAgent,
@@ -250,6 +251,9 @@ def _transition(ctx: click.Context, agent: Optional[str], verb: str) -> None:
             pre_hash = st._resolve_agent(ref)
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
+        except AmbiguousReference as e:
+            lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+            raise click.ClickException(f"{e}\n{lines}")
         # Weave the status thread under the agent-id (the folio's created_by, the
         # roster join key), not the raw ref, which may be the human name. The
         # agent-id is incarnation-stable across a re-ignite, so a pre-lock read of
@@ -399,6 +403,9 @@ def complete(
                                  content=summary, created_by=agent_id)
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
+        except AmbiguousReference as e:
+            lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+            raise click.ClickException(f"{e}\n{lines}")
         except IllegalAgentTransition as e:
             raise click.ClickException(str(e))
 

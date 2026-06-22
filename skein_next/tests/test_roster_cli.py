@@ -68,6 +68,39 @@ def test_no_agent_identity_is_clear_error(data_dir):
     assert "no agent identity" in r.output
 
 
+def _seed_ambiguous_agents(data_dir):
+    """Two type=agent folios sharing a short-hash prefix → an ambiguous ref."""
+    from skein_next.store import SkeinNextStore
+
+    _run(data_dir, "ignite", "--name", "real-0622")  # initialize the store
+    shared = "sha256::abcdef000000"
+    with SkeinNextStore(data_dir) as store:
+        for tail in ("1111", "2222"):
+            store.conn.execute(
+                "INSERT INTO folios (content_hash, type, title, content) VALUES (?,?,?,?)",
+                (shared + tail, "agent", "t", "c"),
+            )
+        store.conn.commit()
+    return shared
+
+
+def test_ready_ambiguous_agent_is_clean_error(data_dir):
+    shared = _seed_ambiguous_agents(data_dir)
+    r = _run(data_dir, "ready", "--agent", shared)
+    assert r.exit_code != 0
+    assert "is ambiguous" in r.output
+    assert shared + "1111" in r.output and shared + "2222" in r.output
+    assert "Traceback" not in r.output
+
+
+def test_complete_ambiguous_agent_is_clean_error(data_dir):
+    shared = _seed_ambiguous_agents(data_dir)
+    r = _run(data_dir, "complete", "--agent", shared)
+    assert r.exit_code != 0
+    assert "is ambiguous" in r.output
+    assert "Traceback" not in r.output
+
+
 def test_complete_stores_and_reads_back_a_chain_yield(data_dir):
     env = {"SKEIN_CHAIN_ID": "chain-7", "SKEIN_CHAIN_TASK": "task-a"}
     _run(data_dir, "ignite", "--name", "nub-0622")

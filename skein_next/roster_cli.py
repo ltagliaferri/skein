@@ -66,10 +66,13 @@ def _generate_name(existing: set) -> str:
     two cold-start ignites in the same second would otherwise generate the same
     name, and since an auto-name becomes its own agent-id, register_agent would
     read the second as a re-ignite of the first and silently merge the two
-    identities rather than rejecting (the guard can only reject a name held under
-    a DIFFERENT agent-id). The random token makes the fallback collision-free by
-    construction; ``existing`` still dedups the rare in-process repeat, and the
-    caller re-checks the store and retries on the guard's rejection.
+    identities rather than rejecting (the disjoint-namespace guard rejects a
+    name held under a DIFFERENT agent-id, but two identical auto-names share the
+    SAME agent-id and read as a re-ignite). The 64-bit ``token_hex(8)`` makes a
+    same-second collision astronomically unlikely rather than guaranteeing none —
+    the guarantee is probabilistic, not by-construction. ``existing`` dedups the
+    rare in-process repeat, and the caller re-checks the store and retries on the
+    guard's rejection, so a collision is recoverable even if it does occur.
     """
     try:
         from skein.utils import generate_agent_name
@@ -81,7 +84,7 @@ def _generate_name(existing: set) -> str:
 
         base = "agent-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         while True:
-            name = f"{base}-{secrets.token_hex(2)}"
+            name = f"{base}-{secrets.token_hex(8)}"
             if name not in existing:
                 return name
 
@@ -244,17 +247,23 @@ def _transition(ctx: click.Context, agent: Optional[str], verb: str) -> None:
     mover = {"ready": "agent_ready", "torch": "agent_torch"}[verb]
     with _open_station(ctx) as st:
         try:
-            folio_hash = st._resolve_agent(ref)
+            pre_hash = st._resolve_agent(ref)
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
         # Weave the status thread under the agent-id (the folio's created_by, the
-        # roster join key), not the raw ref, which may be the human name.
-        agent_id = (st.store.get_folio(folio_hash) or {}).get("created_by") or ref
+        # roster join key), not the raw ref, which may be the human name. The
+        # agent-id is incarnation-stable across a re-ignite, so a pre-lock read of
+        # it is safe.
+        agent_id = (st.store.get_folio(pre_hash) or {}).get("created_by") or ref
         try:
-            getattr(st, mover)(ref, by=agent_id)
+            # The mover re-resolves UNDER the lock and returns the LIVE folio hash.
+            # A concurrent same-name re-ignite could supersede pre_hash between our
+            # resolve and the transaction, so report status from the hash the
+            # transition actually moved — never the stale pre-resolve (finding C).
+            live_hash = getattr(st, mover)(ref, by=agent_id)
         except IllegalAgentTransition as e:
             raise click.ClickException(str(e))
-        new_status = st.status_of(folio_hash)
+        new_status = st.status_of(live_hash)
     click.echo(f"{ref}: {new_status}")
 
 
@@ -300,76 +309,98 @@ def complete(
     chain_id = os.environ.get(ENV_CHAIN)
     task_id = os.environ.get(ENV_CHAIN_TASK)
     with _open_station(ctx) as st:
+        sack_id = None
+        new_status = None
+        # The transition, the chain yield, and the summary commit as ONE atomic
+        # unit (finding A). The transition alone used to commit in its own
+        # transaction; a yield or summary that then failed (store error, lock
+        # timeout, or a duplicate sack_id from the legacy yield-id generator) left
+        # the agent 'retired' with no yield — and a retry hit IllegalAgentTransition
+        # because the FSM had already advanced, so the hand-off was lost
+        # unrecoverably. Folding all three into one transaction means any failure
+        # rolls the transition back too: the agent stays 'retiring' and the command
+        # is cleanly retryable, with no yield stored and no summary minted.
+        #
+        # Resolving the agent INSIDE this transaction also fixes the stale-resolve
+        # (finding C): agent_id and the printed status come from the live folio the
+        # transition moved under the lock, not a pre-lock read a concurrent
+        # re-ignite could supersede.
         try:
-            folio_hash = st._resolve_agent(ref)
+            with st.store.transaction():
+                folio_hash = st._resolve_agent(ref)
+                # The agent-id (the folio's created_by) is the authorship + query
+                # key for the yield, the authored-folios scan, and the summary post
+                # — never the raw ref, which may be the human name (register
+                # --name X --agent Y).
+                agent_id = (st.store.get_folio(folio_hash) or {}).get("created_by") or ref
+
+                # Lifecycle transition FIRST, via the lock-held core so it shares
+                # this transaction. The yield/summary are durable side effects;
+                # running them before the FSM guard would leave them behind on an
+                # illegal complete (e.g. from 'active', skipping torch). The guard
+                # rejecting here rolls the whole batch back — a clean no-op, no
+                # duplicate yields stacked on a retry.
+                live_hash = st._transition_agent_locked(folio_hash, "retired", by=agent_id)
+                new_status = st.status_of(live_hash)
+                agent_id = (st.store.get_folio(live_hash) or {}).get("created_by") or agent_id
+
+                authored = [
+                    f
+                    for f in st.store.folios_by_created_by(agent_id)
+                    if f.get("type") not in ("agent", "site")
+                ]
+
+                if chain_id:
+                    artifacts = [f["content_hash"] for f in authored]
+                    tenders = [
+                        f["content_hash"] for f in authored if f.get("type") == "tender"
+                    ]
+                    status = yield_status or ("complete" if tenders else "partial")
+                    outcome = (
+                        yield_outcome
+                        or f"Completed task. Filed {len(artifacts)} artifact(s)."
+                    )
+                    sack_id = st.store_chain_yield(
+                        chain_id=chain_id,
+                        task_id=task_id or "unknown",
+                        agent_id=agent_id,
+                        status=status,
+                        outcome=outcome,
+                        artifacts=artifacts,
+                        notes=yield_notes,
+                        tender_id=tenders[0] if tenders else None,
+                    )
+
+                if summary:
+                    # Post to the agent's most-recent working site (legacy
+                    # behavior), falling back to the roster site.
+                    recent = sorted(
+                        authored,
+                        key=lambda f: (f.get("created_at") or "", f.get("content_hash") or ""),
+                        reverse=True,
+                    )
+                    site = None
+                    for f in recent:
+                        site = st.store.folio_site_slug(f["content_hash"])
+                        if site:
+                            break
+                    target = site or "roster"
+                    try:
+                        st.post(type="summary", site=target, title=summary[:100],
+                                 content=summary, created_by=agent_id)
+                    except UnknownSite:
+                        # The chosen working site no longer resolves to a site; fall
+                        # back to the roster (which the register guaranteed exists).
+                        # Only the missing-site case is swallowed — any other store
+                        # error surfaces (and now rolls the transition back too).
+                        if target == "roster":
+                            raise
+                        st.post(type="summary", site="roster", title=summary[:100],
+                                 content=summary, created_by=agent_id)
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
-        # The agent-id (the folio's created_by) is the authorship + query key for
-        # the yield, the authored-folios scan, and the summary post — never the raw
-        # ref, which may be the human name (register --name X --agent Y).
-        agent_id = (st.store.get_folio(folio_hash) or {}).get("created_by") or ref
-
-        # Lifecycle transition FIRST. The yield and the summary are durable side
-        # effects (a yield lands in the chain sack, a summary mints a folio); doing
-        # them before the FSM guard would leave them behind on an illegal complete
-        # (e.g. from 'active', skipping torch) and stack duplicate yields on every
-        # retry. Transition-first means side effects happen only on a legal
-        # retirement, and a rejected complete is a clean no-op.
-        try:
-            st.agent_complete(ref, by=agent_id)
         except IllegalAgentTransition as e:
             raise click.ClickException(str(e))
-        new_status = st.status_of(folio_hash)
-
-        authored = [
-            f
-            for f in st.store.folios_by_created_by(agent_id)
-            if f.get("type") not in ("agent", "site")
-        ]
-
-        sack_id = None
-        if chain_id:
-            artifacts = [f["content_hash"] for f in authored]
-            tenders = [f["content_hash"] for f in authored if f.get("type") == "tender"]
-            status = yield_status or ("complete" if tenders else "partial")
-            outcome = yield_outcome or f"Completed task. Filed {len(artifacts)} artifact(s)."
-            sack_id = st.store_chain_yield(
-                chain_id=chain_id,
-                task_id=task_id or "unknown",
-                agent_id=agent_id,
-                status=status,
-                outcome=outcome,
-                artifacts=artifacts,
-                notes=yield_notes,
-                tender_id=tenders[0] if tenders else None,
-            )
-
-        if summary:
-            # Post to the agent's most-recent working site (legacy behavior),
-            # falling back to the roster site.
-            recent = sorted(
-                authored,
-                key=lambda f: (f.get("created_at") or "", f.get("content_hash") or ""),
-                reverse=True,
-            )
-            site = None
-            for f in recent:
-                site = st.store.folio_site_slug(f["content_hash"])
-                if site:
-                    break
-            target = site or "roster"
-            try:
-                st.post(type="summary", site=target, title=summary[:100],
-                         content=summary, created_by=agent_id)
-            except UnknownSite:
-                # The chosen working site no longer resolves to a site; fall back
-                # to the roster (which the register guaranteed exists). Only the
-                # missing-site case is swallowed — any other store error surfaces
-                # rather than silently losing the summary.
-                if target == "roster":
-                    raise
-                st.post(type="summary", site="roster", title=summary[:100],
-                         content=summary, created_by=agent_id)
 
     if sack_id:
         click.echo(f"Yield stored: {sack_id}")

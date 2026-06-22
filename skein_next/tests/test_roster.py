@@ -12,6 +12,7 @@ import pytest
 
 from skein_next.station import (
     ACTIVE_WINDOW_MINUTES,
+    AgentHandleConflict,
     AgentNameTaken,
     IllegalAgentTransition,
     ROSTER_SITE,
@@ -407,6 +408,56 @@ def test_resolve_agent_by_agent_id_picks_live_incarnation(station):
     second = station.register_agent("agent-007", name="bond", created_at=t2)
     assert station._resolve_agent("agent-007") == second
     assert station.store.resolve_slug("bond") == second
+
+
+# --- station: disjoint name / agent-id namespaces (finding B) ----------------
+
+
+def test_register_rejects_name_equal_to_other_agents_agent_id(station):
+    # _resolve_agent tries the NAME slug before the AGENT-ID. If one agent's name
+    # equalled another's agent-id, the handle would always resolve to the first and
+    # mask the second. Here agent-id 'bond' is registered under a different name, so
+    # 'bond' is NOT a slug — only the new disjoint-namespace guard (not the old
+    # slug guard) rejects a second agent trying to take the NAME 'bond'.
+    station.register_agent("bond", name="agent-007")
+    assert station.store.resolve_slug("bond") is None  # 'bond' is not a name slug
+    with pytest.raises(AgentHandleConflict):
+        station.register_agent("alice", name="bond")
+
+
+def test_register_rejects_agent_id_equal_to_other_agents_name(station):
+    # The mirror crossover: an agent-id equal to a DIFFERENT agent's name slug.
+    # 'bond' is agent-007's name, not anyone's agent-id, so again only the new
+    # guard catches a second agent whose AGENT-ID is 'bond'.
+    station.register_agent("agent-007", name="bond")
+    with pytest.raises(AgentHandleConflict):
+        station.register_agent("bond", name="bob")
+    # The rejected register leaves no partial folio — bond still maps to agent-007.
+    ids = {a["name"]: a["created_by"] for a in station.list_agents()}
+    assert ids == {"bond": "agent-007"}
+
+
+def test_register_allows_own_name_equal_to_own_agent_id(station):
+    # The auto-ignite posture (name == agent-id, same agent) is NOT a crossover.
+    h = station.register_agent("solo", name="solo")
+    assert station._resolve_agent("solo") == h
+
+
+def test_reignite_under_same_handle_survives_disjoint_guard(station):
+    # A same-agent re-ignite (same id, same name) must remain a succession, not be
+    # read as a different agent claiming a handle already in use as the other kind.
+    t1 = datetime(2026, 6, 22, 9, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 22, 15, 0, tzinfo=timezone.utc)
+    station.register_agent("bond", name="bond", created_at=t1)
+    second = station.register_agent("bond", name="bond", created_at=t2)
+    assert station._resolve_agent("bond") == second
+
+
+def test_handle_conflict_is_an_agent_name_taken(station):
+    # AgentHandleConflict subclasses AgentNameTaken so existing handlers catch it.
+    station.register_agent("bond", name="agent-007")
+    with pytest.raises(AgentNameTaken):
+        station.register_agent("alice", name="bond")
 
 
 # --- station: concurrent first-register converges on one roster site (finding 3)

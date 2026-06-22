@@ -277,3 +277,117 @@ def test_ignite_auto_name_retries_on_collision(data_dir, monkeypatch):
     assert "You are: fresh-0622" in r.output
     rr = _run(data_dir, "roster")
     assert "fresh-0622" in rr.output
+
+
+# --- finding A: complete is atomic (transition + yield + summary one unit) -----
+
+
+def test_complete_yield_failure_rolls_back_transition(data_dir, monkeypatch):
+    # A transition that commits followed by a failing yield used to lose the
+    # hand-off: the agent was already 'retired', so a retry hit
+    # IllegalAgentTransition. Folding the three writes into one transaction means a
+    # yield failure rolls the transition back — the agent stays 'retiring', stores
+    # NO yield, mints NO summary, and a subsequent complete succeeds.
+    env = {"SKEIN_CHAIN_ID": "chain-A", "SKEIN_CHAIN_TASK": "t1"}
+    _run(data_dir, "ignite", "--name", "atom-0622")
+    _run(data_dir, "ready", "--agent", "atom-0622")
+    _run(data_dir, "torch", "--agent", "atom-0622")
+
+    from skein_next.station import Station
+
+    def boom(self, *a, **k):
+        raise RuntimeError("yield write exploded")
+
+    monkeypatch.setattr(Station, "store_chain_yield", boom)
+    r = _run(data_dir, "complete", "--agent", "atom-0622",
+             "--yield-outcome", "x", "--summary", "should not persist", env=env)
+    assert r.exit_code != 0
+    assert isinstance(r.exception, RuntimeError)
+    # Transition rolled back: still 'retiring', not 'retired'.
+    assert "atom-0622 — retiring" in _run(data_dir, "roster").output
+    # No yield landed, no summary minted.
+    assert "no yields for chain chain-A" in _run(data_dir, "chain", "yields", "chain-A").output
+    assert "should not persist" not in _run(data_dir, "folios", "roster", "--type", "summary").output
+
+    # Cleanly retryable: a real complete now retires the agent and stores the yield.
+    monkeypatch.undo()
+    r = _run(data_dir, "complete", "--agent", "atom-0622", "--yield-outcome", "x", env=env)
+    assert r.exit_code == 0, r.output
+    assert "atom-0622: retired" in r.output
+    assert "Yield stored: sack-" in r.output
+
+
+def test_complete_summary_failure_rolls_back_transition(data_dir, monkeypatch):
+    # The summary post is the last write under the one transaction; if it fails the
+    # transition rolls back too, leaving the agent 'retiring' and retryable.
+    _run(data_dir, "ignite", "--name", "atom2-0622")
+    _run(data_dir, "ready", "--agent", "atom2-0622")
+    _run(data_dir, "torch", "--agent", "atom2-0622")
+
+    from skein_next.station import Station
+
+    def boom(self, *a, **k):
+        raise RuntimeError("summary post exploded")
+
+    monkeypatch.setattr(Station, "post", boom)
+    r = _run(data_dir, "complete", "--agent", "atom2-0622", "--summary", "nope")
+    assert r.exit_code != 0
+    assert "atom2-0622 — retiring" in _run(data_dir, "roster").output
+    assert "nope" not in _run(data_dir, "folios", "roster", "--type", "summary").output
+
+    monkeypatch.undo()
+    r = _run(data_dir, "complete", "--agent", "atom2-0622", "--summary", "done")
+    assert r.exit_code == 0, r.output
+    assert "atom2-0622: retired" in r.output
+
+
+# --- finding B: disjoint name / agent-id namespaces (no masking) -------------
+
+
+def test_register_rejects_handle_crossover_via_cli(data_dir):
+    # Alice's name must not be claimable as a second agent's agent-id, or the
+    # handle would mask one agent behind the other in resolution.
+    assert _run(data_dir, "register", "alice", "--name", "bond").exit_code == 0
+    r = _run(data_dir, "register", "bond", "--name", "bob")  # agent-id == alice's name
+    assert r.exit_code != 0
+    assert "collides" in r.output
+
+
+# --- finding C: transition reports status from the under-lock returned hash ---
+
+
+def test_transition_reports_status_from_returned_hash_not_stale_resolve(data_dir, monkeypatch):
+    # ready/torch resolve the agent once outside the lock; the lifecycle method
+    # re-resolves UNDER the lock and returns the live hash. A concurrent re-ignite
+    # can make those differ, so the CLI must print the status of the hash the
+    # transition actually moved (the return), not the pre-resolve. Simulate the
+    # split: the pre-resolve hands back a STALE folio, the under-lock resolve the
+    # LIVE one; the printed status must be the live folio's.
+    _run(data_dir, "register", "stale-one", "--name", "stale-one")
+    _run(data_dir, "register", "live-one", "--name", "live-one")
+
+    from skein_next.station import Station
+
+    probe = Station(str(data_dir))
+    stale_hash = probe._resolve_agent("stale-one")
+    live_hash = probe._resolve_agent("live-one")
+    probe.close()
+
+    calls = {"n": 0}
+
+    def split_resolve(self, ref):
+        calls["n"] += 1
+        return stale_hash if calls["n"] == 1 else live_hash
+
+    monkeypatch.setattr(Station, "_resolve_agent", split_resolve)
+    r = _run(data_dir, "ready", "--agent", "ignored")
+    assert r.exit_code == 0, r.output
+    # The live folio is the one the transition moved → it reads 'active'. Had the
+    # CLI used the stale pre-resolve it would have printed 'orienting'.
+    assert "active" in r.output
+    assert "orienting" not in r.output
+
+    monkeypatch.undo()
+    roster = _run(data_dir, "roster").output
+    assert "live-one — active" in roster      # the moved folio
+    assert "stale-one — orienting" in roster   # untouched

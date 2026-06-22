@@ -99,6 +99,35 @@ class AgentNameTaken(Exception):
         super().__init__(f"agent name {name!r} is already taken{who}")
 
 
+class AgentHandleConflict(AgentNameTaken):
+    """A registration's name or agent-id collides with the OTHER kind of handle
+    already held by a DIFFERENT agent (the disjoint-namespace guard, finding B).
+
+    :meth:`Station._resolve_agent` tries the name slug BEFORE the agent-id, so if
+    agent X's name equalled agent Y's agent-id, the handle ``X`` would always
+    resolve to X and mask Y — ``identify`` could emit Y's id while ``ready`` /
+    ``complete`` operated on X's folio. Registration forbids the crossover: a name
+    may not equal a different live agent's agent-id, nor an agent-id a different
+    live agent's name. With the namespaces disjoint, ``_resolve_agent``'s path
+    order is irrelevant and the identify round-trip is airtight.
+
+    Subclasses :class:`AgentNameTaken` so existing ``except AgentNameTaken``
+    handlers (ignite/register) still catch it; ``kind`` is which side collided
+    (``"name"`` or ``"agent-id"``).
+    """
+
+    def __init__(self, handle: str, kind: str, holder: Optional[str] = None):
+        self.handle = handle
+        self.name = handle
+        self.kind = kind
+        self.holder = holder
+        who = f" (held by {holder})" if holder else ""
+        Exception.__init__(
+            self,
+            f"agent handle {handle!r} collides with a different agent's {kind}{who}",
+        )
+
+
 class SlugCollision(Exception):
     """A slug is already bound to a NON-site folio (e.g. a Stage-2 agent name),
     so it cannot be (re)used as a site slug. The create-site half of the D1 name
@@ -693,6 +722,33 @@ class Station:
             "created_by": agent_id,
         }
         with self.store.transaction():
+            # Disjoint-namespace guard (finding B): a name must not equal a
+            # DIFFERENT live agent's agent-id, and an agent-id must not equal a
+            # different agent's name. _resolve_agent tries the name slug before
+            # the agent-id, so a crossover would mask one agent behind the other.
+            # Every check excludes THIS agent's own folios, so the auto-ignite
+            # case (name == own agent-id) and a same-agent re-ignite (same id,
+            # same name) stay allowed — only a different agent claiming a handle
+            # already in use as the other kind is rejected.
+            other_agent_ids = {
+                f.get("created_by")
+                for f in self.store.folios_by_type("agent")
+                if f.get("created_by") and f.get("created_by") != agent_id
+            }
+            if name in other_agent_ids:
+                raise AgentHandleConflict(name, "agent-id", holder=name)
+            for slug, slug_hash in self.store.list_slugs():
+                if slug != agent_id:
+                    continue
+                holder_folio = self.store.get_folio(slug_hash)
+                if (
+                    holder_folio
+                    and holder_folio.get("type") == "agent"
+                    and holder_folio.get("created_by") != agent_id
+                ):
+                    raise AgentHandleConflict(
+                        agent_id, "name", holder=holder_folio.get("created_by")
+                    )
             prior_hash = self.store.resolve_slug(name)
             folio_hash = self.store.create_folio(fields)
             self.store.save_thread(from_id=folio_hash, to_id=site_hash, type="within")
@@ -801,23 +857,46 @@ class Station:
         the new one. Under the lock, resolution + status RMW see one consistent
         slug. Returns the agent folio hash.
         """
+        with self.store.transaction():
+            return self._transition_agent_locked(
+                ref, to_status, by=by, created_at=created_at
+            )
+
+    def _transition_agent_locked(
+        self,
+        ref: str,
+        to_status: str,
+        by: Optional[str] = None,
+        created_at: Any = None,
+    ) -> str:
+        """The lock-held core of :meth:`transition_agent`: resolve + guard + write.
+
+        Assumes the caller ALREADY holds the store write lock (an open
+        ``transaction()``), so the resolve-current-read and the status write
+        compose into a LARGER atomic roster write rather than committing on their
+        own. This is what lets ``complete`` fold its transition together with the
+        chain yield and the summary post into one unit: if any of the three fails,
+        the whole batch rolls back, the agent stays ``retiring``, and the command
+        is cleanly retryable (finding A). :meth:`transition_agent` is the
+        standalone wrapper that opens the transaction around this. Returns the
+        agent folio hash (the live incarnation resolved under the lock).
+        """
         if to_status not in AGENT_LIFECYCLE:
             raise ValueError(f"unknown lifecycle status {to_status!r}")
-        with self.store.transaction():
-            folio_hash = self._resolve_agent(ref)
-            current = self.store.latest_statuses([folio_hash]).get(
-                folio_hash, _INITIAL_STATUS
-            )
-            if to_status not in _LEGAL_TRANSITIONS.get(current, ()):
-                raise IllegalAgentTransition(current, to_status)
-            self.store.save_thread(
-                from_id=folio_hash,
-                to_id=folio_hash,
-                type="status",
-                weaver=by,
-                content=to_status,
-                created_at=created_at if created_at is not None else _now_utc(),
-            )
+        folio_hash = self._resolve_agent(ref)
+        current = self.store.latest_statuses([folio_hash]).get(
+            folio_hash, _INITIAL_STATUS
+        )
+        if to_status not in _LEGAL_TRANSITIONS.get(current, ()):
+            raise IllegalAgentTransition(current, to_status)
+        self.store.save_thread(
+            from_id=folio_hash,
+            to_id=folio_hash,
+            type="status",
+            weaver=by,
+            content=to_status,
+            created_at=created_at if created_at is not None else _now_utc(),
+        )
         return folio_hash
 
     def agent_ready(self, ref: str, by: Optional[str] = None) -> str:

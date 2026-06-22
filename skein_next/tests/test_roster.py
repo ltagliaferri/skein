@@ -14,6 +14,7 @@ from skein_next.station import (
     ACTIVE_WINDOW_MINUTES,
     AgentHandleConflict,
     AgentNameTaken,
+    AgentRenameRejected,
     IllegalAgentTransition,
     ROSTER_SITE,
     SlugCollision,
@@ -458,6 +459,74 @@ def test_handle_conflict_is_an_agent_name_taken(station):
     station.register_agent("bond", name="agent-007")
     with pytest.raises(AgentNameTaken):
         station.register_agent("alice", name="bond")
+
+
+# --- station: same-agent rename is rejected (finding C, round 3) -------------
+
+
+def test_register_rejects_rename_of_live_agent_id(station):
+    # The strand: after an auto-ignite (name == agent-id), re-registering that
+    # agent-id under a DIFFERENT name would strand the live incarnation — the old
+    # slug keeps pointing at the stale folio while the new name binds a fresh one,
+    # and _resolve_agent (slug-first) resolves the agent-id to the DEAD folio.
+    # Reject the rename: an agent-id resolves to exactly one live incarnation.
+    station.register_agent("worker-1")  # name defaults to agent-id
+    with pytest.raises(AgentRenameRejected):
+        station.register_agent("worker-1", name="worker-renamed")
+    # The rejection rolls back — no second folio, the agent-id still resolves to
+    # its one incarnation under the original name, and the roster shows one row.
+    assert station.store.resolve_slug("worker-renamed") is None
+    h = station._resolve_agent("worker-1")
+    assert station.store.resolve_slug("worker-1") == h
+    rows = [a for a in station.list_agents() if a["created_by"] == "worker-1"]
+    assert len(rows) == 1 and rows[0]["name"] == "worker-1"
+
+
+def test_register_rejects_rename_from_decoupled_name(station):
+    # The mirror of the above for a decoupled register: agent-id 'agent-007' is
+    # live under name 'bond'; re-registering it under 'jbond' is still a rename.
+    station.register_agent("agent-007", name="bond")
+    with pytest.raises(AgentRenameRejected):
+        station.register_agent("agent-007", name="jbond")
+    assert station.store.resolve_slug("jbond") is None
+
+
+def test_rename_rejected_is_an_agent_name_taken(station):
+    # AgentRenameRejected subclasses AgentNameTaken so ignite/register handlers
+    # (which catch AgentNameTaken) surface it without a new except clause.
+    station.register_agent("worker-1")
+    with pytest.raises(AgentNameTaken):
+        station.register_agent("worker-1", name="worker-renamed")
+
+
+def test_register_allows_reignite_same_name_despite_rename_guard(station):
+    # Allowed case 1: a same-agent re-ignite (same id, same name) is NOT a rename.
+    # The slug equals the requested name, so the rename guard skips it and the
+    # succession path rebinds the slug to the new incarnation + threads succession.
+    t1 = datetime(2026, 6, 22, 9, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 22, 15, 0, tzinfo=timezone.utc)
+    first = station.register_agent("worker-1", created_at=t1)
+    second = station.register_agent("worker-1", created_at=t2)
+    assert station._resolve_agent("worker-1") == second
+    succ = [
+        e for e in station.thread_graph(second)["outgoing"] if e["type"] == "succession"
+    ]
+    assert len(succ) == 1 and succ[0]["to_id"] == first  # threaded to prior
+
+
+def test_register_allows_fresh_decoupled_despite_rename_guard(station):
+    # Allowed case 2: a fresh decoupled register (agent-id with no prior folio,
+    # name != agent-id) holds no prior slug, so the rename guard never fires.
+    h = station.register_agent("agent-007", name="bond")
+    assert station._resolve_agent("bond") == h
+    assert station._resolve_agent("agent-007") == h
+
+
+def test_register_allows_initial_auto_ignite_despite_rename_guard(station):
+    # Allowed case 3: the initial auto-ignite (name == agent-id, no prior) is the
+    # very state the rename guard must not block.
+    h = station.register_agent("solo")
+    assert station._resolve_agent("solo") == h
 
 
 # --- station: concurrent first-register converges on one roster site (finding 3)

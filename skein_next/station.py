@@ -128,6 +128,42 @@ class AgentHandleConflict(AgentNameTaken):
         )
 
 
+class AgentRenameRejected(AgentNameTaken):
+    """A registration would RENAME a live agent-id — rebinding it from one name to
+    another — which is not a designed operation (finding C, round 3).
+
+    An agent-id must resolve to exactly ONE live incarnation. After an auto-ignite
+    where ``name == agent_id`` (or any decoupled register), the agent-id already
+    holds a name slug. Re-registering that agent-id under a DIFFERENT name does not
+    move the old slug: it binds the new name to a fresh folio while the old slug
+    keeps pointing at the stale one. :meth:`Station._resolve_agent` tries the name
+    slug BEFORE the agent-id, so the agent-id (the value ``identify --eval`` emits,
+    documented incarnation-stable) would resolve via the slug-first path to the
+    DEAD incarnation — lifecycle verbs would drive the corpse while the renamed row
+    advanced alone, leaving two roster rows for one agent-id with no succession
+    link. Registration forbids the rename: a re-ignite must keep the same name (the
+    succession path rebinds the slug in place); a genuinely new identity must use a
+    new agent-id.
+
+    Subclasses :class:`AgentNameTaken` so existing ``except AgentNameTaken``
+    handlers (ignite/register) still catch it. ``old_name`` is the name the
+    agent-id is already registered under; ``name``/``new_name`` is the rejected one.
+    """
+
+    def __init__(self, agent_id: str, old_name: str, new_name: str):
+        self.agent_id = agent_id
+        self.holder = agent_id
+        self.old_name = old_name
+        self.new_name = new_name
+        self.name = new_name
+        Exception.__init__(
+            self,
+            f"agent-id {agent_id!r} is already registered as {old_name!r}; "
+            f"renaming to {new_name!r} is not supported "
+            f"(a re-ignite must keep the name {old_name!r})",
+        )
+
+
 class SlugCollision(Exception):
     """A slug is already bound to a NON-site folio (e.g. a Stage-2 agent name),
     so it cannot be (re)used as a site slug. The create-site half of the D1 name
@@ -749,6 +785,24 @@ class Station:
                     raise AgentHandleConflict(
                         agent_id, "name", holder=holder_folio.get("created_by")
                     )
+            # Rename guard (finding C): this agent-id must not already hold a name
+            # slug OTHER than the one requested. If it does, this is a rename — the
+            # old slug would keep pointing at the stale folio while the new name
+            # bound a fresh one, and _resolve_agent (slug-first) would resolve the
+            # agent-id to the DEAD incarnation. A same-name re-ignite (slug == name)
+            # is exempt: it falls through to the succession path below, which
+            # rebinds the slug in place. A fresh decoupled register holds no prior
+            # slug for this agent-id, so it is exempt too.
+            for slug, slug_hash in self.store.list_slugs():
+                if slug == name:
+                    continue
+                held = self.store.get_folio(slug_hash)
+                if (
+                    held
+                    and held.get("type") == "agent"
+                    and held.get("created_by") == agent_id
+                ):
+                    raise AgentRenameRejected(agent_id, slug, name)
             prior_hash = self.store.resolve_slug(name)
             folio_hash = self.store.create_folio(fields)
             self.store.save_thread(from_id=folio_hash, to_id=site_hash, type="within")

@@ -416,8 +416,9 @@ def folio(ctx: click.Context, ref: str, output_json: bool) -> None:
         if not found:
             raise click.ClickException(f"no folio for reference {ref!r}")
         status = station.status_of(found["content_hash"])
+        replies = station.replies(found["content_hash"])
         if output_json:
-            _emit_json({**found, "status": status})
+            _emit_json({**found, "status": status, "replies": replies})
             return
         click.echo(f"{found.get('type') or 'folio'}  {found['content_hash']}")
         if found.get("title"):
@@ -434,6 +435,12 @@ def folio(ctx: click.Context, ref: str, output_json: bool) -> None:
         if found.get("content"):
             click.echo("")
             click.echo(found["content"])
+        if replies:
+            click.echo("")
+            click.echo(f"Replies ({len(replies)}):")
+            for r in replies:
+                who = r.get("author") or "(unknown)"
+                click.echo(f"  {who}: {r.get('message') or ''}")
 
 
 # --- folios (list a site) ---------------------------------------------------
@@ -501,6 +508,22 @@ def _peer_label(peer: Dict[str, Any]) -> str:
     return "(none)"
 
 
+def _edge_content(edge: Dict[str, Any]) -> str:
+    """A trailing ``— "..."`` for an edge that carries text (a reply, a comment).
+
+    Membership/within edges and bare links have no content; only edges that say
+    something (reply, status, tag) get the suffix, so the thread view shows what
+    a comment actually says rather than just that one exists.
+    """
+    content = edge.get("content")
+    if not content:
+        return ""
+    one_line = " ".join(str(content).split())
+    if len(one_line) > 80:
+        one_line = one_line[:77] + "..."
+    return f' — "{one_line}"'
+
+
 @cli.command()
 @click.argument("ref")
 @click.option("--json", "output_json", is_flag=True)
@@ -521,9 +544,15 @@ def thread(ctx: click.Context, ref: str, output_json: bool) -> None:
         focus = graph["folio"]
         click.echo(_folio_line(focus) if focus else graph["content_hash"])
         for edge in graph["outgoing"]:
-            click.echo(f"  links to ({edge['type']}): {_peer_label(edge['peer'])}")
+            click.echo(
+                f"  links to ({edge['type']}): {_peer_label(edge['peer'])}"
+                f"{_edge_content(edge)}"
+            )
         for edge in graph["incoming"]:
-            click.echo(f"  linked from ({edge['type']}): {_peer_label(edge['peer'])}")
+            click.echo(
+                f"  linked from ({edge['type']}): {_peer_label(edge['peer'])}"
+                f"{_edge_content(edge)}"
+            )
         for edge in graph["memberships"]:
             # A within edge points member -> site. Which end the focus is on
             # flips the relationship: if the focus is the member, the peer is its

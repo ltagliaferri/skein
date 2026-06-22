@@ -30,6 +30,7 @@ from .station import (
     IllegalAgentTransition,
     Station,
     UnknownAgent,
+    UnknownFolio,
     _short,
 )
 
@@ -131,6 +132,25 @@ def ignite(
         if v
     }
     with _open_station(ctx) as st:
+        # Resolve the brief and the mantle BEFORE registering, so a bad reference
+        # fails fast and never leaves an orienting agent folio behind for a brief
+        # that does not exist. These are the Stage-3 pull-reads: the brief and the
+        # mantle are content the agent absorbs as it comes up.
+        brief_folio = None
+        if brief_id:
+            try:
+                brief_folio = st.get_folio(brief_id)
+            except AmbiguousReference as e:
+                lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+                raise click.ClickException(f"{e}\n{lines}")
+            if not brief_folio:
+                raise click.ClickException(f"no brief for reference {brief_id!r}")
+        mantle_folio = None
+        if mantle:
+            mantle_folio = st.resolve_mantle(mantle)
+            if not mantle_folio:
+                raise click.ClickException(f"no mantle found matching {mantle!r}")
+
         agent_id = agent or _default_agent() or name
         # Auto-name only when the caller supplied nothing to identify by. The name
         # is generated and bound below; the guarded register is the source of truth
@@ -163,6 +183,32 @@ def ignite(
                 # Auto-name collided with a concurrent register; regenerate.
                 continue
         resolved_name = name or agent_id
+
+        # The brief-handoff trail: thread the new agent folio to the brief it
+        # ignited from, so the pickup is readable from both ends (design D1's
+        # succession idea, generalized to the brief). Done after register, when the
+        # agent folio hash exists.
+        if brief_folio:
+            st.record_ignite_handoff(
+                folio_hash, brief_folio["content_hash"], by=agent_id
+            )
+
+        # Assemble the mission the agent pulls at birth — brief, then mantle, then
+        # the ad-hoc message — each under its own labelled section (the live legacy
+        # ignite_start shape).
+        mission_parts: List[str] = []
+        if brief_folio:
+            mission_parts.append(
+                f"From brief ({brief_id}):\n{brief_folio.get('content') or ''}"
+            )
+        if mantle_folio:
+            mission_parts.append(
+                f"From mantle ({mantle}):\n{mantle_folio.get('content') or ''}"
+            )
+        if message:
+            mission_parts.append(f"Initial task:\n{message}")
+        mission = "\n\n".join(mission_parts) if mission_parts else None
+
         if output_json:
             _emit_json(
                 {
@@ -170,6 +216,9 @@ def ignite(
                     "name": resolved_name,
                     "content_hash": folio_hash,
                     "status": st.status_of(folio_hash),
+                    "mission": mission,
+                    "brief_id": brief_id,
+                    "mantle": mantle,
                 }
             )
             return
@@ -177,8 +226,14 @@ def ignite(
         click.echo("IGNITION — Orientation Phase")
         click.echo("=" * 60)
         click.echo()
-        if message:
-            click.echo(f"Mission: {message}")
+        if mission:
+            if brief_id:
+                click.echo(f"Brief: {brief_id}")
+            if mantle:
+                click.echo(f"Mantle: {mantle}")
+            click.echo()
+            click.echo("Mission:")
+            click.echo(mission)
             click.echo()
         click.echo(f"You are: {resolved_name}")
         click.echo()
@@ -348,6 +403,44 @@ def complete(
     click.echo(f"{ref}: {new_status}")
 
 
+# --- intranet: reply / comment ----------------------------------------------
+
+
+@click.command()
+@click.argument("resource")
+@click.argument("message")
+@click.option("--agent", default=None, help="Author (default: $SKEIN_NEXT_AGENT).")
+@click.option("--json", "output_json", is_flag=True)
+@click.pass_context
+def reply(
+    ctx: click.Context,
+    resource: str,
+    message: str,
+    agent: Optional[str],
+    output_json: bool,
+) -> None:
+    """Comment on a resource: thread a reply from you to RESOURCE.
+
+    Works on any folio — an issue, brief, finding, notion. The reply is readable
+    in the resource's thread-tree (run 'folio RESOURCE' or 'thread RESOURCE').
+
+      interskein reply issue-123 "I'll take this" --agent nub-0622
+    """
+    author = _require_agent(agent)
+    with _open_station(ctx) as st:
+        try:
+            thread_hash = st.reply(resource, message, by=author)
+        except AmbiguousReference as e:
+            lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+            raise click.ClickException(f"{e}\n{lines}")
+        except UnknownFolio:
+            raise click.ClickException(f"no folio for reference {resource!r}")
+    if output_json:
+        _emit_json({"thread_hash": thread_hash, "resource": resource, "author": author})
+        return
+    click.echo(f"Posted reply: {_short(thread_hash)}")
+
+
 # --- roster / activity ------------------------------------------------------
 
 
@@ -472,6 +565,7 @@ COMMANDS: List[click.Command] = [
     ready,
     torch,
     complete,
+    reply,
     roster,
     activity,
     chain,

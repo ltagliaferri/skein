@@ -37,6 +37,7 @@ from . import publish as _publish
 from .publish import PublishError
 from .station import (
     AmbiguousReference,
+    SlugCollision,
     Station,
     UnknownFolio,
     UnknownSite,
@@ -610,7 +611,12 @@ def site(
     author = created_by or _default_author()
     with _open_station(ctx) as station:
         existing = station.store.resolve_slug(slug)
-        site_hash = station.create_site(slug, purpose=purpose, created_by=author)
+        try:
+            site_hash = station.create_site(slug, purpose=purpose, created_by=author)
+        except SlugCollision as e:
+            # The slug is bound to a non-site folio (e.g. a Stage-2 agent name).
+            # Present the station error cleanly, not as a traceback.
+            raise click.ClickException(str(e))
         verb = "exists" if existing == site_hash else "created"
         click.echo(f"site {verb}: {slug}  {site_hash}")
 
@@ -1331,6 +1337,13 @@ from .shard_cli import shards_shortcut as _shards_shortcut  # noqa: E402
 
 cli.add_command(_shard_group)
 cli.add_command(_shards_shortcut)
+
+# Stage 2 — agent lifecycle / roster / activity / chain-yield verbs, attached the
+# same way Stage 1 attached the shard group.
+from .roster_cli import COMMANDS as _roster_commands  # noqa: E402
+
+for _cmd in _roster_commands:
+    cli.add_command(_cmd)
 
 
 def main() -> None:

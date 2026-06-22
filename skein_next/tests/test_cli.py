@@ -35,6 +35,17 @@ def test_site_create_is_idempotent(runner, data_dir):
     assert "site exists: proj" in r.output
 
 
+def test_site_create_on_agent_name_is_clean_error(runner, data_dir):
+    # A Stage-2 agent name slugs the same table sites use; site create on that
+    # slug raises SlugCollision, which the CLI must present cleanly, not as a
+    # traceback (r5 finding 2).
+    assert run(runner, data_dir, "register", "foo").exit_code == 0
+    r = run(runner, data_dir, "site", "create", "foo")
+    assert r.exit_code != 0
+    assert "foo" in r.output and "non-site folio" in r.output
+    assert "Traceback" not in r.output
+
+
 def test_post_prints_hash_and_appears_in_folios(runner, data_dir):
     run(runner, data_dir, "site", "create", "proj")
     r = run(runner, data_dir, "post", "finding", "proj", "Found a bug", "--content", "details")

@@ -365,6 +365,113 @@ def test_store_chain_yield_honors_explicit_sack_id(station):
     assert station.chain_yield("sack-fixed") is not None
 
 
+# --- station: complete_agent (atomic transition + yield + summary) -----------
+#
+# These exercise the atomicity guarantee directly at the service layer (finding
+# A from r5): the whole hand-off lives in Station.complete_agent, not just the
+# CLI, so it is available and testable here without going through Click.
+
+
+def _retiring(station, name="worker"):
+    """Bring a fresh agent to the 'retiring' state, ready for complete."""
+    station.register_agent(name)
+    station.agent_ready(name)
+    station.agent_torch(name)
+
+
+def test_complete_agent_legal_with_chain_stores_yield_and_returns_sack(station):
+    _retiring(station, "worker")
+    live, status, sack = station.complete_agent(
+        "worker", chain_id="chain-1", task_id="t1", yield_outcome="did the work",
+    )
+    assert status == "retired"
+    assert station.status_of(live) == "retired"
+    assert sack and sack.startswith("sack-")
+    assert station.chain_yield(sack)["outcome"] == "did the work"
+    assert station.chain_yields("chain-1")[0]["sack_id"] == sack
+
+
+def test_complete_agent_without_chain_returns_no_sack(station):
+    _retiring(station, "worker")
+    live, status, sack = station.complete_agent("worker")
+    assert status == "retired"
+    assert sack is None
+
+
+def test_illegal_complete_stores_no_yield_no_summary(station):
+    # complete from 'active' (skipping torch) is illegal; even with a chain id and
+    # a summary requested, the FSM guard runs FIRST, so neither side effect lands.
+    station.register_agent("worker")
+    station.agent_ready("worker")  # still 'active', never torched
+    with pytest.raises(IllegalAgentTransition):
+        station.complete_agent(
+            "worker", chain_id="chain-1", yield_outcome="premature",
+            summary="should not persist",
+        )
+    assert station.chain_yields("chain-1") == []
+    assert station.folios_in_site(ROSTER_SITE, type="summary") == []
+
+
+def test_complete_yield_failure_rolls_back_transition(station, monkeypatch):
+    # A yield write that fails must roll the transition back: the agent stays
+    # 'retiring' (retryable), and no yield or summary becomes durable.
+    _retiring(station, "worker")
+    h = station._resolve_agent("worker")
+
+    def boom(*a, **k):
+        raise RuntimeError("yield write exploded")
+
+    monkeypatch.setattr(station, "store_chain_yield", boom)
+    with pytest.raises(RuntimeError):
+        station.complete_agent(
+            "worker", chain_id="chain-1", yield_outcome="x",
+            summary="should not persist",
+        )
+    assert station.status_of(h) == "retiring"
+    assert station.chain_yields("chain-1") == []
+    assert station.folios_in_site(ROSTER_SITE, type="summary") == []
+
+    # Cleanly retryable: a real complete now retires the agent and stores a yield.
+    monkeypatch.undo()
+    live, status, sack = station.complete_agent(
+        "worker", chain_id="chain-1", yield_outcome="x",
+    )
+    assert status == "retired"
+    assert len(station.chain_yields("chain-1")) == 1
+
+
+def test_complete_summary_failure_rolls_back_transition(station, monkeypatch):
+    # The summary post is the last write under the one transaction; a non-
+    # UnknownSite failure must surface AND roll the transition back.
+    _retiring(station, "worker")
+    h = station._resolve_agent("worker")
+
+    def boom(*a, **k):
+        raise RuntimeError("summary post exploded")
+
+    monkeypatch.setattr(station, "post", boom)
+    with pytest.raises(RuntimeError):
+        station.complete_agent("worker", summary="nope")
+    assert station.status_of(h) == "retiring"
+
+    monkeypatch.undo()
+    live, status, sack = station.complete_agent("worker", summary="done")
+    assert status == "retired"
+    titles = [f["title"] for f in station.folios_in_site(ROSTER_SITE, type="summary")]
+    assert "done" in titles
+
+
+def test_retrying_failed_complete_does_not_accumulate_yields(station):
+    # Repeated illegal completes (from 'active', skipping torch) must not stack
+    # duplicate yields — the guard runs before the yield, so none are ever stored.
+    station.register_agent("worker")
+    station.agent_ready("worker")
+    for _ in range(3):
+        with pytest.raises(IllegalAgentTransition):
+            station.complete_agent("worker", chain_id="chain-1", yield_outcome="x")
+    assert station.chain_yields("chain-1") == []
+
+
 # --- station: ensure_roster_site --------------------------------------------
 
 

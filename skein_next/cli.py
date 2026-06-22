@@ -37,6 +37,7 @@ from . import publish as _publish
 from .publish import PublishError
 from .station import (
     AmbiguousReference,
+    SlugCollision,
     Station,
     UnknownFolio,
     UnknownSite,
@@ -610,7 +611,12 @@ def site(
     author = created_by or _default_author()
     with _open_station(ctx) as station:
         existing = station.store.resolve_slug(slug)
-        site_hash = station.create_site(slug, purpose=purpose, created_by=author)
+        try:
+            site_hash = station.create_site(slug, purpose=purpose, created_by=author)
+        except SlugCollision as e:
+            # The slug is bound to a non-site folio (e.g. a Stage-2 agent name).
+            # Present the station error cleanly, not as a traceback.
+            raise click.ClickException(str(e))
         verb = "exists" if existing == site_hash else "created"
         click.echo(f"site {verb}: {slug}  {site_hash}")
 

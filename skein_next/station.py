@@ -962,8 +962,131 @@ class Station:
         return self.transition_agent(ref, "retiring", by=by)
 
     def agent_complete(self, ref: str, by: Optional[str] = None) -> str:
-        """``retiring → retired``: the agent has retired from the roster."""
+        """``retiring → retired``: the agent has retired from the roster.
+
+        The bare FSM edge only. For the full hand-off (transition + chain yield +
+        retirement summary as one atomic unit) use :meth:`complete_agent`.
+        """
         return self.transition_agent(ref, "retired", by=by)
+
+    def complete_agent(
+        self,
+        ref: str,
+        by: Optional[str] = None,
+        *,
+        chain_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        yield_status: Optional[str] = None,
+        yield_outcome: Optional[str] = None,
+        yield_notes: Optional[str] = None,
+        summary: Optional[str] = None,
+    ) -> Tuple[str, str, Optional[str]]:
+        """Atomically retire an agent: the ``retiring → retired`` transition PLUS
+        its chain yield and retirement summary, all in ONE ``transaction()``.
+
+        This is the service-layer primitive for the full retirement hand-off
+        (finding A). The transition, the chain yield, and the summary post commit
+        as a single unit: the transition runs FIRST (via the lock-held
+        :meth:`_transition_agent_locked`, so it shares this transaction), then the
+        durable side effects. If any step fails — an illegal transition, a
+        yield-write error, a duplicate sack_id, a summary-post failure — the whole
+        batch rolls back: the agent stays ``retiring``, no yield is stored, no
+        summary is minted, and the operation is cleanly retryable with no
+        duplicates stacked. Folding all three into one transaction is what makes
+        the atomicity guarantee available and testable at this layer, not only in
+        the CLI.
+
+        Resolving the agent INSIDE the transaction also closes the stale-resolve
+        TOCTOU (finding C): ``agent_id`` and the returned status come from the live
+        folio the transition moved under the lock, never a pre-lock read a
+        concurrent re-ignite could supersede. ``agent_id`` — the folio's
+        ``created_by``, the authorship + query key for the yield, the authored-folio
+        scan, and the summary post — is derived here, never the raw ``ref`` (which
+        may be the human name); ``by`` and ``ref`` are the fallback when the live
+        folio carries no ``created_by``.
+
+        When ``chain_id`` is given, a yield is stored summarizing the agent's
+        authored artifacts (status defaults to ``complete`` if any tender was
+        filed, else ``partial``). When ``summary`` is given, it is posted to the
+        agent's most-recent working site, falling back to the ``roster`` site if
+        that site no longer resolves.
+
+        Returns ``(live_hash, new_status, sack_id)`` where ``sack_id`` is the
+        stored yield id (or ``None`` when no ``chain_id`` was given).
+        """
+        with self.store.transaction():
+            folio_hash = self._resolve_agent(ref)
+            # The agent-id (the folio's created_by) is the authorship + query key
+            # — never the raw ref, which may be the human name.
+            agent_id = (
+                (self.store.get_folio(folio_hash) or {}).get("created_by") or by or ref
+            )
+
+            # Lifecycle transition FIRST, via the lock-held core so it shares this
+            # transaction. The yield/summary are durable side effects; running them
+            # before the FSM guard would leave them behind on an illegal complete
+            # (e.g. from 'active', skipping torch). The guard rejecting here rolls
+            # the whole batch back — a clean no-op, no duplicate yields on retry.
+            live_hash = self._transition_agent_locked(folio_hash, "retired", by=agent_id)
+            new_status = self.status_of(live_hash)
+            agent_id = (self.store.get_folio(live_hash) or {}).get("created_by") or agent_id
+
+            authored = [
+                f
+                for f in self.store.folios_by_created_by(agent_id)
+                if f.get("type") not in ("agent", "site")
+            ]
+
+            sack_id: Optional[str] = None
+            if chain_id:
+                artifacts = [f["content_hash"] for f in authored]
+                tenders = [
+                    f["content_hash"] for f in authored if f.get("type") == "tender"
+                ]
+                status = yield_status or ("complete" if tenders else "partial")
+                outcome = (
+                    yield_outcome
+                    or f"Completed task. Filed {len(artifacts)} artifact(s)."
+                )
+                sack_id = self.store_chain_yield(
+                    chain_id=chain_id,
+                    task_id=task_id or "unknown",
+                    agent_id=agent_id,
+                    status=status,
+                    outcome=outcome,
+                    artifacts=artifacts,
+                    notes=yield_notes,
+                    tender_id=tenders[0] if tenders else None,
+                )
+
+            if summary:
+                # Post to the agent's most-recent working site (legacy behavior),
+                # falling back to the roster site.
+                recent = sorted(
+                    authored,
+                    key=lambda f: (f.get("created_at") or "", f.get("content_hash") or ""),
+                    reverse=True,
+                )
+                site = None
+                for f in recent:
+                    site = self.store.folio_site_slug(f["content_hash"])
+                    if site:
+                        break
+                target = site or "roster"
+                try:
+                    self.post(type="summary", site=target, title=summary[:100],
+                              content=summary, created_by=agent_id)
+                except UnknownSite:
+                    # The chosen working site no longer resolves to a site; fall
+                    # back to the roster (which register guaranteed exists). Only
+                    # the missing-site case is swallowed — any other store error
+                    # surfaces and rolls the transition back too.
+                    if target == "roster":
+                        raise
+                    self.post(type="summary", site="roster", title=summary[:100],
+                              content=summary, created_by=agent_id)
+
+        return live_hash, new_status, sack_id
 
     def list_agents(
         self, status: Optional[str] = None

@@ -30,7 +30,6 @@ from .station import (
     IllegalAgentTransition,
     Station,
     UnknownAgent,
-    UnknownSite,
     _short,
 )
 
@@ -267,6 +266,15 @@ def _transition(ctx: click.Context, agent: Optional[str], verb: str) -> None:
             live_hash = getattr(st, mover)(ref, by=agent_id)
         except IllegalAgentTransition as e:
             raise click.ClickException(str(e))
+        except UnknownAgent as e:
+            # The under-lock re-resolve can also fail: a concurrent succession may
+            # have unbound the slug, or made the name ambiguous, between the
+            # pre-resolve and the locked move. Map both to the same clean errors as
+            # the pre-resolve, never an uncaught traceback (finding from r5).
+            raise click.ClickException(str(e) + " — run 'ignite' first.")
+        except AmbiguousReference as e:
+            lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+            raise click.ClickException(f"{e}\n{lines}")
         new_status = st.status_of(live_hash)
     click.echo(f"{ref}: {new_status}")
 
@@ -313,94 +321,20 @@ def complete(
     chain_id = os.environ.get(ENV_CHAIN)
     task_id = os.environ.get(ENV_CHAIN_TASK)
     with _open_station(ctx) as st:
-        sack_id = None
-        new_status = None
-        # The transition, the chain yield, and the summary commit as ONE atomic
-        # unit (finding A). The transition alone used to commit in its own
-        # transaction; a yield or summary that then failed (store error, lock
-        # timeout, or a duplicate sack_id from the legacy yield-id generator) left
-        # the agent 'retired' with no yield — and a retry hit IllegalAgentTransition
-        # because the FSM had already advanced, so the hand-off was lost
-        # unrecoverably. Folding all three into one transaction means any failure
-        # rolls the transition back too: the agent stays 'retiring' and the command
-        # is cleanly retryable, with no yield stored and no summary minted.
-        #
-        # Resolving the agent INSIDE this transaction also fixes the stale-resolve
-        # (finding C): agent_id and the printed status come from the live folio the
-        # transition moved under the lock, not a pre-lock read a concurrent
-        # re-ignite could supersede.
+        # The whole atomic hand-off (transition + chain yield + summary in one
+        # transaction, findings A/C) lives in Station.complete_agent so the
+        # guarantee is available and testable at the service layer, not just here.
+        # The CLI keeps only env/option plumbing and error→ClickException mapping.
         try:
-            with st.store.transaction():
-                folio_hash = st._resolve_agent(ref)
-                # The agent-id (the folio's created_by) is the authorship + query
-                # key for the yield, the authored-folios scan, and the summary post
-                # — never the raw ref, which may be the human name (register
-                # --name X --agent Y).
-                agent_id = (st.store.get_folio(folio_hash) or {}).get("created_by") or ref
-
-                # Lifecycle transition FIRST, via the lock-held core so it shares
-                # this transaction. The yield/summary are durable side effects;
-                # running them before the FSM guard would leave them behind on an
-                # illegal complete (e.g. from 'active', skipping torch). The guard
-                # rejecting here rolls the whole batch back — a clean no-op, no
-                # duplicate yields stacked on a retry.
-                live_hash = st._transition_agent_locked(folio_hash, "retired", by=agent_id)
-                new_status = st.status_of(live_hash)
-                agent_id = (st.store.get_folio(live_hash) or {}).get("created_by") or agent_id
-
-                authored = [
-                    f
-                    for f in st.store.folios_by_created_by(agent_id)
-                    if f.get("type") not in ("agent", "site")
-                ]
-
-                if chain_id:
-                    artifacts = [f["content_hash"] for f in authored]
-                    tenders = [
-                        f["content_hash"] for f in authored if f.get("type") == "tender"
-                    ]
-                    status = yield_status or ("complete" if tenders else "partial")
-                    outcome = (
-                        yield_outcome
-                        or f"Completed task. Filed {len(artifacts)} artifact(s)."
-                    )
-                    sack_id = st.store_chain_yield(
-                        chain_id=chain_id,
-                        task_id=task_id or "unknown",
-                        agent_id=agent_id,
-                        status=status,
-                        outcome=outcome,
-                        artifacts=artifacts,
-                        notes=yield_notes,
-                        tender_id=tenders[0] if tenders else None,
-                    )
-
-                if summary:
-                    # Post to the agent's most-recent working site (legacy
-                    # behavior), falling back to the roster site.
-                    recent = sorted(
-                        authored,
-                        key=lambda f: (f.get("created_at") or "", f.get("content_hash") or ""),
-                        reverse=True,
-                    )
-                    site = None
-                    for f in recent:
-                        site = st.store.folio_site_slug(f["content_hash"])
-                        if site:
-                            break
-                    target = site or "roster"
-                    try:
-                        st.post(type="summary", site=target, title=summary[:100],
-                                 content=summary, created_by=agent_id)
-                    except UnknownSite:
-                        # The chosen working site no longer resolves to a site; fall
-                        # back to the roster (which the register guaranteed exists).
-                        # Only the missing-site case is swallowed — any other store
-                        # error surfaces (and now rolls the transition back too).
-                        if target == "roster":
-                            raise
-                        st.post(type="summary", site="roster", title=summary[:100],
-                                 content=summary, created_by=agent_id)
+            _live_hash, new_status, sack_id = st.complete_agent(
+                ref,
+                chain_id=chain_id,
+                task_id=task_id,
+                yield_status=yield_status,
+                yield_outcome=yield_outcome,
+                yield_notes=yield_notes,
+                summary=summary,
+            )
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
         except AmbiguousReference as e:

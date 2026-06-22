@@ -424,3 +424,61 @@ def test_transition_reports_status_from_returned_hash_not_stale_resolve(data_dir
     roster = _run(data_dir, "roster").output
     assert "live-one — active" in roster      # the moved folio
     assert "stale-one — orienting" in roster   # untouched
+
+
+# --- r5 finding 3: under-lock re-resolve failures map to clean CLI errors -----
+
+
+def test_transition_ambiguous_at_locked_resolve_is_clean_error(data_dir, monkeypatch):
+    # _transition pre-resolves OUTSIDE the lock, then the mover re-resolves UNDER
+    # the lock. A concurrent succession can make the name ambiguous between those
+    # two resolves, so the locked re-resolve can raise AmbiguousReference even
+    # though the pre-resolve succeeded. That must surface as a clean error, not a
+    # traceback. Simulate: pre-resolve succeeds, the under-lock resolve raises.
+    _run(data_dir, "register", "worker", "--name", "worker")
+
+    from skein_next.station import AmbiguousReference, Station
+
+    probe = Station(str(data_dir))
+    real_hash = probe._resolve_agent("worker")
+    probe.close()
+
+    calls = {"n": 0}
+
+    def flaky_resolve(self, ref):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real_hash  # pre-resolve outside the lock
+        raise AmbiguousReference(ref, [real_hash, "sha256::other000000"])
+
+    monkeypatch.setattr(Station, "_resolve_agent", flaky_resolve)
+    r = _run(data_dir, "ready", "--agent", "worker")
+    assert r.exit_code != 0
+    assert "is ambiguous" in r.output
+    assert "Traceback" not in r.output
+
+
+def test_transition_unknown_at_locked_resolve_is_clean_error(data_dir, monkeypatch):
+    # Same shape, but the under-lock re-resolve raises UnknownAgent (a concurrent
+    # succession unbound the slug). The CLI must present the ignite hint cleanly.
+    _run(data_dir, "register", "worker", "--name", "worker")
+
+    from skein_next.station import Station, UnknownAgent
+
+    probe = Station(str(data_dir))
+    real_hash = probe._resolve_agent("worker")
+    probe.close()
+
+    calls = {"n": 0}
+
+    def flaky_resolve(self, ref):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real_hash
+        raise UnknownAgent(ref)
+
+    monkeypatch.setattr(Station, "_resolve_agent", flaky_resolve)
+    r = _run(data_dir, "ready", "--agent", "worker")
+    assert r.exit_code != 0
+    assert "ignite" in r.output
+    assert "Traceback" not in r.output

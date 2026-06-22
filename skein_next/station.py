@@ -851,6 +851,14 @@ class Station:
                 created_at=stamp,
             )
             if ignited_from:
+                # The brief must be a real folio, or the trail is asymmetric: the
+                # agent would show an outgoing ignited_from edge while the brief's
+                # graph shows no matching incoming one. Reject inside the lock so
+                # the whole registration rolls back — no agent folio left pointing
+                # at a phantom brief. (The CLI pre-resolves the brief, so this guards
+                # only direct service-layer callers.)
+                if not self.store.get_folio(ignited_from):
+                    raise UnknownFolio(ignited_from)
                 # The brief-handoff trail, written INSIDE the registration
                 # transaction (the roster single-write discipline, §5) so a
                 # committed agent folio always carries its readable ignited_from

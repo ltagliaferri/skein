@@ -129,6 +129,22 @@ def test_reply_to_unknown_resource_errors(data_dir):
     assert "no folio for reference" in r.output
 
 
+def test_reply_ambiguous_resource_maps_to_clean_error(data_dir, monkeypatch):
+    # An ambiguous short-hash resource can't be forced deterministically (it needs
+    # an 8-hex prefix collision), so drive the CLI's except branch directly: a
+    # raised AmbiguousReference must surface as a clean error listing candidates,
+    # never an uncaught traceback.
+    from skein_next.station import AmbiguousReference, Station
+
+    def boom(self, *a, **k):
+        raise AmbiguousReference("sha256::ab", ["sha256::ab1234", "sha256::ab5678"])
+
+    monkeypatch.setattr(Station, "reply", boom)
+    r = _run(data_dir, "reply", "sha256::ab", "hi", "--agent", "nub-0622")
+    assert r.exit_code != 0
+    assert "sha256::ab1234" in r.output
+
+
 def test_reply_requires_agent_identity(data_dir, monkeypatch):
     # CliRunner(env=...) merges over os.environ, so an ambient $SKEIN_NEXT_AGENT/
     # $SKEIN_AGENT (likely for an actual skein user) would mask this. Clear both.

@@ -233,3 +233,45 @@ def test_register_with_ignited_from_is_idempotent(station):
     brief_graph = station.thread_graph(brief)
     picked = [e for e in brief_graph["incoming"] if e["type"] == "ignited_from"]
     assert len(picked) == 1
+
+
+def test_register_from_different_brief_keeps_both_trails(station):
+    # Re-igniting the same agent from a DIFFERENT brief mints a new incarnation
+    # with its own handoff edge + a succession edge; the prior keeps its own edge.
+    b1 = _post(station, "brief", "b1", "first")
+    b2 = _post(station, "brief", "b2", "second")
+    t1 = datetime(2026, 6, 22, 10, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 22, 11, 0, tzinfo=timezone.utc)
+    h1 = station.register_agent(agent_id="nub", name="nub", ignited_from=b1, created_at=t1)
+    h2 = station.register_agent(agent_id="nub", name="nub", ignited_from=b2, created_at=t2)
+    assert h1 != h2
+
+    cur = station.thread_graph(h2)
+    assert [e["to_id"] for e in cur["outgoing"] if e["type"] == "ignited_from"] == [b2]
+    assert any(e["type"] == "succession" and e["to_id"] == h1 for e in cur["outgoing"])
+
+    prior = station.thread_graph(h1)
+    assert [e["to_id"] for e in prior["outgoing"] if e["type"] == "ignited_from"] == [b1]
+
+
+def test_register_with_unknown_ignited_from_raises_and_rolls_back(station):
+    with pytest.raises(UnknownFolio):
+        station.register_agent(
+            agent_id="ghost", name="ghost", ignited_from="sha256::" + "0" * 64
+        )
+    # The whole registration rolled back — no orphan agent folio, no name slug.
+    assert station.list_agents() == []
+    assert station.store.resolve_slug("ghost") is None
+
+
+def test_reply_ambiguous_resource_propagates(station):
+    import unittest.mock as mock
+
+    issue = _post(station, "issue", "bug", "broken")
+    with mock.patch.object(
+        station,
+        "resolve_ref",
+        side_effect=AmbiguousReference("sha256::ab", ["sha256::ab1", "sha256::ab2"]),
+    ):
+        with pytest.raises(AmbiguousReference):
+            station.reply(issue, "which one?", by="nub")

@@ -1332,6 +1332,13 @@ from .shard_cli import shards_shortcut as _shards_shortcut  # noqa: E402
 cli.add_command(_shard_group)
 cli.add_command(_shards_shortcut)
 
+# Stage 2 — agent lifecycle / roster / activity / chain-yield verbs, attached the
+# same way Stage 1 attached the shard group.
+from .roster_cli import COMMANDS as _roster_commands  # noqa: E402
+
+for _cmd in _roster_commands:
+    cli.add_command(_cmd)
+
 
 def main() -> None:
     """Entry point for the ``interskein`` console script."""

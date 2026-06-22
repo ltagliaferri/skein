@@ -23,12 +23,13 @@ Three content-hash facts shape this layer:
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from skein import address
 
+from .agent import parse_agent_meta, render_agent_content
 from .store import SkeinNextStore
 
 # A bare ``sha256::<hex>`` short-hash reference, 8..63 hex digits. The hardened
@@ -76,8 +77,106 @@ class UnknownFolio(Exception):
         super().__init__(f"no folio for reference {ref!r}")
 
 
+class UnknownAgent(Exception):
+    """A name/reference did not resolve to a ``type=agent`` folio."""
+
+    def __init__(self, ref: str):
+        self.ref = ref
+        super().__init__(f"no agent named {ref!r}")
+
+
+class AgentNameTaken(Exception):
+    """A name is already held by a DIFFERENT agent (the D1 name guard fired).
+
+    ``holder`` is the agent-id (``created_by``) of the agent currently holding the
+    name, when known — so the rejection can name who owns it.
+    """
+
+    def __init__(self, name: str, holder: Optional[str] = None):
+        self.name = name
+        self.holder = holder
+        who = f" (held by {holder})" if holder else ""
+        super().__init__(f"agent name {name!r} is already taken{who}")
+
+
+class SlugCollision(Exception):
+    """A slug is already bound to a NON-site folio (e.g. a Stage-2 agent name),
+    so it cannot be (re)used as a site slug. The create-site half of the D1 name
+    guard: reject rather than return the colliding non-site folio as if it were a
+    site (finding-20260621-ccmy)."""
+
+    def __init__(self, slug: str):
+        self.slug = slug
+        super().__init__(
+            f"slug {slug!r} is already in use by a non-site folio (e.g. an agent name)"
+        )
+
+
+class IllegalAgentTransition(Exception):
+    """A requested lifecycle move is not a legal edge of the agent FSM.
+
+    Lifecycle is a strict chain ``orienting → active → retiring → retired``; any
+    other move (skipping a state, going backwards, or re-entering the current
+    state — e.g. running ``ready`` twice) raises this. ``current``/``requested``
+    carry the offending pair.
+    """
+
+    def __init__(self, current: str, requested: str):
+        self.current = current
+        self.requested = requested
+        super().__init__(
+            f"illegal lifecycle transition {current!r} → {requested!r}"
+        )
+
+
+# The reserved roster site: every agent is a ``type=agent`` folio that lives here.
+ROSTER_SITE = "roster"
+
+# The agent lifecycle FSM. A strict linear chain — an agent orients, goes active,
+# begins retiring (torch), then retires (complete). The guard admits only these
+# edges; a state is never legal to re-enter (so ``ready`` on an already-active
+# agent rejects, matching legacy, which errored "already active").
+AGENT_LIFECYCLE = ("orienting", "active", "retiring", "retired")
+_LEGAL_TRANSITIONS: Dict[str, Tuple[str, ...]] = {
+    "orienting": ("active",),
+    "active": ("retiring",),
+    "retiring": ("retired",),
+    "retired": (),
+}
+# The first status an agent folio carries, written at registration.
+_INITIAL_STATUS = "orienting"
+# Legacy's "active" activity window: a folio authored within this many minutes.
+ACTIVE_WINDOW_MINUTES = 30
+# Folio types that are roster/infrastructure, NOT authored work. Legacy's folio
+# store never held sites or agents (separate stores), so its activity aggregate
+# counted neither; the unified content-hash store keeps them as folios, so the
+# activity feed filters them back out to stay faithful (a fresh agent that has
+# only its own agent folio + the roster site it minted still reads "idle").
+_NON_WORK_FOLIO_TYPES = frozenset({"agent", "site"})
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _parse_dt(value: Any) -> Optional[datetime]:
+    """Parse a stored ISO ``created_at`` to an aware UTC datetime, or ``None``.
+
+    A naive stamp is assumed UTC (mirroring the store's redeem-window parse), so
+    the recency comparison in the activity feed can't raise on aware-vs-naive.
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value))
+        except (ValueError, TypeError):
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _short(content_hash: str, length: int = 12) -> str:
@@ -349,16 +448,26 @@ class Station:
     ) -> str:
         """Ensure a ``type=site`` folio exists for ``slug``. Returns its hash.
 
-        Idempotent on the slug: if the slug already resolves, the existing site
-        folio is returned untouched and ``purpose``/``created_by`` are ignored.
-        This matters because a site folio's hash includes its ``created_at`` —
-        re-minting on every call would remap the slug to a fresh hash each time
-        and orphan every ``within`` membership edge pointing at the old one.
-        Changing a site's purpose is a deliberate update, not a re-create.
+        Idempotent on the slug: if the slug already resolves to a ``type=site``
+        folio, that folio is returned untouched and ``purpose``/``created_by`` are
+        ignored. This matters because a site folio's hash includes its
+        ``created_at`` — re-minting on every call would remap the slug to a fresh
+        hash each time and orphan every ``within`` membership edge pointing at the
+        old one. Changing a site's purpose is a deliberate update, not a re-create.
+
+        Raises :class:`SlugCollision` if the slug is already bound to a NON-site
+        folio. The slug table stopped being site-exclusive in Stage 2 (agent names
+        are slugged too), so a bare "already resolves → return it" short-circuit
+        would hand back a non-site folio's hash as if it were a site — a non-site
+        masquerading as a site at the create boundary (finding-20260621-ccmy). The
+        policy is reject, consistent with D1's name guard; reuse the shared
+        :meth:`_resolve_site_hash` to tell a real site from a collision.
         """
         existing = self.store.resolve_slug(slug)
         if existing:
-            return existing
+            if self._resolve_site_hash(slug):
+                return existing
+            raise SlugCollision(slug)
         site_hash = self.store.create_folio(
             {
                 "type": "site",
@@ -470,3 +579,347 @@ class Station:
             "incoming": incoming,
             "memberships": memberships,
         }
+
+    # --- roster + agent lifecycle (the agent-coordination port, Stage 2) ------
+    #
+    # The legacy server held one genuinely irreplaceable thing — a place for
+    # concurrent agents to see each other (the roster). Even that it reconstructed
+    # from folios: "active" was "authored a folio in the last 30 min", not a
+    # heartbeat. So the roster re-homes onto folios with no new storage concept:
+    # each agent is a ``type=agent`` folio in the reserved ``roster`` site; its
+    # lifecycle rides status threads (the same latest-thread-wins mechanism every
+    # folio uses); its descriptive fields live in the folio content envelope
+    # (:mod:`skein_next.agent`); and the join key is ``created_by`` — the agent-id
+    # the agent folio AND every folio the agent authors both carry.
+    #
+    # Two pieces are genuinely new code, not free reuse: the guarded name register
+    # (``set_slug`` is last-write-wins and would let a second agent silently steal
+    # an in-use name) and the lifecycle FSM guard (only legal edges admitted).
+
+    def ensure_roster_site(self, created_by: Optional[str] = None) -> str:
+        """Ensure the reserved ``roster`` site exists; return its folio hash.
+
+        Idempotent (it is just :meth:`create_site` on the reserved slug). Called at
+        the head of every register so a fresh station is usable without a manual
+        ``site create roster`` first.
+        """
+        return self.create_site(
+            ROSTER_SITE,
+            purpose="Agent roster — lifecycle, presence, and succession.",
+            created_by=created_by,
+        )
+
+    def register_agent(
+        self,
+        agent_id: str,
+        name: Optional[str] = None,
+        agent_type: Optional[str] = None,
+        description: Optional[str] = None,
+        capabilities: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        created_at: Any = None,
+    ) -> str:
+        """Register an agent: mint its ``type=agent`` folio + guard its name.
+
+        ``agent_id`` is the lightweight env identity (e.g. ``$SKEIN_NEXT_AGENT``)
+        that becomes the folio's ``created_by`` and the activity join key; ``name``
+        is the human handle registered as a guarded slug (defaults to ``agent_id``,
+        the legacy posture where the two coincide). The descriptive fields ride in
+        the folio content envelope. Returns the agent folio's hash; the initial
+        lifecycle status is ``orienting``.
+
+        The mint, the membership edge, the name guard, and the initial status all
+        commit in ONE ``transaction()`` — the single-writer roster-write discipline
+        (design §5): a rejected name leaves NO partial agent folio behind. The name
+        guard (design D1):
+
+        - name free  → bound to this folio (the conditional-insert CAS).
+        - name held by THIS agent's prior folio (a re-ignite — a new ``created_at``
+          mints a new hash) → the slug is rebound to the new incarnation and a
+          ``succession`` edge threads back to the prior folio (the live-path
+          succession behavior; the dead-code ignite is not resurrected).
+        - name held by a DIFFERENT agent → :class:`AgentNameTaken` (rollback). A
+          second live agent must not steal an in-use name.
+        """
+        if not agent_id:
+            raise ValueError("register_agent requires a non-empty agent_id")
+        name = name or agent_id
+        site_hash = self.ensure_roster_site(created_by=agent_id)
+        meta: Dict[str, Any] = {
+            "agent_id": agent_id,
+            "name": name,
+            "agent_type": agent_type,
+            "description": description,
+            "capabilities": list(capabilities) if capabilities else [],
+            "metadata": dict(metadata) if metadata else {},
+        }
+        content = render_agent_content(description or name, meta)
+        stamp = created_at if created_at is not None else _now_utc()
+        fields = {
+            "type": "agent",
+            "title": name,
+            "content": content,
+            "created_at": stamp,
+            "created_by": agent_id,
+        }
+        with self.store.transaction():
+            prior_hash = self.store.resolve_slug(name)
+            folio_hash = self.store.create_folio(fields)
+            self.store.save_thread(from_id=folio_hash, to_id=site_hash, type="within")
+            if prior_hash and prior_hash != folio_hash:
+                prior = self.store.get_folio(prior_hash)
+                holder = prior.get("created_by") if prior else None
+                if holder != agent_id:
+                    raise AgentNameTaken(name, holder)  # rollback — no partial folio
+                # Same agent, fresh incarnation: deliberate rebind (we own it) plus
+                # a succession edge to the prior folio for continuity.
+                self.store.set_slug(name, folio_hash)
+                self.store.save_thread(
+                    from_id=folio_hash,
+                    to_id=prior_hash,
+                    type="succession",
+                    weaver=agent_id,
+                )
+            elif not self.store._register_slug_locked(name, folio_hash):
+                # Free/ours per the pre-read, yet the guarded bind refused — a
+                # concurrent writer claimed it first under the lock. Treat as taken.
+                raise AgentNameTaken(name, None)
+            # Initial lifecycle status. created_at pinned to the folio stamp so a
+            # byte-identical re-registration collapses to the same status thread.
+            self.store.save_thread(
+                from_id=folio_hash,
+                to_id=folio_hash,
+                type="status",
+                weaver=agent_id,
+                content=_INITIAL_STATUS,
+                created_at=stamp,
+            )
+        return folio_hash
+
+    def _resolve_agent(self, ref: str) -> str:
+        """Resolve a name (slug) or content reference to an ``type=agent`` folio.
+
+        Tries the name slug first (the daily case — agents are addressed by their
+        handle), then falls back to any reference :meth:`resolve_ref` accepts.
+        Raises :class:`UnknownAgent` if nothing resolves to an agent folio.
+        """
+        slug_hash = self.store.resolve_slug(ref)
+        if slug_hash:
+            folio = self.store.get_folio(slug_hash)
+            if folio and folio.get("type") == "agent":
+                return slug_hash
+        ref_hash = self.resolve_ref(ref)
+        if ref_hash:
+            folio = self.store.get_folio(ref_hash)
+            if folio and folio.get("type") == "agent":
+                return ref_hash
+        raise UnknownAgent(ref)
+
+    def transition_agent(
+        self,
+        ref: str,
+        to_status: str,
+        by: Optional[str] = None,
+        created_at: Any = None,
+    ) -> str:
+        """Move an agent to ``to_status``, admitting only legal FSM edges.
+
+        The new lifecycle guard: ``orienting → active → retiring → retired`` are
+        the only moves; anything else — skipping a state, going backwards, or
+        re-entering the current state (running ``ready`` twice) — raises
+        :class:`IllegalAgentTransition`. The read-of-current then write-of-next is
+        a cross-process read-modify-write (design §5); it runs inside one
+        ``transaction()`` (``BEGIN IMMEDIATE``) so concurrent transitions serialize
+        on the single writer instead of both reading the same stale status.
+        Returns the agent folio hash.
+        """
+        if to_status not in AGENT_LIFECYCLE:
+            raise ValueError(f"unknown lifecycle status {to_status!r}")
+        folio_hash = self._resolve_agent(ref)
+        with self.store.transaction():
+            current = self.store.latest_statuses([folio_hash]).get(
+                folio_hash, _INITIAL_STATUS
+            )
+            if to_status not in _LEGAL_TRANSITIONS.get(current, ()):
+                raise IllegalAgentTransition(current, to_status)
+            self.store.save_thread(
+                from_id=folio_hash,
+                to_id=folio_hash,
+                type="status",
+                weaver=by,
+                content=to_status,
+                created_at=created_at if created_at is not None else _now_utc(),
+            )
+        return folio_hash
+
+    def agent_ready(self, ref: str, by: Optional[str] = None) -> str:
+        """``orienting → active``: the agent has oriented and is now working."""
+        return self.transition_agent(ref, "active", by=by)
+
+    def agent_torch(self, ref: str, by: Optional[str] = None) -> str:
+        """``active → retiring``: the agent has begun retirement."""
+        return self.transition_agent(ref, "retiring", by=by)
+
+    def agent_complete(self, ref: str, by: Optional[str] = None) -> str:
+        """``retiring → retired``: the agent has retired from the roster."""
+        return self.transition_agent(ref, "retired", by=by)
+
+    def list_agents(
+        self, status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Registered agents (one per name), optionally filtered by lifecycle status.
+
+        Iterates the slug table for slugs pointing at ``type=agent`` folios — so
+        the result is keyed on the NAME and shows the current incarnation (a
+        re-ignite's ``succession`` rebind points the slug at the newest folio), the
+        faithful analogue of legacy's one-row-per-agent roster. Each record is the
+        agent folio dict plus ``status`` (its current lifecycle state), ``name``
+        (the slug), and ``meta`` (the parsed content envelope).
+        """
+        out: List[Dict[str, Any]] = []
+        for slug, content_hash in self.store.list_slugs():
+            folio = self.store.get_folio(content_hash)
+            if not folio or folio.get("type") != "agent":
+                continue
+            st = self.status_of(content_hash)
+            if status is not None and st != status:
+                continue
+            rec = dict(folio)
+            rec["status"] = st
+            rec["name"] = slug
+            rec["meta"] = parse_agent_meta(folio.get("content")) or {}
+            out.append(rec)
+        return out
+
+    def agent_activity(
+        self, status: Optional[str] = None, now: Any = None
+    ) -> List[Dict[str, Any]]:
+        """The roster activity feed: each agent enriched with its folio activity.
+
+        A faithful port of the legacy QM activity view (routes.py:281,300-316).
+        "Activity" is a QUERY over authored folios, not a heartbeat: for each
+        agent, its work folios (those with ``created_by == agent-id``, excluding
+        the agent folios themselves) give the last-activity time, working site,
+        last folio type, and folio count. ``activity_status`` is:
+
+        - ``torching`` — the agent's lifecycle is ``retiring`` or ``retired``;
+        - ``active``   — it authored a folio within the last
+          :data:`ACTIVE_WINDOW_MINUTES` minutes;
+        - ``idle``     — otherwise (including a freshly-registered agent with no
+          work yet, exactly as legacy, where no authored folios ⇒ idle).
+
+        Sorted most-recently-active first. ``now`` is injectable for testing.
+        """
+        now_dt = _parse_dt(now) or _now_utc()
+        window = timedelta(minutes=ACTIVE_WINDOW_MINUTES)
+        feed: List[Dict[str, Any]] = []
+        for agent in self.list_agents(status=status):
+            agent_id = agent.get("created_by")
+            authored = [
+                f
+                for f in (self.store.folios_by_created_by(agent_id) if agent_id else [])
+                if f.get("type") not in _NON_WORK_FOLIO_TYPES
+            ]
+            authored.sort(
+                key=lambda f: (f.get("created_at") or "", f.get("content_hash") or ""),
+                reverse=True,
+            )
+            most_recent = authored[0] if authored else None
+            last_activity = most_recent.get("created_at") if most_recent else None
+            working_site = (
+                self.store.folio_site_slug(most_recent["content_hash"])
+                if most_recent
+                else None
+            )
+            last_folio_type = most_recent.get("type") if most_recent else None
+            lifecycle = agent["status"]
+            activity_status = "idle"
+            if lifecycle in ("retiring", "retired"):
+                activity_status = "torching"
+            elif last_activity is not None:
+                last_dt = _parse_dt(last_activity)
+                if last_dt is not None and (now_dt - last_dt) < window:
+                    activity_status = "active"
+            meta = agent.get("meta") or {}
+            feed.append(
+                {
+                    "agent_id": agent_id,
+                    "name": agent.get("name"),
+                    "agent_type": meta.get("agent_type"),
+                    "status": lifecycle,
+                    "content_hash": agent["content_hash"],
+                    "registered_at": agent.get("created_at"),
+                    "last_activity": last_activity,
+                    "activity_status": activity_status,
+                    "working_site": working_site,
+                    "folio_count": len(authored),
+                    "last_folio_type": last_folio_type,
+                }
+            )
+        feed.sort(
+            key=lambda a: (a["last_activity"] or a["registered_at"] or ""),
+            reverse=True,
+        )
+        return feed
+
+    # --- chain yields (the mill hand-off; design D4) -------------------------
+    #
+    # mill sets SKEIN_CHAIN_ID on every chain task, so an agent's ``complete``
+    # leaves a yield in the chain's sack for the next task. The sack is mutable
+    # chain bookkeeping, not content-addressed, so it lives in the ``sacks``
+    # sidecar (store) — this layer just generates the yield id and reads back.
+
+    def store_chain_yield(
+        self,
+        chain_id: str,
+        task_id: str,
+        agent_id: Optional[str] = None,
+        status: Optional[str] = None,
+        outcome: Optional[str] = None,
+        artifacts: Optional[List[str]] = None,
+        notes: Optional[str] = None,
+        duration_seconds: Optional[int] = None,
+        tokens_used: Optional[int] = None,
+        shard_path: Optional[str] = None,
+        tender_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        sack_id: Optional[str] = None,
+    ) -> str:
+        """Store a yield into a chain's sack; return its ``sack_id``.
+
+        ``sack_id`` defaults to a fresh ``sack-YYYYMMDD-xxxx`` id (legacy's
+        :func:`skein.utils.generate_yield_id`, reused for byte-faithful ids).
+        """
+        from skein.utils import generate_yield_id
+
+        sid = sack_id or generate_yield_id()
+        self.store.add_yield(
+            sack_id=sid,
+            chain_id=chain_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            status=status,
+            outcome=outcome,
+            artifacts=artifacts,
+            notes=notes,
+            duration_seconds=duration_seconds,
+            tokens_used=tokens_used,
+            shard_path=shard_path,
+            tender_id=tender_id,
+            metadata=metadata,
+        )
+        return sid
+
+    def chain_yields(self, chain_id: str) -> List[Dict[str, Any]]:
+        """All yields in a chain, in execution order."""
+        return self.store.get_chain_yields(chain_id)
+
+    def chain_yield(self, sack_id: str) -> Optional[Dict[str, Any]]:
+        """One yield by its sack id, or ``None``."""
+        return self.store.get_yield(sack_id)
+
+    def previous_chain_yield(
+        self, chain_id: str, before_task_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """The most recent yield in a chain before ``before_task_id`` (or ``None``)."""
+        return self.store.get_previous_yield(chain_id, before_task_id)

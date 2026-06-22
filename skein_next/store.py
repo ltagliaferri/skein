@@ -12,6 +12,7 @@ folio columns — new-skein is thread-native from the start.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -294,6 +295,36 @@ CREATE TABLE IF NOT EXISTS verify_cache (
     PRIMARY KEY (manifest_hash, bundle_hash)
 );
 
+-- Chain yields ("sacks"): the mutable hand-off state a chain task leaves for the
+-- next (the agent-coordination port, D4). A yield is NOT content-addressed — it is
+-- fast-changing chain bookkeeping (enriched after the fact with duration/tokens),
+-- the wrong fit for the immutable folio store — so it lives in this sidecar exactly
+-- as legacy did (legacy skein/storage.py sacks table), same posture as invites /
+-- account_bindings. ``sack_id`` is the human yield id ('sack-YYYYMMDD-xxxx', UNIQUE);
+-- the autoincrement ``id`` gives a stable insertion order so same-timestamp yields
+-- read back deterministically. ``artifacts``/``metadata`` are JSON-encoded text.
+CREATE TABLE IF NOT EXISTS sacks (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    sack_id          TEXT UNIQUE NOT NULL,
+    chain_id         TEXT NOT NULL,
+    task_id          TEXT NOT NULL,
+    agent_id         TEXT,
+    timestamp        TEXT,
+    status           TEXT,
+    outcome          TEXT,
+    artifacts        TEXT,   -- JSON list of artifact ids
+    notes            TEXT,
+    duration_seconds INTEGER,
+    tokens_used      INTEGER,
+    shard_path       TEXT,
+    tender_id        TEXT,
+    metadata         TEXT    -- JSON catchall
+);
+
+CREATE INDEX IF NOT EXISTS idx_sacks_chain  ON sacks(chain_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_sacks_agent  ON sacks(agent_id);
+CREATE INDEX IF NOT EXISTS idx_sacks_status ON sacks(status);
+
 CREATE INDEX IF NOT EXISTS idx_manifests_hash ON manifests(manifest_hash);
 
 CREATE INDEX IF NOT EXISTS idx_threads_from ON threads(from_id);
@@ -525,6 +556,26 @@ class SkeinNextStore:
         """
         sql = "SELECT * FROM folios WHERE type = ? ORDER BY created_at, content_hash"
         params: List[Any] = [type]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self.conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def folios_by_created_by(
+        self, created_by: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """All folios authored by ``created_by``, ordered oldest-first.
+
+        The store half of the activity feed: legacy computes a roster agent's
+        activity by filtering every folio on ``created_by == agent_id`` in Python
+        (legacy routes.py:281 / :300-316). This is that join pushed into SQL — the
+        agent-id is the same env string the agent folio carries as ``created_by``,
+        so an agent's authored work and its roster entry share one key. Ordered
+        ascending; the caller takes the newest for "last activity".
+        """
+        sql = "SELECT * FROM folios WHERE created_by = ? ORDER BY created_at, content_hash"
+        params: List[Any] = [created_by]
         if limit is not None:
             sql += " LIMIT ?"
             params.append(limit)
@@ -808,7 +859,14 @@ class SkeinNextStore:
     # --- slugs --------------------------------------------------------------
 
     def set_slug(self, slug: str, content_hash: str) -> None:
-        """Map a site slug to its site-folio content hash (upsert)."""
+        """Map a slug to a content hash (upsert, LAST-WRITE-WINS).
+
+        This silently rebinds an existing slug to a new hash. It is the right
+        tool when the caller OWNS the rebind (a site re-mint, an agent's own
+        re-ignite succession). It is the WRONG tool for registering a name that
+        must not collide with another holder — that needs :meth:`register_slug`,
+        whose conditional insert REJECTS a steal instead of overwriting it.
+        """
         self.conn.execute(
             """
             INSERT INTO slugs (slug, content_hash)
@@ -818,6 +876,41 @@ class SkeinNextStore:
             (slug, content_hash),
         )
         self._maybe_commit()
+
+    def _register_slug_locked(self, slug: str, content_hash: str) -> bool:
+        """The guarded-bind CAS, assuming the caller already holds the write lock.
+
+        Conditional ``INSERT OR IGNORE`` + rowcount, the same exactly-once shape as
+        :meth:`redeem_invite_cas`: if the slug row is absent the INSERT lands
+        (rowcount 1) and we own it; if it already exists the INSERT is ignored
+        (rowcount 0) and we own it only when it already points at ``content_hash``
+        (idempotent re-register). A slug held by a DIFFERENT hash returns False —
+        the caller rejects the collision; this never silently rebinds (that is
+        :meth:`set_slug`'s job). Lock-free so it can compose inside a larger
+        roster ``transaction()`` (e.g. mint-folio + bind-name + set-status as one
+        atomic write); :meth:`register_slug` is the standalone wrapper.
+        """
+        cur = self.conn.execute(
+            "INSERT OR IGNORE INTO slugs (slug, content_hash) VALUES (?, ?)",
+            (slug, content_hash),
+        )
+        if cur.rowcount == 1:
+            return True
+        return self.resolve_slug(slug) == content_hash
+
+    def register_slug(self, slug: str, content_hash: str) -> bool:
+        """Guarded slug bind: claim ``slug`` for ``content_hash`` or refuse a steal.
+
+        Returns True if the slug now resolves to ``content_hash`` (freshly bound,
+        or already bound to it — idempotent), False if the slug is held by a
+        DIFFERENT hash. Unlike :meth:`set_slug` (last-write-wins) this NEVER
+        overwrites another holder — the new-code name guard the port needs so a
+        second live agent cannot silently steal an in-use name (design D1). The
+        read-modify-write runs under ``BEGIN IMMEDIATE`` so concurrent registers
+        serialize on the single writer rather than racing the rowcount check.
+        """
+        with self.transaction():
+            return self._register_slug_locked(slug, content_hash)
 
     def resolve_slug(self, slug: str) -> Optional[str]:
         row = self.conn.execute("SELECT content_hash FROM slugs WHERE slug = ?", (slug,)).fetchone()
@@ -1499,6 +1592,133 @@ class SkeinNextStore:
     def all_manifests(self) -> List[Dict[str, Any]]:
         """Every manifest proof row — for the verify-cache backfill verb (VC9)."""
         return [dict(r) for r in self.conn.execute("SELECT * FROM manifests").fetchall()]
+
+    # --- chain yields (sacks) -----------------------------------------------
+    #
+    # A faithful re-home of legacy ``skein/storage.py``'s sack API (the chain
+    # hand-off store). The methods mirror legacy 1:1 — same fields, same JSON
+    # encoding for ``artifacts``/``metadata``, same query order — just on this
+    # store's connection + ``_maybe_commit`` discipline instead of legacy's
+    # per-call connection.
+
+    @staticmethod
+    def _row_to_yield(row: sqlite3.Row) -> Dict[str, Any]:
+        """A sack row as a dict with ``artifacts``/``metadata`` JSON decoded."""
+        d = dict(row)
+        if d.get("artifacts"):
+            d["artifacts"] = json.loads(d["artifacts"])
+        if d.get("metadata"):
+            d["metadata"] = json.loads(d["metadata"])
+        return d
+
+    def add_yield(
+        self,
+        sack_id: str,
+        chain_id: str,
+        task_id: str,
+        agent_id: Optional[str] = None,
+        status: Optional[str] = None,
+        outcome: Optional[str] = None,
+        artifacts: Optional[List[str]] = None,
+        notes: Optional[str] = None,
+        duration_seconds: Optional[int] = None,
+        tokens_used: Optional[int] = None,
+        shard_path: Optional[str] = None,
+        tender_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Store a chain yield into the sack. Returns True (legacy parity).
+
+        ``sack_id`` is the human yield id ('sack-YYYYMMDD-xxxx'); it is UNIQUE, so
+        a duplicate id raises (a plain INSERT, like legacy — a collision is a bug,
+        not something to swallow). ``timestamp`` is stamped here (the new store
+        uses explicit ISO stamps rather than SQLite's ``CURRENT_TIMESTAMP``) so
+        ordering agrees with the rest of the store and is timezone-aware.
+        """
+        self.conn.execute(
+            """
+            INSERT INTO sacks (
+                sack_id, chain_id, task_id, agent_id, timestamp,
+                status, outcome, artifacts, notes,
+                duration_seconds, tokens_used, shard_path, tender_id,
+                metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sack_id,
+                chain_id,
+                task_id,
+                agent_id,
+                _now_iso(),
+                status,
+                outcome,
+                json.dumps(artifacts) if artifacts else None,
+                notes,
+                duration_seconds,
+                tokens_used,
+                shard_path,
+                tender_id,
+                json.dumps(metadata) if metadata else None,
+            ),
+        )
+        self._maybe_commit()
+        return True
+
+    def get_chain_yields(self, chain_id: str) -> List[Dict[str, Any]]:
+        """All yields in a chain, in execution order ((timestamp, id) ascending).
+
+        ``id`` (the autoincrement insertion order) breaks timestamp ties so two
+        yields stamped in the same instant read back in the order they landed.
+        """
+        rows = self.conn.execute(
+            "SELECT * FROM sacks WHERE chain_id = ? ORDER BY timestamp, id",
+            (chain_id,),
+        ).fetchall()
+        return [self._row_to_yield(r) for r in rows]
+
+    def get_yield(self, sack_id: str) -> Optional[Dict[str, Any]]:
+        """One yield by its sack id, or ``None``."""
+        row = self.conn.execute(
+            "SELECT * FROM sacks WHERE sack_id = ?", (sack_id,)
+        ).fetchone()
+        return self._row_to_yield(row) if row else None
+
+    def get_yields_by_status(self, status: str) -> List[Dict[str, Any]]:
+        """Yields with a given status, newest first (e.g. find all blocked work)."""
+        rows = self.conn.execute(
+            "SELECT * FROM sacks WHERE status = ? ORDER BY timestamp DESC, id DESC",
+            (status,),
+        ).fetchall()
+        return [self._row_to_yield(r) for r in rows]
+
+    def get_agent_yields(self, agent_id: str) -> List[Dict[str, Any]]:
+        """All yields produced by one agent, newest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM sacks WHERE agent_id = ? ORDER BY timestamp DESC, id DESC",
+            (agent_id,),
+        ).fetchall()
+        return [self._row_to_yield(r) for r in rows]
+
+    def get_previous_yield(
+        self, chain_id: str, before_task_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """The most recent yield in a chain BEFORE ``before_task_id`` ran.
+
+        Used to inject the prior task's hand-off into a downstream task. Walks the
+        chain in execution order and returns the yield just before the first one
+        produced by ``before_task_id`` (``None`` if that task is first).
+        """
+        rows = self.conn.execute(
+            "SELECT * FROM sacks WHERE chain_id = ? ORDER BY timestamp, id",
+            (chain_id,),
+        ).fetchall()
+        previous = None
+        for row in rows:
+            if row["task_id"] == before_task_id:
+                break
+            previous = row
+        return self._row_to_yield(previous) if previous else None
 
     # --- reporting helpers --------------------------------------------------
 

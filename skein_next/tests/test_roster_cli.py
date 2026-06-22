@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from skein_next.cli import cli
+from skein_next import roster_cli
 
 
 def _run(data_dir, *args, env=None):
@@ -145,3 +146,134 @@ def test_chain_yield_show(data_dir):
     assert r.exit_code == 0, r.output
     assert sack_id in r.output
     assert "outcome: ok" in r.output
+
+
+# --- finding 1: complete is lifecycle-guarded BEFORE any durable side effect --
+
+
+def test_illegal_complete_stores_no_yield_no_summary(data_dir):
+    # complete from 'active' (skipping torch) is illegal; with a chain id set and a
+    # summary requested, neither the yield nor the summary may become durable.
+    env = {"SKEIN_CHAIN_ID": "chain-7", "SKEIN_CHAIN_TASK": "task-a"}
+    _run(data_dir, "ignite", "--name", "nub-0622")
+    _run(data_dir, "ready", "--agent", "nub-0622")  # now 'active', not 'retiring'
+    r = _run(
+        data_dir, "complete", "--agent", "nub-0622",
+        "--yield-outcome", "premature", "--summary", "should not persist",
+        env=env,
+    )
+    assert r.exit_code != 0
+    assert "illegal lifecycle transition" in r.output
+    # No yield landed in the chain sack.
+    r = _run(data_dir, "chain", "yields", "chain-7")
+    assert "no yields for chain chain-7" in r.output
+    # No summary folio minted in the roster.
+    r = _run(data_dir, "folios", "roster", "--type", "summary")
+    assert "should not persist" not in r.output
+
+
+def test_retrying_failed_complete_does_not_accumulate_yields(data_dir):
+    # Repeated illegal completes must not stack duplicate yields (the bug: the
+    # yield was written before the guard, so every retry appended another).
+    env = {"SKEIN_CHAIN_ID": "chain-7", "SKEIN_CHAIN_TASK": "task-a"}
+    _run(data_dir, "ignite", "--name", "nub-0622")
+    _run(data_dir, "ready", "--agent", "nub-0622")
+    for _ in range(3):
+        r = _run(data_dir, "complete", "--agent", "nub-0622",
+                 "--yield-outcome", "x", env=env)
+        assert r.exit_code != 0
+    r = _run(data_dir, "chain", "yields", "chain-7")
+    assert "no yields for chain chain-7" in r.output
+
+
+# --- finding 2: identify-emitted agent-id round-trips through lifecycle verbs --
+
+
+def test_identify_agent_id_round_trips_when_name_differs(data_dir):
+    # register --name X AGENT_ID, then identify AGENT_ID; the emitted env value
+    # must resolve in ready/torch/complete even though it is not the name slug.
+    assert _run(data_dir, "register", "agent-007", "--name", "bond").exit_code == 0
+    r = _run(data_dir, "identify", "agent-007", "--eval")
+    env = {"SKEIN_NEXT_AGENT": "agent-007"}
+    assert r.output.strip() == "export SKEIN_NEXT_AGENT=agent-007"
+
+    r = _run(data_dir, "ready", env=env)
+    assert r.exit_code == 0, r.output
+    assert "agent-007: active" in r.output
+    r = _run(data_dir, "torch", env=env)
+    assert r.exit_code == 0, r.output
+    r = _run(data_dir, "complete", env=env)
+    assert r.exit_code == 0, r.output
+    assert "agent-007: retired" in r.output
+
+
+def test_complete_collects_artifacts_by_agent_id_not_name(data_dir):
+    # The chain yield's artifacts come from folios authored under the agent-id
+    # (created_by), not the human name. Work posted with --by agent-007 must be
+    # gathered even though the agent is addressed by name 'bond'.
+    env = {"SKEIN_CHAIN_ID": "chain-2", "SKEIN_CHAIN_TASK": "t1",
+           "SKEIN_NEXT_AGENT": "agent-007"}
+    _run(data_dir, "site", "create", "proj", "--purpose", "work")
+    _run(data_dir, "register", "agent-007", "--name", "bond")
+    _run(data_dir, "ready", env=env)
+    _run(data_dir, "post", "finding", "proj", "did a thing", "--by", "agent-007")
+    _run(data_dir, "torch", env=env)
+    r = _run(data_dir, "complete", env=env)
+    assert r.exit_code == 0, r.output
+    sack_id = [w for w in r.output.split() if w.startswith("sack-")][0]
+    r = _run(data_dir, "chain", "yield", sack_id)
+    assert r.exit_code == 0, r.output
+    assert "artifacts:" in r.output  # the proj finding was collected
+
+
+# --- finding 5: complete summary post does not swallow unexpected errors ------
+
+
+def test_complete_summary_falls_back_to_roster_when_no_working_site(data_dir):
+    # An agent with no authored work has no working site; the summary still lands
+    # (in the roster), proving the post is not silently dropped.
+    _run(data_dir, "ignite", "--name", "nub-0622")
+    _run(data_dir, "ready", "--agent", "nub-0622")
+    _run(data_dir, "torch", "--agent", "nub-0622")
+    r = _run(data_dir, "complete", "--agent", "nub-0622", "--summary", "wrapped up")
+    assert r.exit_code == 0, r.output
+    r = _run(data_dir, "folios", "roster", "--type", "summary")
+    assert "wrapped up" in r.output
+
+
+def test_complete_summary_surfaces_unexpected_post_error(data_dir, monkeypatch):
+    # A non-UnknownSite failure in the summary post must surface, not be swallowed
+    # by a bare except (the old bug reported success while losing the summary).
+    _run(data_dir, "ignite", "--name", "nub-0622")
+    _run(data_dir, "ready", "--agent", "nub-0622")
+    _run(data_dir, "torch", "--agent", "nub-0622")
+
+    from skein_next.station import Station
+
+    def boom(self, *a, **k):
+        raise RuntimeError("post exploded")
+
+    monkeypatch.setattr(Station, "post", boom)
+    r = _run(data_dir, "complete", "--agent", "nub-0622", "--summary", "x")
+    assert r.exit_code != 0
+    assert isinstance(r.exception, RuntimeError)
+
+
+# --- finding 6: auto-name generation is collision-safe (retry on rejection) ---
+
+
+def test_ignite_auto_name_retries_on_collision(data_dir, monkeypatch):
+    # An auto-generated name that collides with a name already held under a
+    # DIFFERENT agent-id must be rejected by the guard, and ignite must regenerate
+    # and retry rather than fail. (A collision under the SAME agent-id is a
+    # re-ignite, not a steal — the random-token fallback keeps that from happening
+    # to independent agents in the first place.)
+    _run(data_dir, "register", "other-agent", "--name", "dupe-0622")
+    names = iter(["dupe-0622", "fresh-0622"])
+    monkeypatch.setattr(roster_cli, "_generate_name", lambda existing: next(names))
+
+    r = _run(data_dir, "ignite")  # no --name/--agent ⇒ auto-named
+    assert r.exit_code == 0, r.output
+    assert "You are: fresh-0622" in r.output
+    rr = _run(data_dir, "roster")
+    assert "fresh-0622" in rr.output

@@ -5,6 +5,7 @@ Exercises the store guards (register_slug CAS, sacks API) and the Station layer
 create_site collision) directly — the CLI is covered in test_roster_cli.py.
 """
 
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -370,3 +371,115 @@ def test_ensure_roster_site_idempotent(station):
     b = station.ensure_roster_site()
     assert a == b
     assert station.get_site(ROSTER_SITE) is not None
+
+
+# --- station: name != agent_id identity coherence (finding 2) ----------------
+
+
+def test_resolve_agent_by_agent_id_when_name_differs(station):
+    # register with a name distinct from the agent-id; the agent-id (the value
+    # identify --eval emits) must round-trip back to the same agent folio.
+    h = station.register_agent("agent-007", name="bond")
+    assert station._resolve_agent("bond") == h          # by name slug
+    assert station._resolve_agent("agent-007") == h     # by agent-id (created_by)
+
+
+def test_activity_attributes_authored_folios_by_agent_id(station):
+    # Authored work joins on created_by == agent-id, not the human name.
+    station.register_agent("agent-007", name="bond")
+    station.agent_ready("bond")
+    t = datetime(2026, 6, 22, 12, 0, tzinfo=timezone.utc)
+    station.post(type="finding", site=ROSTER_SITE, title="intel",
+                 created_by="agent-007", created_at=t)
+    rec = next(a for a in station.agent_activity(now=t + timedelta(minutes=1))
+               if a["name"] == "bond")
+    assert rec["agent_id"] == "agent-007"
+    assert rec["folio_count"] == 1
+    assert rec["activity_status"] == "active"
+
+
+def test_resolve_agent_by_agent_id_picks_live_incarnation(station):
+    # After a re-ignite, several agent folios share the agent-id; resolving by the
+    # agent-id must return the live incarnation (the one the name slug points at).
+    t1 = datetime(2026, 6, 22, 9, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 22, 15, 0, tzinfo=timezone.utc)
+    station.register_agent("agent-007", name="bond", created_at=t1)
+    second = station.register_agent("agent-007", name="bond", created_at=t2)
+    assert station._resolve_agent("agent-007") == second
+    assert station.store.resolve_slug("bond") == second
+
+
+# --- station: concurrent first-register converges on one roster site (finding 3)
+
+
+def test_concurrent_first_register_one_roster_site(tmp_path):
+    # Two cold-start agents racing to mint the reserved roster site must converge
+    # on ONE site folio — no orphan that leaves the loser's agent unattached.
+    data_dir = tmp_path / ".skein-next"
+    SkeinNextStore(data_dir).close()  # create the db file first
+    barrier = threading.Barrier(2)
+    errors = []
+
+    def reg(agent_id):
+        st = Station(data_dir=data_dir)
+        try:
+            barrier.wait()
+            st.register_agent(agent_id, name=agent_id)
+        except Exception as e:  # pragma: no cover - surfaced via errors list
+            errors.append(e)
+        finally:
+            st.close()
+
+    threads = [threading.Thread(target=reg, args=(a,)) for a in ("alice", "bob")]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+
+    assert errors == []
+    st = Station(data_dir=data_dir)
+    try:
+        roster_sites = [
+            f for f in st.store.folios_by_type("site") if f["title"] == ROSTER_SITE
+        ]
+        assert len(roster_sites) == 1  # no split — exactly one roster site folio
+        members = st.folios_in_site(ROSTER_SITE, type="agent")
+        assert {m["title"] for m in members} == {"alice", "bob"}  # both attached
+    finally:
+        st.close()
+
+
+# --- station: FSM resolution under the lock (finding 4) ----------------------
+
+
+def test_transition_resolves_agent_under_the_lock(station, monkeypatch):
+    # The resolve must happen INSIDE the transaction so a concurrent re-ignite
+    # cannot rebind the slug between resolve and the status write. Assert the
+    # ordering directly: _resolve_agent is called only after the batch lock is held.
+    station.register_agent("nub-0622")
+    order = []
+    real_resolve = station._resolve_agent
+
+    def spy_resolve(ref):
+        order.append(("resolve", station.store._in_batch))
+        return real_resolve(ref)
+
+    monkeypatch.setattr(station, "_resolve_agent", spy_resolve)
+    station.agent_ready("nub-0622")
+    assert order == [("resolve", True)]  # in_batch True ⇒ inside the BEGIN IMMEDIATE
+
+
+def test_reignite_during_transition_targets_live_folio(station):
+    # End-to-end: re-ignite (slug → new folio) then transition by name. The status
+    # must land on the live incarnation the slug now names, not the superseded one.
+    t1 = datetime(2026, 6, 22, 9, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 22, 15, 0, tzinfo=timezone.utc)
+    t3 = datetime(2026, 6, 22, 16, 0, tzinfo=timezone.utc)
+    first = station.register_agent("nub-0622", created_at=t1)
+    second = station.register_agent("nub-0622", created_at=t2)
+    # created_at after t2 so the 'active' thread supersedes second's initial
+    # 'orienting' thread (latest-by-created_at wins).
+    moved = station.transition_agent("nub-0622", "active", created_at=t3)
+    assert moved == second != first
+    assert station.status_of(second) == "active"
+    assert station.status_of(first) == "orienting"  # untouched

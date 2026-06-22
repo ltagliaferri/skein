@@ -27,9 +27,9 @@ import click
 from .station import (
     AgentNameTaken,
     IllegalAgentTransition,
-    SlugCollision,
     Station,
     UnknownAgent,
+    UnknownSite,
     _short,
 )
 
@@ -61,22 +61,29 @@ def _generate_name(existing: set) -> str:
     """A memorable agent name, avoiding ``existing`` (legacy's generator, reused).
 
     Falls back to a timestamped id if the legacy generator is unavailable, so a
-    fresh station can always ignite even outside a full legacy checkout.
+    fresh station can always ignite even outside a full legacy checkout. The
+    fallback carries a random token, NOT just a second-resolution timestamp:
+    two cold-start ignites in the same second would otherwise generate the same
+    name, and since an auto-name becomes its own agent-id, register_agent would
+    read the second as a re-ignite of the first and silently merge the two
+    identities rather than rejecting (the guard can only reject a name held under
+    a DIFFERENT agent-id). The random token makes the fallback collision-free by
+    construction; ``existing`` still dedups the rare in-process repeat, and the
+    caller re-checks the store and retries on the guard's rejection.
     """
     try:
         from skein.utils import generate_agent_name
 
         return generate_agent_name(existing_names=existing)
     except Exception:
+        import secrets
         from datetime import datetime, timezone
 
         base = "agent-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        name = base
-        n = 1
-        while name in existing:
-            name = f"{base}-{n}"
-            n += 1
-        return name
+        while True:
+            name = f"{base}-{secrets.token_hex(2)}"
+            if name not in existing:
+                return name
 
 
 # --- ignite / register ------------------------------------------------------
@@ -122,22 +129,36 @@ def ignite(
     }
     with _open_station(ctx) as st:
         agent_id = agent or _default_agent() or name
-        if not name and not agent_id:
-            existing = {a["name"] for a in st.list_agents()}
-            name = _generate_name(existing)
-            agent_id = name
-        agent_id = agent_id or name
-        try:
-            folio_hash = st.register_agent(
-                agent_id=agent_id,
-                name=name or agent_id,
-                agent_type=agent_type,
-                description=description or message,
-                capabilities=caps,
-                metadata=metadata,
-            )
-        except AgentNameTaken as e:
-            raise click.ClickException(str(e))
+        # Auto-name only when the caller supplied nothing to identify by. The name
+        # is generated and bound below; the guarded register is the source of truth
+        # for collisions, so an auto-name that loses a race (another ignite claimed
+        # it between our snapshot and the register) is regenerated and retried —
+        # the point-in-time snapshot in _generate_name is an optimization, not the
+        # guarantee.
+        auto_named = not name and not agent_id
+        attempts = 0
+        while True:
+            if auto_named:
+                existing = {a["name"] for a in st.list_agents()}
+                name = _generate_name(existing)
+                agent_id = name
+            agent_id = agent_id or name
+            try:
+                folio_hash = st.register_agent(
+                    agent_id=agent_id,
+                    name=name or agent_id,
+                    agent_type=agent_type,
+                    description=description or message,
+                    capabilities=caps,
+                    metadata=metadata,
+                )
+                break
+            except AgentNameTaken as e:
+                attempts += 1
+                if not auto_named or attempts >= 5:
+                    raise click.ClickException(str(e))
+                # Auto-name collided with a concurrent register; regenerate.
+                continue
         resolved_name = name or agent_id
         if output_json:
             _emit_json(
@@ -223,12 +244,17 @@ def _transition(ctx: click.Context, agent: Optional[str], verb: str) -> None:
     mover = {"ready": "agent_ready", "torch": "agent_torch"}[verb]
     with _open_station(ctx) as st:
         try:
-            getattr(st, mover)(ref, by=ref)
+            folio_hash = st._resolve_agent(ref)
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
+        # Weave the status thread under the agent-id (the folio's created_by, the
+        # roster join key), not the raw ref, which may be the human name.
+        agent_id = (st.store.get_folio(folio_hash) or {}).get("created_by") or ref
+        try:
+            getattr(st, mover)(ref, by=agent_id)
         except IllegalAgentTransition as e:
             raise click.ClickException(str(e))
-        new_status = st.status_of(st._resolve_agent(ref))
+        new_status = st.status_of(folio_hash)
     click.echo(f"{ref}: {new_status}")
 
 
@@ -278,14 +304,29 @@ def complete(
             folio_hash = st._resolve_agent(ref)
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
+        # The agent-id (the folio's created_by) is the authorship + query key for
+        # the yield, the authored-folios scan, and the summary post — never the raw
+        # ref, which may be the human name (register --name X --agent Y).
+        agent_id = (st.store.get_folio(folio_hash) or {}).get("created_by") or ref
+
+        # Lifecycle transition FIRST. The yield and the summary are durable side
+        # effects (a yield lands in the chain sack, a summary mints a folio); doing
+        # them before the FSM guard would leave them behind on an illegal complete
+        # (e.g. from 'active', skipping torch) and stack duplicate yields on every
+        # retry. Transition-first means side effects happen only on a legal
+        # retirement, and a rejected complete is a clean no-op.
+        try:
+            st.agent_complete(ref, by=agent_id)
+        except IllegalAgentTransition as e:
+            raise click.ClickException(str(e))
+        new_status = st.status_of(folio_hash)
 
         authored = [
             f
-            for f in st.store.folios_by_created_by(ref)
+            for f in st.store.folios_by_created_by(agent_id)
             if f.get("type") not in ("agent", "site")
         ]
 
-        # Chain yield first (it is independent chain bookkeeping), then the FSM move.
         sack_id = None
         if chain_id:
             artifacts = [f["content_hash"] for f in authored]
@@ -295,7 +336,7 @@ def complete(
             sack_id = st.store_chain_yield(
                 chain_id=chain_id,
                 task_id=task_id or "unknown",
-                agent_id=ref,
+                agent_id=agent_id,
                 status=status,
                 outcome=outcome,
                 artifacts=artifacts,
@@ -316,17 +357,19 @@ def complete(
                 site = st.store.folio_site_slug(f["content_hash"])
                 if site:
                     break
+            target = site or "roster"
             try:
-                st.post(type="summary", site=site or "roster", title=summary[:100],
-                         content=summary, created_by=ref)
-            except Exception:
-                pass
-
-        try:
-            st.agent_complete(ref, by=ref)
-        except IllegalAgentTransition as e:
-            raise click.ClickException(str(e))
-        new_status = st.status_of(folio_hash)
+                st.post(type="summary", site=target, title=summary[:100],
+                         content=summary, created_by=agent_id)
+            except UnknownSite:
+                # The chosen working site no longer resolves to a site; fall back
+                # to the roster (which the register guaranteed exists). Only the
+                # missing-site case is swallowed — any other store error surfaces
+                # rather than silently losing the summary.
+                if target == "roster":
+                    raise
+                st.post(type="summary", site="roster", title=summary[:100],
+                         content=summary, created_by=agent_id)
 
     if sack_id:
         click.echo(f"Yield stored: {sack_id}")

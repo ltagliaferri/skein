@@ -462,23 +462,53 @@ class Station:
         masquerading as a site at the create boundary (finding-20260621-ccmy). The
         policy is reject, consistent with D1's name guard; reuse the shared
         :meth:`_resolve_site_hash` to tell a real site from a collision.
+
+        Creation is atomic. A site folio's hash includes its ``created_at``, so two
+        cold-start agents racing to mint the same reserved slug (the ``roster``
+        site at first register) would each compute a DIFFERENT site folio, and a
+        last-write-wins ``set_slug`` would leave the loser attached to an orphaned
+        site the slug no longer names (finding: concurrent first-register splits
+        the roster). So mint + bind run under one ``transaction()`` (``BEGIN
+        IMMEDIATE``) with the guarded :meth:`~SkeinNextStore._register_slug_locked`
+        CAS, re-resolving the slug under the write lock: the first writer binds its
+        folio; the second sees the bound slug and adopts that one site, minting no
+        rival folio. The fast path (slug already a site) skips the lock entirely.
         """
         existing = self.store.resolve_slug(slug)
         if existing:
             if self._resolve_site_hash(slug):
                 return existing
             raise SlugCollision(slug)
-        site_hash = self.store.create_folio(
-            {
-                "type": "site",
-                "title": slug,
-                "content": purpose,
-                "created_at": created_at if created_at is not None else _now_utc(),
-                "created_by": created_by,
-            }
-        )
-        self.store.set_slug(slug, site_hash)
-        return site_hash
+        with self.store.transaction():
+            # Re-resolve under the write lock: a concurrent first-create may have
+            # bound the slug between our pre-check and acquiring the lock. If so,
+            # adopt that site (idempotent) or reject a non-site collision —
+            # never mint a rival site folio that would orphan its members.
+            existing = self.store.resolve_slug(slug)
+            if existing:
+                folio = self.store.get_folio(existing)
+                if folio and folio.get("type") == "site":
+                    return existing
+                raise SlugCollision(slug)
+            site_hash = self.store.create_folio(
+                {
+                    "type": "site",
+                    "title": slug,
+                    "content": purpose,
+                    "created_at": created_at if created_at is not None else _now_utc(),
+                    "created_by": created_by,
+                }
+            )
+            if not self.store._register_slug_locked(slug, site_hash):
+                # Lost the bind under the lock (defensive — BEGIN IMMEDIATE
+                # serializes writers, so the re-resolve above normally catches
+                # this): adopt whoever won if it is a real site.
+                bound = self.store.resolve_slug(slug)
+                folio = self.store.get_folio(bound) if bound else None
+                if folio and folio.get("type") == "site":
+                    return bound
+                raise SlugCollision(slug)
+            return site_hash
 
     # --- read ---------------------------------------------------------------
 
@@ -707,10 +737,20 @@ class Station:
         return folio_hash
 
     def _resolve_agent(self, ref: str) -> str:
-        """Resolve a name (slug) or content reference to an ``type=agent`` folio.
+        """Resolve a name (slug), content reference, OR agent-id to an agent folio.
 
-        Tries the name slug first (the daily case — agents are addressed by their
-        handle), then falls back to any reference :meth:`resolve_ref` accepts.
+        Three resolution paths, in daily-case order:
+
+        1. the name slug (agents are addressed by their handle);
+        2. any content reference :meth:`resolve_ref` accepts (a hash/alias);
+        3. the agent-id — a ``created_by`` lookup against ``type=agent`` folios.
+
+        Path 3 matters because the agent-id and the name need not coincide
+        (``register --name X --agent Y``), and ``identify --eval`` emits the
+        agent-id; without it that emitted value would not round-trip back through
+        the lifecycle verbs. When several agent folios share the agent-id (a
+        re-ignite mints a fresh folio each time), the live incarnation is the one a
+        slug currently points at; failing that, the newest by ``created_at``.
         Raises :class:`UnknownAgent` if nothing resolves to an agent folio.
         """
         slug_hash = self.store.resolve_slug(ref)
@@ -723,6 +763,21 @@ class Station:
             folio = self.store.get_folio(ref_hash)
             if folio and folio.get("type") == "agent":
                 return ref_hash
+        candidates = [
+            f
+            for f in self.store.folios_by_created_by(ref)
+            if f.get("type") == "agent"
+        ]
+        if candidates:
+            slugged = {h for _, h in self.store.list_slugs()}
+            candidates.sort(
+                key=lambda f: (f.get("created_at") or "", f.get("content_hash") or ""),
+                reverse=True,
+            )
+            for f in candidates:
+                if f["content_hash"] in slugged:
+                    return f["content_hash"]
+            return candidates[0]["content_hash"]
         raise UnknownAgent(ref)
 
     def transition_agent(
@@ -737,16 +792,19 @@ class Station:
         The new lifecycle guard: ``orienting → active → retiring → retired`` are
         the only moves; anything else — skipping a state, going backwards, or
         re-entering the current state (running ``ready`` twice) — raises
-        :class:`IllegalAgentTransition`. The read-of-current then write-of-next is
-        a cross-process read-modify-write (design §5); it runs inside one
-        ``transaction()`` (``BEGIN IMMEDIATE``) so concurrent transitions serialize
-        on the single writer instead of both reading the same stale status.
-        Returns the agent folio hash.
+        :class:`IllegalAgentTransition`. The resolve-of-agent, read-of-current, and
+        write-of-next are one cross-process read-modify-write (design §5), so ALL
+        THREE run inside one ``transaction()`` (``BEGIN IMMEDIATE``). Resolving the
+        agent INSIDE the lock closes a TOCTOU: a concurrent same-name re-ignite can
+        rebind the slug to a new incarnation, and resolving before the lock would
+        write this status thread to the superseded folio while the slug points at
+        the new one. Under the lock, resolution + status RMW see one consistent
+        slug. Returns the agent folio hash.
         """
         if to_status not in AGENT_LIFECYCLE:
             raise ValueError(f"unknown lifecycle status {to_status!r}")
-        folio_hash = self._resolve_agent(ref)
         with self.store.transaction():
+            folio_hash = self._resolve_agent(ref)
             current = self.store.latest_statuses([folio_hash]).get(
                 folio_hash, _INITIAL_STATUS
             )

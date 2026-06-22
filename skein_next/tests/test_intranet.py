@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import pytest
 
 from skein_next.station import (
+    AmbiguousReference,
     Station,
     UnknownFolio,
 )
@@ -44,6 +45,24 @@ def test_reply_posts_thread_readable_on_resource(station):
 def test_reply_to_unknown_resource_raises(station):
     with pytest.raises(UnknownFolio):
         station.reply("sha256::" + "0" * 64, "into the void", by="nub-0622")
+
+
+def test_reply_requires_an_author(station):
+    issue = _post(station, "issue", "bug", "broken")
+    with pytest.raises(ValueError):
+        station.reply(issue, "no author", by="")
+
+
+def test_reply_by_agent_id_resolves_when_name_differs(station):
+    # agent-id and name are decoupled (register --name X --agent Y). A reply
+    # authored by the agent-id still resolves from_id to that agent's folio.
+    issue = _post(station, "issue", "bug", "broken")
+    agent_hash = station.register_agent(agent_id="agent-y", name="handle-x")
+    station.reply(issue, "by id", by="agent-y")
+    graph = station.thread_graph(issue)
+    edge = [e for e in graph["incoming"] if e["type"] == "reply"][0]
+    assert edge["from_id"] == agent_hash
+    assert edge["peer"]["folio"]["type"] == "agent"
 
 
 def test_replies_on_unknown_resource_raises(station):
@@ -133,6 +152,33 @@ def test_resolve_mantle_none_when_absent(station):
     assert station.resolve_mantle("nonesuch") is None
 
 
+def test_resolve_mantle_by_alias(station):
+    m = _post(station, "mantle", "namer", "naming specialist")
+    station.store.set_alias("mantle-20260622-aaaa", m)
+    assert station.resolve_mantle("mantle-20260622-aaaa")["content_hash"] == m
+
+
+def test_resolve_mantle_empty_or_whitespace_returns_none(station):
+    # "" is a substring of every title; the guard must not return the first mantle.
+    _post(station, "mantle", "boffin", "role body")
+    assert station.resolve_mantle("") is None
+    assert station.resolve_mantle("   ") is None
+
+
+def test_resolve_mantle_ambiguous_short_hash_propagates(station):
+    # Two folios sharing a hash prefix make a short ref ambiguous; the ambiguity
+    # must surface, not be swallowed into a misleading "no mantle found".
+    import unittest.mock as mock
+
+    with mock.patch.object(
+        station,
+        "resolve_ref",
+        side_effect=AmbiguousReference("sha256::ab", ["sha256::ab1", "sha256::ab2"]),
+    ):
+        with pytest.raises(AmbiguousReference):
+            station.resolve_mantle("sha256::ab")
+
+
 def test_resolve_mantle_ignores_same_named_non_mantle(station):
     # A non-mantle folio sharing the name must not masquerade as a role.
     _post(station, "issue", "priestess", "an issue, not a mantle")
@@ -144,13 +190,14 @@ def test_resolve_mantle_hash_of_non_mantle_is_rejected(station):
     assert station.resolve_mantle(issue) is None
 
 
-# --- ignite handoff trail ----------------------------------------------------
+# --- ignite handoff trail (written atomically inside register_agent) ----------
 
 
-def test_record_ignite_handoff_threads_edge_readable_both_ends(station):
+def test_register_with_ignited_from_threads_edge_readable_both_ends(station):
     brief = _post(station, "brief", "handoff", "do the work")
-    agent_hash = station.register_agent(agent_id="nub-0622", name="nub-0622")
-    station.record_ignite_handoff(agent_hash, brief, by="nub-0622")
+    agent_hash = station.register_agent(
+        agent_id="nub-0622", name="nub-0622", ignited_from=brief
+    )
 
     # Readable from the brief: who picked it up.
     brief_graph = station.thread_graph(brief)
@@ -163,3 +210,26 @@ def test_record_ignite_handoff_threads_edge_readable_both_ends(station):
     resumed = [e for e in agent_graph["outgoing"] if e["type"] == "ignited_from"]
     assert len(resumed) == 1
     assert resumed[0]["to_id"] == brief
+
+
+def test_register_without_ignited_from_threads_no_handoff_edge(station):
+    agent_hash = station.register_agent(agent_id="solo-0622", name="solo-0622")
+    graph = station.thread_graph(agent_hash)
+    assert not [e for e in graph["outgoing"] if e["type"] == "ignited_from"]
+
+
+def test_register_with_ignited_from_is_idempotent(station):
+    # A byte-identical re-register (same created_at) collapses to one agent folio
+    # and one handoff edge — the edge rides the registration transaction.
+    brief = _post(station, "brief", "handoff", "do the work")
+    ts = datetime(2026, 6, 22, 10, 0, tzinfo=timezone.utc)
+    h1 = station.register_agent(
+        agent_id="nub-0622", name="nub-0622", ignited_from=brief, created_at=ts
+    )
+    h2 = station.register_agent(
+        agent_id="nub-0622", name="nub-0622", ignited_from=brief, created_at=ts
+    )
+    assert h1 == h2
+    brief_graph = station.thread_graph(brief)
+    picked = [e for e in brief_graph["incoming"] if e["type"] == "ignited_from"]
+    assert len(picked) == 1

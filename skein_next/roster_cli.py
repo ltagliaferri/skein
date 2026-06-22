@@ -147,9 +147,14 @@ def ignite(
                 raise click.ClickException(f"no brief for reference {brief_id!r}")
         mantle_folio = None
         if mantle:
-            mantle_folio = st.resolve_mantle(mantle)
+            try:
+                mantle_folio = st.resolve_mantle(mantle)
+            except AmbiguousReference as e:
+                lines = "\n".join("  " + _short(m, 24) for m in e.matches)
+                raise click.ClickException(f"{e}\n{lines}")
             if not mantle_folio:
                 raise click.ClickException(f"no mantle found matching {mantle!r}")
+        brief_hash = brief_folio["content_hash"] if brief_folio else None
 
         agent_id = agent or _default_agent() or name
         # Auto-name only when the caller supplied nothing to identify by. The name
@@ -174,6 +179,7 @@ def ignite(
                     description=description or message,
                     capabilities=caps,
                     metadata=metadata,
+                    ignited_from=brief_hash,
                 )
                 break
             except AgentNameTaken as e:
@@ -183,15 +189,9 @@ def ignite(
                 # Auto-name collided with a concurrent register; regenerate.
                 continue
         resolved_name = name or agent_id
-
-        # The brief-handoff trail: thread the new agent folio to the brief it
-        # ignited from, so the pickup is readable from both ends (design D1's
-        # succession idea, generalized to the brief). Done after register, when the
-        # agent folio hash exists.
-        if brief_folio:
-            st.record_ignite_handoff(
-                folio_hash, brief_folio["content_hash"], by=agent_id
-            )
+        # The brief-handoff trail (the ignited_from agent → brief edge) was written
+        # atomically inside register_agent via ignited_from=brief_hash, so a
+        # registered agent always carries its readable handoff edge.
 
         # Assemble the mission the agent pulls at birth — brief, then mantle, then
         # the ad-hoc message — each under its own labelled section (the live legacy

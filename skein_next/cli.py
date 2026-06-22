@@ -509,12 +509,15 @@ def _peer_label(peer: Dict[str, Any]) -> str:
 
 
 def _edge_content(edge: Dict[str, Any]) -> str:
-    """A trailing ``— "..."`` for an edge that carries text (a reply, a comment).
+    """A trailing ``— "..."`` for a reply edge, so the thread view shows what a
+    comment actually says rather than just that one exists.
 
-    Membership/within edges and bare links have no content; only edges that say
-    something (reply, status, tag) get the suffix, so the thread view shows what
-    a comment actually says rather than just that one exists.
+    Scoped to ``reply`` edges only: other content-carrying thread types (a
+    ``status`` word, a ``published`` instance url) have their own display idioms,
+    and quoting them here would silently change the existing thread output.
     """
+    if edge.get("type") != "reply":
+        return ""
     content = edge.get("content")
     if not content:
         return ""

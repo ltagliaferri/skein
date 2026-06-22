@@ -712,6 +712,7 @@ class Station:
         description: Optional[str] = None,
         capabilities: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        ignited_from: Optional[str] = None,
         created_at: Any = None,
     ) -> str:
         """Register an agent: mint its ``type=agent`` folio + guard its name.
@@ -735,6 +736,11 @@ class Station:
           succession behavior; the dead-code ignite is not resurrected).
         - name held by a DIFFERENT agent → :class:`AgentNameTaken` (rollback). A
           second live agent must not steal an in-use name.
+
+        ``ignited_from`` (a brief folio hash) is the brief-handoff trail: when set,
+        an ``ignited_from`` edge agent → brief is written INSIDE this same
+        transaction, so a registered agent always carries its readable handoff edge
+        — never a committed agent folio with the trail missing.
         """
         if not agent_id:
             raise ValueError("register_agent requires a non-empty agent_id")
@@ -844,6 +850,19 @@ class Station:
                 content=_INITIAL_STATUS,
                 created_at=stamp,
             )
+            if ignited_from:
+                # The brief-handoff trail, written INSIDE the registration
+                # transaction (the roster single-write discipline, §5) so a
+                # committed agent folio always carries its readable ignited_from
+                # edge. created_at pinned to the folio stamp so a byte-identical
+                # re-ignite from the same brief collapses to one edge.
+                self.store.save_thread(
+                    from_id=folio_hash,
+                    to_id=ignited_from,
+                    type=self.IGNITE_HANDOFF_THREAD,
+                    weaver=agent_id,
+                    created_at=stamp,
+                )
         return folio_hash
 
     def _resolve_agent(self, ref: str) -> str:
@@ -1261,9 +1280,10 @@ class Station:
     #   agent-to-agent ``message``, which needed delivery into a live session.)
     # - resolve_mantle — find a ``type=mantle`` role folio by id or name, so
     #   ``ignite --mantle`` can pull the role at session birth.
-    # - record_ignite_handoff — the brief-handoff trail: an ``ignited_from`` thread
-    #   from the new agent folio to the brief it ignited from, readable from both
-    #   ends (who picked up a brief; what an agent resumed).
+    #
+    # The brief-handoff trail (the ``ignited_from`` agent → brief edge) is written
+    # by :meth:`register_agent` itself via its ``ignited_from`` parameter, inside
+    # the registration transaction, so the edge can never be left half-written.
 
     REPLY_THREAD = "reply"
     IGNITE_HANDOFF_THREAD = "ignited_from"
@@ -1288,21 +1308,30 @@ class Station:
         self,
         resource: str,
         message: str,
-        by: Optional[str] = None,
+        by: str,
         created_at: Any = None,
     ) -> str:
         """Comment on a resource: a ``reply`` thread from the author to it.
 
         ``resource`` is any reference :meth:`resolve_ref` accepts (a folio hash,
-        short prefix, or legacy id); it must resolve to a folio, else
-        :class:`UnknownFolio`. The edge runs author → resource so it surfaces as an
-        INCOMING reply when the resource's thread graph is walked (the pull-read in
-        :meth:`replies` and the ``folio`` view). ``by`` is recorded as the thread's
-        ``weaver`` (the author of record) and, when it names a roster agent, also
-        becomes the ``from_id`` so the peer resolves to that agent folio. Returns
-        the reply thread's hash. Idempotent on identical (resource, message, author,
-        time): the thread hash dedups, matching every other thread write.
+        short prefix, or legacy id); it must resolve to a FOLIO, else
+        :class:`UnknownFolio`. Replying to a thread (legacy allowed ``reply
+        thread-abc``) is intentionally NOT ported: a thread is not an openable
+        folio, so a reply-to-a-thread would never surface as a pull-read — the
+        whole point of a reply here. The edge runs author → resource so it surfaces
+        as an INCOMING reply when the resource's thread graph is walked (the
+        pull-read in :meth:`replies` and the ``folio`` view).
+
+        ``by`` is the author and is required — a reply always has an author, as the
+        legacy server enforced; an empty ``by`` raises :class:`ValueError` rather
+        than minting an unattributable comment. It is recorded as the thread's
+        ``weaver`` and, when it names a roster agent, also becomes the ``from_id``
+        so the peer resolves to that agent folio. Returns the reply thread's hash.
+        Idempotent on identical (resource, message, author, time): the thread hash
+        dedups, matching every other thread write.
         """
+        if not by:
+            raise ValueError("reply requires an author (by)")
         resource_hash = self.resolve_ref(resource)
         if not resource_hash:
             raise UnknownFolio(resource)
@@ -1353,13 +1382,26 @@ class Station:
         3. otherwise the first mantle whose title contains ``name``.
 
         Title resolution scans only ``type=mantle`` folios, so a same-named issue or
-        brief can never masquerade as a role. The skein-side mantle is a folio in
-        THIS station; horizon owns its own mantle registry and is untouched here.
+        brief can never masquerade as a role. The substring tie-break is title-only
+        and oldest-first (deterministic), a deliberate simplification of the legacy
+        ``/search`` ranked lookup — exact matches, the common case, agree. The
+        skein-side mantle is a folio in THIS station; horizon owns its own mantle
+        registry and is untouched here.
+
+        An ambiguous short-hash ``name`` raises :class:`AmbiguousReference` (it is
+        not swallowed into a misleading "not found"), so ``ignite --mantle`` reports
+        the ambiguity the same way every other resolver does. An empty/whitespace
+        ``name`` returns ``None`` rather than matching every mantle on the empty
+        substring.
         """
-        try:
-            ref_hash = self.resolve_ref(name)
-        except AmbiguousReference:
-            ref_hash = None
+        name = (name or "").strip()
+        if not name:
+            return None
+        # AmbiguousReference is deliberately NOT caught: a multi-match short hash is
+        # an ambiguity to surface, not an unresolved ref to fall through. A plain
+        # role name is not a valid address, so resolve_ref returns None for it (no
+        # exception) and we fall through to the title search below.
+        ref_hash = self.resolve_ref(name)
         if ref_hash:
             folio = self.store.get_folio(ref_hash)
             if folio and folio.get("type") == "mantle":
@@ -1373,27 +1415,3 @@ class Station:
             if lowered in (folio.get("title") or "").lower():
                 return folio
         return None
-
-    def record_ignite_handoff(
-        self,
-        agent_hash: str,
-        brief_hash: str,
-        by: Optional[str] = None,
-        created_at: Any = None,
-    ) -> str:
-        """Thread the brief-handoff trail: agent ``ignited_from`` brief.
-
-        Run after :meth:`register_agent` once the new agent folio's hash is known.
-        The edge runs the agent folio → the brief folio, so the handoff is readable
-        from both ends — the brief's thread graph shows who picked it up, the
-        agent's shows what it resumed. ``by`` (the agent-id) is the ``weaver``.
-        Returns the thread hash; idempotent on the (agent, brief, author, time)
-        tuple like every thread write.
-        """
-        return self.store.save_thread(
-            from_id=agent_hash,
-            to_id=brief_hash,
-            type=self.IGNITE_HANDOFF_THREAD,
-            weaver=by,
-            created_at=created_at if created_at is not None else _now_utc(),
-        )

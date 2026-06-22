@@ -83,6 +83,13 @@ def test_ignite_unknown_mantle_errors(data_dir):
     assert "no mantle found" in r.output
 
 
+def test_ignite_mantle_by_hash(data_dir):
+    mantle = _post(data_dir, "mantle", "oracle", "edge cases and races")
+    r = _run(data_dir, "ignite", "--mantle", mantle, "--name", "or-0622")
+    assert r.exit_code == 0, r.output
+    assert "edge cases and races" in r.output
+
+
 def test_ignite_brief_mantle_message_combine(data_dir):
     brief = _post(data_dir, "brief", "handoff", "BRIEF-BODY")
     _post(data_dir, "mantle", "boffin", "MANTLE-BODY")
@@ -122,14 +129,20 @@ def test_reply_to_unknown_resource_errors(data_dir):
     assert "no folio for reference" in r.output
 
 
-def test_reply_requires_agent_identity(data_dir):
+def test_reply_requires_agent_identity(data_dir, monkeypatch):
+    # CliRunner(env=...) merges over os.environ, so an ambient $SKEIN_NEXT_AGENT/
+    # $SKEIN_AGENT (likely for an actual skein user) would mask this. Clear both.
+    monkeypatch.delenv("SKEIN_NEXT_AGENT", raising=False)
+    monkeypatch.delenv("SKEIN_AGENT", raising=False)
     issue = _post(data_dir, "issue", "bug", "broke")
     r = _run(data_dir, "reply", issue, "anon")  # no --agent, no env
     assert r.exit_code != 0
     assert "no agent identity" in r.output
 
 
-def test_reply_uses_env_agent(data_dir):
+def test_reply_uses_env_agent(data_dir, monkeypatch):
+    monkeypatch.delenv("SKEIN_NEXT_AGENT", raising=False)
+    monkeypatch.delenv("SKEIN_AGENT", raising=False)
     issue = _post(data_dir, "issue", "bug", "broke")
     env = {"SKEIN_NEXT_AGENT": "morse-0621"}
     r = _run(data_dir, "reply", issue, "from env", env=env)
@@ -153,3 +166,14 @@ def test_thread_view_shows_reply_content(data_dir):
     t = _run(data_dir, "thread", issue)
     assert "reply" in t.output
     assert "the comment text" in t.output
+
+
+def test_registered_agent_reply_shows_author_in_folio(data_dir):
+    # A reply from a registered agent records the author (weaver), shown verbatim
+    # in the folio's Replies section even though from_id is the agent folio hash.
+    issue = _post(data_dir, "issue", "bug", "broke")
+    r = _run(data_dir, "ignite", "--name", "nub-0622", "--agent", "nub-0622")
+    assert r.exit_code == 0, r.output
+    _run(data_dir, "reply", issue, "claimed", "--agent", "nub-0622")
+    f = _run(data_dir, "folio", issue)
+    assert "nub-0622: claimed" in f.output

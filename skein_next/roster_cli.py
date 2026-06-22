@@ -279,14 +279,15 @@ def complete(
         except UnknownAgent as e:
             raise click.ClickException(str(e) + " — run 'ignite' first.")
 
+        authored = [
+            f
+            for f in st.store.folios_by_created_by(ref)
+            if f.get("type") not in ("agent", "site")
+        ]
+
         # Chain yield first (it is independent chain bookkeeping), then the FSM move.
         sack_id = None
         if chain_id:
-            authored = [
-                f
-                for f in st.store.folios_by_created_by(ref)
-                if f.get("type") not in ("agent", "site")
-            ]
             artifacts = [f["content_hash"] for f in authored]
             tenders = [f["content_hash"] for f in authored if f.get("type") == "tender"]
             status = yield_status or ("complete" if tenders else "partial")
@@ -303,8 +304,20 @@ def complete(
             )
 
         if summary:
+            # Post to the agent's most-recent working site (legacy behavior),
+            # falling back to the roster site.
+            recent = sorted(
+                authored,
+                key=lambda f: (f.get("created_at") or "", f.get("content_hash") or ""),
+                reverse=True,
+            )
+            site = None
+            for f in recent:
+                site = st.store.folio_site_slug(f["content_hash"])
+                if site:
+                    break
             try:
-                st.post(type="summary", site="roster", title=summary[:100],
+                st.post(type="summary", site=site or "roster", title=summary[:100],
                          content=summary, created_by=ref)
             except Exception:
                 pass

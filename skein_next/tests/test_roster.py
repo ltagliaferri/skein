@@ -1,0 +1,372 @@
+"""Stage 2 — roster, lifecycle, activity, name guard, and chain yields.
+
+Exercises the store guards (register_slug CAS, sacks API) and the Station layer
+(register_agent, the FSM transition guard, the activity aggregate, succession,
+create_site collision) directly — the CLI is covered in test_roster_cli.py.
+"""
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from skein_next.station import (
+    ACTIVE_WINDOW_MINUTES,
+    AgentNameTaken,
+    IllegalAgentTransition,
+    ROSTER_SITE,
+    SlugCollision,
+    Station,
+    UnknownAgent,
+)
+from skein_next.store import SkeinNextStore
+
+
+@pytest.fixture
+def station(tmp_path):
+    s = Station(data_dir=tmp_path / ".skein-next")
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def store(tmp_path):
+    s = SkeinNextStore(tmp_path / ".skein-next")
+    yield s
+    s.close()
+
+
+# --- store: the guarded slug register (the D1 name guard primitive) ----------
+
+
+def test_register_slug_binds_when_free(store):
+    h = store.create_folio({"type": "agent", "title": "a", "created_by": "alice"})
+    assert store.register_slug("nub", h) is True
+    assert store.resolve_slug("nub") == h
+
+
+def test_register_slug_idempotent_on_same_hash(store):
+    h = store.create_folio({"type": "agent", "title": "a", "created_by": "alice"})
+    assert store.register_slug("nub", h) is True
+    assert store.register_slug("nub", h) is True  # same hash, still ours
+    assert store.resolve_slug("nub") == h
+
+
+def test_register_slug_rejects_a_steal(store):
+    h_alice = store.create_folio({"type": "agent", "title": "a", "created_by": "alice"})
+    h_bob = store.create_folio({"type": "agent", "title": "b", "created_by": "bob"})
+    assert store.register_slug("nub", h_alice) is True
+    assert store.register_slug("nub", h_bob) is False  # held by alice — refuse
+    assert store.resolve_slug("nub") == h_alice  # unchanged, no silent rebind
+
+
+def test_set_slug_still_last_write_wins(store):
+    # set_slug is the deliberate-rebind tool and must NOT have become a guard.
+    h1 = store.create_folio({"type": "site", "title": "s1"})
+    h2 = store.create_folio({"type": "site", "title": "s2"})
+    store.set_slug("x", h1)
+    store.set_slug("x", h2)
+    assert store.resolve_slug("x") == h2
+
+
+# --- store: the sacks (chain yields) sidecar ---------------------------------
+
+
+def test_add_and_get_yield_round_trip(store):
+    assert store.add_yield(
+        "sack-1", "chain-1", "task-1",
+        agent_id="alice", status="complete", outcome="done",
+        artifacts=["tender-x", "finding-y"], notes="hand off",
+        metadata={"k": 1},
+    ) is True
+    y = store.get_yield("sack-1")
+    assert y["chain_id"] == "chain-1"
+    assert y["artifacts"] == ["tender-x", "finding-y"]
+    assert y["metadata"] == {"k": 1}
+    assert y["status"] == "complete"
+
+
+def test_get_yield_missing_is_none(store):
+    assert store.get_yield("nope") is None
+
+
+def test_chain_yields_execution_order(store):
+    store.add_yield("sack-a", "c", "t1", status="complete")
+    store.add_yield("sack-b", "c", "t2", status="partial")
+    store.add_yield("sack-c", "c", "t3", status="blocked")
+    ids = [y["sack_id"] for y in store.get_chain_yields("c")]
+    assert ids == ["sack-a", "sack-b", "sack-c"]  # (timestamp, id) ascending
+
+
+def test_yields_by_status_and_by_agent(store):
+    store.add_yield("s1", "c", "t1", agent_id="alice", status="blocked")
+    store.add_yield("s2", "c", "t2", agent_id="bob", status="complete")
+    store.add_yield("s3", "c", "t3", agent_id="alice", status="blocked")
+    assert {y["sack_id"] for y in store.get_yields_by_status("blocked")} == {"s1", "s3"}
+    assert {y["sack_id"] for y in store.get_agent_yields("alice")} == {"s1", "s3"}
+
+
+def test_previous_yield(store):
+    store.add_yield("s1", "c", "t1")
+    store.add_yield("s2", "c", "t2")
+    store.add_yield("s3", "c", "t3")
+    assert store.get_previous_yield("c", "t2")["sack_id"] == "s1"
+    assert store.get_previous_yield("c", "t1") is None  # first task, nothing before
+
+
+def test_duplicate_sack_id_raises(store):
+    store.add_yield("dup", "c", "t1")
+    with pytest.raises(Exception):
+        store.add_yield("dup", "c", "t2")  # UNIQUE sack_id
+
+
+# --- station: lifecycle round-trip -------------------------------------------
+
+
+def test_lifecycle_round_trip(station):
+    h = station.register_agent("nub-0622", description="stage 2")
+    assert station.status_of(h) == "orienting"
+    station.agent_ready("nub-0622")
+    assert station.status_of(h) == "active"
+    station.agent_torch("nub-0622")
+    assert station.status_of(h) == "retiring"
+    station.agent_complete("nub-0622")
+    assert station.status_of(h) == "retired"
+
+
+def test_agent_folio_lives_in_roster_site(station):
+    station.register_agent("nub-0622")
+    members = station.folios_in_site(ROSTER_SITE, type="agent")
+    assert [m["title"] for m in members] == ["nub-0622"]
+    # The agent-id is the folio's created_by — the activity join key.
+    assert members[0]["created_by"] == "nub-0622"
+
+
+def test_register_is_idempotent_on_identical_fields(station):
+    stamp = datetime(2026, 6, 22, 12, 0, tzinfo=timezone.utc)
+    h1 = station.register_agent("nub-0622", created_at=stamp)
+    h2 = station.register_agent("nub-0622", created_at=stamp)
+    assert h1 == h2  # same content hash, collapsed to one folio
+    assert len(station.list_agents()) == 1
+
+
+# --- station: the NEW name guard ---------------------------------------------
+
+
+def test_name_collision_rejected(station):
+    station.register_agent("alice", name="nub-0622")
+    with pytest.raises(AgentNameTaken):
+        station.register_agent("bob", name="nub-0622")
+    # The first holder keeps the name.
+    agents = {a["name"]: a["created_by"] for a in station.list_agents()}
+    assert agents["nub-0622"] == "alice"
+
+
+def test_rejected_registration_leaves_no_partial_folio(station):
+    station.register_agent("alice", name="nub-0622")
+    before = station.store.count_folios()
+    with pytest.raises(AgentNameTaken):
+        station.register_agent("bob", name="nub-0622")
+    # The whole register is one transaction — a rejected steal rolls back the
+    # minted agent folio too.
+    assert station.store.count_folios() == before
+
+
+# --- station: the FSM guard --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sequence,illegal",
+    [
+        (["active", "active"], "active"),   # ready twice
+        (["retired"], "retired"),           # orienting → retired (skip)
+        (["active", "retired"], "retired"),  # active → retired (skip retiring)
+    ],
+)
+def test_illegal_transitions_rejected(station, sequence, illegal):
+    station.register_agent("nub-0622")
+    moves = {"active": station.agent_ready, "retiring": station.agent_torch,
+             "retired": station.agent_complete}
+    with pytest.raises(IllegalAgentTransition):
+        for step in sequence:
+            moves[step]("nub-0622")
+
+
+def test_cannot_go_backwards(station):
+    station.register_agent("nub-0622")
+    station.agent_ready("nub-0622")
+    station.agent_torch("nub-0622")
+    # retiring → active is not a legal edge.
+    with pytest.raises(IllegalAgentTransition):
+        station.agent_ready("nub-0622")
+
+
+def test_transition_unknown_agent_raises(station):
+    with pytest.raises(UnknownAgent):
+        station.agent_ready("ghost")
+
+
+def test_unknown_status_value_raises(station):
+    station.register_agent("nub-0622")
+    with pytest.raises(ValueError):
+        station.transition_agent("nub-0622", "banana")
+
+
+# --- station: create_site collision (finding-20260621-ccmy) ------------------
+
+
+def test_create_site_rejects_agent_name_collision(station):
+    station.register_agent("nub-0622")
+    with pytest.raises(SlugCollision):
+        station.create_site("nub-0622")
+
+
+def test_create_site_still_idempotent_on_real_site(station):
+    a = station.create_site("proj", purpose="p")
+    b = station.create_site("proj", purpose="ignored")
+    assert a == b
+
+
+def test_register_rejects_name_equal_to_existing_site(station):
+    station.create_site("shard-review", purpose="tenders")
+    # An agent cannot claim a name already held by a site slug (symmetry).
+    with pytest.raises(AgentNameTaken):
+        station.register_agent("agent-x", name="shard-review")
+
+
+def test_register_rejects_name_of_own_site_no_clobber(station):
+    # A site the agent itself minted must NOT be clobbered by the re-ignite
+    # succession path just because created_by matches — a site is not an agent.
+    site_hash = station.create_site("proj", purpose="p", created_by="alice")
+    with pytest.raises(AgentNameTaken):
+        station.register_agent("alice", name="proj")
+    # The site slug still points at the site folio, untouched.
+    assert station.store.resolve_slug("proj") == site_hash
+    assert station.get_site("proj") is not None
+
+
+# --- station: re-ignite / succession (item 7) --------------------------------
+
+
+def test_reignite_same_agent_threads_succession(station):
+    t1 = datetime(2026, 6, 22, 9, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 22, 15, 0, tzinfo=timezone.utc)
+    first = station.register_agent("nub-0622", created_at=t1)
+    station.agent_ready("nub-0622")
+    second = station.register_agent("nub-0622", created_at=t2)  # re-ignite
+    assert second != first
+    # The name now points at the new incarnation, reset to orienting.
+    assert station.store.resolve_slug("nub-0622") == second
+    assert station.status_of(second) == "orienting"
+    # A succession edge links the new folio back to the prior one.
+    graph = station.thread_graph(second)
+    succ = [e for e in graph["outgoing"] if e["type"] == "succession"]
+    assert len(succ) == 1 and succ[0]["to_id"] == first
+
+
+def test_reignite_only_shows_current_incarnation_in_roster(station):
+    t1 = datetime(2026, 6, 22, 9, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 22, 15, 0, tzinfo=timezone.utc)
+    station.register_agent("nub-0622", created_at=t1)
+    second = station.register_agent("nub-0622", created_at=t2)
+    agents = station.list_agents()
+    assert len(agents) == 1
+    assert agents[0]["content_hash"] == second
+
+
+# --- station: the activity aggregate -----------------------------------------
+
+
+def test_activity_active_within_window(station):
+    t = datetime(2026, 6, 22, 12, 0, tzinfo=timezone.utc)
+    station.register_agent("worker")
+    station.agent_ready("worker")
+    station.post(type="finding", site=ROSTER_SITE, title="found", created_by="worker", created_at=t)
+    inside = station.agent_activity(now=t + timedelta(minutes=ACTIVE_WINDOW_MINUTES - 1))
+    rec = next(a for a in inside if a["name"] == "worker")
+    assert rec["activity_status"] == "active"
+    assert rec["folio_count"] == 1
+    assert rec["working_site"] == ROSTER_SITE
+    assert rec["last_folio_type"] == "finding"
+
+
+def test_activity_idle_outside_window(station):
+    t = datetime(2026, 6, 22, 12, 0, tzinfo=timezone.utc)
+    station.register_agent("worker")
+    station.agent_ready("worker")
+    station.post(type="finding", site=ROSTER_SITE, title="found", created_by="worker", created_at=t)
+    outside = station.agent_activity(now=t + timedelta(minutes=ACTIVE_WINDOW_MINUTES + 1))
+    rec = next(a for a in outside if a["name"] == "worker")
+    assert rec["activity_status"] == "idle"
+
+
+def test_fresh_agent_is_idle_not_active(station):
+    # A just-registered agent with no work folios is idle (its own agent folio and
+    # the roster site it minted don't count as authored work).
+    station.register_agent("worker")
+    station.agent_ready("worker")
+    rec = next(a for a in station.agent_activity() if a["name"] == "worker")
+    assert rec["activity_status"] == "idle"
+    assert rec["folio_count"] == 0
+
+
+def test_retiring_agent_is_torching(station):
+    t = datetime(2026, 6, 22, 12, 0, tzinfo=timezone.utc)
+    station.register_agent("worker")
+    station.agent_ready("worker")
+    station.post(type="finding", site=ROSTER_SITE, title="x", created_by="worker", created_at=t)
+    station.agent_torch("worker")
+    # Even with a very recent folio, a retiring agent reads as torching.
+    rec = next(a for a in station.agent_activity(now=t + timedelta(minutes=1)) if a["name"] == "worker")
+    assert rec["activity_status"] == "torching"
+
+
+def test_activity_status_filter(station):
+    station.register_agent("a")
+    station.register_agent("b")
+    station.agent_ready("b")
+    active = station.agent_activity(status="active")
+    assert [r["name"] for r in active] == ["b"]
+
+
+def test_activity_sorted_recent_first(station):
+    early = datetime(2026, 6, 22, 9, 0, tzinfo=timezone.utc)
+    late = datetime(2026, 6, 22, 14, 0, tzinfo=timezone.utc)
+    station.register_agent("old")
+    station.agent_ready("old")
+    station.register_agent("new")
+    station.agent_ready("new")
+    station.post(type="finding", site=ROSTER_SITE, title="o", created_by="old", created_at=early)
+    station.post(type="finding", site=ROSTER_SITE, title="n", created_by="new", created_at=late)
+    names = [a["name"] for a in station.agent_activity(now=late + timedelta(minutes=1))]
+    assert names.index("new") < names.index("old")
+
+
+# --- station: chain yields ---------------------------------------------------
+
+
+def test_store_chain_yield_generates_id_and_reads_back(station):
+    sid = station.store_chain_yield(
+        "chain-9", "task-a", agent_id="worker", status="complete",
+        outcome="did the work", artifacts=["sha256::abc"],
+    )
+    assert sid.startswith("sack-")
+    y = station.chain_yield(sid)
+    assert y["outcome"] == "did the work"
+    assert y["artifacts"] == ["sha256::abc"]
+    assert station.chain_yields("chain-9")[0]["sack_id"] == sid
+
+
+def test_store_chain_yield_honors_explicit_sack_id(station):
+    sid = station.store_chain_yield("c", "t", sack_id="sack-fixed")
+    assert sid == "sack-fixed"
+    assert station.chain_yield("sack-fixed") is not None
+
+
+# --- station: ensure_roster_site --------------------------------------------
+
+
+def test_ensure_roster_site_idempotent(station):
+    a = station.ensure_roster_site()
+    b = station.ensure_roster_site()
+    assert a == b
+    assert station.get_site(ROSTER_SITE) is not None

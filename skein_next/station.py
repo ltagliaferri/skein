@@ -669,7 +669,17 @@ class Station:
             if prior_hash and prior_hash != folio_hash:
                 prior = self.store.get_folio(prior_hash)
                 holder = prior.get("created_by") if prior else None
-                if holder != agent_id:
+                # Rebind is allowed ONLY for this agent's own prior AGENT folio (a
+                # re-ignite). A name held by a different agent — or by a NON-agent
+                # folio this agent happens to have created (e.g. a site it minted) —
+                # is a collision: reject, never clobber. This keeps the guard
+                # symmetric with create_site, which refuses a non-site slug.
+                own_prior_agent = (
+                    bool(prior)
+                    and prior.get("type") == "agent"
+                    and holder == agent_id
+                )
+                if not own_prior_agent:
                     raise AgentNameTaken(name, holder)  # rollback — no partial folio
                 # Same agent, fresh incarnation: deliberate rebind (we own it) plus
                 # a succession edge to the prior folio for continuity.

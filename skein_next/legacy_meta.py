@@ -63,8 +63,18 @@ def render_legacy_meta(body: Optional[str], meta: Dict[str, Any]) -> str:
     metadata renders escaped — acceptable for a machine-read preservation block.
     """
     block = json.dumps(meta, indent=2, ensure_ascii=True, sort_keys=True)
-    body = (body or "").rstrip("\n")
-    return f"{body}\n\n{LEGACY_META_MARKER}\n```json\n{block}\n```\n"
+    body = body or ""
+    # Preserve the legacy body byte-for-byte — do NOT rstrip. Trailing newlines are
+    # real content on the migration path; the tender/agent envelopes trim because
+    # they build the body, but here it is the original folio content. Add only
+    # enough newlines to seat the marker after one blank line, deleting none.
+    if not body or body.endswith("\n\n"):
+        joiner = ""
+    elif body.endswith("\n"):
+        joiner = "\n"
+    else:
+        joiner = "\n\n"
+    return f"{body}{joiner}{LEGACY_META_MARKER}\n```json\n{block}\n```\n"
 
 
 def parse_legacy_meta(content: Optional[str]) -> Optional[Dict[str, Any]]:

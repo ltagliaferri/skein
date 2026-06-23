@@ -735,6 +735,28 @@ def test_metadata_folded_when_content_is_null(tmp_path, store):
     assert parse_legacy_meta(folio["content"]) == {"k": "v"}
 
 
+def test_metadata_fold_preserves_body_trailing_newlines(tmp_path, store):
+    # A legacy body that ends in newlines must survive byte-for-byte when metadata
+    # is folded in — no rstrip on the migration path.
+    db = tmp_path / "nl.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(_LEGACY_SCHEMA_WITH_EXTRAS)
+    conn.execute(
+        "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,title,"
+        "content,status,content_hash,metadata,target_agent) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("nl-1", "finding", None, "2026-01-08T00:00:00Z", "a", "NL", "line\n\n",
+         "open", None, '{"k": "v"}', None),
+    )
+    conn.commit()
+    conn.close()
+    sites = make_sites_dir(tmp_path / "d", [])
+    import_project(db, sites, store)
+    content = store.get_folio(store.resolve_alias("nl-1"))["content"]
+    assert content.startswith("line\n\n")  # body preserved, not trimmed
+    assert parse_legacy_meta(content) == {"k": "v"}
+
+
 def test_metadata_not_reported_as_dropped_but_target_agent_is(tmp_path, store):
     db, sites = _build_meta_db(tmp_path)
     report = import_project(db, sites, store)

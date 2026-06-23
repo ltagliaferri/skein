@@ -31,6 +31,17 @@ def test_render_handles_none_body():
     assert parse_legacy_meta(content) == {"k": "v"}
 
 
+def test_render_preserves_body_trailing_newlines():
+    # The legacy body is real content on the migration path; trailing newlines
+    # must not be trimmed. The rendered content starts with the body byte-for-byte.
+    for body in ("a", "a\n", "a\n\n", "a\n\n\n", "  spaces  \n"):
+        content = render_legacy_meta(body, {"k": 1})
+        assert content.startswith(body), f"body mutated for {body!r}"
+        assert parse_legacy_meta(content) == {"k": 1}
+        # deterministic re-render (idempotent hash)
+        assert render_legacy_meta(body, {"k": 1}) == content
+
+
 def test_parse_absent_returns_none():
     assert parse_legacy_meta("just a body, no envelope") is None
     assert parse_legacy_meta("") is None

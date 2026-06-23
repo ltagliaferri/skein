@@ -70,11 +70,46 @@ def test_normalize_non_dict_json_is_wrapped():
     assert normalize_legacy_meta("42") == {"_value": 42}
 
 
+def test_normalize_json_string_is_value_not_raw():
+    # A JSON string ("hello") is valid JSON -> _value; bare text -> _raw. The two
+    # must not be conflated.
+    assert normalize_legacy_meta('"hello"') == {"_value": "hello"}
+    assert normalize_legacy_meta("hello") == {"_raw": "hello"}
+
+
 def test_normalize_non_json_text_preserved_raw():
     assert normalize_legacy_meta("not json at all") == {"_raw": "not json at all"}
 
 
-def test_normalize_already_dict_object():
-    # A dict (not a string) is accepted too — defensive against a caller passing
-    # the parsed value rather than the raw cell.
-    assert normalize_legacy_meta(json.dumps({"a": 1})) == {"a": 1}
+def test_normalize_object_string_round_trips():
+    assert normalize_legacy_meta('{"a": 1}') == {"a": 1}
+
+
+def test_normalize_accepts_already_parsed_dict():
+    # The bridge passes str|None from sqlite, but an already-parsed dict is
+    # tolerated and stripped of the dead flag, matching the documented contract.
+    assert normalize_legacy_meta({"a": 1, "questions_enabled": True}) == {"a": 1}
+    assert normalize_legacy_meta({"questions_enabled": True}) is None
+
+
+def test_normalize_duplicate_keys_preserved_verbatim():
+    # Python's json.loads would collapse {"a":1,"a":2} to {"a":2}, silently losing
+    # the first value. Migration code must not: preserve the raw text instead.
+    raw = '{"a": 1, "a": 2}'
+    assert normalize_legacy_meta(raw) == {"_raw": raw}
+    # nested duplicate too
+    nested = '{"outer": {"k": 1, "k": 2}}'
+    assert normalize_legacy_meta(nested) == {"_raw": nested}
+
+
+def test_normalize_bytes_decoded_not_repr():
+    assert normalize_legacy_meta(b'{"a": 1}') == {"a": 1}
+
+
+def test_parse_ignores_marker_and_fence_inside_a_value():
+    # The headline robustness claim: a metadata VALUE that itself contains a full
+    # marker + json fence must not fool the parser — json.dumps escapes the
+    # newlines, so the embedded "fence" can never close the real block.
+    meta = {"note": "see <!-- legacy-meta -->\n```json\n{}\n```", "real": True}
+    content = render_legacy_meta("body", meta)
+    assert parse_legacy_meta(content) == meta

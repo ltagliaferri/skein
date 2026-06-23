@@ -679,6 +679,9 @@ _META_FOLIOS = [
      "open", None, None, None),
     ("weird-1", "notion", None, "2026-01-04T00:00:00Z", "d", "N1", "notion body",
      "open", None, "not json at all", None),
+    # null content body WITH real metadata: the envelope must still apply cleanly.
+    ("nullbody-1", "notion", None, "2026-01-05T00:00:00Z", "e", "NB1", None,
+     "open", None, '{"k": "v"}', None),
 ]
 
 
@@ -705,7 +708,8 @@ def test_metadata_folded_into_content(tmp_path, store):
     assert "tender body" in folio["content"]
     meta = parse_legacy_meta(folio["content"])
     assert meta == {"confidence": 8, "reviewer": "fell-r1"}  # questions_enabled stripped
-    assert report.metadata_carried == 2  # tender-1 (real) + weird-1 (_raw)
+    # tender-1 (real) + weird-1 (_raw) + nullbody-1 (real, null body)
+    assert report.metadata_carried == 3
 
 
 def test_dead_flag_only_metadata_not_folded(tmp_path, store):
@@ -722,6 +726,13 @@ def test_non_json_metadata_preserved_raw(tmp_path, store):
     import_project(db, sites, store)
     folio = store.get_folio(store.resolve_alias("weird-1"))
     assert parse_legacy_meta(folio["content"]) == {"_raw": "not json at all"}
+
+
+def test_metadata_folded_when_content_is_null(tmp_path, store):
+    db, sites = _build_meta_db(tmp_path)
+    import_project(db, sites, store)
+    folio = store.get_folio(store.resolve_alias("nullbody-1"))
+    assert parse_legacy_meta(folio["content"]) == {"k": "v"}
 
 
 def test_metadata_not_reported_as_dropped_but_target_agent_is(tmp_path, store):

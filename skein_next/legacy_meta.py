@@ -92,30 +92,64 @@ def parse_legacy_meta(content: Optional[str]) -> Optional[Dict[str, Any]]:
 _DROP_KEYS = frozenset({"questions_enabled"})
 
 
+class _DuplicateKeys(ValueError):
+    """A JSON object held duplicate keys — Python's ``json`` would collapse them
+    to the last value, silently losing the earlier one. We refuse to interpret
+    such a cell and preserve its text verbatim instead."""
+
+
+def _dict_no_dupes(pairs):
+    """``object_pairs_hook`` that rejects duplicate keys instead of collapsing.
+
+    Fires for every object, nested included, so a duplicate anywhere in the
+    structure aborts interpretation and routes the whole cell to verbatim
+    preservation — never a silent last-value-wins collapse."""
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise _DuplicateKeys()
+    return dict(pairs)
+
+
 def normalize_legacy_meta(raw: Any) -> Optional[Dict[str, Any]]:
     """Turn a legacy ``metadata`` cell into the dict to embed, or ``None`` to skip.
 
-    The cell is whatever the legacy column held. Normalization is lossless EXCEPT
-    for the explicitly dead :data:`_DROP_KEYS`:
+    The cell is whatever the legacy column held — from sqlite that is ``str`` or
+    ``None``; already-parsed structures are tolerated defensively. Normalization
+    is lossless EXCEPT for the explicitly dead :data:`_DROP_KEYS`:
 
-    - a JSON object → its keys minus the dead ones; ``None`` if nothing remains;
-    - valid JSON that is not an object (a list, number, string) → wrapped under
+    - a ``dict`` (already parsed) → its keys minus the dead ones; ``None`` if
+      nothing remains;
+    - a JSON-object string → same, after parsing;
+    - a ``list``/number/bool, or valid JSON that is not an object → wrapped under
       ``{"_value": ...}`` so it is preserved rather than dropped for not being a
       dict;
-    - text that is not JSON at all → preserved verbatim under ``{"_raw": "..."}``;
-    - ``None``/empty/``"{}"`` → ``None`` (nothing to carry).
+    - text that is not JSON, OR a JSON object with DUPLICATE keys (which Python
+      would silently collapse) → preserved verbatim under ``{"_raw": "..."}``;
+    - ``bytes`` → decoded (``surrogateescape``) then treated as text, so an odd
+      encoding round-trips rather than becoming a ``repr`` string;
+    - ``None``/empty/``"{}"``/``"null"`` → ``None`` (nothing to carry).
 
-    So the only metadata that is ever dropped is the dead flag; anything with real
-    content is preserved in some form, never silently lost.
-    """
+    So the only metadata ever dropped is the dead flag; everything else is
+    preserved in some form, never silently lost — including the pathological
+    duplicate-key case (unreachable for the json.dumps-written legacy corpus, but
+    made lossless rather than collapsing, since this is migration code)."""
     if raw is None:
         return None
-    text = raw if isinstance(raw, str) else str(raw)
+    if isinstance(raw, dict):
+        kept = {k: v for k, v in raw.items() if k not in _DROP_KEYS}
+        return kept or None
+    if isinstance(raw, (list, int, float, bool)):
+        return {"_value": raw}
+    if isinstance(raw, bytes):
+        text = raw.decode("utf-8", "surrogateescape")
+    else:
+        text = raw if isinstance(raw, str) else str(raw)
     if text.strip() in ("", "{}", "null"):
         return None
     try:
-        data = json.loads(text)
+        data = json.loads(text, object_pairs_hook=_dict_no_dupes)
     except (json.JSONDecodeError, ValueError):
+        # invalid JSON, OR a duplicate-key object — preserve the original verbatim.
         return {"_raw": text}
     if isinstance(data, dict):
         kept = {k: v for k, v in data.items() if k not in _DROP_KEYS}

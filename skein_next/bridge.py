@@ -240,8 +240,9 @@ class ImportReport:
             f"cross-project {self.cross_project_refs}, dangling {self.dangling_refs})",
             f"succession renamed to supersedes: {self.succession_renamed}",
             f"non-open folios without a status thread: {self.status_without_thread}",
-            f"legacy metadata folded into content: {self.metadata_carried} folios "
-            f"(dead questions_enabled flag dropped from {self.metadata_flag_dropped})",
+            f"legacy metadata folded into content: {self.metadata_carried} folios; "
+            f"flag-only metadata skipped (dead questions_enabled, nothing else to "
+            f"carry): {self.metadata_flag_dropped} folios",
         ]
         for col, n in sorted(self.dropped_folio_columns.items()):
             lines.append(

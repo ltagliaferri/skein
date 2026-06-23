@@ -743,6 +743,39 @@ def test_metadata_not_reported_as_dropped_but_target_agent_is(tmp_path, store):
     assert report.dropped_folio_columns.get("target_agent") == 1
 
 
+def test_metadata_blob_cell_bytes_path(tmp_path, store):
+    # A BLOB metadata cell makes sqlite return `bytes` (not str), exercising the
+    # bytes path through the real import: valid-UTF-8 JSON bytes fold to a dict;
+    # invalid-UTF-8 bytes are base64-preserved and the insert must not crash.
+    import base64 as _b64
+    db = tmp_path / "blob.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(_LEGACY_SCHEMA_WITH_EXTRAS)
+    bad = b'\xff\xfe\x00bad'
+    conn.execute(
+        "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,title,"
+        "content,status,content_hash,metadata,target_agent) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("blob-json", "notion", None, "2026-01-06T00:00:00Z", "a", "BJ", "body",
+         "open", None, b'{"k": "v"}', None),
+    )
+    conn.execute(
+        "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,title,"
+        "content,status,content_hash,metadata,target_agent) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("blob-bad", "notion", None, "2026-01-07T00:00:00Z", "b", "BB", "body",
+         "open", None, bad, None),
+    )
+    conn.commit()
+    conn.close()
+    sites = make_sites_dir(tmp_path / "d", [])
+    import_project(db, sites, store)  # must not raise
+
+    assert parse_legacy_meta(store.get_folio(store.resolve_alias("blob-json"))["content"]) == {"k": "v"}
+    bad_meta = parse_legacy_meta(store.get_folio(store.resolve_alias("blob-bad"))["content"])
+    assert _b64.b64decode(bad_meta["_raw_base64"]) == bad  # exact bytes recovered
+
+
 def test_metadata_fold_is_idempotent(tmp_path, store):
     db, sites = _build_meta_db(tmp_path)
     import_project(db, sites, store)

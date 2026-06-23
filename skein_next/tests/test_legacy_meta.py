@@ -1,5 +1,6 @@
 """The legacy ``metadata`` preservation envelope (import bridge)."""
 
+import base64
 import json
 
 from skein_next.legacy_meta import (
@@ -104,6 +105,19 @@ def test_normalize_duplicate_keys_preserved_verbatim():
 
 def test_normalize_bytes_decoded_not_repr():
     assert normalize_legacy_meta(b'{"a": 1}') == {"a": 1}
+
+
+def test_normalize_invalid_utf8_bytes_base64_preserved():
+    # Invalid UTF-8 can't ride as TEXT and surrogateescape would crash the insert;
+    # the exact bytes are preserved base64 (lossless, pure-ASCII) and the rendered
+    # envelope must encode without error and round-trip.
+    raw = b'\xff\xfe{"a":1}'
+    norm = normalize_legacy_meta(raw)
+    assert norm == {"_raw_base64": base64.b64encode(raw).decode("ascii")}
+    content = render_legacy_meta("body", norm)
+    content.encode("utf-8")  # no surrogates -> encodable (SQLite-safe)
+    parsed = parse_legacy_meta(content)
+    assert base64.b64decode(parsed["_raw_base64"]) == raw  # exact bytes recovered
 
 
 def test_parse_ignores_marker_and_fence_inside_a_value():

@@ -53,10 +53,12 @@ What it does, and the decisions behind each step:
 5. **No silent loss.** :class:`ImportReport` accounts for what carried, what was
    reclassified (actors->weaver, actor<->actor edges kept, unresolved refs kept),
    and anything merged — including genuinely-distinct edges the thread hash
-   collapses (a Slice 1 fell note). It also counts populated legacy *columns* the
-   new model does not carry (e.g. ``metadata``, ``target_agent``) so that loss is
-   visible and the carry-or-drop decision is informed, not silent. Whether to
-   carry those into the new model is a separate product call.
+   collapses (a Slice 1 fell note). The legacy ``metadata`` column is now CARRIED:
+   folded into folio content via the ``legacy-meta`` envelope
+   (:mod:`skein_next.legacy_meta`), minus the dead ``questions_enabled`` flag.
+   Any *other* populated legacy column the new model does not carry (e.g.
+   ``target_agent``) is COUNTED so the loss is visible, not silent; whether to
+   carry those is a separate product call.
 """
 
 from __future__ import annotations
@@ -475,9 +477,18 @@ def import_project(
                     content = render_legacy_meta(content, meta)
                     report.metadata_carried += 1
                 else:
-                    try:
-                        raw_obj = json.loads(meta_raw) if meta_raw else None
-                    except (json.JSONDecodeError, ValueError):
+                    # Detect the flag-only case for the report. meta_raw is str|None
+                    # from sqlite, but normalize tolerates an already-parsed dict, so
+                    # mirror that here — json.loads(dict) raises TypeError, which the
+                    # JSONDecodeError/ValueError guard would NOT catch.
+                    if isinstance(meta_raw, dict):
+                        raw_obj = meta_raw
+                    elif isinstance(meta_raw, (str, bytes)):
+                        try:
+                            raw_obj = json.loads(meta_raw)
+                        except (json.JSONDecodeError, ValueError):
+                            raw_obj = None
+                    else:
                         raw_obj = None
                     if isinstance(raw_obj, dict) and "questions_enabled" in raw_obj:
                         report.metadata_flag_dropped += 1

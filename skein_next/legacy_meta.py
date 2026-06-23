@@ -22,6 +22,7 @@ absorbing metadata into content is consistent with that re-hash, not a new break
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from typing import Any, Dict, Optional
@@ -125,8 +126,9 @@ def normalize_legacy_meta(raw: Any) -> Optional[Dict[str, Any]]:
       dict;
     - text that is not JSON, OR a JSON object with DUPLICATE keys (which Python
       would silently collapse) → preserved verbatim under ``{"_raw": "..."}``;
-    - ``bytes`` → decoded (``surrogateescape``) then treated as text, so an odd
-      encoding round-trips rather than becoming a ``repr`` string;
+    - ``bytes`` → UTF-8 decoded then treated as text; bytes that are NOT valid
+      UTF-8 (which can't ride as SQLite TEXT, and whose surrogate-escaped decode
+      would crash the insert) → preserved exactly under ``{"_raw_base64": "..."}``;
     - ``None``/empty/``"{}"``/``"null"`` → ``None`` (nothing to carry).
 
     So the only metadata ever dropped is the dead flag; everything else is
@@ -141,7 +143,14 @@ def normalize_legacy_meta(raw: Any) -> Optional[Dict[str, Any]]:
     if isinstance(raw, (list, int, float, bool)):
         return {"_value": raw}
     if isinstance(raw, bytes):
-        text = raw.decode("utf-8", "surrogateescape")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            # Invalid UTF-8 can't be stored as TEXT, and a surrogateescape decode
+            # would leave lone surrogates that crash the SQLite insert. Preserve the
+            # exact bytes base64-encoded — lossless and pure-ASCII. (Unreachable for
+            # the json.dumps-written legacy corpus; defensive.)
+            return {"_raw_base64": base64.b64encode(raw).decode("ascii")}
     else:
         text = raw if isinstance(raw, str) else str(raw)
     if text.strip() in ("", "{}", "null"):

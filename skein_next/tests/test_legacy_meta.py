@@ -120,6 +120,26 @@ def test_normalize_invalid_utf8_bytes_base64_preserved():
     assert base64.b64decode(parsed["_raw_base64"]) == raw  # exact bytes recovered
 
 
+def test_surrogate_escaped_json_renders_utf8_safe():
+    # A legacy metadata cell can be valid UTF-8 TEXT containing a JSON \\uD800
+    # escape; json.loads makes a lone surrogate. The rendered envelope must still
+    # be UTF-8 encodable (or the folio insert aborts), and must round-trip.
+    norm = normalize_legacy_meta('{"note": "\\uD800", "ok": 1}')
+    assert norm == {"note": "\ud800", "ok": 1}
+    content = render_legacy_meta("body", norm)
+    content.encode("utf-8")  # must not raise (no literal surrogate in rendered text)
+    assert parse_legacy_meta(content) == norm
+    # byte-stable re-render (idempotent hash)
+    assert render_legacy_meta("body", parse_legacy_meta(content)) == content
+
+
+def test_non_ascii_metadata_round_trips():
+    norm = normalize_legacy_meta('{"name": "café résumé \\u00e9", "emoji": "\\ud83d\\ude00"}')
+    content = render_legacy_meta("body", norm)
+    content.encode("utf-8")
+    assert parse_legacy_meta(content) == norm
+
+
 def test_parse_ignores_marker_and_fence_inside_a_value():
     # The headline robustness claim: a metadata VALUE that itself contains a full
     # marker + json fence must not fool the parser — json.dumps escapes the

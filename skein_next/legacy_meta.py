@@ -51,8 +51,18 @@ def render_legacy_meta(body: Optional[str], meta: Dict[str, Any]) -> str:
     ``meta`` is assumed non-empty; the caller does not envelope an empty dict (a
     folio with no real metadata keeps its plain body, no marker). ``body`` may be
     ``None`` (a legacy folio with metadata but no content body).
+
+    ``ensure_ascii=True`` is deliberate (NOT the ``False`` the tender/agent
+    envelopes use): a legacy metadata cell can be valid UTF-8 TEXT holding a JSON
+    ``\\uD800`` escape, which ``json.loads`` materializes as a lone surrogate. With
+    ``ensure_ascii=False`` that surrogate would render literally and the content
+    would fail to UTF-8 encode, aborting the folio insert (canon rejects it). ASCII
+    escaping keeps every code point representable, so the rendered envelope is
+    always storable; it round-trips because :func:`parse_legacy_meta` decodes the
+    escapes back, and re-rendering is byte-stable. The cost is that non-ASCII
+    metadata renders escaped — acceptable for a machine-read preservation block.
     """
-    block = json.dumps(meta, indent=2, ensure_ascii=False, sort_keys=True)
+    block = json.dumps(meta, indent=2, ensure_ascii=True, sort_keys=True)
     body = (body or "").rstrip("\n")
     return f"{body}\n\n{LEGACY_META_MARKER}\n```json\n{block}\n```\n"
 

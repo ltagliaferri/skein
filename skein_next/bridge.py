@@ -68,6 +68,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+from .legacy_meta import normalize_legacy_meta, render_legacy_meta
 from .store import SkeinNextStore
 
 # A folio id looks like ``<type>-<8-digit-date>-<suffix>``. The date shape alone
@@ -208,6 +209,9 @@ class ImportReport:
     dropped_folio_columns: Dict[str, int] = field(default_factory=dict)
     dropped_thread_columns: Dict[str, int] = field(default_factory=dict)
 
+    metadata_carried: int = 0        # folios whose legacy metadata was folded into content
+    metadata_flag_dropped: int = 0   # folios where ONLY the dead questions_enabled flag dropped
+
     succession_renamed: int = 0      # succession -> supersedes
 
     status_without_thread: int = 0   # non-open folio status with no status thread
@@ -236,6 +240,8 @@ class ImportReport:
             f"cross-project {self.cross_project_refs}, dangling {self.dangling_refs})",
             f"succession renamed to supersedes: {self.succession_renamed}",
             f"non-open folios without a status thread: {self.status_without_thread}",
+            f"legacy metadata folded into content: {self.metadata_carried} folios "
+            f"(dead questions_enabled flag dropped from {self.metadata_flag_dropped})",
         ]
         for col, n in sorted(self.dropped_folio_columns.items()):
             lines.append(
@@ -259,7 +265,7 @@ class ImportReport:
 
 
 _FOLIO_COLS = ("folio_id", "type", "site_id", "created_at", "created_by",
-               "title", "content", "status")
+               "title", "content", "status", "metadata")
 _THREAD_COLS = ("thread_id", "from_id", "to_id", "type", "content", "weaver",
                 "created_at")
 
@@ -272,6 +278,9 @@ _THREAD_COLS = ("thread_id", "from_id", "to_id", "type", "content", "weaver",
 _ACCOUNTED_FOLIO_COLS = {
     "folio_id", "type", "site_id", "created_at", "created_by",
     "title", "content", "status", "content_hash",
+    # metadata is now carried — folded into content via the legacy-meta envelope
+    # (minus the dead questions_enabled flag), so it is no longer silent loss.
+    "metadata",
 }
 # Threads are content-addressed; thread_id is replaced by the hash. The other
 # six columns carry into the new thread.
@@ -441,15 +450,40 @@ def import_project(
             )
 
         # --- folios -> hashes + aliases -------------------------------------
+        # Defensive about schema drift (tome lacks columns speakbot has): select
+        # only the canonical columns this legacy DB actually has. Required fields
+        # (type/title/content/created_at/created_by) error at create_folio if truly
+        # absent, as before; optional ones (status, metadata, site_id) just don't
+        # appear in the row.
+        present_folio_cols = {r[1] for r in conn.execute("PRAGMA table_info(folios)")}
+        select_cols = [c for c in _FOLIO_COLS if c in present_folio_cols]
         seen_hashes: Set[str] = set()
         with store.transaction():
             for row in conn.execute(
-                f"SELECT {','.join(_FOLIO_COLS)} FROM folios"
+                f"SELECT {','.join(select_cols)} FROM folios"
             ):
+                content = row["content"]
+                # Preserve the legacy metadata column by folding it into content.
+                # The new model has no metadata column; the tender/agent envelopes
+                # already embed structured fields in content, so this matches. The
+                # dead questions_enabled flag is stripped (a signed-off no-op);
+                # anything real is embedded losslessly under the legacy-meta marker.
+                meta_raw = row["metadata"] if "metadata" in row.keys() else None
+                meta = normalize_legacy_meta(meta_raw)
+                if meta is not None:
+                    content = render_legacy_meta(content, meta)
+                    report.metadata_carried += 1
+                else:
+                    try:
+                        raw_obj = json.loads(meta_raw) if meta_raw else None
+                    except (json.JSONDecodeError, ValueError):
+                        raw_obj = None
+                    if isinstance(raw_obj, dict) and "questions_enabled" in raw_obj:
+                        report.metadata_flag_dropped += 1
                 fields = {
                     "type": row["type"],
                     "title": row["title"],
-                    "content": row["content"],
+                    "content": content,
                     "created_at": row["created_at"],
                     "created_by": row["created_by"],
                 }

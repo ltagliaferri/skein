@@ -491,7 +491,8 @@ CREATE TABLE threads (
 
 
 def test_dropped_legacy_columns_are_counted(tmp_path, store):
-    """metadata / target_agent are not carried, but the loss must be visible."""
+    """metadata is now CARRIED (folded into content); target_agent stays a counted
+    drop, and that loss must remain visible in the report."""
     db = tmp_path / "legacy.db"
     conn = sqlite3.connect(str(db))
     conn.executescript(_LEGACY_SCHEMA_WITH_EXTRAS)
@@ -502,7 +503,7 @@ def test_dropped_legacy_columns_are_counted(tmp_path, store):
         # populated metadata, no target_agent
         ("brief-20260102-bbbb", "brief", None, "2026-01-02T10:00:00.2+00:00",
          "x", "t2", "c2", "open", None, '{"a":1}', None),
-        # trivial-empty metadata ({}) and empty target_agent -> not counted
+        # trivial-empty metadata ({}) and empty target_agent -> neither counted
         ("brief-20260103-cccc", "brief", None, "2026-01-03T10:00:00.3+00:00",
          "x", "t3", "c3", "open", None, "{}", ""),
     ]
@@ -517,11 +518,13 @@ def test_dropped_legacy_columns_are_counted(tmp_path, store):
     sites_dir = make_sites_dir(tmp_path / "d", [])
     report = import_project(db, sites_dir, store)
 
-    assert report.dropped_folio_columns.get("metadata") == 2
+    # metadata: carried into content for the two real ones, not a dropped column.
+    assert "metadata" not in report.dropped_folio_columns
+    assert report.metadata_carried == 2
+    # target_agent: still a counted, surfaced drop (the one populated row).
     assert report.dropped_folio_columns.get("target_agent") == 1
-    # and the loss shows up in the rendered report
     rendered = report.render()
-    assert "metadata populated in 2 folios" in rendered
+    assert "metadata populated in 2 folios" not in rendered
     assert "target_agent populated in 1 folios" in rendered
 
 
@@ -656,3 +659,86 @@ def test_open_legacy_is_read_only(legacy):
     with pytest.raises(sqlite3.OperationalError):
         conn.execute("INSERT INTO folios (folio_id) VALUES ('x')")
     conn.close()
+
+
+# --- legacy metadata preservation (folded into content) ----------------------
+#
+# The bridge folds a legacy folio's `metadata` column into the new folio's
+# content via the legacy-meta envelope (minus the dead questions_enabled flag),
+# so it is carried, not dropped. A schema WITH metadata + target_agent exercises
+# this; the older fixtures omit those columns and prove the schema-drift guard.
+
+from skein_next.legacy_meta import parse_legacy_meta  # noqa: E402
+
+_META_FOLIOS = [
+    ("tender-1", "tender", None, "2026-01-01T00:00:00Z", "a", "T1", "tender body",
+     "open", None, '{"confidence": 8, "reviewer": "fell-r1", "questions_enabled": true}', None),
+    ("brief-1", "brief", None, "2026-01-02T00:00:00Z", "b", "B1", "brief body",
+     "open", None, '{"questions_enabled": true}', "next-session"),
+    ("plain-1", "finding", None, "2026-01-03T00:00:00Z", "c", "F1", "finding body",
+     "open", None, None, None),
+    ("weird-1", "notion", None, "2026-01-04T00:00:00Z", "d", "N1", "notion body",
+     "open", None, "not json at all", None),
+]
+
+
+def _build_meta_db(tmp_path):
+    db = tmp_path / "meta.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(_LEGACY_SCHEMA_WITH_EXTRAS)
+    for r in _META_FOLIOS:
+        conn.execute(
+            "INSERT INTO folios (folio_id,type,site_id,created_at,created_by,"
+            "title,content,status,content_hash,metadata,target_agent) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)", r,
+        )
+    conn.commit()
+    conn.close()
+    sites = make_sites_dir(tmp_path / "data", [])
+    return db, sites
+
+
+def test_metadata_folded_into_content(tmp_path, store):
+    db, sites = _build_meta_db(tmp_path)
+    report = import_project(db, sites, store)
+    folio = store.get_folio(store.resolve_alias("tender-1"))
+    assert "tender body" in folio["content"]
+    meta = parse_legacy_meta(folio["content"])
+    assert meta == {"confidence": 8, "reviewer": "fell-r1"}  # questions_enabled stripped
+    assert report.metadata_carried == 2  # tender-1 (real) + weird-1 (_raw)
+
+
+def test_dead_flag_only_metadata_not_folded(tmp_path, store):
+    db, sites = _build_meta_db(tmp_path)
+    report = import_project(db, sites, store)
+    folio = store.get_folio(store.resolve_alias("brief-1"))
+    assert parse_legacy_meta(folio["content"]) is None  # nothing folded
+    assert "legacy-meta" not in folio["content"]
+    assert report.metadata_flag_dropped == 1  # brief-1 had only the dead flag
+
+
+def test_non_json_metadata_preserved_raw(tmp_path, store):
+    db, sites = _build_meta_db(tmp_path)
+    import_project(db, sites, store)
+    folio = store.get_folio(store.resolve_alias("weird-1"))
+    assert parse_legacy_meta(folio["content"]) == {"_raw": "not json at all"}
+
+
+def test_metadata_not_reported_as_dropped_but_target_agent_is(tmp_path, store):
+    db, sites = _build_meta_db(tmp_path)
+    report = import_project(db, sites, store)
+    assert "metadata" not in report.dropped_folio_columns
+    # target_agent stays a counted drop (Patrick's call: drop the handoff targets).
+    assert report.dropped_folio_columns.get("target_agent") == 1
+
+
+def test_metadata_fold_is_idempotent(tmp_path, store):
+    db, sites = _build_meta_db(tmp_path)
+    import_project(db, sites, store)
+    h1 = store.resolve_alias("tender-1")
+    n1 = store.count_folios()
+    # Re-import the SAME db: the enveloped content hashes identically, so the
+    # folio collapses rather than duplicating.
+    import_project(db, sites, store)
+    assert store.resolve_alias("tender-1") == h1
+    assert store.count_folios() == n1

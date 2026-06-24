@@ -166,7 +166,7 @@ def _cover_folio(data_dir, content_hash, *, subject="alice@example.com",
     replacement for the dissolved per-folio signature sidecar."""
     import json
 
-    from skein import signing
+    from skein_next import signing
     from skein_next import profile, sign as sign_mod
     from skein_next.canon import manifest_descriptor_canonical_bytes
     from skein_next.identity import content_hash_for_bytes
@@ -195,7 +195,7 @@ def _cover_folio(data_dir, content_hash, *, subject="alice@example.com",
 
 
 def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
-    from skein import signing
+    from skein_next import signing
 
     client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
     _cover_folio(seeded["data_dir"], seeded["a"], subject="alice@example.com", bind=True)
@@ -216,7 +216,7 @@ def test_folio_for_agents_box_does_not_call_bad_signature_unsigned(seeded, monke
     # A folio whose covering manifest's signature is INVALID must NOT read "Unsigned
     # — operator-vouched" in the handoff box; it has a signature, just not a verified
     # one. Understating that in the agent-handoff affordance is the wrong default.
-    from skein import signing
+    from skein_next import signing
 
     client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
     _cover_folio(seeded["data_dir"], seeded["a"], bind=True)

@@ -23,8 +23,8 @@ import base64
 import json
 import pytest
 
-from skein import signing
-from skein.signing import _test_factory
+from skein_next import signing
+from skein_next.signing import _test_factory
 
 from skein_next import publish as pub_mod
 from skein_next import sign as sign_mod

@@ -273,8 +273,8 @@ def test_ingress_startup_logs_operator_status(tmp_path, monkeypatch, caplog):  #
 
 
 def test_maintenance_verify_cache_backfills(tmp_path, monkeypatch):  # VC9
-    from skein import signing
-    from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
+    from skein_next import signing
+    from skein_next.signing import MultiVerifyResult, VerifyResult, VerifyStatus
     from skein_next import profile, sign as sign_mod, wire
     from skein_next.ingress import ingest
 

@@ -14,8 +14,8 @@ import json
 
 import pytest
 
-from skein import signing
-from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus, _test_factory
+from skein_next import signing
+from skein_next.signing import MultiVerifyResult, VerifyResult, VerifyStatus, _test_factory
 
 from skein_next import profile, sign as sign_mod, wire
 from skein_next import publish as pub_mod

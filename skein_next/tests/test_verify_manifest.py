@@ -13,8 +13,8 @@ import hashlib
 
 import pytest
 
-from skein import signing
-from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
+from skein_next import signing
+from skein_next.signing import MultiVerifyResult, VerifyResult, VerifyStatus
 
 from skein_next import canon, profile
 from skein_next import sign as sign_mod

@@ -86,7 +86,7 @@ def _pin_check(
     """
     if not requested_address:
         return None, None, "no requested address to pin against"
-    from skein import address as addr
+    from skein_next import address as addr
 
     try:
         parsed = addr.parse(requested_address)

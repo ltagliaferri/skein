@@ -16,7 +16,7 @@ import json
 
 import pytest
 
-from skein import signing
+from skein_next import signing
 
 from skein_next.station import Station
 from skein_next import sign as sign_mod

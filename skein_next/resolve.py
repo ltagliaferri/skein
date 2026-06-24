@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from skein import address
+from skein_next import address
 
 # Error codes are the spec's (§6); kept as a frozenset so a typo in a raise site
 # is catchable in tests rather than silently minting a new code.

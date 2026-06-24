@@ -135,8 +135,8 @@ def test_partial_schema_corpus_serves_unsigned_no_500(tmp_path, drop):
 
 
 def test_covered_folio_with_account_bindings_table_absent_degrades(tmp_path, monkeypatch):
-    from skein import signing
-    from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
+    from skein_next import signing
+    from skein_next.signing import MultiVerifyResult, VerifyResult, VerifyStatus
 
     from skein_next import profile, sign as sign_mod
     from skein_next.canon import manifest_descriptor_canonical_bytes

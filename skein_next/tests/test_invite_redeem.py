@@ -18,8 +18,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from skein import signing
-from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus, _test_factory
+from skein_next import signing
+from skein_next.signing import MultiVerifyResult, VerifyResult, VerifyStatus, _test_factory
 
 from skein_next import profile, redeem as redeem_mod
 from skein_next import sign as sign_mod

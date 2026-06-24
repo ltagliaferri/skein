@@ -82,7 +82,7 @@ def _build_signer(
         raise click.ClickException(
             "--sign needs --login (interactive) or --oidc-token (or '-' for stdin)."
         )
-    from skein.signing import OIDCProviderConfig
+    from skein_next.signing import OIDCProviderConfig
 
     provider = OIDCProviderConfig(issuer=oidc_issuer, token=oidc_token, provider_id=None)
     return _sign.make_oidc_signer(provider)

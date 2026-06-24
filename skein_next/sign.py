@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
-from skein import signing
+from skein_next import signing
 
 from . import canon, profile
 from .identity import content_hash_for_bytes, hash_token

@@ -34,6 +34,9 @@ dependencies = [
     # the skein.folio.canon/v1 conformance vectors (test_canon_conformance.py).
     "knurl>=0.3.0,<0.4.0",
     "sigstore>=4.2,<5",
+    # signing.py imports cryptography directly (was riding in transitively via
+    # sigstore); declared explicitly now that signing lives in this package.
+    "cryptography>=42,<47",
 ]
 
 [project.optional-dependencies]

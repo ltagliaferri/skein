@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from skein import signing
+from skein_next import signing
 from skein_next import envelope as env_mod
 from skein_next.station import Station
 

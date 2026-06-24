@@ -76,7 +76,7 @@ def _generate_name(existing: set) -> str:
     guard's rejection, so a collision is recoverable even if it does occur.
     """
     try:
-        from skein.utils import generate_agent_name
+        from skein_next.utils import generate_agent_name
 
         return generate_agent_name(existing_names=existing)
     except Exception:

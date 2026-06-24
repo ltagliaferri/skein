@@ -12,8 +12,8 @@ import json
 
 import pytest
 
-from skein import signing
-from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
+from skein_next import signing
+from skein_next.signing import MultiVerifyResult, VerifyResult, VerifyStatus
 
 from skein_next import profile, sign as sign_mod, wire
 from skein_next.store import SkeinNextStore, bundle_hash_for

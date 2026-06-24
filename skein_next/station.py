@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from skein import address
+from skein_next import address
 
 from .agent import parse_agent_meta, render_agent_content
 from .store import SkeinNextStore
@@ -1241,7 +1241,7 @@ class Station:
         ``sack_id`` defaults to a fresh ``sack-YYYYMMDD-xxxx`` id (legacy's
         :func:`skein.utils.generate_yield_id`, reused for byte-faithful ids).
         """
-        from skein.utils import generate_yield_id
+        from skein_next.utils import generate_yield_id
 
         sid = sack_id or generate_yield_id()
         self.store.add_yield(

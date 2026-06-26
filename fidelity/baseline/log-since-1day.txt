@@ -1,0 +1,4 @@
+# argv: log --since 1day --limit 100 --no-pager --json
+# rc: 1
+
+# stderr: Traceback (most recent call last):

@@ -1,0 +1,4504 @@
+# argv: find --type brief --limit 500 --json
+# rc: 0
+{
+  "execution_time_ms": "<ms>",
+  "filters": {
+    "archived": false,
+    "limit": 500,
+    "offset": 0,
+    "sort": "created",
+    "type": "brief"
+  },
+  "query": "",
+  "resources": [
+    "folios"
+  ],
+  "results": {
+    "folios": {
+      "items": [
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2469 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-24T19:10:23.850082Z",
+          "created_by": "cutover-rehearsal-0624",
+          "folio_id": "brief-20260624-z4h2",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Stage 4 cutover — rehearsal-proven execution brief (READ docs/STAGE_4_CUTOVER_BRIEF.md)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3126 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-22T20:07:17.737302Z",
+          "created_by": "the thimble dandies-0622",
+          "folio_id": "brief-20260622-pvkr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Stage 3 (pared) — port brief-handoff + reply-on-resource; DROP A2A messaging (SKEIN is pull, push...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5673 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-22T13:10:20.207769Z",
+          "created_by": "morse-0621",
+          "folio_id": "brief-20260622-llts",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Stage 2 — Lifecycle + roster + activity + chain yields (agent-coordination port)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2854 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-21T19:33:56.989943Z",
+          "created_by": "rebus-0620",
+          "folio_id": "brief-20260621-aeh9",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Port the legacy agent-coordination layer onto the content-hash station (interskein cutover prereq)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4259 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-20T20:52:42.944528Z",
+          "created_by": "elias-0619",
+          "folio_id": "brief-20260620-ggqf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Finalize + ship the supply-chain install pin (onboarding page + signed blob) — PAIRING",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2741 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-20T18:42:03.340739Z",
+          "created_by": "elias-0619",
+          "folio_id": "brief-20260620-d5hi",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "GitHub-identity smoke for the public ingress (redeem + signed publish)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3182 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-19T18:31:59.853702Z",
+          "created_by": "sleuth-0618",
+          "folio_id": "brief-20260619-ws9c",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Supply-chain install pin for invite/redeem onboarding (Phase B item 1)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3760 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-19T18:25:03.253107Z",
+          "created_by": "sleuth-0618",
+          "folio_id": "brief-20260619-nrle",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Pre-public invite/redeem — Phase B (supply-chain pin, real-Sigstore, deploy)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7025 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-18T19:55:13.896814Z",
+          "created_by": "rustle-0616",
+          "folio_id": "brief-20260618-yljd",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Pre-public hardening of invite/redeem (beyond the fell)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3921 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-17T02:19:16.265487Z",
+          "created_by": "schlep-0614",
+          "folio_id": "brief-20260617-jxxg",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Collaborator-flow dress test (pending) — bound non-operator author publishes signed over the publ...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<11196 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-15T19:46:28.756913Z",
+          "created_by": "schlep-0614",
+          "folio_id": "brief-20260615-ofv1",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Agent-mediated collaborator onboarding v2 SPEC (folds four-genotype review; supersedes brief-2026...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<10302 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-15T17:55:23.275378Z",
+          "created_by": "schlep-0614",
+          "folio_id": "brief-20260615-jfjr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Agent-mediated collaborator onboarding (invite → sigstore-redeem → auto-bind + supply-chain-audit...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5846 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-15T02:53:20.761293Z",
+          "created_by": "schmutz-0612",
+          "folio_id": "brief-20260615-wq0p",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Public write surface — graduate the dark-launch ingress to a public publish route (collaborator p...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4422 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-14T15:14:32.117763Z",
+          "created_by": "schmutz-0612",
+          "folio_id": "brief-20260614-b7pu",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Fix horizon watcher mode so cast agents can execute (gate wrongly blocks file-writes + glob chars)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5125 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-13T02:37:53.630257Z",
+          "created_by": "crumb-0611",
+          "folio_id": "brief-20260613-jfpo",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "RESUME: authorization RSP — derive Phase 2 contract from the revised Merkle boundary, fell, then ...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4551 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-13T00:57:45.502663Z",
+          "created_by": "crumb-0611",
+          "folio_id": "brief-20260613-h84c",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "authorization RSP Phase 3 (implementation) — implement to the fell-clean rev-5 contract",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2271 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-12T00:57:22.804943Z",
+          "created_by": "crumb-0611",
+          "folio_id": "brief-20260612-bcbw",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Authenticated ingress — the client->instance publish path (auth phase)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5334 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-07T03:36:09.827439Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260607-mc97",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Kickoff — finish the agent-facing layer, then deploy",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3335 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T20:40:43.246459Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260606-24c4",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff — read surface: slices 1-4B built, fold today's specs, then deploy",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3855 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T20:02:03.697142Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260606-aetb",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Future directions — ideation keepers (round 1)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6616 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:40:50.289753Z",
+          "created_by": "lampshade-0606",
+          "folio_id": "brief-20260606-17n8",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "New folio type: decision — a SKEIN ADR (context, options w/ inline rejections, decision, reasonin...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3681 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:34:33.768420Z",
+          "created_by": "lampshade-0606",
+          "folio_id": "brief-20260606-pdy6",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "New folio type: resolution — a SKEIN ADR (options, decision, reasoning)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1692 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:23:58.205835Z",
+          "created_by": "lampshade-0606",
+          "folio_id": "brief-20260606-it1e",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "mesh dev loop + CI-install replay tool (catch dependency/version drift before the push)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2216 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:23:42.562080Z",
+          "created_by": "lampshade-0606",
+          "folio_id": "brief-20260606-5e6q",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Siege chain: a model-diverse adversarial review chain (upgrade hardening, or a new mill chain)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1906 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:23:22.030805Z",
+          "created_by": "lampshade-0606",
+          "folio_id": "brief-20260606-ca89",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Capability-style addresses: every emitted address carries its #sha256 verifier fragment",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1961 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:23:03.040192Z",
+          "created_by": "lampshade-0606",
+          "folio_id": "brief-20260606-azul",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Hostile-envelope fuzzer: property tests over the renderer + mesh fetch verify",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2021 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:22:46.477057Z",
+          "created_by": "lampshade-0606",
+          "folio_id": "brief-20260606-jinp",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Give the agent-markdown rendering its own conformance suite (RSP-grade, like canon)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3230 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T19:00:23.736311Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260606-7ddh",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Agent-markdown navigation contract — final (.md opener + fetchable references)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1719 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T18:59:29.874174Z",
+          "created_by": "lint-0604",
+          "folio_id": "brief-20260606-8j8v",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Legacy storage.py: pre-3.11 fractional-seconds parse exposure (latent)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2575 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T18:58:50.443707Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260606-n45w",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Agent-markdown navigation contract: the .md opener + fetchable references",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8542 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T18:47:28.490686Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260606-w8jw",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Theming & layout contract (rev 3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2199 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-06T17:43:03.331601Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260606-jvvt",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Tombstone / retraction rendering — deferred from slice 3, needs wire support",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9353 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-05T21:18:29.879118Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260605-ge3i",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Theming & layout contract (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6316 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-05T21:09:13.688941Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260605-srzc",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Theming & layout contract (the human HTML surface)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3624 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-04T16:03:25.525045Z",
+          "created_by": "scurry-0603",
+          "folio_id": "brief-20260604-sbab",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Mesh-web build: slices 3-5 remain (slices 1+2 fell-clean, merged)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4298 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-04T15:59:47.427910Z",
+          "created_by": "scurry-0603",
+          "folio_id": "brief-20260604-fqw2",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff: Phase-1 read surface — slices 1+2 done (fell-clean, merged), slices 3-5 remain",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2580 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-04T01:31:38.102091Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260604-4uon",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: Phase-1 read surface — specs complete, implementation ready",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4975 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T20:32:39.180048Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260603-x261",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase-1 read surface: implementation path & slice order",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6051 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T20:11:40.945265Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260603-dirz",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase-1 read surface: fork resolutions (A–H)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<14882 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T18:09:01.048037Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260603-ujwx",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "The SKEIN wire envelope (rev 2): unified frame, versioning, agent rendering",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4515 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T16:39:51.472497Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260603-n22c",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Canonical serialization spec amendments (knurl 0.3.0): integers, depth, unassigned code points",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<11194 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T16:36:46.852671Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260603-1bf1",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "The SKEIN wire envelope: unified frame, versioning, agent rendering",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<19111 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T13:27:15.806726Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260603-tgg8",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Machine read interface: the content-addressed resolver (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<11989 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T02:18:15.294049Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260603-lds4",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Machine read interface: the content-addressed resolver",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9405 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-03T01:36:32.396323Z",
+          "created_by": "scritch-0602",
+          "folio_id": "brief-20260603-s4gq",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Station read surface: machine-endpoint-first, themeable HTML, stationfile config",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5498 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-02T13:46:10.966981Z",
+          "created_by": "skitter-0601",
+          "folio_id": "brief-20260602-2r3a",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "PAIR: frontend / read-surface polish (interskein web)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4789 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-01T22:56:49.672136Z",
+          "created_by": "skitter-0601",
+          "folio_id": "brief-20260601-4tpk",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "RESUME: sign the two live docs + close the trust-spine gap (item 4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7494 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-01T22:26:08.122673Z",
+          "created_by": "skitter-0601",
+          "folio_id": "brief-20260601-nqtj",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Client-to-Instance Publish Protocol (rev 0 — DRAFT)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4923 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-06-01T21:27:00.580686Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260601-qc08",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: interskein is live — next is the trust spine (sign-at-publish)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6022 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-31T15:46:53.522007Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260531-fx6s",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Web instance build — converge on the station, do it right (plan)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5267 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-31T03:37:12.835653Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260531-ho49",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Cutover plan: tome pilot (first real parallel-station cutover)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2562 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-30T19:37:02.022240Z",
+          "created_by": "tatter-0529",
+          "folio_id": "brief-20260530-ctmf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "encoji Phase 4 (hardening) — human-relay homoglyph audit + fuzz",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3041 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-30T17:58:45.734410Z",
+          "created_by": "dingus-0529",
+          "folio_id": "brief-20260530-gebi",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Deferred: wire encoji in as an emoji rendering/resolution layer for skein_next",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2261 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T20:46:45.524223Z",
+          "created_by": "goblin-0528",
+          "folio_id": "brief-20260529-mftr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Slice 3: new-skein CLI surface (pair session — CLI ergonomics)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8685 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T20:38:00.454612Z",
+          "created_by": "spit-0529",
+          "folio_id": "brief-20260529-3gj8",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: stationmaker — build the local content-hash station (skein_next Slices 2-5)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5215 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T18:55:37.480877Z",
+          "created_by": "tatter-0529",
+          "folio_id": "brief-20260529-3lsf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "encoji Phase 3 (implementation) — make the gauntlet green",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1481 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T17:50:17.029422Z",
+          "created_by": "spit-0529",
+          "folio_id": "brief-20260529-550c",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "RSP addressing: merge + master integration (post-Phase-4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4345 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T17:04:00.791611Z",
+          "created_by": "the stapler jockeys-0529",
+          "folio_id": "brief-20260529-al6t",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: encoji Phase 1 fell-clean → Phase 2",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4414 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T17:01:38.345361Z",
+          "created_by": "plink-0529",
+          "folio_id": "brief-20260529-rfa2",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "RSP: addressing — Phase 4 (hardening); Phases 1-3 fell-clean",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3397 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T15:29:15.564469Z",
+          "created_by": "the stapler jockeys-0529",
+          "folio_id": "brief-20260529-rx21",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "RSP: encoji codec — Phase 2 (test design)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<10871 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T14:47:52.502691Z",
+          "created_by": "goblin-0528",
+          "folio_id": "brief-20260529-i6fy",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "new-skein parallel station — import-first build plan (from dry-run spike)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3480 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T13:34:38.823879Z",
+          "created_by": "goblin-0528",
+          "folio_id": "brief-20260529-o0qc",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "RSP roster for new skein (federation) — corrected criterion + final set",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2598 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T13:33:15.452456Z",
+          "created_by": "goblin-0528",
+          "folio_id": "brief-20260529-0yjl",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "RSP: addressing — Phase 2 (test design; Phase 1 banked via fell)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2522 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-29T13:33:15.185365Z",
+          "created_by": "goblin-0528",
+          "folio_id": "brief-20260529-nj2k",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "RSP: emoji codec — Phase 1 (alphabet curation + research)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9461 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-28T21:26:25.667958Z",
+          "created_by": "goblin-0528",
+          "folio_id": "brief-20260528-b985",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Migration strategy: parallel-station cutover (supersedes in-place framing)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5549 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-28T17:19:32.162551Z",
+          "created_by": "shiv-0527",
+          "folio_id": "brief-20260528-wdrj",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: federation design post-rev-5, next is migration",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<20309 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-28T17:18:41.418186Z",
+          "created_by": "shiv-0527",
+          "folio_id": "brief-20260528-1wj3",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN v0 federation synthesis rev 5 — addressing, sites, cascade, op log rev 2 consolidated",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8417 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-27T22:16:30.005520Z",
+          "created_by": "shiv-0527",
+          "folio_id": "brief-20260527-ziow",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: federation design state post-rev-4, next pair candidates",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<26034 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-27T22:15:18.044581Z",
+          "created_by": "shiv-0527",
+          "folio_id": "brief-20260527-nif0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN v0 federation synthesis rev 4 — privacy, op log wire format, addressing, hash-as-folio-id",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<10363 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-27T19:10:43.549268Z",
+          "created_by": "apatheia-0527",
+          "folio_id": "brief-20260527-kj64",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: SKEIN federation design state and next pair candidates",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<20836 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-27T19:09:16.705943Z",
+          "created_by": "apatheia-0527",
+          "folio_id": "brief-20260527-pxus",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN v0 federation synthesis rev 3 — authority model + contribution paths + mefile reframe",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<26819 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-27T16:02:07.199870Z",
+          "created_by": "apatheia-0527",
+          "folio_id": "brief-20260527-8afy",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN v0 federation synthesis rev 2 — post-pair consolidation",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<10718 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-27T15:21:41.910945Z",
+          "created_by": "apatheia-0527",
+          "folio_id": "brief-20260527-5u34",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Sovereignty in Skein — principles, decisions, and trajectory",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<19704 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-27T03:06:53.509333Z",
+          "created_by": "thermostat-0526",
+          "folio_id": "brief-20260527-gbp5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN v0 federation synthesis — three primitives, four verbs, three roles, shared-home collab, Re...",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<12333 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-26T02:03:49.062694Z",
+          "created_by": "latch-0525",
+          "folio_id": "brief-20260526-mkdf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Pairing: substrate primitive (loom)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6896 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-25T22:37:23.939743Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260525-wl5u",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Permissions & ownership — the can_curate gate (Phase 1 prerequisite)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7225 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:46:44.862026Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-6ih5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "ROADMAP — mesh-web linear build order (pair through next week)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4224 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:46:05.240356Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-6qa7",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Federation demo — instance config, second instance, on-demand search/fetch",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3549 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:45:39.785853Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-q8k0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Signing at the publish boundary — wire canon.py + signing.py",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4042 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:45:18.500951Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-k7jp",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Publish path — client to instance push (the write boundary)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3307 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:44:51.445833Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-xr4j",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Agent hook-in — pasteable, inspectable, non-suspect onboarding",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3264 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:44:28.443133Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-4yt4",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Search — local quality now, federated fan-out later (priority downgraded)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3446 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:44:07.045676Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-28jf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Profile pages — /author and /handle (routes specced, page design net-new)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3057 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:43:43.913185Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-rd8n",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Content rendering, title hygiene, sort & filter",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3446 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:43:24.819425Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-r12g",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Provenance card — the trust-signal exception to the minimal aesthetic",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3337 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:43:04.286854Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-wdxr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Layout & thread graph — 3-column responsive, threads-in/out vs links",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3924 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:42:43.533263Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-2btt",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Legibility & IA — the cold-open: pinnables, omnibus briefs, site landing",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3048 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-22T03:42:20.611478Z",
+          "created_by": "prickle-0521",
+          "folio_id": "brief-20260522-0gjz",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-web",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Design language — Wikipedia x Vitsoe, classic-web floor",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<10911 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-21T20:01:46.511616Z",
+          "created_by": "spade-0521",
+          "folio_id": "brief-20260521-j3kh",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Interskein v1 handoff — locked decisions, what's wired, what's next",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3914 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-21T18:57:36.850111Z",
+          "created_by": "spade-0521",
+          "folio_id": "brief-20260521-b6t0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Stale shard triage — walk and cleanup 19 shards",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7125 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-21T18:37:17.265676Z",
+          "created_by": "crinkle-0521",
+          "folio_id": "brief-20260521-e46z",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4 post-§D handoff — spine wrap, two small items, stale shard triage",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8123 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-21T13:39:32.174873Z",
+          "created_by": "magnum-0520",
+          "folio_id": "brief-20260521-8gnj",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4 §D handoff — bit-flip real-library re-verify",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8624 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-20T15:53:56.858067Z",
+          "created_by": "pawl-0519",
+          "folio_id": "brief-20260520-x2nj",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Phase 4 entry — F-pass mid-iteration; 2 outstanding F items (supersedes brief-20260520-gdvx)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3991 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-20T01:09:02.311195Z",
+          "created_by": "frost-0519",
+          "folio_id": "brief-20260520-xkly",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Master CI green-pass: test.yml + lint.yml red since 2026-05-19 signing push",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9910 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-20T01:08:29.877612Z",
+          "created_by": "frost-0519",
+          "folio_id": "brief-20260520-gdvx",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4 entry — post K-A9 observed (supersedes brief-20260519-5aa5)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5702 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-19T19:33:11.755560Z",
+          "created_by": "poirot-0519",
+          "folio_id": "brief-20260519-5aa5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4 entry — post A+E+A3 (supersedes rgu2 baseline)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6399 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-19T17:02:12.123450Z",
+          "created_by": "quirk-0518",
+          "folio_id": "brief-20260519-rgu2",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4 entry point (post item-1): supersedes vpsq baseline; remaining-work pickup",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7644 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-19T13:03:50.831223Z",
+          "created_by": "quirk-0518",
+          "folio_id": "brief-20260519-vpsq",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4 handoff (post-consolidation): corrected baseline + residual status-pin set",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5572 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-19T02:34:28.443374Z",
+          "created_by": "magnum-0514",
+          "folio_id": "brief-20260519-hanj",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Ground-truth test tier for skein/signing.py — non-mockable smoke",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9807 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-19T01:45:55.080684Z",
+          "created_by": "magnum-0514",
+          "folio_id": "brief-20260519-zvlq",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4 handoff — skein/signing.py hardening",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<21632 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-14T21:38:57.151398Z",
+          "created_by": "magnum-0514",
+          "folio_id": "brief-20260514-urdk",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 3 implementation brief — skein/signing.py",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4057 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-14T19:00:14.561066Z",
+          "created_by": "the motive confusion syndrome-0514",
+          "folio_id": "brief-20260514-7i3w",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Phase 3 implementation: log unrecognized sigstore-python exceptions",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4570 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-14T19:00:14.236834Z",
+          "created_by": "the motive confusion syndrome-0514",
+          "folio_id": "brief-20260514-cw13",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Phase 3 prereq: ratify SAN extraction policy or revisit",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4997 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-14T19:00:13.895144Z",
+          "created_by": "the motive confusion syndrome-0514",
+          "folio_id": "brief-20260514-me2x",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 4: full crypto review of signing.py implementation (post-ship hardening)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<358 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-14T17:37:42.066104Z",
+          "created_by": "poirot-0514",
+          "folio_id": "brief-20260514-c0yh",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 3: cross-impl conformance corpus expansion",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<455 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-14T17:37:36.753951Z",
+          "created_by": "poirot-0514",
+          "folio_id": "brief-20260514-k7s1",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Phase 3: resolve MultiVerifyResult aggregate-status rule for heterogeneous failures",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<17019 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-14T17:31:06.565920Z",
+          "created_by": "the motive confusion syndrome-0514",
+          "folio_id": "brief-20260514-7hu9",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Fix brief: Phase 2 knuth+oracle close (post-rerun)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8479 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-13T22:14:27.705764Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260513-iux6",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "HANDOFF: complete Phase 2 test contract lock for signing.py",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9181 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-13T16:00:09.581430Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260513-k2iz",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Batch 6 fix brief: ops + Unicode + cleanup (signing.py)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7420 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-13T15:36:46.967222Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260513-55gp",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Batch 5 fix brief: OIDC + boundaries (signing.py)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7774 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-13T15:20:02.093771Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260513-sytr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Batch 4 fix brief: cross-impl + encoding (signing.py)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7173 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-13T15:12:16.710187Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260513-282h",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Batch 3 fix brief: long-term verification (signing.py)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7483 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-13T13:57:03.403592Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260513-u8rx",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Batch 2 fix brief: cryptographic algorithm validation (signing.py)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6791 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T23:16:04.474311Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260511-c4fm",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 2 unification brief: signing.py test contracts",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<30677 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T19:49:09.400240Z",
+          "created_by": "drawer-0511",
+          "folio_id": "brief-20260511-nbz4",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Identity and Signing (rev 5)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<29176 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T19:46:43.516609Z",
+          "created_by": "plunger-0511",
+          "folio_id": "brief-20260511-wnd9",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Web App (rev 4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5427 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T19:12:01.444091Z",
+          "created_by": "glom-0511",
+          "folio_id": "brief-20260511-0o2s",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-rsps",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "RSP: signing.py — implementation tracker",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<25967 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T16:16:33.866856Z",
+          "created_by": "corkboard-0511",
+          "folio_id": "brief-20260511-0kq5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Web App (rev 3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<22683 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T16:13:01.696985Z",
+          "created_by": "cruz-0511",
+          "folio_id": "brief-20260511-7b1c",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Install and Deploy (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<20841 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T16:12:48.492618Z",
+          "created_by": "dustpan-0511",
+          "folio_id": "brief-20260511-xzpm",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Handle Registry (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<14987 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T16:11:57.634975Z",
+          "created_by": "doorknob-0511-2",
+          "folio_id": "brief-20260511-6hb5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Privacy Levels (rev 3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<12505 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T16:10:09.351951Z",
+          "created_by": "doorknob-0511-1",
+          "folio_id": "brief-20260511-c660",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Untrusted Content Protocol (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<17514 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T16:09:41.920708Z",
+          "created_by": "hinge-0511",
+          "folio_id": "brief-20260511-7jbi",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Migration (rev 4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<11308 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T16:09:21.286096Z",
+          "created_by": "curtain-0511",
+          "folio_id": "brief-20260511-jql6",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Interop (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<23877 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T15:55:08.214115Z",
+          "created_by": "doorknob-0511",
+          "folio_id": "brief-20260511-1ar7",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Federation Protocol (rev 4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<24212 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T15:54:33.011300Z",
+          "created_by": "pneuma-0511",
+          "folio_id": "brief-20260511-8qj1",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Data Model (rev 4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<21953 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T15:53:17.907713Z",
+          "created_by": "coatrack-0511",
+          "folio_id": "brief-20260511-jayv",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Identity and Signing (rev 4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7253 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T02:13:16.214413Z",
+          "created_by": "orexis-0510",
+          "folio_id": "brief-20260511-gizr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: next work after futureproof pass (spec revs + Mesh foundations + RSP kickoff)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<16956 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T02:12:11.799608Z",
+          "created_by": "orexis-0510",
+          "folio_id": "brief-20260511-9tu9",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN Mesh v0/v1 — Specification Index (v5, post-futureproof)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5143 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-11T01:44:14.239827Z",
+          "created_by": "orexis-0510",
+          "folio_id": "brief-20260511-4a1j",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: knurl canon shard check + fell + hardening (post S2 impl)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6753 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T21:26:30.403344Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-hgda",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Futureproof spec pass: structure for adversarial review",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9118 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T21:05:37.719401Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-zbyz",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "SKEIN Mesh v0/v1 — Specification Index (v4)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5036 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T21:05:09.907525Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-vtlu",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Migration (light) (rev 3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<10441 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T21:05:09.313990Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-34r8",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Federation Protocol (rev 3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7496 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T21:05:08.704490Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-5yu0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Data Model (rev 3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6481 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T21:05:08.083140Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-u257",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Identity and Signing (rev 3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8291 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T20:06:55.929105Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-94o3",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "SKEIN Mesh v1 — Specification Index (v3)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<10900 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T20:05:30.113426Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-wn6x",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Web App v1 (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4964 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T20:05:29.535482Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-hzu0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Migration (light) (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6457 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T20:05:28.905553Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-apqy",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Privacy Levels (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9502 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T20:05:28.320710Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-4nem",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Federation Protocol (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<8693 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T20:05:27.741353Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-mzou",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Data Model (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6423 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T20:05:27.111753Z",
+          "created_by": "krasis-0509",
+          "folio_id": "brief-20260510-u6t2",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Identity and Signing (rev 2)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4471 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T03:18:41.795390Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-hea7",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Ignition: continue mesh-v1 design pair session",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5790 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T02:46:54.019696Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-3kjt",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "RSPs to build for mesh-v1",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6884 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T02:36:55.678506Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-snxp",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Index: SKEIN Mesh v1 Specification (v2, complete)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5866 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T02:35:46.717285Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-l1a3",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Migration (light)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7398 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T02:35:46.388030Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-v6n7",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Handle Registry (signed bindings, instance-scoped)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<7413 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T02:25:37.781422Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-ho8j",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Install and Deploy (operator setup path)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5051 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T02:07:32.240100Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-nbw5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Interop (OG cards, RSS/Atom feeds)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<9601 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T02:06:43.260449Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-cv5a",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Federation Protocol (pure-pull, opt-in, subscribe-based)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6724 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T01:38:33.939628Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-7txc",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Privacy Levels (local / private / instance / public)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4301 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T00:44:19.414247Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-gmj5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Index: SKEIN Mesh v1 Specification",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<6251 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T00:43:39.901940Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-24yt",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Data Model (folio shape, addressing, content hash anchoring)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5547 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T00:42:55.952954Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-b2od",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Web App v1 (read-only, signature-aware)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5676 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T00:42:07.688572Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-89zx",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Spec: Untrusted Content Protocol (delimiter-wrapping)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<5323 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T00:40:56.900349Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-rkwi",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "mesh-v1",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Spec: Identity and Signing (Sigstore-anchored)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3334 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-10T00:28:19.908279Z",
+          "created_by": "curtain-0508",
+          "folio_id": "brief-20260510-2vs8",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff: in-flight implementation work + deferred fells",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2744 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-07T18:07:16.795873Z",
+          "created_by": "metis-0507",
+          "folio_id": "brief-20260507-lyyf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Fix: skein shard tender fails with bogus default site",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2362 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-06T21:14:55.391588Z",
+          "created_by": "methexis-0506",
+          "folio_id": "brief-20260506-vfx3",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "[pair] Where should shared mantles live? (QM mantle discovery design)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1244 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-06T20:55:38.851827Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260506-w2wq",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Quartermaster mantle not discoverable via skein ignite (lives in speakbot)",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1581 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-06T02:22:35.391940Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260506-qnbr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Bulk timestamps endpoint for fast multi-site activity queries",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2230 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-03T02:15:25.411725Z",
+          "created_by": "mote-0502-1",
+          "folio_id": "brief-20260503-ccj0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Investigate skein binary wiring across projects",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<286666 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-01T01:39:30.472441Z",
+          "created_by": "frost-0430",
+          "folio_id": "brief-20260501-algf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "test-site",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Huge test brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<4306 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-05-01T01:36:41.009366Z",
+          "created_by": "chips-0429",
+          "folio_id": "brief-20260501-hnjy",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN folio read truncation — investigate and fix",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2985 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-03-21T03:21:02.598420Z",
+          "created_by": "inquirer-0320",
+          "folio_id": "brief-20260321-qjog",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "timevault",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Asset Fidelity and Visual Reconstruction Quality",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<52 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-03-20T16:52:56.387075Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260320-i8l5",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "test-site",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Test heredoc stdin",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1297 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-02-27T17:03:22.487019Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260227-a7a2",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "SKEIN docs cleanup: remove inbox/mark-read references, update thread storage docs",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<676 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-02-03T19:09:22.976660Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260203-snvc",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Remove Roster from SKEIN",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2760 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:22:07.276777Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-egzs",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Site Topology and Knowledge Architecture",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2933 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:21:39.602573Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-eajd",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Playbook Evolution and Reusable Patterns",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2661 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:21:19.883187Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-pt20",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Confidence and Uncertainty Tracking",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2886 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:21:00.356074Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-i5tu",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Agent Working Memory and Context Persistence",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2757 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:20:37.182714Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-fhce",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Semantic Similarity and Related Work Discovery",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2910 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:20:17.891476Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-r2la",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Attention Prioritization and Urgency Signals",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2842 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:17:38.404424Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-yf3s",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Failed Approaches Registry: What Not To Try",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2971 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:17:12.829839Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-8sjr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Incremental Handoffs for Long-Running Tasks",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2600 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:16:29.747802Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-wvlf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Agent Specialization and Expertise Development",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2615 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:16:08.186759Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-pjze",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Adversarial Review Patterns: Gremlin, Oracle, Syndic",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2339 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:15:48.796910Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-sqdn",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Multi-Agent Negotiation Protocols",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2166 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:15:20.994610Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-3a3e",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Causal Chain Tracking Across Folios",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2309 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:14:36.178614Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-9t9z",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Knowledge Decay and Staleness Tracking",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2477 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-14T18:14:15.836138Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20260114-vo9c",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "the-dredge",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Structured Folio Schemas with Validation",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<887 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-13T23:19:41.543076Z",
+          "created_by": "crumb-0113",
+          "folio_id": "brief-20260113-cxvj",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Update speakbot imports to use xgun package",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2407 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2026-01-12T21:39:33.294065Z",
+          "created_by": "cordelia-0112",
+          "folio_id": "brief-20260112-xmo8",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Implement Drift Detection and Graft Workflow",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1529 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-28T12:05:00.746367Z",
+          "created_by": "gnarl-1227",
+          "folio_id": "brief-20251228-hrex",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Emoji-First Fingerprint Design",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1056 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-28T11:41:00.592801Z",
+          "created_by": "gnarl-1227",
+          "folio_id": "brief-20251228-7ee0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Fingerprint Display and UX",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1095 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-28T11:40:48.115501Z",
+          "created_by": "gnarl-1227",
+          "folio_id": "brief-20251228-yjht",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Migration: Existing Folios to Fingerprint System",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1269 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-28T11:40:28.622877Z",
+          "created_by": "gnarl-1227",
+          "folio_id": "brief-20251228-vkg4",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Resolution Protocol: Hint + Identity",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1302 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-28T11:40:07.797331Z",
+          "created_by": "gnarl-1227",
+          "folio_id": "brief-20251228-wuv3",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "3-Position Fingerprint Wordlist Design",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2012 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-28T11:39:51.271952Z",
+          "created_by": "gnarl-1227",
+          "folio_id": "brief-20251228-f90m",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Semantic Bucketing Algorithm for Fingerprint Position 2",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2770 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-27T22:33:42.666831Z",
+          "created_by": "gnarl-1227",
+          "folio_id": "brief-20251227-42zy",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "interskein",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Distributed Naming Research",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1298 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-27T17:52:25.371868Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251227-aiek",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-mesh",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Phase 1: Cross-Project Addressing",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1967 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-26T21:08:39.613583Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251226-f0y9",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-mesh",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Ledger Primitives Extraction to SpiritEngine",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<3533 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-26T16:03:52.330451Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251226-6yy6",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-mesh",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Mesh Initiative: Phased Plan",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2751 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-26T15:31:05.270686Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251226-5gas",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-mesh",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Layered Addressing Scheme",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2210 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-26T15:30:38.370506Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251226-otlf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-mesh",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Semantic Search Feasibility Study",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2118 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-26T14:52:43.384072Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251226-n1br",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-mesh",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Semantic Search & Similar Work Discovery",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1815 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-22T22:29:50.359558Z",
+          "created_by": "police procedural deniers-1222",
+          "folio_id": "brief-20251222-jhyb",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Shard CLI hardening and force cleanup flag",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1423 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-22T15:33:45.823601Z",
+          "created_by": "police procedural deniers-1222",
+          "folio_id": "brief-20251222-ihep",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Shard.py Round 5: CLI consistency fixes and sequence cap",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1504 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-22T13:03:49.901581Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251222-s90w",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Continue shard.py hardening",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1388 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-20T21:51:19.561779Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251220-9cuu",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Configuration & Path Logic Fixes",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1018 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-20T21:51:11.180053Z",
+          "created_by": "unknown",
+          "folio_id": "brief-20251220-ezsn",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Shard Sandbox Read-Only Protection Issues",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<12 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-12-02T20:04:58.828468Z",
+          "created_by": "test-agent",
+          "folio_id": "brief-20251202-ngzd",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "test-site",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "My Test Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2457 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-28T20:14:21.157025Z",
+          "created_by": "quartermaster",
+          "folio_id": "brief-20251128-e5im",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<848 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-22T13:07:39.148455Z",
+          "created_by": "cc-session-20251122",
+          "folio_id": "brief-20251122-nwqg",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1231 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-22T13:07:23.057837Z",
+          "created_by": "cc-session-20251122",
+          "folio_id": "brief-20251122-cg0h",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<661 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-22T12:30:02.064072Z",
+          "created_by": "cc-session-20251122",
+          "folio_id": "brief-20251122-w0xb",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<674 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-22T12:29:41.482643Z",
+          "created_by": "cc-session-20251122",
+          "folio_id": "brief-20251122-uwal",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1554 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-22T12:17:54.248471Z",
+          "created_by": "cc-session-20251122",
+          "folio_id": "brief-20251122-muy2",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1508 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-22T11:32:39.838634Z",
+          "created_by": "cc-session-20251122",
+          "folio_id": "brief-20251122-8ac0",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1926 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-21T13:06:59.688736Z",
+          "created_by": "cc-session-20251121",
+          "folio_id": "brief-20251121-18c1",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2293 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-21T11:47:05.056223Z",
+          "created_by": "cc-session-20251121",
+          "folio_id": "brief-20251121-8180",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "skein-dev",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<2275 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T16:52:51.835223Z",
+          "created_by": "cc-session-20251120",
+          "folio_id": "brief-20251120-bvzf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "backup-system",
+          "source_project": null,
+          "status": "open",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1088 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T16:48:23.846817Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-xwgr",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1028 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T16:12:18.917372Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-h8cf",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1873 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T11:16:22.967535Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-k8m1",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1324 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T11:15:57.580754Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-wrjd",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1311 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T11:15:42.726942Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-bh63",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1221 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T11:15:26.730227Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-mntg",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<991 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T10:19:55.847334Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-wzpj",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1069 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T10:19:43.496335Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-b4ui",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<1015 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T10:19:29.154393Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-krw6",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        },
+        {
+          "acknowledged_at": null,
+          "archived": false,
+          "assigned_to": null,
+          "content": "<952 chars>",
+          "content_hash": "<hash>",
+          "created_at": "2025-11-20T10:19:18.007761Z",
+          "created_by": "claude",
+          "folio_id": "brief-20251120-pwfd",
+          "metadata": {
+            "questions_enabled": true
+          },
+          "omlet": null,
+          "site_id": "opensource-prep",
+          "source_project": null,
+          "status": "closed",
+          "target_agent": null,
+          "title": "Handoff Brief",
+          "type": "brief"
+        }
+      ],
+      "total": 224
+    }
+  },
+  "total": 224
+}

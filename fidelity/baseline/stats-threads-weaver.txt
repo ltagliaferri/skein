@@ -1,0 +1,993 @@
+# argv: stats threads --by-weaver --json
+# rc: 0
+{
+  "by_weaver": {
+    "apatheia-0527": {
+      "total": 12,
+      "types": {
+        "reference": 12
+      }
+    },
+    "bosch-0520": {
+      "total": 11,
+      "types": {
+        "mention": 5,
+        "message": 2,
+        "reference": 1,
+        "status": 3
+      }
+    },
+    "bosch-0521": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "bucket-0514": {
+      "total": 5,
+      "types": {
+        "mention": 5
+      }
+    },
+    "button dependency issues-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "bzzzt-0606": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "cam-0513": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "cc-20251120-bh63": {
+      "total": 2,
+      "types": {
+        "reference": 1,
+        "status": 1
+      }
+    },
+    "cc-session-20251121": {
+      "total": 2,
+      "types": {
+        "status": 2
+      }
+    },
+    "cc-session-20251130": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "cc-shard-friction-evb1": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "cc-shard-friction-m2k5": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "cc-shard-friction-vcat": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "chaser-0513": {
+      "total": 3,
+      "types": {
+        "mention": 3
+      }
+    },
+    "coatrack-0511": {
+      "total": 6,
+      "types": {
+        "reference": 6
+      }
+    },
+    "coatrack-0514": {
+      "total": 7,
+      "types": {
+        "mention": 7
+      }
+    },
+    "coatrack-0612": {
+      "total": 10,
+      "types": {
+        "reply": 9,
+        "succession": 1
+      }
+    },
+    "columbo-0425": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "corkboard-0511": {
+      "total": 4,
+      "types": {
+        "reference": 4
+      }
+    },
+    "corkboard-0514": {
+      "total": 7,
+      "types": {
+        "mention": 7
+      }
+    },
+    "corkboard-0612": {
+      "total": 10,
+      "types": {
+        "reply": 9,
+        "succession": 1
+      }
+    },
+    "corkboard-0613": {
+      "total": 14,
+      "types": {
+        "reply": 13,
+        "succession": 1
+      }
+    },
+    "crinkle-0521": {
+      "total": 4,
+      "types": {
+        "message": 2,
+        "status": 2
+      }
+    },
+    "critter-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "crumb-0204": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "crumb-0611": {
+      "total": 13,
+      "types": {
+        "message": 4,
+        "reply": 5,
+        "status": 4
+      }
+    },
+    "cruz-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "curtain-0508": {
+      "total": 11,
+      "types": {
+        "message": 5,
+        "reply": 1,
+        "status": 5
+      }
+    },
+    "curtain-0511": {
+      "total": 2,
+      "types": {
+        "reference": 2
+      }
+    },
+    "curtain-0514": {
+      "total": 6,
+      "types": {
+        "mention": 6
+      }
+    },
+    "doorknob-0511": {
+      "total": 4,
+      "types": {
+        "reference": 4
+      }
+    },
+    "doorknob-0511-1": {
+      "total": 2,
+      "types": {
+        "reference": 2
+      }
+    },
+    "doorknob-0511-2": {
+      "total": 4,
+      "types": {
+        "reference": 4
+      }
+    },
+    "doorknob-0514": {
+      "total": 5,
+      "types": {
+        "mention": 5
+      }
+    },
+    "doorstop-0513": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "dossier-0512": {
+      "total": 5,
+      "types": {
+        "mention": 3,
+        "message": 1,
+        "status": 1
+      }
+    },
+    "drawer-0511": {
+      "total": 5,
+      "types": {
+        "reference": 5
+      }
+    },
+    "drawer-0511-1": {
+      "total": 15,
+      "types": {
+        "message": 1,
+        "reference": 12,
+        "status": 2
+      }
+    },
+    "drawer-0612-1": {
+      "total": 5,
+      "types": {
+        "reply": 4,
+        "succession": 1
+      }
+    },
+    "dustpan-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "elias-0619": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "etymologist-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "eugenia-1220": {
+      "total": 7,
+      "types": {
+        "status": 7
+      }
+    },
+    "fell-reviewer": {
+      "total": 1,
+      "types": {
+        "reply": 1
+      }
+    },
+    "fleck-0507": {
+      "total": 4,
+      "types": {
+        "message": 2,
+        "status": 2
+      }
+    },
+    "flicker-1221": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "florence-0512": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "frost-0320": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "frost-0430": {
+      "total": 7,
+      "types": {
+        "message": 3,
+        "status": 4
+      }
+    },
+    "frost-0513": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "frost-0520": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "glitch-0305": {
+      "total": 4,
+      "types": {
+        "reference": 1,
+        "status": 3
+      }
+    },
+    "glitch-0508": {
+      "total": 3,
+      "types": {
+        "reference": 1,
+        "status": 2
+      }
+    },
+    "glitch-1226": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "glom-0511": {
+      "total": 31,
+      "types": {
+        "reference": 30,
+        "tag": 1
+      }
+    },
+    "gnarl-1227": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "goblin-0528": {
+      "total": 13,
+      "types": {
+        "message": 2,
+        "reference": 9,
+        "status": 2
+      }
+    },
+    "gremlin-0425": {
+      "total": 3,
+      "types": {
+        "reply": 2,
+        "status": 1
+      }
+    },
+    "gremlin-0529": {
+      "total": 2,
+      "types": {
+        "reference": 1,
+        "status": 1
+      }
+    },
+    "hawkshaw-0513": {
+      "total": 6,
+      "types": {
+        "mention": 6
+      }
+    },
+    "hinge-0511": {
+      "total": 5,
+      "types": {
+        "reference": 5
+      }
+    },
+    "hinge-0513": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "hound-0113": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "hound-0612": {
+      "total": 12,
+      "types": {
+        "reply": 11,
+        "succession": 1
+      }
+    },
+    "hound-0613": {
+      "total": 13,
+      "types": {
+        "reply": 12,
+        "succession": 1
+      }
+    },
+    "inquest-0502": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "inquirer-0320": {
+      "total": 2,
+      "types": {
+        "reference": 1,
+        "status": 1
+      }
+    },
+    "investigator-0507": {
+      "total": 1,
+      "types": {
+        "reply": 1
+      }
+    },
+    "kojak-0513": {
+      "total": 2,
+      "types": {
+        "mention": 2
+      }
+    },
+    "krasis-0509": {
+      "total": 24,
+      "types": {
+        "reference": 12,
+        "status": 12
+      }
+    },
+    "lampshade-0514": {
+      "total": 5,
+      "types": {
+        "mention": 5
+      }
+    },
+    "lampshade-0606": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "lampshade-0613": {
+      "total": 13,
+      "types": {
+        "reply": 12,
+        "succession": 1
+      }
+    },
+    "magnifier-0514": {
+      "total": 5,
+      "types": {
+        "mention": 5
+      }
+    },
+    "magnum-0514": {
+      "total": 18,
+      "types": {
+        "message": 1,
+        "reference": 14,
+        "status": 3
+      }
+    },
+    "magnum-0520": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "marlowe-0113": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "marlowe-0208": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "methexis-0506": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "millicent-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "moira-0612": {
+      "total": 5,
+      "types": {
+        "reply": 5
+      }
+    },
+    "morse-0506": {
+      "total": 2,
+      "types": {
+        "reference": 1,
+        "status": 1
+      }
+    },
+    "morse-0520": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "nathaniel-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "noir's disappointed inheritors-0513": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "null": {
+      "total": 168,
+      "types": {
+        "reference": 32,
+        "status": 1,
+        "tag": 135
+      }
+    },
+    "opus-mesh": {
+      "total": 4,
+      "types": {
+        "message": 2,
+        "status": 2
+      }
+    },
+    "orchestrator-0531": {
+      "total": 4,
+      "types": {
+        "message": 2,
+        "status": 2
+      }
+    },
+    "orexis-0510": {
+      "total": 78,
+      "types": {
+        "reference": 71,
+        "reply": 5,
+        "status": 2
+      }
+    },
+    "pawl-0519": {
+      "total": 4,
+      "types": {
+        "mention": 2,
+        "message": 1,
+        "status": 1
+      }
+    },
+    "perusal-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "plunger-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "pneuma-0511": {
+      "total": 4,
+      "types": {
+        "reference": 4
+      }
+    },
+    "poirot-0113-1": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "poirot-0514": {
+      "total": 8,
+      "types": {
+        "mention": 8
+      }
+    },
+    "poirot-0519": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "poirot-0612": {
+      "total": 11,
+      "types": {
+        "reply": 10,
+        "succession": 1
+      }
+    },
+    "poirot-0619": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "police procedural deniers-1222": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "prickle-0521": {
+      "total": 36,
+      "types": {
+        "message": 1,
+        "reference": 34,
+        "status": 1
+      }
+    },
+    "qm-20260111-201613": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "quartermaster": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "quincy-0512": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "quirk-0518": {
+      "total": 15,
+      "types": {
+        "reference": 12,
+        "status": 1,
+        "succession": 2
+      }
+    },
+    "rebus-0321": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "rebus-0614": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "rebus-0620": {
+      "total": 2,
+      "types": {
+        "reply": 2
+      }
+    },
+    "ribbed cuff enthusiasts-0611": {
+      "total": 5,
+      "types": {
+        "message": 1,
+        "reply": 3,
+        "status": 1
+      }
+    },
+    "rupert-0514": {
+      "total": 6,
+      "types": {
+        "mention": 6
+      }
+    },
+    "rustle-0616": {
+      "total": 1,
+      "types": {
+        "reply": 1
+      }
+    },
+    "schlep-0614": {
+      "total": 9,
+      "types": {
+        "message": 3,
+        "reply": 3,
+        "status": 3
+      }
+    },
+    "schmutz-0612": {
+      "total": 13,
+      "types": {
+        "mention": 8,
+        "message": 1,
+        "reply": 3,
+        "status": 1
+      }
+    },
+    "scout-0513": {
+      "total": 3,
+      "types": {
+        "mention": 3
+      }
+    },
+    "scritch-0602": {
+      "total": 10,
+      "types": {
+        "message": 5,
+        "status": 5
+      }
+    },
+    "scurry-0603": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "shard-0113": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "shiv-0527": {
+      "total": 30,
+      "types": {
+        "reference": 30
+      }
+    },
+    "shoelace-0512": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "sift-0513": {
+      "total": 3,
+      "types": {
+        "mention": 3
+      }
+    },
+    "skitter-0601": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "sleuth-0425-1": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "sleuth-0612": {
+      "total": 9,
+      "types": {
+        "reply": 8,
+        "succession": 1
+      }
+    },
+    "sleuth-0618": {
+      "total": 4,
+      "types": {
+        "message": 1,
+        "reply": 2,
+        "status": 1
+      }
+    },
+    "sleuth-1223": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "spade-0508": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "spade-0513": {
+      "total": 5,
+      "types": {
+        "mention": 5
+      }
+    },
+    "spade-0521": {
+      "total": 22,
+      "types": {
+        "reference": 20,
+        "status": 2
+      }
+    },
+    "spade-0612": {
+      "total": 12,
+      "types": {
+        "reply": 11,
+        "succession": 1
+      }
+    },
+    "spade-0612-1": {
+      "total": 13,
+      "types": {
+        "reply": 12,
+        "succession": 1
+      }
+    },
+    "spit-0529": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "stage3-impl-0622": {
+      "total": 2,
+      "types": {
+        "message": 1,
+        "status": 1
+      }
+    },
+    "tendril-1207": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "test-agent": {
+      "total": 13,
+      "types": {
+        "message": 3,
+        "reference": 2,
+        "status": 8
+      }
+    },
+    "test-agent-A": {
+      "total": 1,
+      "types": {
+        "message": 1
+      }
+    },
+    "test-agent-B": {
+      "total": 1,
+      "types": {
+        "reply": 1
+      }
+    },
+    "the argyle conspiracy-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "the motive confusion syndrome-0514": {
+      "total": 6,
+      "types": {
+        "mention": 6
+      }
+    },
+    "the stapler jockeys-0529": {
+      "total": 9,
+      "types": {
+        "message": 1,
+        "reference": 7,
+        "status": 1
+      }
+    },
+    "the unsolved mystery book club-0513": {
+      "total": 3,
+      "types": {
+        "mention": 3
+      }
+    },
+    "thermostat-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "thermostat-0513": {
+      "total": 4,
+      "types": {
+        "mention": 4
+      }
+    },
+    "thermostat-0526": {
+      "total": 4,
+      "types": {
+        "reference": 4
+      }
+    },
+    "tracer-0508": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "tracer-0513": {
+      "total": 5,
+      "types": {
+        "mention": 5
+      }
+    },
+    "tracer-0521": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "twerp-0511": {
+      "total": 3,
+      "types": {
+        "reference": 3
+      }
+    },
+    "unknown": {
+      "total": 129,
+      "types": {
+        "mention": 6,
+        "message": 5,
+        "status": 118
+      }
+    },
+    "wallander-0513": {
+      "total": 12,
+      "types": {
+        "mention": 5,
+        "reference": 6,
+        "status": 1
+      }
+    },
+    "whisker-0509": {
+      "total": 1,
+      "types": {
+        "status": 1
+      }
+    },
+    "worthington-0512": {
+      "total": 5,
+      "types": {
+        "mention": 5
+      }
+    }
+  }
+}

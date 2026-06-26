@@ -1,0 +1,23 @@
+# argv: find --since 1day --limit 500 --json
+# rc: 0
+{
+  "execution_time_ms": "<ms>",
+  "filters": {
+    "archived": false,
+    "limit": 500,
+    "offset": 0,
+    "since": "1day",
+    "sort": "created"
+  },
+  "query": "",
+  "resources": [
+    "folios"
+  ],
+  "results": {
+    "folios": {
+      "items": [],
+      "total": 0
+    }
+  },
+  "total": 0
+}

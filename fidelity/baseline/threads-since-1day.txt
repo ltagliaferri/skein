@@ -1,0 +1,3 @@
+# argv: threads --since 1day --json
+# rc: 0
+[]

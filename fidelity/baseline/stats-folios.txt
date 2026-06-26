@@ -1,0 +1,38 @@
+# argv: stats folios --json
+# rc: 0
+{
+  "by_site": {
+    "backup-system": 9,
+    "hypo-test": 6,
+    "interskein": 27,
+    "mesh-rsps": 184,
+    "mesh-v1": 167,
+    "mesh-web": 77,
+    "opensource-prep": 16,
+    "skein-dev": 196,
+    "skein-mesh": 8,
+    "test-site": 7,
+    "the-dredge": 16,
+    "timevault": 2
+  },
+  "by_status": {
+    "closed": 86,
+    "complete": 135,
+    "confirmed\nPoC works, full IDOR": 1,
+    "disconfirmed\nParameterized queries, no injection point": 1,
+    "investigating": 1,
+    "open": 491
+  },
+  "by_type": {
+    "brief": 224,
+    "finding": 258,
+    "friction": 56,
+    "hypothesis": 4,
+    "issue": 7,
+    "notion": 15,
+    "playbook": 1,
+    "summary": 12,
+    "tender": 138
+  },
+  "total": 715
+}

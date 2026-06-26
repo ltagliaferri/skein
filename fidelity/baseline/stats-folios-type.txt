@@ -1,0 +1,16 @@
+# argv: stats folios --by-type --json
+# rc: 0
+{
+  "by_type": {
+    "brief": 224,
+    "finding": 258,
+    "friction": 56,
+    "hypothesis": 4,
+    "issue": 7,
+    "notion": 15,
+    "playbook": 1,
+    "summary": 12,
+    "tender": 138
+  },
+  "total": 715
+}

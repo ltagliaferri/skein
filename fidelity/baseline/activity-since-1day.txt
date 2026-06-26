@@ -1,0 +1,6 @@
+# argv: activity --since 1day --json
+# rc: 0
+{
+  "active_agents": "<roster>",
+  "new_folios": []
+}

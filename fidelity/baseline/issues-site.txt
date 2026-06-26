@@ -1,0 +1,40 @@
+# argv: issues mesh-v1 --json
+# rc: 0
+[
+  {
+    "acknowledged_at": null,
+    "archived": false,
+    "assigned_to": null,
+    "content": "<1509 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-21T14:36:02.375018Z",
+    "created_by": "rebus-0620",
+    "folio_id": "issue-20260621-ajq1",
+    "metadata": {},
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "mesh fetch rejects EVERY live folio on interskein.com as 'INVALID — wrong kind' (exit 3) — per-fo...",
+    "type": "issue"
+  },
+  {
+    "acknowledged_at": null,
+    "archived": false,
+    "assigned_to": null,
+    "content": "<570 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-21T04:01:41.178738Z",
+    "created_by": "rebus-0620",
+    "folio_id": "issue-20260621-79ek",
+    "metadata": {},
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "onboarding doc references nonexistent 'interskein --version'. COLLABORATOR_ONBOARDING.md install ...",
+    "type": "issue"
+  }
+]

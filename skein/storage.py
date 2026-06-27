@@ -28,10 +28,12 @@ def ensure_aware(dt_value) -> Optional[datetime]:
     if dt_value is None:
         return None
     if isinstance(dt_value, str):
-        if dt_value.endswith("Z"):
-            dt_value = datetime.fromisoformat(dt_value.replace("Z", "+00:00"))
-        else:
-            dt_value = datetime.fromisoformat(dt_value)
+        # Accept a trailing Z or z (canon._parse_timestamp accepts both); if the
+        # two disagreed, a folio could get a hash the read path can't reproduce.
+        s = dt_value
+        if s.endswith(("Z", "z")):
+            s = s[:-1] + "+00:00"
+        dt_value = datetime.fromisoformat(s)
     if isinstance(dt_value, datetime) and dt_value.tzinfo is None:
         dt_value = dt_value.replace(tzinfo=timezone.utc)
     return dt_value

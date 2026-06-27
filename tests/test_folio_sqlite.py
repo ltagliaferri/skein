@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from skein.storage import LogDatabase, JSONStore
+from skein.storage import LogDatabase, JSONStore, compute_folio_hash
 from skein.models import Folio, Site
 
 
@@ -223,7 +223,7 @@ class TestLogDatabaseFolios:
             target_agent="agent-y",
             omlet="strand-123/agent-x/turn-5",
             acknowledged_at=datetime.now(timezone.utc),
-            content_hash="folio-abc123",
+            content_hash="folio-abc123",  # caller-supplied; must be ignored
         )
         db.save_folio(folio)
 
@@ -232,7 +232,12 @@ class TestLogDatabaseFolios:
         assert retrieved.target_agent == "agent-y"
         assert retrieved.omlet == "strand-123/agent-x/turn-5"
         assert retrieved.acknowledged_at is not None
-        assert retrieved.content_hash == "folio-abc123"
+        # content_hash is recomputed at the write chokepoint and never trusted
+        # from the caller: the supplied "folio-abc123" is overwritten with the
+        # real sha256:: hash.
+        assert retrieved.content_hash == compute_folio_hash(retrieved)
+        assert retrieved.content_hash.startswith("sha256::")
+        assert retrieved.content_hash != "folio-abc123"
 
 
 # --- Migration tests ---

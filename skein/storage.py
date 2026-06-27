@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from .models import AgentInfo, Site, Folio, Thread, LogLine
 
 try:
-    from knurl import canon, hash as knurl_hash
+    from . import identity
 
     KNURL_AVAILABLE = True
 except ImportError:
@@ -38,20 +38,25 @@ def ensure_aware(dt_value) -> Optional[datetime]:
 
 
 def compute_folio_hash(folio: Folio) -> str:
-    """Compute content-addressable hash of folio's immutable fields."""
+    """Compute a folio's ``sha256::`` content hash.
+
+    Delegates to the canon/identity RSP (:func:`skein.identity.compute_folio_hash`)
+    so there is exactly ONE folio-hash implementation; this only adapts a ``Folio``
+    to the five-field mapping. ``created_at`` is passed as a datetime —
+    ``normalize_created_at`` collapses any encoding to canonical UTC before hashing,
+    so a hash never depends on how the timestamp happened to be expressed.
+    """
     if not KNURL_AVAILABLE:
         return None
-
-    # Only hash immutable fields
-    immutable = {
-        "type": folio.type,
-        "title": folio.title,
-        "content": folio.content,
-        "created_at": folio.created_at.isoformat() if folio.created_at else None,
-        "created_by": folio.created_by,
-    }
-    canonical = canon.serialize(immutable)
-    return knurl_hash.compute(canonical.decode("utf-8"), prefix="folio")
+    return identity.compute_folio_hash(
+        {
+            "type": folio.type,
+            "title": folio.title,
+            "content": folio.content,
+            "created_at": folio.created_at,
+            "created_by": folio.created_by,
+        }
+    )
 
 
 # Project Registry
@@ -1023,6 +1028,12 @@ class LogDatabase:
 
     def save_folio(self, folio: Folio) -> bool:
         """Save or update a folio in SQLite."""
+        # Phase 0: recompute the content hash on EVERY write so an edited folio's
+        # hash never goes stale. This is the single write chokepoint — every write
+        # funnels here, so a caller cannot persist a folio without a current hash,
+        # and a caller-supplied content_hash is never trusted.
+        if KNURL_AVAILABLE:
+            folio.content_hash = compute_folio_hash(folio)
         with self._get_connection() as conn:
             created_at = (
                 folio.created_at.isoformat()
@@ -1276,6 +1287,34 @@ class LogDatabase:
                     # Handle missing fields gracefully
                     folio_id = data.get("folio_id", folio_file.stem)
                     metadata = data.get("metadata", {})
+                    ftype = data.get("type", "issue")
+                    site_id = data.get("site_id", folio_file.parent.parent.name)
+                    created_at = data.get(
+                        "created_at", datetime.now(timezone.utc).isoformat()
+                    )
+                    created_by = data.get("created_by", "unknown")
+                    title = data.get("title", "")
+                    content = data.get("content", "")
+
+                    # Recompute the content hash from the five canonical fields
+                    # rather than trusting the JSON's stored value: this cold
+                    # migration is a folio writer too, so it must honour the same
+                    # single-source-of-truth hash as the write chokepoint. A legacy
+                    # folio:sha256: or missing value in the JSON is never persisted.
+                    # In degraded mode (no knurl) fall back to the stored value,
+                    # matching save_folio's behaviour.
+                    if KNURL_AVAILABLE:
+                        content_hash = identity.compute_folio_hash(
+                            {
+                                "type": ftype,
+                                "title": title,
+                                "content": content,
+                                "created_at": created_at,
+                                "created_by": created_by,
+                            }
+                        )
+                    else:
+                        content_hash = data.get("content_hash")
 
                     conn.execute(
                         """
@@ -1287,14 +1326,12 @@ class LogDatabase:
                     """,
                         (
                             folio_id,
-                            data.get("type", "issue"),
-                            data.get("site_id", folio_file.parent.parent.name),
-                            data.get(
-                                "created_at", datetime.now(timezone.utc).isoformat()
-                            ),
-                            data.get("created_by", "unknown"),
-                            data.get("title", ""),
-                            data.get("content", ""),
+                            ftype,
+                            site_id,
+                            created_at,
+                            created_by,
+                            title,
+                            content,
                             data.get("status", "open"),
                             data.get("assigned_to"),
                             data.get("target_agent"),
@@ -1302,7 +1339,7 @@ class LogDatabase:
                             1 if data.get("archived", False) else 0,
                             json.dumps(metadata) if metadata else "{}",
                             data.get("acknowledged_at"),
-                            data.get("content_hash"),
+                            content_hash,
                         ),
                     )
                     count += 1
@@ -1505,10 +1542,8 @@ class JSONStore:
 
     def save_folio(self, folio: Folio) -> bool:
         """Save folio to SQLite."""
-        # Compute content hash if not present
-        if not folio.content_hash and KNURL_AVAILABLE:
-            folio.content_hash = compute_folio_hash(folio)
-
+        # content_hash is computed at the write chokepoint (LogDatabase.save_folio),
+        # so every write recomputes it; this wrapper adds nothing to that.
         return self._log_db.save_folio(folio)
 
     def get_folios(self, site_id: Optional[str] = None) -> List[Folio]:
@@ -1517,11 +1552,9 @@ class JSONStore:
 
     def get_folio(self, folio_id: str) -> Optional[Folio]:
         """Get specific folio by ID."""
-        folio = self._log_db.get_folio(folio_id)
-        if folio and not folio.content_hash and KNURL_AVAILABLE:
-            folio.content_hash = compute_folio_hash(folio)
-            self._log_db.save_folio(folio)
-        return folio
+        # No recompute-on-read: the hash is maintained at write time, and a read
+        # must never mutate the store (the old write-on-read was a surprise write).
+        return self._log_db.get_folio(folio_id)
 
     def move_folio(self, folio_id: str, dest_site_id: str) -> Optional[Folio]:
         """

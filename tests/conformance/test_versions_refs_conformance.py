@@ -21,8 +21,14 @@ from pathlib import Path
 
 import pytest
 
+from skein import storage as storage_mod
 from skein.models import Folio, Site
-from skein.storage import JSONStore
+from skein.storage import (
+    JSONStore,
+    get_project_last_activity_timestamps,
+    resolve_folio_across_projects,
+    search_folio_across_projects,
+)
 
 
 @pytest.fixture
@@ -171,6 +177,29 @@ def test_search_and_stats_return_heads_only(store):
     assert stats["total"] == 1
     assert stats["by_type"].get("issue") == 1
     assert sum(stats["by_status"].values()) == 1
+
+
+def test_search_surface_is_prose_not_slug(store):
+    # CONSCIOUS surface change at the read-flip: folios_fts indexed
+    # folio_id+title+content; versions_fts (heads) indexes content_hash+title+content.
+    # FTS search is now over PROSE (title/content), not the slug. Slug-token search
+    # via FTS was an accidental side-effect of indexing folio_id; exact-slug lookup
+    # lives in get_folio and slug/type/date filtering lives in `find` (get_folios).
+    # This test pins the surface so the change stays conscious, not silent.
+    _make_site(store)
+    # folio_id carries a token ("zqxw9") that appears in NEITHER title nor content.
+    f = _folio("finding-20260629-zqxw9", "Beta gamma delta", title="Alpha")
+    store.save_folio(f)
+    assert [h.folio_id for h in store.search_folios("gamma")] == ["finding-20260629-zqxw9"]
+    assert [h.folio_id for h in store.search_folios("Alpha")] == ["finding-20260629-zqxw9"]
+    assert store.search_folios("zqxw9") == [], "slug token is not an FTS surface post-flip"
+    # KNOWN ARTIFACT (conscious, pinned): versions_fts also indexes content_hash
+    # (design §2.2), so the literal token "sha256" matches every head (every
+    # content_hash is sha256::<hex>). Harmless — hash lookup is the by-hash resolver
+    # (commit D) / the join, never FTS. Dropping content_hash from the index would
+    # be cleaner but risks BM25 doc-length drift vs the blessed harness baseline;
+    # candidate for a Phase 3 FTS cleanup. Pinned here so the surface stays conscious.
+    assert len(store.search_folios("sha256")) >= 1
 
 
 # ── 3. created_at/created_by inherit genesis even if the editor hands fresh ───
@@ -381,6 +410,70 @@ def test_create_with_initial_status_seeds_refs_cache(store):
     ref = _ref(store, "finding-20260629-9999")
     assert ref["status"] == "in_progress"
     assert ref["assigned_to"] == "bob"
+
+
+# ── the three module-level raw readers flip to heads (cross-project surfaces) ──
+
+def test_module_level_readers_return_heads(tmp_dir, monkeypatch):
+    # A registered project with an edited folio; the raw cross-project readers must
+    # resolve the HEAD (v2) via the join, never the superseded v1.
+    data_dir = tmp_dir / "px" / ".skein" / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    store = JSONStore(data_dir)
+    _make_site(store)
+    f = _folio("finding-20260629-mod1", "v1 body")
+    store.save_folio(f)
+    f2 = store.get_folio("finding-20260629-mod1")
+    f2.content = "v2 body"
+    store.save_folio(f2, editor="e")
+
+    registry = {"px": {"path": str(tmp_dir / "px"), "data_dir": str(data_dir),
+                       "name": "px"}}
+    monkeypatch.setattr(storage_mod, "load_project_registry", lambda: registry)
+
+    # search_folio_across_projects: existence via refs (head layer).
+    found = search_folio_across_projects("finding-20260629-mod1", current_project_id=None)
+    assert found and found["project_name"] == "px"
+    assert search_folio_across_projects("nope-00000000-zzzz", None) is None
+
+    # resolve_folio_across_projects: reconstructs the HEAD folio from the join.
+    res = resolve_folio_across_projects("finding-20260629-mod1", current_project_id=None)
+    assert res and res["folio"].content == "v2 body", "must resolve the head, not v1"
+
+    # get_project_last_activity_timestamps: MAX(created_at) over heads.
+    ts = get_project_last_activity_timestamps()
+    assert "px" in ts and isinstance(ts["px"], int)
+
+
+def test_module_readers_fall_back_to_folios_for_legacy_db(tmp_dir, monkeypatch):
+    # A registered legacy db with ONLY folios (not yet backfilled, no refs table)
+    # must still resolve cross-project — fall back to folios rather than silently
+    # vanish. Steady state (all dbs backfilled via verify --all gate) never hits this.
+    data_dir = tmp_dir / "legacy" / ".skein" / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db = data_dir / "skein.db"
+    c = sqlite3.connect(db)
+    c.execute(
+        "CREATE TABLE folios (folio_id TEXT PRIMARY KEY, type TEXT, site_id TEXT, "
+        "created_at TEXT, created_by TEXT, title TEXT, content TEXT, status TEXT, "
+        "assigned_to TEXT, target_agent TEXT, omlet TEXT, archived INT, metadata TEXT, "
+        "acknowledged_at TEXT, content_hash TEXT)"
+    )
+    c.execute(
+        "INSERT INTO folios VALUES ('finding-legacy-0001','finding','s',"
+        "'2026-01-01T00:00:00+00:00','a','T','legacy body','open',NULL,NULL,NULL,0,"
+        "'{}',NULL,'sha256::x')"
+    )
+    c.commit()
+    c.close()
+    registry = {"legacy": {"path": str(tmp_dir / "legacy"), "data_dir": str(data_dir),
+                           "name": "legacy"}}
+    monkeypatch.setattr(storage_mod, "load_project_registry", lambda: registry)
+
+    assert search_folio_across_projects("finding-legacy-0001", None) is not None
+    res = resolve_folio_across_projects("finding-legacy-0001", None)
+    assert res and res["folio"].content == "legacy body"
+    assert "legacy" in get_project_last_activity_timestamps()
 
 
 # ── target_agent / metadata survive a content edit through the read path ──────

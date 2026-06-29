@@ -75,6 +75,15 @@ def build_fixture() -> None:
     data_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(FIXTURE_SOURCE, data_dir)
 
+    # Phase 2 read-flip: the frozen fixture has folios but no versions/refs, so the
+    # join reads would hit empty tables and red the harness. Seed versions/refs
+    # from the folios rows. The fixture is edit-free (heads == folios), so the
+    # joined reads emit byte-identical output and the blessed baseline stays valid
+    # — this is a backfill, NOT a re-bless.
+    sys.path.insert(0, str(REPO))
+    from skein.migrations.backfill_versions_refs import backfill_db
+    backfill_db(data_dir / "skein.db", dry_run=False)
+
 
 def register_fixture() -> Optional[str]:
     """Add the fixture to ~/.skein/projects.json. Returns the prior file text

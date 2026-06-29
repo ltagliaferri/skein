@@ -62,6 +62,76 @@ def compute_folio_hash(folio: Folio) -> str:
     )
 
 
+# ── Phase 2 read-flip: heads-only over the versions⋈refs join ────────────────
+# Every content/identity read selects exactly one row per ref by joining refs to
+# versions on the head predicate (refs.head_hash = versions.content_hash).
+# Identity fields come from versions (v), control fields from refs (r); the
+# reconstructed Folio is byte-identical to the old _row_to_folio off folios.
+_HEAD_FROM = "FROM refs r JOIN versions v ON v.content_hash = r.head_hash"
+_HEAD_SELECT = (
+    "r.slug, v.type, r.site_id, v.created_at, v.created_by, v.title, v.content, "
+    "r.status, r.assigned_to, r.target_agent, r.omlet, r.archived, r.metadata, "
+    "r.acknowledged_at, v.content_hash"
+)
+
+
+def _folio_from_head_row(row: "sqlite3.Row") -> Folio:
+    """Reconstruct a Folio from a joined refs⋈versions head row (column names per
+    _HEAD_SELECT). Identical shape to _row_to_folio off the old folios row."""
+    metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+    return Folio(
+        folio_id=row["slug"],
+        type=row["type"],
+        site_id=row["site_id"],
+        created_at=ensure_aware(row["created_at"]),
+        created_by=row["created_by"],
+        title=row["title"],
+        content=row["content"],
+        status=row["status"] or "open",
+        assigned_to=row["assigned_to"],
+        target_agent=row["target_agent"],
+        omlet=row["omlet"],
+        archived=bool(row["archived"]),
+        metadata=metadata,
+        acknowledged_at=ensure_aware(row["acknowledged_at"]),
+        content_hash=row["content_hash"],
+    )
+
+
+def _folio_from_folios_row(row: "sqlite3.Row") -> Folio:
+    """Reconstruct a Folio from a raw folios row (the pre-Phase-2 shape). Used only
+    as the cross-project fallback for a registered legacy db that has not been
+    backfilled yet (no refs table) — folios stays alive through Phase 2."""
+    return Folio(
+        folio_id=row["folio_id"],
+        type=row["type"],
+        site_id=row["site_id"],
+        created_at=ensure_aware(row["created_at"]),
+        created_by=row["created_by"],
+        title=row["title"],
+        content=row["content"],
+        status=(row["status"] if "status" in row.keys() else None) or "open",
+        assigned_to=row["assigned_to"] if "assigned_to" in row.keys() else None,
+        target_agent=row["target_agent"] if "target_agent" in row.keys() else None,
+        omlet=row["omlet"] if "omlet" in row.keys() else None,
+        archived=bool(row["archived"]) if "archived" in row.keys() else False,
+        metadata=json.loads(row["metadata"]) if ("metadata" in row.keys() and row["metadata"]) else {},
+        acknowledged_at=ensure_aware(row["acknowledged_at"]) if "acknowledged_at" in row.keys() else None,
+        content_hash=row["content_hash"] if "content_hash" in row.keys() else None,
+    )
+
+
+def _has_refs_table(conn: "sqlite3.Connection") -> bool:
+    """Whether this db has been backfilled to the Phase 2 shape. A registered
+    legacy db with only folios (not yet backfilled) lacks refs; the cross-project
+    readers fall back to folios for it so a folio that exists still resolves
+    rather than silently vanishing. Steady state (all registered dbs migrated by
+    the §5 --all backfill, gated by verify_versions_refs --all) never hits this."""
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='refs'"
+    ).fetchone() is not None
+
+
 # Project Registry
 def load_project_registry() -> Dict[str, Dict[str, Any]]:
     """Load project registry from ~/.skein/projects.json."""
@@ -119,9 +189,16 @@ def search_folio_across_projects(
                 continue
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             try:
-                cursor = conn.execute(
-                    "SELECT 1 FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
-                )
+                # Existence is per-slug on refs (heads layer); fall back to folios
+                # for a not-yet-backfilled legacy db (no refs table).
+                if _has_refs_table(conn):
+                    cursor = conn.execute(
+                        "SELECT 1 FROM refs WHERE slug = ? LIMIT 1", (folio_id,)
+                    )
+                else:
+                    cursor = conn.execute(
+                        "SELECT 1 FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
+                    )
                 if cursor.fetchone():
                     project_path = project_info.get("path", str(data_dir))
                     return {"project_name": project_name, "project_path": project_path}
@@ -169,7 +246,12 @@ def get_project_last_activity_timestamps() -> Dict[str, int]:
                 continue
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             try:
-                cursor = conn.execute("SELECT MAX(created_at) FROM folios")
+                # Latest head activity = MAX(created_at) over heads (genesis ts,
+                # inherited); fall back to folios for a not-yet-backfilled db.
+                if _has_refs_table(conn):
+                    cursor = conn.execute("SELECT MAX(v.created_at) " + _HEAD_FROM)
+                else:
+                    cursor = conn.execute("SELECT MAX(created_at) FROM folios")
                 row = cursor.fetchone()
                 if not row or row[0] is None:
                     continue
@@ -209,29 +291,21 @@ def resolve_folio_across_projects(
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
             try:
-                cursor = conn.execute(
-                    "SELECT * FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
-                )
-                row = cursor.fetchone()
-                if row:
-                    row_dict = dict(row)
-                    folio = Folio(
-                        folio_id=row_dict["folio_id"],
-                        type=row_dict["type"],
-                        site_id=row_dict["site_id"],
-                        created_at=ensure_aware(row_dict["created_at"]),
-                        created_by=row_dict["created_by"],
-                        title=row_dict["title"],
-                        content=row_dict["content"],
-                        status=row_dict.get("status") or "open",
-                        assigned_to=row_dict.get("assigned_to"),
-                        target_agent=row_dict.get("target_agent"),
-                        omlet=row_dict.get("omlet"),
-                        archived=bool(row_dict.get("archived", False)),
-                        metadata=json.loads(row_dict.get("metadata") or "{}"),
-                        acknowledged_at=ensure_aware(row_dict.get("acknowledged_at")),
-                        content_hash=row_dict.get("content_hash"),
-                    )
+                # Resolve the slug's HEAD via the join (identity from versions,
+                # control from refs); fall back to the raw folios row for a
+                # not-yet-backfilled legacy db (no refs table).
+                if _has_refs_table(conn):
+                    row = conn.execute(
+                        f"SELECT {_HEAD_SELECT} {_HEAD_FROM} WHERE r.slug = ? LIMIT 1",
+                        (folio_id,),
+                    ).fetchone()
+                    folio = _folio_from_head_row(row) if row else None
+                else:
+                    row = conn.execute(
+                        "SELECT * FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
+                    ).fetchone()
+                    folio = _folio_from_folios_row(row) if row else None
+                if folio is not None:
                     logger.info(
                         f"Resolved {folio_id} from project '{project_name}' (cascade)"
                     )
@@ -1354,15 +1428,15 @@ class LogDatabase:
         )
 
     def get_folio(self, folio_id: str) -> Optional[Folio]:
-        """Get a specific folio by ID."""
+        """Get a specific folio by ID — its lineage HEAD via the join."""
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+                f"SELECT {_HEAD_SELECT} {_HEAD_FROM} WHERE r.slug = ?", (folio_id,)
             )
             row = cursor.fetchone()
             if not row:
                 return None
-            return self._row_to_folio(row)
+            return _folio_from_head_row(row)
 
     def get_folios(
         self,
@@ -1373,49 +1447,52 @@ class LogDatabase:
         created_by: Optional[str] = None,
         archived: Optional[bool] = None,
     ) -> List[Folio]:
-        """Get folios with optional filters."""
+        """Get folios (heads only) with optional filters. Identity filters hit
+        versions (type/created_by), control filters hit refs (site/status/...)."""
         with self._get_connection() as conn:
-            query = "SELECT * FROM folios WHERE 1=1"
+            query = f"SELECT {_HEAD_SELECT} {_HEAD_FROM} WHERE 1=1"
             params = []
 
             if site_id:
-                query += " AND site_id = ?"
+                query += " AND r.site_id = ?"
                 params.append(site_id)
             if type:
-                query += " AND type = ?"
+                query += " AND v.type = ?"
                 params.append(type)
             if status:
-                query += " AND status = ?"
+                query += " AND r.status = ?"
                 params.append(status)
             if assigned_to:
-                query += " AND assigned_to = ?"
+                query += " AND r.assigned_to = ?"
                 params.append(assigned_to)
             if created_by:
-                query += " AND created_by = ?"
+                query += " AND v.created_by = ?"
                 params.append(created_by)
             if archived is not None:
-                query += " AND archived = ?"
+                query += " AND r.archived = ?"
                 params.append(1 if archived else 0)
 
-            query += " ORDER BY created_at DESC"
+            # Deterministic secondary key (slug) so versions.created_at ties don't
+            # reorder vs the old folios rowid order (§4 determinism).
+            query += " ORDER BY v.created_at DESC, r.slug"
 
             cursor = conn.execute(query, params)
-            return [self._row_to_folio(row) for row in cursor.fetchall()]
+            return [_folio_from_head_row(row) for row in cursor.fetchall()]
 
     def move_folio(self, folio_id: str, dest_site_id: str) -> Optional[Folio]:
         """Move a folio to a different site — a dual-write transaction.
 
         site_id is ref-local control, not an identity field, so a move mints NO
         version. But move_folio is a second folios-write path outside save_folio,
-        so from commit B it carries the companion refs write itself: it UPDATEs
-        both folios.site_id and refs.site_id in one transaction. (Return still
-        reconstructs from the folios row in Phase 2; the join return flips at C.)
+        so it carries the companion refs write itself: it UPDATEs both
+        folios.site_id and refs.site_id in one transaction, and (at commit C)
+        returns the head reconstructed from the join.
         """
         with self._immediate_txn() as conn:
-            row = conn.execute(
-                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+            exists = conn.execute(
+                "SELECT 1 FROM refs WHERE slug = ?", (folio_id,)
             ).fetchone()
-            if not row:
+            if not exists:
                 return None
 
             conn.execute(
@@ -1427,78 +1504,89 @@ class LogDatabase:
                 (dest_site_id, folio_id),
             )
 
-            updated = conn.execute(
-                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+            row = conn.execute(
+                f"SELECT {_HEAD_SELECT} {_HEAD_FROM} WHERE r.slug = ?", (folio_id,)
             ).fetchone()
-            return self._row_to_folio(updated)
+            return _folio_from_head_row(row)
 
     def search_folios(self, query: str, limit: int = 50) -> List[Folio]:
-        """Full-text search across folios using FTS5."""
+        """Full-text search across folio HEADS using FTS5 over versions.
+
+        versions_fts indexes every version (including superseded ones), so the head
+        join (refs.head_hash = versions.content_hash) MUST precede ORDER BY rank
+        LIMIT — otherwise superseded matches fill the top-N and hide head matches.
+        """
         with self._get_connection() as conn:
             # FTS5 query - escape special characters for safety
             fts_query = query.replace('"', '""')
             cursor = conn.execute(
-                """
-                SELECT folios.* FROM folios
-                JOIN folios_fts ON folios.rowid = folios_fts.rowid
-                WHERE folios_fts MATCH ?
+                f"""
+                SELECT {_HEAD_SELECT}
+                FROM versions_fts
+                JOIN versions v ON v.rowid = versions_fts.rowid
+                JOIN refs r ON r.head_hash = v.content_hash
+                WHERE versions_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
             """,
                 (f'"{fts_query}"', limit),
             )
-            return [self._row_to_folio(row) for row in cursor.fetchall()]
+            return [_folio_from_head_row(row) for row in cursor.fetchall()]
 
     def get_folio_count(self, site_id: Optional[str] = None) -> int:
-        """Get count of folios, optionally by site."""
+        """Count of lineages (heads) = COUNT(*) of refs, optionally by site."""
         with self._get_connection() as conn:
             if site_id:
                 cursor = conn.execute(
-                    "SELECT COUNT(*) FROM folios WHERE site_id = ?", (site_id,)
+                    "SELECT COUNT(*) FROM refs WHERE site_id = ?", (site_id,)
                 )
             else:
-                cursor = conn.execute("SELECT COUNT(*) FROM folios")
+                cursor = conn.execute("SELECT COUNT(*) FROM refs")
             return cursor.fetchone()[0]
 
     def get_folio_stats(self, site_id: Optional[str] = None) -> Dict[str, Any]:
-        """Get folio statistics (type/status breakdowns), optionally by site."""
+        """Folio statistics over heads: by_type from the head version (join),
+        by_status from the refs control cache, total from refs (lineage count)."""
         with self._get_connection() as conn:
-            base = "SELECT {} FROM folios"
-            where = ""
-            params = []
-            if site_id:
-                where = " WHERE site_id = ?"
-                params = [site_id]
+            site_where = " WHERE r.site_id = ?" if site_id else ""
+            params = [site_id] if site_id else []
 
-            # By type
+            # By type — from the head version (identity field).
             cursor = conn.execute(
-                base.format("type, COUNT(*) as cnt") + where + " GROUP BY type",
+                f"SELECT v.type AS type, COUNT(*) AS cnt {_HEAD_FROM}"
+                + site_where + " GROUP BY v.type",
                 params,
             )
             by_type = {row["type"]: row["cnt"] for row in cursor.fetchall()}
 
-            # By status
+            # By status — from the refs copy-of-column cache (no version needed).
+            status_where = " WHERE site_id = ?" if site_id else ""
             cursor = conn.execute(
-                base.format("status, COUNT(*) as cnt") + where + " GROUP BY status",
+                "SELECT status, COUNT(*) AS cnt FROM refs" + status_where
+                + " GROUP BY status",
                 params,
             )
             by_status = {row["status"]: row["cnt"] for row in cursor.fetchall()}
 
-            # Total
-            cursor = conn.execute(base.format("COUNT(*) as cnt") + where, params)
+            # Total — lineage count.
+            cursor = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM refs" + status_where, params
+            )
             total = cursor.fetchone()["cnt"]
 
             return {"total": total, "by_type": by_type, "by_status": by_status}
 
     def get_site_last_activity(self) -> Dict[str, datetime]:
-        """Return mapping of site_id -> latest folio created_at (timezone-aware).
+        """Return mapping of site_id -> latest head created_at (timezone-aware).
 
-        Sites with zero folios are not included.
+        created_at is the genesis timestamp (inherited); site_id is on refs, so
+        this groups the heads join by refs.site_id. Sites with zero folios are
+        not included.
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT site_id, MAX(created_at) AS last_created_at "
-                "FROM folios GROUP BY site_id"
+                "SELECT r.site_id AS site_id, MAX(v.created_at) AS last_created_at "
+                + _HEAD_FROM + " GROUP BY r.site_id"
             )
             return {
                 row["site_id"]: ensure_aware(row["last_created_at"])

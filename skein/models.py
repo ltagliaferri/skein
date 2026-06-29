@@ -131,6 +131,12 @@ ThreadType = Literal[
     "reply",
     "tag",
     "status",
+    # Phase 2 edit-as-commit edges. Endpoints are content HASHES, not slugs —
+    # the first hash-keyed edges in the table. Endpoint-resolution surfaces
+    # (orphan detection) must exclude these two types or they report every edit
+    # edge as broken.
+    "supersedes",  # the edit edge: from_id = new hash, to_id = old head hash
+    "reverted",    # the revert marker: from_id = prior head hash, to_id = reused hash
 ]
 
 

@@ -533,6 +533,81 @@ class LogDatabase:
                 END
             """)
 
+            # ── Phase 2: content-addressed versions + slug-as-head refs ─────────
+            # versions: immutable, append-only object store keyed by content hash.
+            # Only the five hashed identity fields live here; a row is written once
+            # and never updated or deleted, so its PK is verifiable from its own
+            # columns (identity.compute_folio_hash). Two lineages that reach
+            # byte-identical content share one row (content-addressing dedups).
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS versions (
+                    content_hash TEXT PRIMARY KEY,
+                    type         TEXT NOT NULL,
+                    title        TEXT NOT NULL,
+                    content      TEXT NOT NULL,
+                    created_at   DATETIME NOT NULL,
+                    created_by   TEXT NOT NULL
+                )
+            """
+            )
+
+            # refs: mutable, local, never federated — the naming + control layer.
+            # slug is the everyday human handle (folio_id); genesis_hash is the
+            # stable lineage identity (survives edits); head_hash moves on every
+            # identity-changing edit. The control columns are a copy-of-column
+            # cache of the full non-identity set (status/assigned_to/archived/
+            # site_id/target_agent/omlet/acknowledged_at/metadata). created_by is
+            # hashed identity and lives on versions, NOT here; type is also
+            # identity-only (the edit rule freezes a lineage's type).
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS refs (
+                    slug            TEXT PRIMARY KEY,
+                    genesis_hash    TEXT NOT NULL,
+                    head_hash       TEXT NOT NULL,
+                    site_id         TEXT NOT NULL,
+                    status          TEXT DEFAULT 'open',
+                    assigned_to     TEXT,
+                    archived        INTEGER DEFAULT 0,
+                    target_agent    TEXT,
+                    omlet           TEXT,
+                    acknowledged_at DATETIME,
+                    metadata        JSON
+                )
+            """
+            )
+
+            for col in ("site_id", "status", "assigned_to", "archived",
+                        "head_hash", "genesis_hash"):
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_refs_{col} ON refs({col})"
+                )
+
+            # versions_fts: FTS5 external-content over versions. AFTER INSERT
+            # trigger ONLY — versions are append-only (never updated, never
+            # deleted), so no _au/_ad trigger is needed. It indexes every version
+            # including superseded ones; search restricts to heads via the refs
+            # join (the head predicate is refs.head_hash = versions.content_hash).
+            conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS versions_fts
+                USING fts5(
+                    content_hash,
+                    title,
+                    content,
+                    content=versions,
+                    content_rowid=rowid
+                )
+            """
+            )
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS versions_ai AFTER INSERT ON versions BEGIN
+                    INSERT INTO versions_fts(rowid, content_hash, title, content)
+                    VALUES (new.rowid, new.content_hash, new.title, new.content);
+                END
+            """)
+
             conn.commit()
 
     @contextmanager

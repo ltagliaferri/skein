@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 
-from .models import AgentInfo, Site, Folio, Thread, LogLine
+from .models import AgentInfo, Site, Folio, Thread, LogLine, VersionView
 from .utils import generate_thread_id
 
 try:
@@ -321,6 +321,53 @@ def resolve_folio_across_projects(
 
 
 # Legacy module-level variables removed - use project-specific instances via get_data_dir_for_project()
+
+
+class StoreStationIndex:
+    """Concrete skein.address.StationIndex backed by the live versions/refs tables.
+
+    Lengthens a short hash against ALL versions (including superseded ones — a
+    durable by-hash citation must resolve forever) and resolves a slug to its
+    lineage head. Opens its own read-only connection per call (resolution is a
+    cache-miss path, not hot). Digests are framed `sha256::<hex>` in the store;
+    this returns/consumes the BARE hex the address resolver works in."""
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def _ro(self) -> sqlite3.Connection:
+        return sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+
+    def folios_with_prefix(self, algo: str, prefix: str) -> List[str]:
+        # prefix is a validated lowercase-hex short digest (no LIKE wildcards).
+        framed = f"{algo}::{prefix}%"
+        conn = self._ro()
+        try:
+            rows = conn.execute(
+                "SELECT content_hash FROM versions WHERE content_hash LIKE ?",
+                (framed,),
+            ).fetchall()
+        finally:
+            conn.close()
+        out: List[str] = []
+        for (ch,) in rows:
+            a, _, hexpart = ch.partition("::")
+            if a == algo:
+                out.append(hexpart)
+        return out
+
+    def head_of_slug(self, slug: str) -> Optional[str]:
+        conn = self._ro()
+        try:
+            row = conn.execute(
+                "SELECT head_hash FROM refs WHERE slug = ?", (slug,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        _, _, hexpart = row[0].partition("::")
+        return hexpart
 
 
 # SQLite Database for Logs
@@ -1614,6 +1661,53 @@ class LogDatabase:
             content_hash=row["content_hash"],
         )
 
+    def get_version_by_hash(self, content_hash: str) -> Optional["VersionView"]:
+        """By-hash fetch (§8): the version's five immutable identity fields + the
+        is_head / lineage_head flags, NO mutable control (a hash addresses content,
+        not a lineage's state). Resolves a SUPERSEDED version too (durable
+        citation). Returns None if the hash is unknown."""
+        with self._get_connection() as conn:
+            v = conn.execute(
+                "SELECT * FROM versions WHERE content_hash = ?", (content_hash,)
+            ).fetchone()
+            if not v:
+                return None
+            is_head = conn.execute(
+                "SELECT 1 FROM refs WHERE head_hash = ? LIMIT 1", (content_hash,)
+            ).fetchone() is not None
+            lineage_head = self._lineage_head(conn, content_hash, is_head)
+            return VersionView(
+                content_hash=content_hash,
+                type=v["type"],
+                title=v["title"],
+                content=v["content"],
+                created_at=ensure_aware(v["created_at"]),
+                created_by=v["created_by"],
+                is_head=is_head,
+                lineage_head=lineage_head,
+            )
+
+    def _lineage_head(self, conn, content_hash: str, is_head: bool) -> Optional[str]:
+        """The current head hash of the lineage this version belongs to. A head
+        version's lineage head is itself. For a superseded version, walk supersedes
+        edges BACKWARD to the genesis root(s) and look up the ref(s) anchored
+        there — this is correct even after a revert (the head can be 'behind' the
+        supersedes tip). A version shared by two lineages (content-addressing dedup)
+        has more than one candidate; pick deterministically (documented edge)."""
+        if is_head:
+            return content_hash
+        rows = conn.execute(
+            "WITH RECURSIVE back(h) AS ("
+            "  SELECT ? "
+            "  UNION "
+            "  SELECT t.to_id FROM threads t JOIN back ON t.from_id = back.h "
+            "  WHERE t.type = 'supersedes'"
+            ") SELECT DISTINCT r.head_hash FROM refs r JOIN back ON r.genesis_hash = back.h",
+            (content_hash,),
+        ).fetchall()
+        heads = sorted(r[0] for r in rows)
+        return heads[0] if heads else None
+
     def migrate_folios_from_json(self, sites_dir: Path) -> int:
         """
         Migrate folio JSON files from all sites into SQLite.
@@ -1956,6 +2050,15 @@ class JSONStore:
         # No recompute-on-read: the hash is maintained at write time, and a read
         # must never mutate the store (the old write-on-read was a surprise write).
         return self._log_db.get_folio(folio_id)
+
+    def get_version_by_hash(self, content_hash: str) -> Optional[VersionView]:
+        """By-hash fetch (§8): a version's immutable content + is_head/lineage_head,
+        no mutable control. Resolves superseded versions too."""
+        return self._log_db.get_version_by_hash(content_hash)
+
+    def station_index(self) -> "StoreStationIndex":
+        """A StationIndex over this store's versions/refs for address resolution."""
+        return StoreStationIndex(self._log_db.db_path)
 
     def move_folio(self, folio_id: str, dest_site_id: str) -> Optional[Folio]:
         """

@@ -6,7 +6,7 @@ import logging
 import base64
 import re
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from fastapi.responses import FileResponse
@@ -20,6 +20,7 @@ from .models import (
     SiteUpdate,
     FolioCreate,
     Folio,
+    VersionView,
     FolioUpdate,
     ThreadCreate,
     Thread,
@@ -42,6 +43,7 @@ from .storage import (
     get_project_last_activity_timestamps,
 )
 from .address_legacy import parse as parse_address
+from . import address as rev3_address
 from .utils import (
     generate_folio_id,
     generate_thread_id,
@@ -120,11 +122,82 @@ def get_project_screenshots_dir(x_project_id: Optional[str] = Header(None)) -> P
 # Address resolution
 
 
+def _verify_fragment(expected_framed: Optional[str], resolved_content_hash: str) -> None:
+    """Enforce a `#sha256::<full>` verifier fragment: the address must resolve to
+    EXACTLY the fragment's digest, else reject (ADDRESSING_GRAMMAR.md — the fragment
+    is a verifier, not decoration). `expected_framed` is the framed
+    `sha256::<hex>` the fragment asserts (None when there is no fragment);
+    `resolved_content_hash` is the framed digest the address actually resolved to.
+    Works for ANY address form (rev3 OR a legacy bare/project address)."""
+    if expected_framed is None:
+        return
+    if not resolved_content_hash:
+        # The target has no content hash to check against (e.g. a legacy folios row
+        # on a not-yet-backfilled foreign project). Refuse — but say WHY, so it
+        # isn't mistaken for a digest mismatch.
+        raise HTTPException(
+            status_code=409,
+            detail=(f"cannot verify fragment {expected_framed}: target has no "
+                    f"content hash"),
+        )
+    if resolved_content_hash != expected_framed:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"verifier fragment mismatch: address resolved to "
+                    f"{resolved_content_hash}, fragment asserts {expected_framed}"),
+        )
+
+
+def _resolve_rev3_read(address: str, current_store: JSONStore) -> Union[Folio, VersionView]:
+    """Resolve a rev3 `::` address against the current store's versions/refs.
+
+    - ref::<slug> -> the lineage HEAD folio (a Folio, with control). NOTE: a BARE
+      slug (no `::`) is NOT handled here — it stays on the legacy parser so it keeps
+      its cross-project cascade; `ref::<slug>` is the explicit local-only form.
+    - sha256::<hex> / hash::sha256::<hex> / a station-scoped short hash -> the exact
+      version, by-hash (a VersionView: immutable content + is_head/lineage_head, no
+      mutable control). Resolution is current-store-scoped; cross-project hash
+      cascade and foreign-station scoping (an alias/web station naming a DIFFERENT
+      store) are future work — today a named station resolves against the current
+      store. A `#sha256::<full>` verifier fragment is enforced on every form.
+    """
+    try:
+        parsed = rev3_address.parse(address)
+    except rev3_address.AddressError as e:
+        raise HTTPException(status_code=400, detail=f"invalid address: {e}")
+
+    frag_framed = (f"{parsed.fragment.algo}::{parsed.fragment.digest}"
+                   if parsed.fragment is not None else None)
+
+    if isinstance(parsed.folio, rev3_address.Ref):
+        # The head IS the resolution; get_folio gives both the refuse-on-unknown
+        # (None -> 404) and the head Folio with control, so no separate resolve().
+        folio = current_store.get_folio(parsed.folio.slug)
+        if not folio:
+            raise HTTPException(status_code=404, detail=f"ref not found: {parsed.folio.slug}")
+        _verify_fragment(frag_framed, folio.content_hash)
+        return folio
+
+    station = current_store.station_index()
+    try:
+        resolved_hex = rev3_address.resolve(parsed, station)
+    except rev3_address.AddressError as e:
+        # ShortHashNotFound / AmbiguousShortHash both subclass this.
+        raise HTTPException(status_code=404, detail=str(e))
+
+    content_hash = f"{parsed.folio.algo}::{resolved_hex}"
+    _verify_fragment(frag_framed, content_hash)
+    folio = current_store.get_version_by_hash(content_hash)
+    if not folio:
+        raise HTTPException(status_code=404, detail=f"hash not found: {content_hash}")
+    return folio
+
+
 def resolve_folio_read(
     address: str,
     current_project_id: Optional[str],
     current_store: JSONStore,
-) -> Folio:
+) -> Union[Folio, VersionView]:
     """
     Resolve a folio address for reading.
 
@@ -135,7 +208,37 @@ def resolve_folio_read(
 
     Sets source_project on the Folio when it came from another project.
     """
-    parsed = parse_address(address)
+    # Dispatch on the address BODY (the part before any `#fragment`), NOT the raw
+    # string: a `#sha256::<hex>` verifier fragment always contains `::`, so keying
+    # on the raw string would pull a fragment-bearing bare/project address into the
+    # rev3 path and drop its cascade. The body decides the scheme; the fragment is
+    # a cross-cutting verifier handled per-path.
+    #
+    # rev3 `::` forms (sha256::/hash::/ref::<slug>/alias::/web::) resolve through the
+    # content-hash grammar + the live versions/refs station. The single-colon
+    # `project:id` scheme and BARE slugs stay on the legacy parser below: a bare
+    # slug keeps its local-then-cross-project cascade (the established behaviour),
+    # which a local-only rev3 ref lookup would regress; `ref::<slug>` is the
+    # explicit local-only head form. (§7 routes "slug" through address.parse; the
+    # cascade-preserving split is a deliberate implementer call — the resolved head
+    # is identical either way for a local folio, and bare-slug cross-project
+    # resolution must not be dropped.)
+    body, sep, frag = address.partition("#")
+    if "::" in body:
+        return _resolve_rev3_read(address, current_store)
+
+    # Legacy path. A verifier fragment may ride a legacy address too; parse+validate
+    # it as a bare full sha256 hash and enforce it against whatever the body resolves
+    # to (preserving the cascade the rev3 path would not provide).
+    frag_framed: Optional[str] = None
+    if sep:
+        try:
+            frag_hash = rev3_address.parse_fragment(frag)  # validates sha256::<64hex>
+        except rev3_address.AddressError as e:
+            raise HTTPException(status_code=400, detail=f"invalid verifier fragment: {e}")
+        frag_framed = f"{frag_hash.algo}::{frag_hash.digest}"
+
+    parsed = parse_address(body)
 
     if parsed.is_qualified:
         # Explicit project prefix — look in that project's store
@@ -151,6 +254,7 @@ def resolve_folio_read(
                 status_code=404,
                 detail=f"Folio '{parsed.folio_id}' not found in project '{parsed.project}'",
             )
+        _verify_fragment(frag_framed, folio.content_hash)
         # Only tag source if it's different from the current project
         if parsed.project != current_project_id:
             folio.source_project = parsed.project
@@ -159,12 +263,14 @@ def resolve_folio_read(
     # Bare address — try current project first
     folio = current_store.get_folio(parsed.folio_id)
     if folio:
+        _verify_fragment(frag_framed, folio.content_hash)
         return folio
 
     # Cascade: search all other projects
     result = resolve_folio_across_projects(parsed.folio_id, current_project_id)
     if result:
         folio = result["folio"]
+        _verify_fragment(frag_framed, folio.content_hash)
         folio.source_project = result["project_name"]
         return folio
 
@@ -841,18 +947,20 @@ async def search_folios(
     return matching
 
 
-@router.get("/folios/{folio_id}", response_model=Folio)
+@router.get("/folios/{folio_id}", response_model=Union[Folio, VersionView])
 async def get_folio(
     folio_id: str,
     x_project_id: Optional[str] = Header(None),
     store: JSONStore = Depends(get_project_store),
 ):
-    """Get specific folio. Supports colon-based cross-project addresses."""
+    """Get a folio by slug / project:slug / ref::<slug>, or a version by content
+    hash (sha256::/hash::/station-scoped short). A by-hash fetch returns a
+    VersionView (immutable content + is_head/lineage_head, no mutable control)."""
     folio = resolve_folio_read(folio_id, x_project_id, store)
 
-    # PURE THREADS: Compute status and assigned_to from threads
-    # (only meaningful for local project folios)
-    if not folio.source_project:
+    # A by-hash VersionView carries no mutable state — return it as-is. Only a
+    # local Folio gets the thread-derived status/assignment enrichment.
+    if isinstance(folio, Folio) and not folio.source_project:
         computed_status = get_current_status(folio.folio_id, store)
         computed_assignment = get_current_assignment(folio.folio_id, store)
         folio.status = computed_status or folio.status or "open"

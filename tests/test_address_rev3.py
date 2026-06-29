@@ -1383,11 +1383,24 @@ class TestProperties:
     @settings(max_examples=300)
     @given(
         bad=st.text(min_size=1, max_size=80).filter(
-            lambda s: "::" not in s and not s.startswith("sha256:")
+            lambda s: "::" not in s
+            and not s.startswith("sha256:")
+            # The ref layer makes a bare slug (1 segment matching the alias
+            # grammar) a VALID address (a local lineage-head ref), so exclude
+            # those from the garbage set — they're covered positively below.
+            and A._ALIAS_RE.fullmatch(s) is None
         )
     )
     def test_garbage_without_delimiter_never_validates(self, bad):
         assert A.validate(bad) is False
+
+    @settings(max_examples=200)
+    @given(slug=st.from_regex(A._ALIAS_RE, fullmatch=True))
+    def test_bare_slug_validates_as_ref(self, slug):
+        # A 1-segment string matching the alias/slug grammar is a valid bare ref.
+        assert A.validate(slug) is True
+        parsed = A.parse(slug)
+        assert parsed.type == "ref" and parsed.folio.slug == slug
 
     @settings(max_examples=200)
     @given(

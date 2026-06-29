@@ -37,7 +37,7 @@ import ipaddress
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Optional, Protocol, Tuple
+from typing import List, Optional, Protocol, Tuple, Union
 
 # --- algorithm / vocabulary constants ---------------------------------------
 
@@ -48,8 +48,9 @@ _SHORT_MIN = 8                 # minimum short-hash length
 _RESERVED_TRANSPORTS = frozenset({"ipfs", "ssh", "oidc", "peer"})
 
 # Names that may never be used as an alias (type words, transports, algo words).
+# `ref` is reserved too (the ref type word), so no station may be nicknamed `ref`.
 _RESERVED_ALIASES = frozenset(
-    {"alias", "web", "hash", "ipfs", "ssh", "oidc", "peer",
+    {"alias", "web", "hash", "ref", "ipfs", "ssh", "oidc", "peer",
      "sha256", "sha512", "blake3"}
 )
 
@@ -164,11 +165,30 @@ class Hash:
 
 
 @dataclass(frozen=True)
+class Ref:
+    """A slug reference to a lineage HEAD (resolved via refs.head_hash).
+
+    Unlike a Hash (which addresses immutable content), a Ref names a lineage by
+    its everyday slug and resolves to whatever version is currently the head. It
+    is well-formed by construction: the slug satisfies the same grammar as a
+    station alias (lowercase [a-z0-9-], alphanumeric ends, <=32)."""
+
+    slug: str
+
+    def __post_init__(self) -> None:
+        _validate_slug(self.slug)
+
+
+# A resolution target is either immutable content (Hash) or a lineage head (Ref).
+Target = Union[Hash, Ref]
+
+
+@dataclass(frozen=True)
 class ParsedAddress:
     """A fully interpreted, validated address."""
 
-    type: str                          # "alias" | "web" | "hash"
-    folio: Hash
+    type: str                          # "alias" | "web" | "hash" | "ref"
+    folio: Target                      # Hash (content) or Ref (lineage head)
     alias: Optional[str] = None        # set iff type == "alias"
     authority: Optional[str] = None    # set iff type == "web"
     fragment: Optional[Hash] = None    # verifier fragment (always a full hash)
@@ -181,10 +201,17 @@ class ParsedAddress:
         # fragment shape rules that the parse-time builders enforce.
         if not isinstance(self.type, str):
             raise AddressError(f"type must be a string, not {type(self.type).__name__}")
-        if self.type not in ("alias", "web", "hash"):
+        if self.type not in ("alias", "web", "hash", "ref"):
             raise AddressError(f"unknown address type: {self.type!r}")
-        if not isinstance(self.folio, Hash):
-            raise AddressError("folio must be a Hash")
+        if not isinstance(self.folio, (Hash, Ref)):
+            raise AddressError("folio must be a Hash or a Ref")
+        # The `ref` type word is the bare/explicit lineage-head form: it carries a
+        # Ref and no station. A station-scoped ref (alias::<name>::ref::<slug> /
+        # web::<authority>::ref::<slug>) keeps type alias/web with a Ref folio.
+        if self.type == "ref" and not isinstance(self.folio, Ref):
+            raise AddressError("ref type requires a Ref folio")
+        if self.type == "hash" and not isinstance(self.folio, Hash):
+            raise AddressError("hash type requires a Hash folio")
         # "set iff" cross-field invariant.
         if (self.alias is not None) != (self.type == "alias"):
             raise AddressError("alias must be set if and only if type == 'alias'")
@@ -199,7 +226,7 @@ class ParsedAddress:
         # short hash (nothing to cascade against) — only alias/web may be short.
         # The fullness invariant is about DIGEST LENGTH, so check it intrinsically
         # rather than via the is_full property (which a Hash subclass could
-        # override to lie or to raise).
+        # override to lie or to raise). (Only meaningful for a Hash folio.)
         full_width = _FULL_WIDTH["sha256"]
         if self.type == "hash" and len(self.folio.digest) != full_width:
             raise AddressError("bare/hash folio must be a full digest")
@@ -222,10 +249,16 @@ class ParsedAddress:
 
 
 class StationIndex(Protocol):
-    """Read-only index over a station's folios, used to lengthen short hashes."""
+    """Read-only index over a station's folios: lengthen short hashes and resolve
+    a slug to its lineage head."""
 
     def folios_with_prefix(self, algo: str, prefix: str) -> List[str]:
         """Return the matching FULL lowercase-hex digests (0, 1, or many)."""
+        ...
+
+    def head_of_slug(self, slug: str) -> Optional[str]:
+        """Return the FULL lowercase-hex digest of the slug's current head version,
+        or None if the slug is unknown. (slug is a refs PK, so never ambiguous.)"""
         ...
 
 
@@ -484,6 +517,16 @@ def _validate_alias_name(name: str) -> None:
         raise AddressError(f"invalid alias name: {name!r}")
 
 
+def _validate_slug(slug: str) -> None:
+    """A folio slug shares the alias grammar (lowercase [a-z0-9-], alphanumeric
+    ends, <=32) per the ref-layer spec — but is NOT subject to the reserved-name
+    check (a real slug is type-prefixed, e.g. brief-…/issue-…, never a type word)."""
+    if not isinstance(slug, str):
+        raise AddressError(f"slug must be a string, not {type(slug).__name__}")
+    if not _ALIAS_RE.fullmatch(slug):
+        raise AddressError(f"invalid slug: {slug!r}")
+
+
 # --- fragment validation ----------------------------------------------------
 
 def _parse_fragment(raw: Optional[str]) -> Optional[Hash]:
@@ -496,6 +539,13 @@ def _parse_fragment(raw: Optional[str]) -> Optional[Hash]:
     return Hash("sha256", m.group(1))
 
 
+def parse_fragment(raw: Optional[str]) -> Optional[Hash]:
+    """Public: validate a bare verifier-fragment string as `sha256::<64-hex>`,
+    returning the Hash (or None). Used to enforce a verifier fragment carried on a
+    LEGACY (non-`::`) address, where the rev3 parser does not run."""
+    return _parse_fragment(raw)
+
+
 # --- parser -----------------------------------------------------------------
 
 def parse(address: str) -> ParsedAddress:
@@ -504,6 +554,10 @@ def parse(address: str) -> ParsedAddress:
     fragment = _parse_fragment(tokens.fragment)
     segments = tokens.segments
     first = segments[0]
+
+    # 1-segment bare slug: `<slug>` — a local lineage-head ref.
+    if len(segments) == 1:
+        return _build_ref(first, fragment)
 
     if first == "alias":
         _require_arity(segments, 4)
@@ -517,6 +571,12 @@ def parse(address: str) -> ParsedAddress:
         _require_arity(segments, 3)
         return _build_hash(segments[1], segments[2], fragment)
 
+    # Explicit bare ref: `ref::<slug>`. Dispatched BEFORE the 2-segment bare-hash
+    # branch so `ref` is not mistaken for a hash algorithm.
+    if first == "ref":
+        _require_arity(segments, 2)
+        return _build_ref(segments[1], fragment)
+
     if first in _RESERVED_TRANSPORTS:
         raise AddressError(f"transport {first!r} is reserved but unsupported in v0")
 
@@ -524,7 +584,8 @@ def parse(address: str) -> ParsedAddress:
     if len(segments) == 2:
         return _build_hash(segments[0], segments[1], fragment)
 
-    # Otherwise an alias shorthand: `<name>::<algo>::<digest>`.
+    # Otherwise an alias shorthand: `<name>::<algo>::<digest>` or, when segment 2
+    # is `ref`, a station-scoped ref `<name>::ref::<slug>`.
     _require_arity(segments, 3)
     return _build_alias(segments[0], segments[1], segments[2], fragment)
 
@@ -536,14 +597,25 @@ def _require_arity(segments: Tuple[str, ...], expected: int) -> None:
         )
 
 
+def _build_ref(slug: str, fragment: Optional[Hash]) -> ParsedAddress:
+    # Ref.__post_init__ validates the slug grammar.
+    return ParsedAddress(type="ref", folio=Ref(slug), fragment=fragment)
+
+
 def _build_alias(name: str, algo: str, digest: str, fragment: Optional[Hash]) -> ParsedAddress:
     _validate_alias_name(name)
+    # Segment 2 is normally the hash algorithm; `ref` makes it a station-scoped
+    # ref (`<name>::ref::<slug>`), where segment 3 is the slug, not a digest.
+    if algo == "ref":
+        return ParsedAddress(type="alias", folio=Ref(digest), alias=name, fragment=fragment)
     folio = _make_folio(algo, digest, allow_short=True)
     return ParsedAddress(type="alias", folio=folio, alias=name, fragment=fragment)
 
 
 def _build_web(authority: str, algo: str, digest: str, fragment: Optional[Hash]) -> ParsedAddress:
     _validate_authority(authority)
+    if algo == "ref":
+        return ParsedAddress(type="web", folio=Ref(digest), authority=authority, fragment=fragment)
     folio = _make_folio(algo, digest, allow_short=True)
     return ParsedAddress(type="web", folio=folio, authority=authority, fragment=fragment)
 
@@ -566,7 +638,7 @@ def validate(address) -> bool:
         return False
 
 
-def construct(*, type: str, folio: Hash, alias: Optional[str] = None,
+def construct(*, type: str, folio: Target, alias: Optional[str] = None,
               authority: Optional[str] = None,
               fragment: Optional[Hash] = None) -> str:
     """Canonical inverse of parse(): build an address string from components.
@@ -580,21 +652,38 @@ def construct(*, type: str, folio: Hash, alias: Optional[str] = None,
         if authority is not None:
             raise AddressError("alias type must not carry an authority")
         _validate_alias_name(alias)
-        _assert_valid_hash(folio, allow_short=True)
-        body = f"alias::{alias}::{folio.algo}::{folio.digest}"
+        if isinstance(folio, Ref):           # station-scoped ref
+            _validate_slug(folio.slug)
+            body = f"alias::{alias}::ref::{folio.slug}"
+        else:
+            _assert_valid_hash(folio, allow_short=True)
+            body = f"alias::{alias}::{folio.algo}::{folio.digest}"
     elif type == "web":
         if authority is None:
             raise AddressError("web type requires an authority")
         if alias is not None:
             raise AddressError("web type must not carry an alias")
         _validate_authority(authority)
-        _assert_valid_hash(folio, allow_short=True)
-        body = f"web::{authority}::{folio.algo}::{folio.digest}"
+        if isinstance(folio, Ref):           # station-scoped ref
+            _validate_slug(folio.slug)
+            body = f"web::{authority}::ref::{folio.slug}"
+        else:
+            _assert_valid_hash(folio, allow_short=True)
+            body = f"web::{authority}::{folio.algo}::{folio.digest}"
     elif type == "hash":
         if alias is not None or authority is not None:
             raise AddressError("hash type must not carry an alias or authority")
+        if not isinstance(folio, Hash):
+            raise AddressError("hash type requires a Hash folio")
         _assert_valid_hash(folio, allow_short=False)   # canonical bare form is full
         body = f"{folio.algo}::{folio.digest}"
+    elif type == "ref":
+        if alias is not None or authority is not None:
+            raise AddressError("ref type must not carry an alias or authority")
+        if not isinstance(folio, Ref):
+            raise AddressError("ref type requires a Ref folio")
+        _validate_slug(folio.slug)
+        body = f"ref::{folio.slug}"
     else:
         raise AddressError(f"unknown address type: {type!r}")
 
@@ -608,13 +697,22 @@ def construct(*, type: str, folio: Hash, alias: Optional[str] = None,
 # --- resolver ---------------------------------------------------------------
 
 def resolve(parsed: ParsedAddress, station: StationIndex) -> str:
-    """Turn a (possibly short) folio reference into a full digest.
+    """Turn a folio reference into a full digest.
 
-    NOT an existence check: a full hash returns its own digest WITHOUT querying
-    the station. The station is consulted only to lengthen a short hash,
-    detect-and-error on ambiguity or absence.
+    For a Hash: NOT an existence check — a full hash returns its own digest WITHOUT
+    querying the station; the station is consulted only to lengthen a short hash
+    (and to detect-and-error on ambiguity or absence). For a Ref: ask the station
+    for the slug's current head; a slug is a refs PK so it is never ambiguous, but
+    an unknown slug raises (refuse, do not guess).
     """
     folio = parsed.folio
+
+    if isinstance(folio, Ref):
+        head = station.head_of_slug(folio.slug)
+        if head is None:
+            raise ShortHashNotFound(f"no folio matches slug {folio.slug!r}")
+        return head
+
     # Check length intrinsically rather than via the is_full property (which a
     # Hash subclass could override), matching the fullness checks in
     # _assert_valid_hash / ParsedAddress.__post_init__.

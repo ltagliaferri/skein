@@ -110,6 +110,27 @@ class Folio(BaseModel):
     )
 
 
+class VersionView(BaseModel):
+    """A by-hash fetch result (§8): a version's five IMMUTABLE identity fields plus
+    flags, and NO mutable control (status/assigned_to/etc.) — a hash addresses
+    content, not a lineage's state. Distinct from Folio so a normal folio read is
+    never polluted with these by-hash-only fields.
+
+      - is_head: True if this version is currently some ref's head.
+      - lineage_head: the current head hash of this version's lineage (so a consumer
+        holding a superseded hash can find what is current). Itself when is_head.
+    """
+
+    content_hash: str
+    type: FolioType
+    title: str
+    content: str
+    created_at: datetime
+    created_by: str
+    is_head: bool
+    lineage_head: Optional[str] = None
+
+
 class FolioUpdate(BaseModel):
     """Model for updating a folio's mutable fields."""
 

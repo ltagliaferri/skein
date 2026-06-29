@@ -378,13 +378,31 @@ DAG. Instead:
    to X" survives and is auditable, while introducing no second `supersedes`
    edge and therefore no cycle. The original `supersedes` chain stays walkable.
 
-The discriminator is purely `SELECT 1 FROM versions WHERE content_hash =
-new_hash` — cheap, exact, and idempotent. Note the dedup corollary
-(content-addressing): one `versions` row can be the head of two different refs
+**Implementation refinement (post-fell).** The discriminator was specified above
+as global `versions` membership (`SELECT 1 FROM versions WHERE content_hash =
+new_hash`). The two-genotype fell showed that is too coarse: under
+content-addressing a *forward* edit can land on a version another lineage already
+minted (same five identity fields), and global membership would mislabel that
+forward edit as a revert — dropping its `supersedes` edge and writing a bogus
+`reverted` marker. The shipped discriminator is therefore **lineage membership**:
+a revert is `new_hash` reachable *backward from this ref's head* along
+`supersedes` edges (`storage._reachable_from`, a recursive CTE). This is also
+*exactly* the condition under which adding a `new->head` edge would close a cycle,
+so the forward branch is provably acyclic. A simple cross-lineage dedup edit is
+thus correctly forward (edge written, version reused via `INSERT OR IGNORE`, no
+marker). Accepted limitation: a *converge-then-diverge* sequence (two lineages
+share a version, then one diverges onto the other's ancestor content) cannot be
+held in the global content DAG as both acyclic and per-genesis reachable — the
+code stays safe (no cycle, no double-mint, reads correct via the per-ref head) but
+that lineage's `supersedes` chain has a gap. Since the chain is
+lineage-verification-only and never decides headship, this is harmless; the B->C
+verifier reports such a gap as a non-blocking WARNING.
+
+Note the dedup corollary: one `versions` row can be the head of two different refs
 when two lineages reach byte-identical content. That is coherent; the head
 predicate is per-ref (§4), so it handles a shared head without ambiguity. The
-seeded conformance test (§8) covers both the revert marker and the
-two-refs-share-one-head case.
+seeded conformance test (§8) covers the revert marker, the two-refs-share-one-head
+case, the cross-lineage-forward case, and converge-then-diverge safety.
 
 ### 3.5 created_at / created_by inheritance
 

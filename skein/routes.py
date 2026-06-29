@@ -684,8 +684,15 @@ async def post_to_site(
     created_by = x_agent_id or "unknown"
     folio_id = generate_folio_id(folio_create.type)
 
-    # Pure threads migration: don't set status/assigned_to in folio
-    # They will be computed from threads
+    # Status/assignment remain thread-derived for reads (the sugar threads below
+    # are still the source of truth via enrich_folios_with_status). But the
+    # genesis refs cache copies the folio object's fields at save time, so the
+    # object must carry the TRUE initial state BEFORE the create save_folio — else
+    # a folio created with a non-open status or an assignee seeds refs.status
+    # ='open'/refs.assigned_to=NULL and the refs-derived by_status stat drifts from
+    # birth (§3.3). Set them from the sugar inputs here; the sugar threads are
+    # still written afterward unchanged.
+    initial_status = folio_create.metadata.get("status") or "open"
     folio = Folio(
         folio_id=folio_id,
         type=folio_create.type,
@@ -694,8 +701,8 @@ async def post_to_site(
         created_by=created_by,
         title=folio_create.title,
         content=folio_create.content,
-        status="open",  # Temporary: will be removed after migration
-        assigned_to=None,  # Temporary: will be removed after migration
+        status=initial_status,
+        assigned_to=folio_create.assigned_to,
         target_agent=folio_create.target_agent,
         omlet=folio_create.omlet,
         archived=False,
@@ -925,7 +932,9 @@ async def update_folio(
     if update.archived is not None:
         folio.archived = update.archived
 
-    store.save_folio(folio)
+    # editor (the per-edit agent) drives the supersedes/reverted edge weaver when a
+    # content edit mints a new version; it is NOT folio.created_by (the genesis author).
+    store.save_folio(folio, editor=created_by)
     return {"success": True, "folio": folio}
 
 
@@ -1951,7 +1960,9 @@ async def hypothesis_verdict(
 
     # Also update folio status field for backward compat
     folio.status = verdict_req.verdict
-    store.save_folio(folio)
+    # A verdict is a status-only change (no identity-field edit), so this mints no
+    # version and writes no edge; editor is passed for consistency only.
+    store.save_folio(folio, editor=created_by)
 
     # Store verdict note as a separate message thread (preserves folio content integrity)
     if verdict_req.note:

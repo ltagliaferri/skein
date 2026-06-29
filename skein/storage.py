@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 
 from .models import AgentInfo, Site, Folio, Thread, LogLine
+from .utils import generate_thread_id
 
 try:
     from . import identity
@@ -621,6 +622,29 @@ class LogDatabase:
         finally:
             conn.close()
 
+    @contextmanager
+    def _immediate_txn(self):
+        """A write connection that holds BEGIN IMMEDIATE across the whole block.
+
+        save_folio reads the ref head, then conditionally mints a version and
+        moves the head — a read-then-write that must not race a concurrent writer
+        (a TOCTOU on head_hash would mint a duplicate or skip a supersedes edge).
+        BEGIN IMMEDIATE takes the write lock BEFORE the first read, so the whole
+        version/refs/threads/folios maintenance is one atomic transaction.
+        Commits on a clean exit, rolls back on any exception."""
+        conn = sqlite3.connect(self.db_path, isolation_level=None, timeout=10)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+        finally:
+            conn.close()
+
     def add_logs(self, stream_id: str, source: str, lines: List[Dict[str, Any]]) -> int:
         """Add log lines to database."""
         with self._get_connection() as conn:
@@ -1103,15 +1127,52 @@ class LogDatabase:
 
     # Folio Operations
 
-    def save_folio(self, folio: Folio) -> bool:
-        """Save or update a folio in SQLite."""
-        # Phase 0: recompute the content hash on EVERY write so an edited folio's
-        # hash never goes stale. This is the single write chokepoint — every write
-        # funnels here, so a caller cannot persist a folio without a current hash,
-        # and a caller-supplied content_hash is never trusted.
-        if KNURL_AVAILABLE:
-            folio.content_hash = compute_folio_hash(folio)
-        with self._get_connection() as conn:
+    def save_folio(self, folio: Folio, editor: Optional[str] = None) -> bool:
+        """Save or update a folio: dual-write folios + maintain versions/refs.
+
+        Phase 2 edit-as-commit, all in one BEGIN IMMEDIATE transaction:
+          - CREATE (no ref yet): mint the genesis version, insert the ref.
+          - EDIT, identity field (title/content) changed: mint a new immutable
+            version, write a ``supersedes`` edge (new->old head), move the ref head.
+          - EDIT, content reverted to an existing version: move the head back, write
+            a durable ``reverted`` marker, mint nothing (no cycle).
+          - EDIT, no identity change (status/assignment/archive/move/no-op): refresh
+            the refs control cache only; mint nothing.
+        The folios row is still INSERT OR REPLACE-d as today (dual-write through
+        Phase 2). ``created_at``/``created_by`` inherit the lineage genesis, so a
+        status-only edit cannot change the hash through a timestamp; the per-edit
+        editor lives on the supersedes/reverted edge's weaver (``editor``), not on
+        the version — the Folio's ``created_by`` is the genesis author by design.
+
+        State (status/assignment/archive) is still written by the routes as
+        slug-keyed threads; save_folio does NOT mint or move any state thread. It
+        only copies the folio object's control fields into the refs cache columns.
+        """
+        with self._immediate_txn() as conn:
+            # Resolve the ref to tell CREATE from EDIT. On EDIT, reassert the
+            # genesis created_at/created_by onto the folio BEFORE the Phase 0
+            # recompute, so the minted version's PK always verifies against its
+            # own columns even if the caller handed a fresh created_at/created_by
+            # (a pure status edit must not change the hash through a timestamp).
+            ref = conn.execute(
+                "SELECT genesis_hash, head_hash FROM refs WHERE slug = ?",
+                (folio.folio_id,),
+            ).fetchone()
+            if ref is not None:
+                gen = conn.execute(
+                    "SELECT created_at, created_by FROM versions WHERE content_hash = ?",
+                    (ref["genesis_hash"],),
+                ).fetchone()
+                if gen is not None:
+                    folio.created_at = ensure_aware(gen["created_at"])
+                    folio.created_by = gen["created_by"]
+
+            # Phase 0 chokepoint: recompute the hash on EVERY write (AFTER the
+            # genesis reassert) so an edited folio's hash never goes stale and a
+            # caller-supplied content_hash is never trusted.
+            if KNURL_AVAILABLE:
+                folio.content_hash = compute_folio_hash(folio)
+
             created_at = (
                 folio.created_at.isoformat()
                 if isinstance(folio.created_at, datetime)
@@ -1123,6 +1184,15 @@ class LogDatabase:
                     folio.acknowledged_at.isoformat()
                     if isinstance(folio.acknowledged_at, datetime)
                     else str(folio.acknowledged_at)
+                )
+
+            # Maintain versions/refs + the supersedes/reverted edges (only when a
+            # hash is available; degraded no-knurl mode writes folios only, as
+            # before, and is not a production path).
+            if KNURL_AVAILABLE and folio.content_hash:
+                self._maintain_versions_refs(
+                    conn, folio, ref, folio.content_hash, created_at,
+                    acknowledged_at, editor,
                 )
 
             conn.execute(
@@ -1151,11 +1221,137 @@ class LogDatabase:
                     folio.content_hash,
                 ),
             )
-
             # FTS index updated automatically via triggers
-
-            conn.commit()
         return True
+
+    def _refs_control(self, folio: Folio, acknowledged_at: Optional[str]) -> tuple:
+        """The full non-identity control set copied into the refs cache, in the
+        column order used by the INSERT/UPDATE below: site_id, status,
+        assigned_to, archived, target_agent, omlet, acknowledged_at, metadata.
+        (created_by and type are hashed identity and live on versions, not refs.)
+        The encodings match the folios dual-write exactly, so the two never drift.
+        """
+        return (
+            folio.site_id,
+            folio.status or "open",
+            folio.assigned_to,
+            1 if folio.archived else 0,
+            folio.target_agent,
+            folio.omlet,
+            acknowledged_at,
+            json.dumps(folio.metadata) if folio.metadata else "{}",
+        )
+
+    def _insert_version(self, conn, folio: Folio, content_hash: str,
+                        created_at: str) -> None:
+        """Append the immutable version row (INSERT OR IGNORE — content-addressing
+        dedups a lineage that reaches byte-identical content). Identity only."""
+        conn.execute(
+            "INSERT OR IGNORE INTO versions "
+            "(content_hash, type, title, content, created_at, created_by) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (content_hash, folio.type, folio.title, folio.content,
+             created_at, folio.created_by),
+        )
+
+    def _maintain_versions_refs(self, conn, folio: Folio, ref, new_hash: str,
+                                created_at: str, acknowledged_at: Optional[str],
+                                editor: Optional[str]) -> None:
+        """Mint the version / move the head / write the edit edge, per §3."""
+        control = self._refs_control(folio, acknowledged_at)
+        now = datetime.now(timezone.utc).isoformat()
+        # The per-edit editor; falls back to the genesis author for direct storage
+        # callers and tests that pass no editor (§3.2).
+        weaver = editor or folio.created_by
+
+        if ref is None:
+            # CREATE — a new lineage. Mint genesis, insert the ref. No edge.
+            self._insert_version(conn, folio, new_hash, created_at)
+            conn.execute(
+                "INSERT INTO refs "
+                "(slug, genesis_hash, head_hash, site_id, status, assigned_to, "
+                " archived, target_agent, omlet, acknowledged_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (folio.folio_id, new_hash, new_hash, *control),
+            )
+            return
+
+        head_hash = ref["head_hash"]
+        if new_hash == head_hash:
+            # No identity change — refresh the control cache only, mint nothing.
+            self._update_refs(conn, folio.folio_id, new_hash, control)
+            return
+
+        # Discriminate REVERT from a forward edit by LINEAGE membership, not global
+        # versions membership. Content-addressing dedups: another lineage may
+        # already hold byte-identical content, so a forward edit can land on an
+        # existing global version WITHOUT being a revert. The revert case is
+        # exactly "new_hash is reachable backward from this head along supersedes
+        # edges" — the lineage behind the current head. Crucially, this is also the
+        # exact condition under which adding a new->head supersedes edge would
+        # cycle, so the forward branch is provably acyclic.
+        if new_hash in self._reachable_from(conn, head_hash):
+            # REVERT / DAG re-entry — new_hash is reachable backward from head along
+            # supersedes edges. This is also EXACTLY the condition under which a
+            # new->head edge would close a cycle, so we must not mint one. Move the
+            # head and write a durable reverted marker. (No UNIQUE on the marker's
+            # endpoints, so this is a plain append, not an upsert — a revert/redo
+            # toggle accumulates one marker per revert, which is the intended audit
+            # trail.)
+            self._update_refs(conn, folio.folio_id, new_hash, control)
+            conn.execute(
+                "INSERT INTO threads "
+                "(thread_id, from_id, to_id, type, content, weaver, created_at) "
+                "VALUES (?, ?, ?, 'reverted', NULL, ?, ?)",
+                (generate_thread_id(), head_hash, new_hash, weaver, now),
+            )
+            return
+
+        # FORWARD edit — an identity field changed to content not behind this head.
+        # Append the version (INSERT OR IGNORE dedups a cross-lineage match), write
+        # the supersedes edge (new->old head), move the head. Skip the insert if an
+        # identical edge already exists (a redo-after-revert), keeping the DAG clean.
+        self._insert_version(conn, folio, new_hash, created_at)
+        dup = conn.execute(
+            "SELECT 1 FROM threads WHERE type='supersedes' AND from_id=? AND to_id=?",
+            (new_hash, head_hash),
+        ).fetchone()
+        if not dup:
+            conn.execute(
+                "INSERT INTO threads "
+                "(thread_id, from_id, to_id, type, content, weaver, created_at) "
+                "VALUES (?, ?, ?, 'supersedes', NULL, ?, ?)",
+                (generate_thread_id(), new_hash, head_hash, weaver, now),
+            )
+        self._update_refs(conn, folio.folio_id, new_hash, control)
+
+    def _reachable_from(self, conn, start_hash: str) -> set:
+        """All version hashes reachable from start_hash by following supersedes
+        edges (from_id -> to_id), including start_hash itself — the content behind
+        the current head. An edit whose new_hash lands in this set is a revert (and
+        is exactly the case where a new->head edge would cycle). One recursive CTE
+        rather than a query per node, since this runs in the write-locked save path;
+        UNION terminates on shared/deduped nodes."""
+        rows = conn.execute(
+            "WITH RECURSIVE anc(h) AS ("
+            "  SELECT ? "
+            "  UNION "
+            "  SELECT t.to_id FROM threads t JOIN anc ON t.from_id = anc.h "
+            "  WHERE t.type = 'supersedes'"
+            ") SELECT h FROM anc",
+            (start_hash,),
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def _update_refs(self, conn, slug: str, head_hash: str, control: tuple) -> None:
+        """Move the ref head and refresh the full control cache (genesis_hash is
+        immutable and never touched)."""
+        conn.execute(
+            "UPDATE refs SET head_hash = ?, site_id = ?, status = ?, "
+            "assigned_to = ?, archived = ?, target_agent = ?, omlet = ?, "
+            "acknowledged_at = ?, metadata = ? WHERE slug = ?",
+            (head_hash, *control, slug),
+        )
 
     def get_folio(self, folio_id: str) -> Optional[Folio]:
         """Get a specific folio by ID."""
@@ -1207,12 +1403,18 @@ class LogDatabase:
             return [self._row_to_folio(row) for row in cursor.fetchall()]
 
     def move_folio(self, folio_id: str, dest_site_id: str) -> Optional[Folio]:
-        """Move a folio to a different site."""
-        with self._get_connection() as conn:
-            cursor = conn.execute(
+        """Move a folio to a different site — a dual-write transaction.
+
+        site_id is ref-local control, not an identity field, so a move mints NO
+        version. But move_folio is a second folios-write path outside save_folio,
+        so from commit B it carries the companion refs write itself: it UPDATEs
+        both folios.site_id and refs.site_id in one transaction. (Return still
+        reconstructs from the folios row in Phase 2; the join return flips at C.)
+        """
+        with self._immediate_txn() as conn:
+            row = conn.execute(
                 "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
-            )
-            row = cursor.fetchone()
+            ).fetchone()
             if not row:
                 return None
 
@@ -1220,13 +1422,15 @@ class LogDatabase:
                 "UPDATE folios SET site_id = ? WHERE folio_id = ?",
                 (dest_site_id, folio_id),
             )
-            conn.commit()
-
-            # Return updated folio
-            cursor = conn.execute(
-                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+            conn.execute(
+                "UPDATE refs SET site_id = ? WHERE slug = ?",
+                (dest_site_id, folio_id),
             )
-            return self._row_to_folio(cursor.fetchone())
+
+            updated = conn.execute(
+                "SELECT * FROM folios WHERE folio_id = ?", (folio_id,)
+            ).fetchone()
+            return self._row_to_folio(updated)
 
     def search_folios(self, query: str, limit: int = 50) -> List[Folio]:
         """Full-text search across folios using FTS5."""
@@ -1419,6 +1623,34 @@ class LogDatabase:
                             content_hash,
                         ),
                     )
+
+                    # Phase 2: this cold JSON import is a folios writer too, so it
+                    # populates versions/refs for every row — otherwise a fresh
+                    # legacy-JSON import after the read-flip would have folios rows
+                    # with no head and read empty post-C. Genesis = head = the
+                    # recomputed content_hash; the full control set is copied. (No
+                    # supersedes edge — each imported row is a lineage genesis.)
+                    if content_hash:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO versions "
+                            "(content_hash, type, title, content, created_at, created_by) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (content_hash, ftype, title, content,
+                             created_at, created_by),
+                        )
+                        conn.execute(
+                            "INSERT OR IGNORE INTO refs "
+                            "(slug, genesis_hash, head_hash, site_id, status, "
+                            " assigned_to, archived, target_agent, omlet, "
+                            " acknowledged_at, metadata) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (folio_id, content_hash, content_hash, site_id,
+                             data.get("status", "open"), data.get("assigned_to"),
+                             1 if data.get("archived", False) else 0,
+                             data.get("target_agent"), data.get("omlet"),
+                             data.get("acknowledged_at"),
+                             json.dumps(metadata) if metadata else "{}"),
+                        )
                     count += 1
                 except Exception as e:
                     logger.error(f"Failed to migrate {folio_file.name}: {e}")
@@ -1617,11 +1849,15 @@ class JSONStore:
 
     # Folio Operations (SQLite-backed)
 
-    def save_folio(self, folio: Folio) -> bool:
-        """Save folio to SQLite."""
-        # content_hash is computed at the write chokepoint (LogDatabase.save_folio),
-        # so every write recomputes it; this wrapper adds nothing to that.
-        return self._log_db.save_folio(folio)
+    def save_folio(self, folio: Folio, editor: Optional[str] = None) -> bool:
+        """Save folio to SQLite.
+
+        content_hash is computed at the write chokepoint (LogDatabase.save_folio),
+        which also maintains versions/refs and the supersedes/reverted edges. The
+        ``editor`` (the per-edit agent) is threaded through to the supersedes/
+        reverted edge weaver; it is NOT the folio's created_by (the genesis author).
+        """
+        return self._log_db.save_folio(folio, editor=editor)
 
     def get_folios(self, site_id: Optional[str] = None) -> List[Folio]:
         """Get folios, optionally filtered by site."""

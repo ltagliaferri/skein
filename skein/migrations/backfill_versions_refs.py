@@ -64,13 +64,15 @@ from typing import List, Tuple
 
 from skein.identity import compute_folio_hash
 from skein.storage import LogDatabase, load_project_registry
+from skein.utils import generate_thread_id
 
 BUSY_TIMEOUT_MS = 30000
 STAT_KINDS = (
     "version_seeded",     # a new versions row written
     "version_present",    # versions row already existed (dedup or re-run)
     "ref_seeded",         # a new refs row written
-    "ref_present",        # refs row already existed (re-run)
+    "ref_present",        # refs row already existed, left untouched (SEED mode)
+    "ref_repaired",       # existing refs row re-pointed + control re-copied (REPAIR mode)
     "hash_mismatch",      # recomputed hash != stored folios.content_hash (Phase 0 gap)
     "error",              # folio skipped (e.g. unparseable created_at)
 )
@@ -101,15 +103,36 @@ def _existing(conn: sqlite3.Connection) -> Tuple[set, set]:
     return _col("versions", "content_hash"), _col("refs", "slug")
 
 
-def _scan(conn: sqlite3.Connection) -> Tuple[dict, List[dict], List[tuple], List[tuple]]:
-    """Read every folio, recompute its hash, and build the version + ref seed rows.
+def _scan(conn: sqlite3.Connection, *, repair: bool = False) -> Tuple[
+        dict, List[dict], List[tuple], List[tuple], List[tuple], List[tuple]]:
+    """Read every folio, recompute its hash, and build the version + ref rows.
 
-    Returns (stats, mapping records, version-insert tuples, ref-insert tuples).
-    A versions/refs row that already exists is counted as *present* and NOT
-    re-inserted, so the returned tuples are exactly the new rows (INSERT OR IGNORE
-    makes a stray re-insert harmless, but skipping keeps the written-count honest).
+    Returns (stats, mapping records, version-insert tuples, ref-insert tuples,
+    ref-update tuples, supersedes-edge tuples). A version/ref row that already
+    exists is counted as *present*; the version inserts are exactly the new
+    content hashes.
+
+    SEED mode (repair=False, commit A): an existing slug is left untouched (no
+    update). REPAIR mode (repair=True, commit B opener): an existing slug is
+    re-pointed — head_hash moved to the recomputed current-content hash and the
+    control columns re-copied — so refs is a faithful mirror of folios-current
+    even for rows created/edited/moved in the A->B window. genesis_hash is
+    immutable and never updated. When a repaired head actually MOVES (a window
+    edit), a connecting ``supersedes`` edge (new-head -> prior-head) is written so
+    the lineage stays walkable from genesis. NOTE: intermediate versions edited in
+    the window by the still-old in-place save_folio were overwritten and are
+    unrecoverable, so the repaired chain connects genesis directly to the current
+    head (one edge), not through the lost intermediates.
     """
     have_versions, have_refs = _existing(conn)
+    head_by_slug = {}
+    if repair:
+        try:
+            head_by_slug = {r[0]: r[1] for r in conn.execute(
+                "SELECT slug, head_hash FROM refs")}
+        except sqlite3.OperationalError as e:
+            if "no such table" not in str(e).lower():
+                raise
     rows = conn.execute(
         "SELECT folio_id, type, site_id, created_at, created_by, title, content, "
         "status, assigned_to, target_agent, omlet, archived, metadata, "
@@ -119,7 +142,10 @@ def _scan(conn: sqlite3.Connection) -> Tuple[dict, List[dict], List[tuple], List
     stats = {k: 0 for k in STAT_KINDS}
     records: List[dict] = []
     version_rows: List[tuple] = []
-    ref_rows: List[tuple] = []
+    ref_insert_rows: List[tuple] = []
+    ref_update_rows: List[tuple] = []
+    supersedes_rows: List[tuple] = []
+    now = datetime.now(timezone.utc).isoformat()
 
     for r in rows:
         try:
@@ -141,7 +167,9 @@ def _scan(conn: sqlite3.Connection) -> Tuple[dict, List[dict], List[tuple], List
             records.append({"folio_id": r["folio_id"], "stored": r["content_hash"],
                             "recomputed": new_hash, "change": "hash_mismatch"})
 
-        # versions row — identity only (the five hashed fields).
+        # versions row — identity only (the five hashed fields). The version is
+        # always written under the RECOMPUTED hash (self-verifying PK); seed and
+        # repair agree on which hash is authoritative.
         if new_hash in have_versions:
             stats["version_present"] += 1
         else:
@@ -152,36 +180,54 @@ def _scan(conn: sqlite3.Connection) -> Tuple[dict, List[dict], List[tuple], List
                 r["created_at"], r["created_by"],
             ))
 
+        control = (
+            r["site_id"],
+            r["status"] or "open",
+            r["assigned_to"],
+            1 if r["archived"] else 0,
+            r["target_agent"],
+            r["omlet"],
+            r["acknowledged_at"],
+            r["metadata"],  # verbatim copy-of-column (NULL stays NULL)
+        )
+
         # refs row — slug as head pointer + copy-of-column control cache.
-        if r["folio_id"] in have_refs:
-            stats["ref_present"] += 1
-        else:
+        if r["folio_id"] not in have_refs:
             have_refs.add(r["folio_id"])
             stats["ref_seeded"] += 1
-            ref_rows.append((
-                r["folio_id"],        # slug
-                new_hash,             # genesis_hash
-                new_hash,             # head_hash
-                r["site_id"],
-                r["status"] or "open",
-                r["assigned_to"],
-                1 if r["archived"] else 0,
-                r["target_agent"],
-                r["omlet"],
-                r["acknowledged_at"],
-                r["metadata"],  # verbatim copy-of-column (NULL stays NULL)
+            ref_insert_rows.append((
+                r["folio_id"], new_hash, new_hash, *control,
             ))
             records.append({"folio_id": r["folio_id"], "hash": new_hash,
                             "change": "seeded"})
+        elif repair:
+            stats["ref_repaired"] += 1
+            ref_update_rows.append((new_hash, *control, r["folio_id"]))
+            records.append({"folio_id": r["folio_id"], "hash": new_hash,
+                            "change": "repaired"})
+            # If the head actually MOVED (a window edit), connect the new head to
+            # the prior head with a supersedes edge so the lineage stays walkable.
+            old_head = head_by_slug.get(r["folio_id"])
+            if old_head and old_head != new_hash:
+                already = conn.execute(
+                    "SELECT 1 FROM threads WHERE type='supersedes' "
+                    "AND from_id=? AND to_id=?", (new_hash, old_head),
+                ).fetchone()
+                if not already:
+                    supersedes_rows.append(
+                        (generate_thread_id(), new_hash, old_head,
+                         "migration-repair", now))
+        else:
+            stats["ref_present"] += 1
 
     stats["total"] = len(rows)
     stats["versions_written"] = 0
     stats["refs_written"] = 0
-    return stats, records, version_rows, ref_rows
+    return stats, records, version_rows, ref_insert_rows, ref_update_rows, supersedes_rows
 
 
-def backfill_db(db_path: Path, *, dry_run: bool) -> Tuple[dict, List[dict]]:
-    """Seed versions + refs for one db.
+def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[dict, List[dict]]:
+    """Seed (or repair) versions + refs for one db.
 
     Returns (stats, records). Apply first ensures the versions/refs/versions_fts
     schema via LogDatabase(db_path) (idempotent _init_db, the one source of truth
@@ -196,7 +242,7 @@ def backfill_db(db_path: Path, *, dry_run: bool) -> Tuple[dict, List[dict]]:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            stats, records, _, _ = _scan(conn)
+            stats, records, _, _, _, _ = _scan(conn, repair=repair)
             return stats, records
         finally:
             conn.close()
@@ -213,7 +259,8 @@ def backfill_db(db_path: Path, *, dry_run: bool) -> Tuple[dict, List[dict]]:
         conn.execute("BEGIN IMMEDIATE")  # write lock BEFORE the read
         try:
             triggers_before = _trigger_names(conn)
-            stats, records, version_rows, ref_rows = _scan(conn)
+            stats, records, version_rows, ref_insert_rows, ref_update_rows, \
+                supersedes_rows = _scan(conn, repair=repair)
             if version_rows:
                 conn.executemany(
                     "INSERT OR IGNORE INTO versions "
@@ -221,13 +268,27 @@ def backfill_db(db_path: Path, *, dry_run: bool) -> Tuple[dict, List[dict]]:
                     "VALUES (?, ?, ?, ?, ?, ?)",
                     version_rows,
                 )
-            if ref_rows:
+            if ref_insert_rows:
                 conn.executemany(
                     "INSERT OR IGNORE INTO refs "
                     "(slug, genesis_hash, head_hash, site_id, status, assigned_to, "
                     " archived, target_agent, omlet, acknowledged_at, metadata) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    ref_rows,
+                    ref_insert_rows,
+                )
+            if ref_update_rows:  # REPAIR mode only — re-point head + re-copy control
+                conn.executemany(
+                    "UPDATE refs SET head_hash = ?, site_id = ?, status = ?, "
+                    "assigned_to = ?, archived = ?, target_agent = ?, omlet = ?, "
+                    "acknowledged_at = ?, metadata = ? WHERE slug = ?",
+                    ref_update_rows,
+                )
+            if supersedes_rows:  # REPAIR mode only — connect moved heads to genesis
+                conn.executemany(
+                    "INSERT INTO threads "
+                    "(thread_id, from_id, to_id, type, content, weaver, created_at) "
+                    "VALUES (?, ?, ?, 'supersedes', NULL, ?, ?)",
+                    supersedes_rows,
                 )
             if _trigger_names(conn) != triggers_before:
                 raise RuntimeError("FTS trigger set changed during backfill")
@@ -236,7 +297,7 @@ def backfill_db(db_path: Path, *, dry_run: bool) -> Tuple[dict, List[dict]]:
             conn.execute("ROLLBACK")
             raise
         stats["versions_written"] = len(version_rows)
-        stats["refs_written"] = len(ref_rows)
+        stats["refs_written"] = len(ref_insert_rows) + len(ref_update_rows)
         return stats, records
     finally:
         conn.close()
@@ -277,7 +338,8 @@ def _print_stats(label: str, stats: dict, dry_run: bool) -> None:
     print(
         f"  {label}: {stats['total']} folios | {verb} "
         f"versions {stats['version_seeded']} (present {stats['version_present']}), "
-        f"refs {stats['ref_seeded']} (present {stats['ref_present']}) | "
+        f"refs {stats['ref_seeded']} (present {stats['ref_present']}, "
+        f"repaired {stats['ref_repaired']}) | "
         f"hash_mismatch {stats['hash_mismatch']} | errors {stats['error']}"
     )
 
@@ -314,6 +376,11 @@ def main() -> None:
     p.add_argument("--mapping", type=Path, help="JSONL seed mapping (single db)")
     p.add_argument("--mapping-dir", type=Path,
                    help="Directory for per-project JSONL mappings (--all)")
+    p.add_argument("--repair", action="store_true",
+                   help="REPAIR mode (commit B opener): also re-point existing "
+                        "refs heads + re-copy control from folios-current, so a "
+                        "row created/edited/moved in the A->B window is caught. "
+                        "Without this, an existing ref is left untouched (SEED mode).")
     args = p.parse_args()
 
     if bool(args.all) == bool(args.db_path):
@@ -331,7 +398,8 @@ def main() -> None:
         return
 
     mode = "DRY RUN" if args.dry_run else "APPLY"
-    print(f"[{mode}] seed versions+refs over {len(targets)} db(s)")
+    pass_kind = "REPAIR" if args.repair else "SEED"
+    print(f"[{mode}/{pass_kind}] versions+refs over {len(targets)} db(s)")
 
     grand = {k: 0 for k in (*STAT_KINDS, "total", "versions_written", "refs_written")}
     failures = []
@@ -341,7 +409,7 @@ def main() -> None:
             if not args.dry_run and args.backup:
                 backup = _backup_db(db)
                 print(f"  backed up {label} -> {backup.name}")
-            stats, records = backfill_db(db, dry_run=args.dry_run)
+            stats, records = backfill_db(db, dry_run=args.dry_run, repair=args.repair)
         except Exception as e:  # isolate one bad db; keep the batch going
             print(f"  FAILED {label}: {type(e).__name__}: {e}")
             failures.append(label)

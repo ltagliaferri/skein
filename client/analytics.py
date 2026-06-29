@@ -22,10 +22,19 @@ def find_orphaned_threads(threads: List[Dict], folios: List[Dict]) -> List[Dict]
         if "folio_id" in f:
             valid_ids.add(f["folio_id"])
 
+    # Phase 2 edit edges (supersedes/reverted) are keyed on content HASHES, not
+    # folio_ids/agent_ids, so their endpoints are legitimately absent from
+    # valid_ids. Exclude them before the membership test or every edit edge is
+    # reported as a broken/orphaned thread.
+    HASH_KEYED_TYPES = {"supersedes", "reverted"}
+
     orphaned = []
     for thread in threads:
         # Skip threads missing required fields
         if not all(k in thread for k in ["thread_id", "from_id", "to_id", "type"]):
+            continue
+
+        if thread["type"] in HASH_KEYED_TYPES:
             continue
 
         thread_id = thread["thread_id"]

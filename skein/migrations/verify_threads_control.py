@@ -54,6 +54,16 @@ three independent legs plus structural checks, per db.
     digest`` captures/confirms it; ``--expect-digest`` asserts it (BLOCKER on
     mismatch).
 
+The gate (what counts as a pass). Leg C is the de-circularizing leg, so a FULL
+"verified" requires it to have run over a pre-A3 snapshot that is digest-bound via
+``--expect-digest`` (the §3 copy-proof — keying alone can't prove pre-A3 timing).
+A migrated db checked with structural + Leg B only (no pre-snapshot, ``--all``, or
+a manifest that runs Leg A but not Leg C), or with an unbound pre-snapshot, is
+reported "incomplete" (not "verified") and exits non-zero — the tool never lets a
+migrated db pass the gate without Leg C. ``--allow-partial`` accepts "incomplete"
+dbs without a non-zero exit, for the deliberate structural+Leg B ``--all`` sweep.
+A pre-A1 "not migrated" db stays clean (exit 0).
+
 When the oracle runs (design §1 "When the oracle runs"). It depends on the A1
 reader and the ``thread_hash`` column. On a pre-A1 db/codebase (either absent) it
 reports a clean per-db status "not migrated (pre-A1 schema)" and a non-divergence
@@ -169,34 +179,55 @@ def _is_migrated(db_path) -> bool:
 # ── value coercion (compare post-read values, not raw bytes) ─────────────────
 
 def _as_archived(value) -> int:
-    """Coerce a ``get_latest_archives`` value to refs.archived's 0/1.
+    """Coerce an archive value to refs.archived's 0/1 under the strict marker model.
 
-    The A1 reader is analogous to ``get_latest_statuses`` (slug -> content), so
-    archived := (content == ARCHIVED_MARKER), matching
-    ``tests.fixtures.phase3a_expected``. A pre-reduced 0/1/bool is also accepted
+    The A1 reader is analogous to ``get_latest_statuses`` (slug -> content), so the
+    pinned contract (``tests.fixtures.phase3a_expected.ARCHIVED_MARKER`` /
+    finding-20260630-0r3x) is: a string is archived **iff** it equals
+    ``ARCHIVED_MARKER`` — not "any non-blocklisted string" (which mis-read
+    ``'active'`` and every other content as archived, a false-red on unarchive).
+    ``None`` (no archive thread) -> 0; a pre-reduced 0/1/bool -> truthiness,
     defensively, so a reader that reduces to a flag still compares correctly.
     """
     if value is None:
         return 0
-    if value == ARCHIVED_MARKER:
-        return 1
     if isinstance(value, str):
-        return 0 if value in ("", "0", "open") else 1
+        return 1 if value == ARCHIVED_MARKER else 0
     return 1 if value else 0
+
+
+def _normalize_control(status, assigned_to, archived) -> Dict[str, object]:
+    """The one normalization shared by every comparison form, and identical to the
+    Leg C answer key (``tests.fixtures.phase3a_expected.expected_control``).
+
+    The contract (Fell finding: default-coercion asymmetry): a default applies
+    **only on absence**, which every source encodes as ``None`` — a reader dict's
+    missing key surfaces via ``.get()`` as ``None``; a refs row's empty column is
+    SQL NULL -> ``None``; a manifest's missing key -> ``None``. A *present* falsy
+    value (notably an empty-string ``status`` content) is **preserved**, never
+    coerced to the default — the answer key applies its default only on
+    ``.get(slug, default)`` key-absence, so coercing a present ``''`` here would
+    diverge the two sides on identical data.
+      status      -> ``'open'`` iff ``None``; a present ``''`` stays ``''``.
+      assigned_to -> the value as-is (``None`` stays ``None``).
+      archived    -> ``_as_archived(value)`` (``None`` -> 0; marker model).
+    """
+    return {
+        "status": "open" if status is None else status,
+        "assigned_to": assigned_to,
+        "archived": _as_archived(archived),
+    }
 
 
 def _rebuilt_refs(conn) -> Dict[str, Dict[str, object]]:
     """The post-migration rebuilt control cache, one entry per refs.slug,
-    normalized to the comparison form (status defaults 'open'; archived 0/1)."""
+    normalized (via the shared helper) to the comparison form."""
     out: Dict[str, Dict[str, object]] = {}
     for r in conn.execute(
         "SELECT slug, status, assigned_to, archived FROM refs"
     ):
-        out[r["slug"]] = {
-            "status": (r["status"] or "open"),
-            "assigned_to": (r["assigned_to"] or None),
-            "archived": (1 if r["archived"] else 0),
-        }
+        out[r["slug"]] = _normalize_control(
+            r["status"], r["assigned_to"], r["archived"])
     return out
 
 
@@ -216,11 +247,10 @@ def _a1_reads(copy_path) -> Dict[str, Dict[str, object]]:
     keys = slugs | set(statuses) | set(assignments) | set(archives)
     out: Dict[str, Dict[str, object]] = {}
     for k in keys:
-        out[k] = {
-            "status": statuses.get(k) or "open",
-            "assigned_to": assignments.get(k) or None,
-            "archived": _as_archived(archives.get(k)),
-        }
+        # ``.get(k)`` -> None means "no thread of that type", the absence the
+        # shared helper defaults; a present value (incl. '') is preserved.
+        out[k] = _normalize_control(
+            statuses.get(k), assignments.get(k), archives.get(k))
     return out
 
 
@@ -269,24 +299,53 @@ def leg_b(post_copy, post_conn) -> List[str]:
 
 def leg_c(pre_copy, post_conn) -> Tuple[List[str], List[str]]:
     """Leg C — independent reduction over the frozen pre-A3 snapshot vs rebuilt
-    refs. Returns (problems, warnings)."""
+    refs, plus the two pre-image gates only the snapshot can prove. Returns
+    (problems, warnings).
+
+      - Cache-only control (design §1 A3 precondition, Fell finding 5): a folio
+        with non-default refs control but no covering thread is silently cleared
+        by the rebuild while all three legs stay green -> BLOCKER.
+      - Pre-A3 timing sanity (Fell finding 4): a snapshot with zero control
+        threads cannot confirm pre-A3 timing from keying (warn); and if the post
+        db then carries non-default control, the rebuild produced control from
+        nothing -> BLOCKER. Otherwise, a snapshot whose control threads are all
+        genesis-keyed may be POST-A3 (the reducer would validate the rebuild
+        against data it produced) -> warn to confirm timing.
+    Note: keying alone cannot *prove* pre-A3 timing (a born-genesis pre-A3 db and
+    a post-A3 db are both all-genesis). The copy-proof digest (--expect-digest)
+    is the real proof; these checks are sanity + the zero-thread blocker.
+    """
+    problems: List[str] = []
     warnings: List[str] = []
-    with _ro(pre_copy) as pre_conn:
-        warnings += _warn_if_reanchored(pre_conn)
-        expected = expected_control(pre_conn)
     rebuilt = _rebuilt_refs(post_conn)
-    problems = _diff_maps("Leg C", expected, rebuilt, "expected(pre-A3)",
-                          "rebuilt refs")
+    with _ro(pre_copy) as pre_conn:
+        problems += _cache_only_control_blockers(pre_conn)
+        total, has_slug_keyed = _control_thread_keying(pre_conn)
+        if total == 0:
+            warnings.append(
+                "pre-snapshot has 0 control threads — pre-A3 timing cannot be "
+                "confirmed from thread keying (rely on --expect-digest)")
+            nondefault = sorted(s for s, c in rebuilt.items() if _is_nondefault(c))
+            if nondefault:
+                problems.append(
+                    f"Leg C: pre-snapshot has 0 control threads but post db has "
+                    f"{len(nondefault)} folio(s) with non-default control "
+                    f"{nondefault[:5]} — rebuild produced control from nothing")
+        elif not has_slug_keyed:
+            warnings.append(
+                "pre-snapshot has control threads but none are slug-keyed — it "
+                "may be a POST-A3 snapshot; Leg C could be a false green. Confirm "
+                "this is the frozen pre-A3 snapshot (or bind it via --expect-digest).")
+        expected = expected_control(pre_conn)
+    problems += _diff_maps("Leg C", expected, rebuilt, "expected(pre-A3)",
+                           "rebuilt refs")
     return problems, warnings
 
 
-def _warn_if_reanchored(conn) -> List[str]:
-    """Leg C MUST run over the pre-A3 snapshot. If the snapshot has control
-    threads but none are slug-keyed (every anchor already a genesis hash), it may
-    have been captured POST-A3 — the reducer would then validate the rebuild
-    against re-anchored data the rebuild itself produced (a false green). Warn so
-    the operator confirms timing; not a blocker (a fresh born-genesis db is
-    legitimately all-genesis)."""
+def _control_thread_keying(conn) -> Tuple[int, bool]:
+    """Over a snapshot: (total control threads, any-anchor-is-a-live-slug). A
+    pre-A3 snapshot is slug-keyed; a post-A3 one is all-genesis. Counts fully (no
+    early break) so the ``total == 0`` blind spot in Leg C is detectable."""
     slugs = {r[0] for r in conn.execute("SELECT slug FROM refs")}
     total = 0
     has_slug_keyed = False
@@ -297,14 +356,60 @@ def _warn_if_reanchored(conn) -> List[str]:
             total += 1
             if a in slugs:
                 has_slug_keyed = True
-                break
-        if has_slug_keyed:
-            break
-    if total and not has_slug_keyed:
-        return ["pre-snapshot has control threads but none are slug-keyed — it "
-                "may be a POST-A3 snapshot; Leg C could be a false green. "
-                "Confirm this is the frozen pre-A3 snapshot."]
-    return []
+    return total, has_slug_keyed
+
+
+def _is_nondefault(ctl: Dict[str, object]) -> bool:
+    """True if a normalized control triple carries real (non-default) state."""
+    return (ctl["status"] != "open"
+            or ctl["assigned_to"] is not None
+            or bool(ctl["archived"]))
+
+
+def _cache_only_control_blockers(conn) -> List[str]:
+    """A3 precondition (design §1, Fell finding 5), over the PRE-A3 snapshot: a
+    folio whose refs cache carries non-default control (status != 'open', or
+    assigned_to set, or archived truthy) with NO covering control thread of that
+    type — anchored by slug OR genesis — would be silently cleared by the A3
+    rebuild while Leg A/B/C all stay green. BLOCKER. (Empirically 0 today per
+    finding-20260630-eq68, but the gate enforces it rather than assuming it.)"""
+    slugs = set()
+    genesis_to_slug: Dict[str, str] = {}
+    refs: Dict[str, Dict[str, object]] = {}
+    for r in conn.execute(
+        "SELECT slug, genesis_hash, status, assigned_to, archived FROM refs"
+    ):
+        slugs.add(r["slug"])
+        if r["genesis_hash"] is not None:
+            genesis_to_slug[r["genesis_hash"]] = r["slug"]
+        refs[r["slug"]] = _normalize_control(
+            r["status"], r["assigned_to"], r["archived"])
+    covered: Dict[str, set] = {ttype: set() for ttype, _ in CONTROL_ANCHORS}
+    for ttype, anchor in CONTROL_ANCHORS:
+        for (a,) in conn.execute(
+            f"SELECT {anchor} FROM threads WHERE type = ?", (ttype,)
+        ):
+            if a in slugs:
+                covered[ttype].add(a)
+            elif a in genesis_to_slug:
+                covered[ttype].add(genesis_to_slug[a])
+    problems: List[str] = []
+    for slug, ctl in sorted(refs.items()):
+        if ctl["status"] != "open" and slug not in covered["status"]:
+            problems.append(
+                f"cache-only control (A3 precondition) {slug}.status="
+                f"{ctl['status']!r}: non-default but no covering status thread "
+                f"(rebuild would clear it)")
+        if ctl["assigned_to"] is not None and slug not in covered["assignment"]:
+            problems.append(
+                f"cache-only control (A3 precondition) {slug}.assigned_to="
+                f"{ctl['assigned_to']!r}: set but no covering assignment thread "
+                f"(rebuild would clear it)")
+        if ctl["archived"] and slug not in covered["archive"]:
+            problems.append(
+                f"cache-only control (A3 precondition) {slug}.archived: truthy "
+                f"but no covering archive thread (rebuild would clear it)")
+    return problems
 
 
 # ── structural invariants (post db) ─────────────────────────────────────────
@@ -411,11 +516,10 @@ def _load_manifest(path) -> Dict[str, Dict[str, object]]:
     raw = json.loads(Path(path).read_text())
     out: Dict[str, Dict[str, object]] = {}
     for slug, ctl in raw.items():
-        out[slug] = {
-            "status": ctl.get("status") or "open",
-            "assigned_to": ctl.get("assigned_to") or None,
-            "archived": 1 if ctl.get("archived") else 0,
-        }
+        # Same shared normalization as the live reads — a missing key -> None ->
+        # default, a present '' preserved (Fell finding: default-coercion asymmetry).
+        out[slug] = _normalize_control(
+            ctl.get("status"), ctl.get("assigned_to"), ctl.get("archived"))
     return out
 
 
@@ -425,7 +529,17 @@ def verify_db(post_db, *, pre_snapshot=None, manifest=None, sample: int = 0,
               expect_digest: Optional[str] = None) -> Tuple[str, List[str], List[str]]:
     """Verify one db. Returns (label, problems, warnings).
 
-    label is one of: "not migrated (pre-A1 schema)", "verified", "diverged".
+    label is one of:
+      "not migrated (pre-A1 schema)" — pre-A1; legs skipped, clean (exit 0).
+      "verified"   — FULL gate pass: structural + Leg A + Leg B + Leg C, with the
+                     pre-snapshot digest-bound (--expect-digest), so pre-A3 timing
+                     is proven by the copy-proof.
+      "incomplete" — migrated, no divergence found, but the full gate did not run:
+                     Leg C was skipped (no/manifest-only pre-image) or ran over an
+                     unbound snapshot (no --expect-digest, so timing unproven). A
+                     migrated db must not pass the gate on structural + Leg B
+                     alone — that path never runs the de-circularizing reducer.
+      "diverged"   — a BLOCKER fired.
     ``problems`` are BLOCKERS (exit non-zero). Read-only on every input.
     """
     if not _is_migrated(post_db):
@@ -437,6 +551,7 @@ def verify_db(post_db, *, pre_snapshot=None, manifest=None, sample: int = 0,
 
     problems: List[str] = []
     warnings: List[str] = []
+    leg_c_ran = False
 
     # Copy-proof: assert the preimage (the pre-snapshot) matches the proven copy.
     # The digest always binds the *preimage* (pre-migration), never the post db.
@@ -461,13 +576,27 @@ def verify_db(post_db, *, pre_snapshot=None, manifest=None, sample: int = 0,
                     cp, cw = leg_c(pre_copy, post_conn)
                     problems += cp
                     warnings += cw
+                    leg_c_ran = True
             elif manifest is not None:
                 problems += leg_a_manifest(_load_manifest(manifest), post_copy)
+                warnings.append("manifest mode runs Leg A only — Leg C (the "
+                                "independent reducer) skipped; not a full gate pass")
             else:
                 warnings.append("no pre-snapshot/manifest — Leg A and Leg C "
                                 "skipped (structural + Leg B only)")
 
-    return ("diverged" if problems else "verified", problems, warnings)
+    if problems:
+        return ("diverged", problems, warnings)
+    # A FULL pass needs Leg C run over a digest-bound pre-A3 snapshot (Finding 3:
+    # never let a migrated db pass on structural + Leg B alone; Finding 4: the
+    # copy-proof digest is what actually proves pre-A3 timing).
+    if leg_c_ran and expect_digest is not None:
+        return ("verified", problems, warnings)
+    if leg_c_ran:
+        warnings.append("Leg C ran but the pre-snapshot is unbound (no "
+                        "--expect-digest) — pre-A3 timing not proven by the "
+                        "copy-proof; treated as incomplete for the gate")
+    return ("incomplete", problems, warnings)
 
 
 def _db_paths_from_registry() -> list:
@@ -498,7 +627,14 @@ def main() -> None:
                    help="the post-migration db to verify (or, with "
                         "--print-digest/--write-manifest, the source db)")
     p.add_argument("--all", action="store_true",
-                   help="verify every registered db (structural + Leg B per db)")
+                   help="verify every registered db (structural + Leg B per db). "
+                        "single-db pre-snapshot legs are not available here, so "
+                        "every migrated db reports 'incomplete' (use "
+                        "--allow-partial to accept the structural+Leg B sweep)")
+    p.add_argument("--allow-partial", action="store_true",
+                   help="accept 'incomplete' dbs (Leg C never ran) without a "
+                        "non-zero exit — for the deliberate structural+Leg B "
+                        "sweep only; NOT a full Leg A/B/C gate pass")
     p.add_argument("--sample", type=int, default=0, metavar="N",
                    help="cap the per-db I2 thread scan to N rows (0 = all; the "
                         "leg comparisons are always full to avoid a false green)")
@@ -561,6 +697,7 @@ def main() -> None:
     targets = (_db_paths_from_registry() if args.all
                else [(str(args.db_path), args.db_path)])
     bad = 0
+    incomplete = 0
     for label_id, db in targets:
         try:
             status, problems, warnings = verify_db(
@@ -577,17 +714,33 @@ def main() -> None:
                 print(f"      - {msg}")
             if len(problems) > 20:
                 print(f"      ... and {len(problems) - 20} more")
+        elif status == "incomplete":
+            incomplete += 1
+            print(f"  INCOMPLETE {label_id}: migrated, no divergence found, but "
+                  f"the full Leg A/B/C gate did not run")
         elif status.startswith("not migrated"):
             print(f"  SKIP {label_id}: {status}")
         else:
-            print(f"  OK {label_id}: control equivalence holds")
+            print(f"  OK {label_id}: control equivalence holds (full gate)")
         for msg in warnings:
             print(f"      ! WARN {label_id}: {msg}")
 
     if bad:
         print(f"\n{bad} db(s) DIVERGED — Phase 3a control equivalence BLOCKED")
         sys.exit(1)
-    print("\nAll clean — Phase 3a control equivalence holds (or not yet migrated).")
+    if incomplete and not args.allow_partial:
+        print(f"\n{incomplete} migrated db(s) INCOMPLETE — Leg C never ran, so the "
+              f"full gate is not satisfied. Re-run with --pre-snapshot + "
+              f"--expect-digest for a full pass, or pass --allow-partial to accept "
+              f"a structural+Leg B sweep.")
+        sys.exit(1)
+    if incomplete:
+        print(f"\nClean within scope, but {incomplete} migrated db(s) ran "
+              f"structural + Leg B only (--allow-partial) — NOT a full Leg A/B/C "
+              f"gate pass.")
+        return
+    print("\nAll clean — Phase 3a control equivalence holds (full gate, or not "
+          "yet migrated).")
 
 
 if __name__ == "__main__":

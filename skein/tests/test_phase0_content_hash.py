@@ -212,22 +212,10 @@ def test_backfill_dry_run_writes_nothing(tmp_path):
     assert stored[ids[2]] is None
 
 
-def test_backfill_preserves_fts(tmp_path):
-    """The content_hash UPDATE fires the AFTER UPDATE trigger; FTS must still
-    find a folio by a word in its content afterward."""
-    db_path = tmp_path / "t.db"
-    _populate_and_corrupt(db_path)
-    backfill_db(db_path, dry_run=False)
-
-    conn = sqlite3.connect(db_path)
-    hits = conn.execute(
-        "SELECT count(*) FROM folios_fts WHERE folios_fts MATCH 'uniquewordxyz'"
-    ).fetchone()[0]
-    triggers = sorted(r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='trigger'"))
-    conn.close()
-    assert hits == 1
-    assert {"folios_ai", "folios_ad", "folios_au"} <= set(triggers)
+# test_backfill_preserves_fts removed in Phase 3 step 0: folios_fts and its
+# folios_ai/ad/au sync triggers are retired (skein.migrations.retire_folios_fts),
+# so the backfill's content_hash UPDATE no longer fires any FTS trigger — there
+# is nothing to preserve. Search reads versions_fts now.
 
 
 def test_backfill_locks_before_read(tmp_path, monkeypatch):

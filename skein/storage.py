@@ -619,41 +619,12 @@ class LogDatabase:
             """
             )
 
-            # FTS5 for folio search
-            conn.execute(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS folios_fts
-                USING fts5(
-                    folio_id,
-                    title,
-                    content,
-                    content=folios,
-                    content_rowid=rowid
-                )
-            """
-            )
-
-            # FTS5 triggers to keep index in sync
-            conn.execute("""
-                CREATE TRIGGER IF NOT EXISTS folios_ai AFTER INSERT ON folios BEGIN
-                    INSERT INTO folios_fts(rowid, folio_id, title, content)
-                    VALUES (new.rowid, new.folio_id, new.title, new.content);
-                END
-            """)
-            conn.execute("""
-                CREATE TRIGGER IF NOT EXISTS folios_ad AFTER DELETE ON folios BEGIN
-                    INSERT INTO folios_fts(folios_fts, rowid, folio_id, title, content)
-                    VALUES('delete', old.rowid, old.folio_id, old.title, old.content);
-                END
-            """)
-            conn.execute("""
-                CREATE TRIGGER IF NOT EXISTS folios_au AFTER UPDATE ON folios BEGIN
-                    INSERT INTO folios_fts(folios_fts, rowid, folio_id, title, content)
-                    VALUES('delete', old.rowid, old.folio_id, old.title, old.content);
-                    INSERT INTO folios_fts(rowid, folio_id, title, content)
-                    VALUES (new.rowid, new.folio_id, new.title, new.content);
-                END
-            """)
+            # Phase 3 step 0: folios_fts (legacy external-content FTS5) and its
+            # three sync triggers (folios_ai/ad/au) are retired — search reads
+            # versions_fts since the commit-C read-flip, and the triggers' delete
+            # commands corrupted the index under INSERT-OR-REPLACE rowid churn
+            # (finding-20260629-hkgv). Existing dbs are dropped by
+            # skein.migrations.retire_folios_fts; no DDL recreates them here.
 
             # ── Phase 2: content-addressed versions + slug-as-head refs ─────────
             # versions: immutable, append-only object store keyed by content hash.

@@ -370,6 +370,22 @@ def _build_status_mixed_keyspace(conn: sqlite3.Connection) -> None:
                     "closed", AGENT, _ts(2))
 
 
+def _build_status_mixed_keyspace_slug_later(conn: sqlite3.Connection) -> None:
+    slug = "status-mixed-keyspace-slug-later-folio"
+    genesis = _mint_lineage(conn, slug, created_at=_ts(0), title="T", content="body")
+    # The case that DISTINGUISHES union-latest from prefer-genesis-else-slug:
+    # the genesis-keyed row is EARLIER, the slug-keyed row is LATER. A correct
+    # union-then-latest reducer returns the slug-keyed 'closed' (the latest);
+    # a "prefer genesis, else slug" shortcut would wrongly return the stale
+    # genesis-keyed 'open'. (status_mixed_keyspace has genesis later, so both
+    # rules agree there — only this ordering catches the shortcut. Design §5.A1,
+    # Fell-to-Fixture r1:union-reader.)
+    _create_thread(conn, "thread-status-mixedsluglater-1", genesis, genesis,
+                    "status", "open", AGENT, _ts(1))
+    _create_thread(conn, "thread-status-mixedsluglater-2", slug, slug, "status",
+                    "closed", AGENT, _ts(2))
+
+
 def _build_assignment_plain(conn: sqlite3.Connection) -> None:
     slug = "assignment-plain-folio"
     _mint_lineage(conn, slug, created_at=_ts(0), title="T", content="body")
@@ -399,8 +415,12 @@ def _build_assignment_odd_shape(conn: sqlite3.Connection) -> None:
 def _build_archive_selfloop(conn: sqlite3.Connection) -> None:
     slug = "archive-selfloop-folio"
     genesis = _mint_lineage(conn, slug, created_at=_ts(0), title="T", content="body")
+    # content='archived' is the pinned ARCHIVED_MARKER contract (finding-20260630-0r3x):
+    # a folio is archived iff its latest archive thread's content == 'archived'
+    # (mirrors status 'closed' vs 'open'). The Leg C reducer keys on this marker,
+    # so the self-loop must carry it for the fixture to reduce archived=1.
     _create_thread(conn, "thread-archive-selfloop-1", genesis, genesis,
-                    "archive", None, AGENT, _ts(1))
+                    "archive", "archived", AGENT, _ts(1))
 
 
 def _build_i1_genesis_collision(conn: sqlite3.Connection) -> None:
@@ -431,6 +451,7 @@ ALL_FIXTURES: Dict[str, str] = {
     "thread_byte_duplicate": "two rows identical in all six canonical fields, differing only by thread_id -> would collapse under content-addressing (3b), here just present",
     "status_multi_history": "one folio with several status rows at distinct increasing timestamps (open->confirmed->closed)",
     "status_mixed_keyspace": "one folio with both a slug-keyed and a (later) genesis-keyed status row (the A2->A3 window)",
+    "status_mixed_keyspace_slug_later": "mixed-keyspace folio with the slug-keyed row LATER than the genesis-keyed one -> union-latest returns the slug value, distinguishing it from prefer-genesis-else-slug",
     "assignment_plain": "from=folio-slug (has ref), to=assignee-agent -> A3 re-keys from=genesis, to untouched",
     "assignment_orphan": "assignment whose from-slug has no ref -> A3 drops-but-logged",
     "assignment_odd_shape": "assignment row whose to_id is the folio's own slug, not an assignee agent",
@@ -449,6 +470,7 @@ _BUILDERS = {
     "thread_byte_duplicate": _build_thread_byte_duplicate,
     "status_multi_history": _build_status_multi_history,
     "status_mixed_keyspace": _build_status_mixed_keyspace,
+    "status_mixed_keyspace_slug_later": _build_status_mixed_keyspace_slug_later,
     "assignment_plain": _build_assignment_plain,
     "assignment_orphan": _build_assignment_orphan,
     "assignment_odd_shape": _build_assignment_odd_shape,

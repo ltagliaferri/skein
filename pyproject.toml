@@ -91,6 +91,7 @@ markers = [
     "conformance_online: tests that require live Sigstore staging network access",
     "staging: live Sigstore staging integration (skipped unless SKEIN_TEST_SIGSTORE_LIVE=1)",
     "interactive: requires --run-interactive (human-in-the-loop browser-driven OAuth2 handshake; never CI)",
+    "phase3a_pending: Phase 3a test-first specs that are RED until their A1-A5 implementation lands (turn green as each step lands; remove the marker per-test then). Exclude from a regression health check with -m 'not phase3a_pending'.",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

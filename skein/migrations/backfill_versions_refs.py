@@ -62,7 +62,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Tuple
 
-from skein.identity import compute_folio_hash
+from skein.identity import compute_folio_hash, compute_thread_hash
 from skein.storage import LogDatabase, load_project_registry
 from skein.utils import generate_thread_id
 
@@ -214,9 +214,14 @@ def _scan(conn: sqlite3.Connection, *, repair: bool = False) -> Tuple[
                     "AND from_id=? AND to_id=?", (new_hash, old_head),
                 ).fetchone()
                 if not already:
+                    # A2 (Phase 3a): stamp thread_hash so this repair mint is not
+                    # a NULL-hash insert path (§5.A2). Same canonical fields as the
+                    # INSERT below (content NULL, weaver 'migration-repair').
                     supersedes_rows.append(
                         (generate_thread_id(), new_hash, old_head,
-                         "migration-repair", now))
+                         "migration-repair", now,
+                         compute_thread_hash(new_hash, old_head, "supersedes",
+                                             "migration-repair", now, None)))
         else:
             stats["ref_present"] += 1
 
@@ -286,8 +291,9 @@ def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[
             if supersedes_rows:  # REPAIR mode only — connect moved heads to genesis
                 conn.executemany(
                     "INSERT INTO threads "
-                    "(thread_id, from_id, to_id, type, content, weaver, created_at) "
-                    "VALUES (?, ?, ?, 'supersedes', NULL, ?, ?)",
+                    "(thread_id, from_id, to_id, type, content, weaver, "
+                    " created_at, thread_hash) "
+                    "VALUES (?, ?, ?, 'supersedes', NULL, ?, ?, ?)",
                     supersedes_rows,
                 )
             if _trigger_names(conn) != triggers_before:

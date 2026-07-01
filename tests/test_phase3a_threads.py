@@ -481,7 +481,6 @@ def _thread_hash_of(path: Path, thread_id: str) -> Optional[str]:
         conn.close()
 
 
-@pytest.mark.phase3a_pending
 class TestA2Writers:
     """A2 wires compute_thread_hash into every insert site (design §2.4: four in
     all). Three are live runtime paths, exercised here:
@@ -596,7 +595,6 @@ class TestA2Writers:
         assert total >= 1 and nulls == 0
 
 
-@pytest.mark.phase3a_pending
 class TestA2ControlWritesGenesisKeyed:
     """A NEW control write through the API lands GENESIS-keyed, not slug-keyed
     (design §3 A2 "a new control write lands genesis-keyed"; §5.A2). This is the
@@ -669,6 +667,60 @@ class TestA2ControlWritesGenesisKeyed:
                 assert t.from_id == genesis, (
                     f"assignment 'from' not genesis-keyed: from={t.from_id}")
                 assert t.to_id == "agent-assignee-z"  # assignee left untouched
+        finally:
+            app.dependency_overrides.pop(dep, None)
+
+    def test_generic_post_threads_status_rekeyed_to_genesis(self, tmp_dir):
+        """fell:phase3-a2:shard-0701:close-path-genesis-keyed — the primary status
+        path (``skein close``) posts a slug-keyed self-loop through the GENERIC
+        POST /threads endpoint (from=to=slug, type=status), NOT the create/update
+        sugar. save_thread is the universal enforcement point (design §5.A2 "and
+        save_thread"), so this control write must also land genesis-keyed — else
+        every close after A3 re-introduces slug-keyed control and trips the A4 gate.
+        """
+        client, store, app, dep = self._client_store(tmp_dir)
+        try:
+            fid = self._create_folio(client)  # born 'open', no control thread yet
+            genesis = self._genesis(store, fid)
+            assert genesis is not None and genesis != fid
+            # Exactly what client/cli.py `close` sends: a slug-keyed status self-loop.
+            r = client.post("/skein/threads",
+                            json={"from_id": fid, "to_id": fid, "type": "status",
+                                  "content": "closed"},
+                            headers={"X-Agent-Id": "agent-x"})
+            assert r.status_code == 200, r.text
+            st = store.get_threads(type="status")
+            assert st, "no status thread minted"
+            for t in st:
+                assert t.from_id == genesis and t.to_id == genesis, (
+                    f"POST /threads status not genesis-keyed: "
+                    f"from={t.from_id} to={t.to_id}")
+        finally:
+            app.dependency_overrides.pop(dep, None)
+
+    def test_archive_write_lands_genesis_keyed_selfloop(self, tmp_dir):
+        """fell:phase3-a2:shard-0701:archive-writer — PATCH /folios archived=True
+        mints the A2 archive marker: a genesis-anchored self-loop whose content is
+        'archived' (the A1 get_latest_archives marker). Un-archive mints 'active'.
+        The writer counterpart to the reader A1 landed; exercised end-to-end so the
+        A4 genesis-only archive read has a real write to reduce."""
+        client, store, app, dep = self._client_store(tmp_dir)
+        try:
+            fid = self._create_folio(client)
+            genesis = self._genesis(store, fid)
+            assert genesis is not None and genesis != fid
+            r = client.patch(f"/skein/folios/{fid}", json={"archived": True},
+                             headers={"X-Agent-Id": "agent-x"})
+            assert r.status_code == 200, r.text
+            arch = store.get_threads(type="archive")
+            assert arch, "no archive thread minted"
+            for t in arch:
+                assert t.from_id == genesis and t.to_id == genesis, (
+                    f"archive marker not genesis-keyed: "
+                    f"from={t.from_id} to={t.to_id}")
+                assert t.content == "archived"
+            # The A1 reader reduces this to refs.archived semantics (marker model).
+            assert store.get_latest_archives([fid]).get(fid) == "archived"
         finally:
             app.dependency_overrides.pop(dep, None)
 

@@ -1007,7 +1007,9 @@ async def update_folio(
     if update.content is not None:
         folio.content = update.content
 
-    # PURE THREADS: Create status thread instead of updating field
+    # PURE THREADS: Create status thread instead of updating field. save_thread
+    # re-keys control edges onto the folio's genesis hash (Phase 3a A2), so the
+    # slug endpoints here land genesis-anchored.
     if update.status is not None:
         status_thread = Thread(
             thread_id=generate_thread_id(),
@@ -1037,7 +1039,23 @@ async def update_folio(
         # Also update field for backward compat (will be removed after migration)
         folio.assigned_to = update.assigned_to
 
+    # PURE THREADS: Create an archive marker thread (Phase 3a A2). A self-loop
+    # whose content is the marker 'archived'/'active'; save_thread re-keys it onto
+    # the genesis hash. The A1 get_latest_archives reader reduces archived iff the
+    # latest marker is 'archived' — this is its writer counterpart (the reader
+    # landed in A1). folio.archived is still set below for the refs cache (the live
+    # read), so this is additive until A4 makes reads thread-derived.
     if update.archived is not None:
+        archive_thread = Thread(
+            thread_id=generate_thread_id(),
+            from_id=folio_id,
+            to_id=folio_id,
+            type="archive",
+            content="archived" if update.archived else "active",
+            weaver=created_by,
+            created_at=datetime.now(timezone.utc),
+        )
+        store.save_thread(archive_thread)
         folio.archived = update.archived
 
     # editor (the per-edit agent) drives the supersedes/reverted edge weaver when a
@@ -2054,7 +2072,9 @@ async def hypothesis_verdict(
 
     created_by = x_agent_id or "unknown"
 
-    # Create status thread with verdict only (keeps get_current_status clean)
+    # Create status thread with verdict only (keeps get_current_status clean).
+    # save_thread re-keys control edges onto the hypothesis lineage's genesis hash
+    # (Phase 3a A2), so the slug endpoints here land genesis-anchored.
     status_thread = Thread(
         thread_id=generate_thread_id(),
         from_id=hypothesis_id,

@@ -481,7 +481,6 @@ def _thread_hash_of(path: Path, thread_id: str) -> Optional[str]:
         conn.close()
 
 
-@pytest.mark.phase3a_pending
 class TestA2Writers:
     """A2 wires compute_thread_hash into every insert site (design §2.4: four in
     all). Three are live runtime paths, exercised here:

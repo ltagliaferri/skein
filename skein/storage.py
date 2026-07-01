@@ -13,6 +13,7 @@ from contextlib import contextmanager
 
 from .models import AgentInfo, Site, Folio, Thread, LogLine, VersionView
 from .utils import generate_thread_id
+from .identity import compute_thread_hash
 
 try:
     from . import identity
@@ -1098,12 +1099,26 @@ class LogDatabase:
 
     def save_thread(self, thread: Thread) -> bool:
         """Save a thread to the database."""
+        created_at = (
+            thread.created_at.isoformat()
+            if isinstance(thread.created_at, datetime)
+            else str(thread.created_at)
+        )
+        # A2 (Phase 3a): stamp the content address at the write, so no live insert
+        # path leaks a NULL-hash row (§5.A2). Hashed over the canonical fields with
+        # the same normalized created_at that goes to the column, so the row's
+        # thread_hash matches compute_thread_hash over its stored bytes.
+        thread_hash = compute_thread_hash(
+            thread.from_id, thread.to_id, thread.type, thread.weaver,
+            created_at, thread.content,
+        )
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO threads
-                (thread_id, from_id, to_id, type, content, weaver, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (thread_id, from_id, to_id, type, content, weaver, created_at,
+                 thread_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     thread.thread_id,
@@ -1112,9 +1127,8 @@ class LogDatabase:
                     thread.type,
                     thread.content,
                     thread.weaver,
-                    thread.created_at.isoformat()
-                    if isinstance(thread.created_at, datetime)
-                    else str(thread.created_at),
+                    created_at,
+                    thread_hash,
                 ),
             )
             conn.commit()
@@ -1442,9 +1456,12 @@ class LogDatabase:
             self._update_refs(conn, folio.folio_id, new_hash, control)
             conn.execute(
                 "INSERT INTO threads "
-                "(thread_id, from_id, to_id, type, content, weaver, created_at) "
-                "VALUES (?, ?, ?, 'reverted', NULL, ?, ?)",
-                (generate_thread_id(), head_hash, new_hash, weaver, now),
+                "(thread_id, from_id, to_id, type, content, weaver, created_at, "
+                " thread_hash) "
+                "VALUES (?, ?, ?, 'reverted', NULL, ?, ?, ?)",
+                (generate_thread_id(), head_hash, new_hash, weaver, now,
+                 compute_thread_hash(head_hash, new_hash, "reverted", weaver,
+                                     now, None)),
             )
             return
 
@@ -1460,9 +1477,12 @@ class LogDatabase:
         if not dup:
             conn.execute(
                 "INSERT INTO threads "
-                "(thread_id, from_id, to_id, type, content, weaver, created_at) "
-                "VALUES (?, ?, ?, 'supersedes', NULL, ?, ?)",
-                (generate_thread_id(), new_hash, head_hash, weaver, now),
+                "(thread_id, from_id, to_id, type, content, weaver, created_at, "
+                " thread_hash) "
+                "VALUES (?, ?, ?, 'supersedes', NULL, ?, ?, ?)",
+                (generate_thread_id(), new_hash, head_hash, weaver, now,
+                 compute_thread_hash(new_hash, head_hash, "supersedes", weaver,
+                                     now, None)),
             )
         self._update_refs(conn, folio.folio_id, new_hash, control)
 
@@ -1901,11 +1921,21 @@ class LogDatabase:
                     with open(thread_file) as f:
                         data = json.load(f)
 
+                    # A2 (Phase 3a): stamp thread_hash here too. This legacy
+                    # JSON->SQLite importer is effectively frozen (it no-ops once
+                    # the threads table is non-empty, which every live db is), but
+                    # a fresh db seeded from JSON must not leak NULL-hash rows —
+                    # §4/§5.A2 want EVERY insert path content-addressed.
+                    thread_hash = compute_thread_hash(
+                        data["from_id"], data["to_id"], data["type"],
+                        data.get("weaver"), data["created_at"], data.get("content"),
+                    )
                     conn.execute(
                         """
                         INSERT OR IGNORE INTO threads
-                        (thread_id, from_id, to_id, type, content, weaver, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (thread_id, from_id, to_id, type, content, weaver,
+                         created_at, thread_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         (
                             data["thread_id"],
@@ -1915,6 +1945,7 @@ class LogDatabase:
                             data.get("content"),
                             data.get("weaver"),
                             data["created_at"],
+                            thread_hash,
                         ),
                     )
                     count += 1

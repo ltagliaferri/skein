@@ -31,11 +31,14 @@ must satisfy) are documented inline at each section. They are intentionally
 minimal — the specs assert **observable database state** wherever possible, so
 they do not couple to a return shape, only to an entry point.
 
-Scope boundary (what this corpus does NOT cover, by design — §6 step 2 scopes it
-to "pure logic over fixtures"):
-  - Route-level emission ("a status write through the API lands genesis-keyed"):
-    that is a server/TestClient concern, verified by the A2 route tests, not here.
-    This corpus pins the storage/migration logic the routes call.
+Most of this corpus is pure logic over the synthetic fixtures (§6 step 2). Two
+kinds of spec reach past that, deliberately: the A2 genesis-keyed WRITE behavior is
+constructed route-side, so ``TestA2ControlWritesGenesisKeyed`` drives it end-to-end
+through the API (TestClient + store override); and the A5 consumer-survival specs
+drop the folios table on a live store. Both still run hermetically (temp store, no
+network).
+
+Scope boundary (what this corpus does NOT cover, by design):
   - Audit count-reconciliation to fidelity-baseline movement, and the
     "baselines move by exactly the logged drop count" cross-check: those run
     against real dbs and the fidelity harness — the differential **oracle**
@@ -596,6 +599,83 @@ class TestA2Writers:
         assert total >= 1 and nulls == 0
 
 
+@pytest.mark.phase3a_pending
+class TestA2ControlWritesGenesisKeyed:
+    """A NEW control write through the API lands GENESIS-keyed, not slug-keyed
+    (design §3 A2 "a new control write lands genesis-keyed"; §5.A2). This is the
+    core A2 behavior the A4 genesis-only reader depends on: if a fresh status or
+    assignment write stayed slug-keyed after the flip, that folio would read 'open'.
+    The genesis endpoints are constructed in the routes.py writers, so — unlike the
+    hermetic units above — this is exercised end-to-end through the API (TestClient +
+    store override, the established pattern in test_sites_timestamps.py). Red today
+    (the writers emit from=to=folio_id, routes.py:844); green once A2 keys control
+    writes on the folio's genesis hash."""
+
+    def _client_store(self, tmp_dir):
+        from fastapi.testclient import TestClient
+        from skein_server import app
+        from skein.routes import get_project_store
+        from skein.storage import JSONStore
+        store = JSONStore(tmp_dir)
+        app.dependency_overrides[get_project_store] = lambda: store
+        return TestClient(app), store, app, get_project_store
+
+    def _genesis(self, store, slug):
+        conn = sqlite3.connect(str(store._log_db.db_path))
+        try:
+            row = conn.execute(
+                "SELECT genesis_hash FROM refs WHERE slug = ?", (slug,)).fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+
+    def _create_folio(self, client, **extra):
+        client.post("/skein/sites",
+                    json={"site_id": "s1", "purpose": "testing genesis-keyed writes"},
+                    headers={"X-Agent-Id": "agent-x"})
+        payload = {"type": "finding", "site_id": "s1",
+                   "title": "A folio title here", "content": "body content"}
+        payload.update(extra)
+        r = client.post("/skein/folios", json=payload,
+                        headers={"X-Agent-Id": "agent-x"})
+        assert r.status_code == 200, r.text
+        return r.json()["folio_id"]
+
+    def test_status_write_lands_genesis_keyed(self, tmp_dir):
+        """A status set via the API mints a self-loop keyed on the folio's GENESIS
+        hash (from == to == genesis), not the slug."""
+        client, store, app, dep = self._client_store(tmp_dir)
+        try:
+            fid = self._create_folio(client, metadata={"status": "closed"})
+            genesis = self._genesis(store, fid)
+            assert genesis is not None and genesis != fid
+            st = store.get_threads(type="status")
+            assert st, "no status thread minted"
+            for t in st:
+                assert t.from_id == genesis and t.to_id == genesis, (
+                    f"status thread not genesis-keyed: from={t.from_id} to={t.to_id}")
+        finally:
+            app.dependency_overrides.pop(dep, None)
+
+    def test_assignment_write_lands_genesis_keyed_from(self, tmp_dir):
+        """fell:phase3-design:r2:two-typed-branches (writer side) — an assignment set
+        via the API keys FROM on the folio's genesis hash, leaving TO (the assignee)
+        untouched."""
+        client, store, app, dep = self._client_store(tmp_dir)
+        try:
+            fid = self._create_folio(client, assigned_to="agent-assignee-z")
+            genesis = self._genesis(store, fid)
+            assert genesis is not None and genesis != fid
+            asg = store.get_threads(type="assignment")
+            assert asg, "no assignment thread minted"
+            for t in asg:
+                assert t.from_id == genesis, (
+                    f"assignment 'from' not genesis-keyed: from={t.from_id}")
+                assert t.to_id == "agent-assignee-z"  # assignee left untouched
+        finally:
+            app.dependency_overrides.pop(dep, None)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. A3 — the migration. RED now → green at A3. Observable-state assertions.
 # ══════════════════════════════════════════════════════════════════════════════
@@ -882,13 +962,21 @@ class TestReadsSurviveFoliosDrop:
 
 
 @pytest.mark.phase3a_pending
-class TestA5FoliosWritePathsSurviveDrop:
-    """A5 drops folios.status and the folios table and retires its two WRITER
-    paths (save_folio's dual-write, move_folio's separate folios write). Those
-    paths still reference folios today, so dropping the table and exercising them
-    raises 'no such table: folios' — RED until A5 removes the folios writes. The
-    SAME LogDatabase object is reused after the drop (a fresh one would re-run
-    _init_db and resurrect folios, masking the regression)."""
+class TestA5FoliosConsumersSurviveDrop:
+    """A5 drops folios.status and the folios table and retires every folios-touching
+    consumer (design §3 A5). The ones that still reference folios today raise
+    'no such table: folios' after the drop — RED until A5 removes the folios access.
+    Covered here: the two writer paths (save_folio dual-write, move_folio's separate
+    write) and migrate_folios_from_json (which counts folios). The SAME LogDatabase
+    object is reused after the drop (a fresh one would re-run _init_db and resurrect
+    folios, masking the regression).
+
+    The dead ``FROM folios`` fallbacks (storage.py:200/254/305) are NOT
+    behaviorally testable: they sit behind ``not _has_refs_table(conn)``, and every
+    live db is backfilled (refs present) since Phase 1/2, so the guard is always
+    True and the fallback branch never executes — it cannot be driven to raise. Its
+    removal is a source cleanup verified at the A5 fell (the branch merely *names* a
+    dropped table); the reachable folios consumers are the ones pinned here."""
 
     def test_move_folio_survives_folios_drop(self, tmp_dir):
         """fell:phase3-design:r1:move-folio-after-drop — POST /folios/{id}/move (->
@@ -921,6 +1009,20 @@ class TestA5FoliosWritePathsSurviveDrop:
         f.content = "edited body after the folios table was dropped"
         db.save_folio(f)  # SAME db object; must not touch folios
         assert _genesis_of(path, "edit-me-1") is not None
+
+    def test_migrate_folios_from_json_survives_folios_drop(self, tmp_dir):
+        """fell:phase3-design:r1:move-folio-after-drop (sibling consumer) —
+        migrate_folios_from_json counts `SELECT COUNT(*) FROM folios`
+        (storage.py:1692); A5 must gate or remove it so it does not crash on the
+        dropped table. An existing but empty sites_dir passes its early exists()
+        guard and reaches the folios query, so this is red on the missing table
+        today and green once A5 gates the path."""
+        path = tmp_dir / "skein.db"
+        db = _logdb(path)
+        sites_dir = tmp_dir / "sites"
+        sites_dir.mkdir()  # exists() -> proceeds past the early `return 0`
+        _drop_folios(path)
+        assert db.migrate_folios_from_json(sites_dir) == 0  # must not raise
 
 
 # ══════════════════════════════════════════════════════════════════════════════

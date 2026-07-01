@@ -30,7 +30,13 @@ computed here over pre-A3 data is exactly what ``refs`` must hold after the
 rebuild — which is what makes it a valid answer key for the post-A3 comparison.
 
 Value contract per column (what the rebuilt ``refs`` column must equal):
-  status      -> the latest status thread's ``content``; default ``"open"``.
+  status      -> the latest status thread's ``content``; ``"open"`` when there is
+                 no status thread **or** the latest one's ``content`` is NULL (a
+                 present-``None`` content coerces to the default exactly like an
+                 absent thread — matching the oracle's ``_normalize_control`` on
+                 the comparison side, so identical data can't diverge the two as a
+                 false-RED; unreachable today since the status writer always passes
+                 a string, but pinned on both sides).
   assigned_to -> the latest assignment thread's ``to_id`` (the assignee); default
                  ``None``.
   archived    -> ``1`` iff the latest archive thread's ``content`` is the archived
@@ -124,8 +130,12 @@ def expected_control(conn: sqlite3.Connection) -> Dict[str, Dict[str, object]]:
 
     out: Dict[str, Dict[str, object]] = {}
     for slug in slugs:
+        # status_raw is None for both "no status thread" (key absent) and "latest
+        # status thread has NULL content" (value present but None); both coerce to
+        # the 'open' default, matching the comparison side's _normalize_control.
+        status_raw = status.get(slug)
         out[slug] = {
-            "status": status.get(slug, "open"),
+            "status": "open" if status_raw is None else status_raw,
             "assigned_to": assigned.get(slug, None),
             "archived": int(archive_marker.get(slug, 0)),
         }

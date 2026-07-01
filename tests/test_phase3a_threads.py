@@ -302,37 +302,30 @@ def _require_method(obj, name: str):
 
 
 def _load_migration():
-    """The A3 control migration module. Pinned entry point (the contract A3 must
-    satisfy): ``migrate_db(db_path, *, dry_run=False) -> result`` runs the
-    re-anchor + thread_hash backfill + refs rebuild in one transaction, raising on
-    a precondition violation; ``result.dropped`` is a list of dicts each carrying
-    at least ``thread_id``/``category`` ('slug_orphan' | 'genesis_orphan')."""
+    """The A3/A4 control migration module. The contract these specs pin (minimal —
+    an entry point + a typed refusal + two observable A4 helpers):
+
+      migrate_db(db_path, *, dry_run=False) -> result
+          Runs the re-anchor + thread_hash backfill + refs rebuild in one
+          transaction. ``result.dropped`` is a list of dicts each carrying at least
+          ``thread_id`` and ``category`` ('slug_orphan' | 'genesis_orphan').
+      PreconditionError
+          The exception migrate_db raises when it REFUSES a db (I1 genesis
+          collision, or cache-only control with no covering thread) — a typed
+          refusal, so a spec can assert refusal without accepting an incidental crash.
+      slug_keyed_control_remaining(db_path) -> int
+          Count of control threads still anchored on a live slug (0 once a db is
+          fully re-anchored) — the observable the A4 gate reads.
+      all_dbs_migrated(db_paths) -> bool
+          The A4 gate: True iff EVERY db in ``db_paths`` has zero slug-keyed
+          control (so the genesis-only reader flip is safe). False if any db still
+          holds slug-keyed control."""
     try:
         from skein.migrations import migrate_threads_control as m
     except ImportError as e:
         pytest.fail(f"A3 migration (skein.migrations.migrate_threads_control) not "
                     f"implemented yet — RED until A3 lands: {e}")
     return m
-
-
-def _control_keying(path: Path):
-    """(total control threads, n slug-keyed) over a db, by raw endpoint shape — the
-    observable an A4 gate reads. Anchor: status/archive on to_id, assignment on
-    from_id (the two-typed branches)."""
-    conn = _ro(path)
-    try:
-        slugs = {r[0] for r in conn.execute("SELECT slug FROM refs")}
-        total = slug_keyed = 0
-        for ttype, anchor in (("status", "to_id"), ("archive", "to_id"),
-                              ("assignment", "from_id")):
-            for (a,) in conn.execute(
-                    f"SELECT {anchor} FROM threads WHERE type = ?", (ttype,)):
-                total += 1
-                if a in slugs:
-                    slug_keyed += 1
-        return total, slug_keyed
-    finally:
-        conn.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -491,13 +484,19 @@ def _thread_hash_of(path: Path, thread_id: str) -> Optional[str]:
 @pytest.mark.phase3a_pending
 class TestA2Writers:
     """A2 wires compute_thread_hash into every insert site (design §2.4: four in
-    all). Of those, save_thread and the _maintain_versions_refs direct INSERT (one
-    code path that mints BOTH supersedes and reverted edges, storage.py:1395/1413)
-    are live runtime paths exercised here — save_thread directly, the edge INSERT
-    via a save_folio edit. The fourth site, the backfill-repair mint
-    (backfill_versions_refs.py:288), is a migration tool the design's A2 escape
-    clause allows to be frozen rather than wired; it is not a live insert path, so
-    it is not exercised by a runtime unit here."""
+    all). Three are live runtime paths, exercised here:
+      - save_thread (storage.py:1096) — directly;
+      - the _maintain_versions_refs SUPERSEDES INSERT (storage.py:1412) — via a
+        forward save_folio edit (identity field changed);
+      - the _maintain_versions_refs REVERTED INSERT (storage.py:1394) — a DISTINCT
+        INSERT in a DIFFERENT branch (revert / DAG re-entry), via a save_folio
+        content A->B->A. Missing this one lets a revert land a NULL-hash row and
+        break 3b's NOT-NULL PK swap, so it gets its own spec.
+    The fourth site, the backfill REPAIR-mode supersedes mint
+    (backfill_versions_refs.py:~286), is a migration TOOL: the design's A2 escape
+    clause (§5.A2) lets it be frozen (not run between A2 and the 3b PK swap) rather
+    than wired. Its disposition (stamp vs freeze) is the A2 implementer's choice and
+    is verified at the A2 fell, not by a hermetic runtime unit here."""
 
     def _make_thread(self, **kw):
         from skein.models import Thread
@@ -566,6 +565,36 @@ class TestA2Writers:
             conn.close()
         assert total >= 1 and nulls == 0
 
+    def test_edit_reverted_marker_is_hashed(self, tmp_dir):
+        """fell:phase3-design:r1:all-insert-sites-hashed (_maintain_versions_refs
+        REVERTED site, storage.py:1394) — the reverted marker is a SEPARATE INSERT
+        in a SEPARATE branch from supersedes: a revert (content A->B->A) mints it.
+        A2 must stamp thread_hash there too, or a revert lands a NULL-hash row.
+        Distinct from test_edit_supersedes_edge_is_hashed, which only hits the
+        forward branch."""
+        from skein.models import Folio
+        path = tmp_dir / "skein.db"
+        db = _logdb(path)
+        f = Folio(folio_id="revert-folio-1", type="issue", site_id="s",
+                  created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                  created_by="agent-x", title="Title one here",
+                  content="content A — the original body", status="open", metadata={})
+        db.save_folio(f)
+        f.content = "content B — a forward edit that mints a supersedes edge"
+        db.save_folio(f)
+        f.content = "content A — the original body"  # revert -> mints a 'reverted' marker
+        db.save_folio(f)
+        conn = _ro(path)
+        try:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM threads WHERE type='reverted'").fetchone()[0]
+            nulls = conn.execute(
+                "SELECT COUNT(*) FROM threads WHERE type='reverted' "
+                "AND thread_hash IS NULL").fetchone()[0]
+        finally:
+            conn.close()
+        assert total >= 1 and nulls == 0
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. A3 — the migration. RED now → green at A3. Observable-state assertions.
@@ -577,6 +606,19 @@ def _threads_of_type(path: Path, ttype: str):
         return [dict(r) for r in conn.execute(
             "SELECT thread_id, from_id, to_id, type, content, weaver, created_at "
             "FROM threads WHERE type = ? ORDER BY thread_id", (ttype,))]
+    finally:
+        conn.close()
+
+
+def _all_threads_full(path: Path):
+    """Every thread row, ALL columns including thread_hash, deterministically
+    ordered — the full byte-image used to prove idempotency (a rerun that rewrote a
+    hash, dropped a row, or mutated any field would move this)."""
+    conn = _ro(path)
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT thread_id, from_id, to_id, type, content, weaver, created_at, "
+            "thread_hash FROM threads ORDER BY thread_id")]
     finally:
         conn.close()
 
@@ -715,34 +757,49 @@ class TestA3Migration:
 
     @pytest.mark.parametrize("name", sorted(set(NAMED_EXPECTED)))
     def test_rebuilt_refs_equal_independent_expected(self, name, tmp_dir):
-        """The post-A3 refs control cache equals the independently-computed
-        expected map (the reducer over the PRE-A3 snapshot). This is the property
-        the oracle's Leg C enforces over real dbs; here it is pinned over every
-        fixture. Captures the expected BEFORE migrating (the reducer needs the
-        original slug-keyed data)."""
+        """fell:phase3-design:r6:archive-equivalence — the post-A3 refs control
+        cache equals the independently-computed expected map (the reducer over the
+        PRE-A3 snapshot) for ALL THREE columns including ``archived`` (the
+        archive_selfloop param proves refs.archived is rebuilt, not just
+        status/assigned_to). This is the property the oracle's Leg C enforces over
+        real dbs; here it is pinned over every fixture. Captures the expected BEFORE
+        migrating (the reducer needs the original slug-keyed data)."""
         path = _build(name, tmp_dir)
         expected = _expected(path)        # over pre-A3 (slug-keyed) snapshot
         _load_migration().migrate_db(path)
         assert _refs_control(path) == expected
 
-    def test_idempotent_second_run_is_noop(self, tmp_dir):
-        """Re-running A3 on already-migrated data changes nothing: same rows, same
-        hashes, nothing dropped the second time."""
-        path = _build("status_multi_history", tmp_dir)
+    @pytest.mark.parametrize("name", [
+        "status_multi_history",     # status re-key + reduction history
+        "status_nonselfloop_agent",  # status normalize (agent -> weaver)
+        "status_mixed_keyspace",    # mixed keyspace (already-genesis + re-key)
+        "assignment_plain",         # assignment re-key (from only)
+        "archive_selfloop",         # archive control kind
+    ])
+    def test_idempotent_second_run_is_noop(self, name, tmp_dir):
+        """Re-running A3 on already-migrated data changes NOTHING — asserted over
+        the FULL thread image (all columns incl thread_hash) AND the refs control
+        cache, across every control kind, not just status rows. A rerun that
+        rewrote a thread_hash, mutated refs, dropped a row, or was non-idempotent
+        for assignment/archive would move one of these snapshots."""
+        path = _build(name, tmp_dir)
         m = _load_migration()
         m.migrate_db(path)
-        snap1 = _threads_of_type(path, "status")
+        threads1, refs1 = _all_threads_full(path), _refs_control(path)
         result2 = m.migrate_db(path)
-        snap2 = _threads_of_type(path, "status")
-        assert snap1 == snap2
+        assert _all_threads_full(path) == threads1
+        assert _refs_control(path) == refs1
         assert list(result2.dropped) == []
 
     def test_i1_collision_refused_as_precondition(self, tmp_dir):
         """I1 precondition: a db with two lineages sharing a genesis is REFUSED
         before any transform runs (the migration asserts I1, never assumes it)."""
         path = _build("i1_genesis_collision", tmp_dir)
-        with pytest.raises(Exception):
-            _load_migration().migrate_db(path)
+        m = _load_migration()
+        # A typed refusal, not any Exception — an incidental crash that never
+        # reached the I1 check must NOT satisfy this safety-critical spec.
+        with pytest.raises(m.PreconditionError):
+            m.migrate_db(path)
 
     def test_cache_only_control_refused_as_precondition(self, tmp_dir):
         """Cache-only state (design §1, Fell finding 5): a folio whose refs cache
@@ -760,8 +817,9 @@ class TestA3Migration:
         conn.execute("DELETE FROM threads WHERE type = 'status'")
         conn.commit()
         conn.close()
-        with pytest.raises(Exception):
-            _load_migration().migrate_db(path)
+        m = _load_migration()
+        with pytest.raises(m.PreconditionError):  # typed refusal, not any crash
+            m.migrate_db(path)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -770,20 +828,24 @@ class TestA3Migration:
 
 @pytest.mark.phase3a_pending
 class TestA4Gate:
-    def test_slug_keyed_db_blocks_genesis_only_flip(self, tmp_dir):
+    def test_all_dbs_gate_refuses_flip_while_slug_keyed_control_remains(self, tmp_dir):
         """fell:phase3-design:r1:a4-alldbs-gate — A4 (reader becomes genesis-only)
-        must not be reachable while any db still holds slug-keyed control threads,
-        else every non-open folio there reads 'open'. The gate observable: a
-        slug-keyed db reports >0 slug-keyed control rows (so the flip is refused);
-        a migrated db reports 0 (so it is allowed)."""
+        must not be reachable while ANY db still holds slug-keyed control threads,
+        else every non-open folio there reads 'open'. This pins the PRODUCTION gate
+        (all_dbs_migrated / slug_keyed_control_remaining), not a local count: a
+        slug-keyed db has >0 slug-keyed control and the gate is False; a migrated db
+        has 0 and the gate is True on its own; and a mixed set is still False (one
+        un-migrated db blocks the whole flip)."""
+        m = _load_migration()
         slug_db = _build("status_plain_selfloop", tmp_dir)
-        _total, slug_keyed = _control_keying(slug_db)
-        assert slug_keyed > 0, "a pre-A3 db must report slug-keyed control"
-
         migrated = _build("status_plain_selfloop", tmp_dir / "m")
-        _load_migration().migrate_db(migrated)
-        _total2, slug_keyed2 = _control_keying(migrated)
-        assert slug_keyed2 == 0, "a migrated db must report zero slug-keyed control"
+        m.migrate_db(migrated)
+
+        assert m.slug_keyed_control_remaining(slug_db) > 0
+        assert m.slug_keyed_control_remaining(migrated) == 0
+        assert m.all_dbs_migrated([migrated]) is True
+        assert m.all_dbs_migrated([slug_db]) is False
+        assert m.all_dbs_migrated([migrated, slug_db]) is False  # one blocks all
 
 
 def _drop_folios(path: Path):

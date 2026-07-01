@@ -1099,17 +1099,18 @@ class LogDatabase:
 
     def save_thread(self, thread: Thread) -> bool:
         """Save a thread to the database."""
+        from_id, to_id = self._genesis_key_control(thread)
         created_at = (
             thread.created_at.isoformat()
             if isinstance(thread.created_at, datetime)
             else str(thread.created_at)
         )
         # A2 (Phase 3a): stamp the content address at the write, so no live insert
-        # path leaks a NULL-hash row (§5.A2). Hashed over the canonical fields with
-        # the same normalized created_at that goes to the column, so the row's
-        # thread_hash matches compute_thread_hash over its stored bytes.
+        # path leaks a NULL-hash row (§5.A2). Hashed over the POST-genesis-keyed
+        # endpoints and the same normalized created_at that goes to the column, so
+        # the row's thread_hash matches compute_thread_hash over its stored bytes.
         thread_hash = compute_thread_hash(
-            thread.from_id, thread.to_id, thread.type, thread.weaver,
+            from_id, to_id, thread.type, thread.weaver,
             created_at, thread.content,
         )
         with self._get_connection() as conn:
@@ -1122,8 +1123,8 @@ class LogDatabase:
             """,
                 (
                     thread.thread_id,
-                    thread.from_id,
-                    thread.to_id,
+                    from_id,
+                    to_id,
                     thread.type,
                     thread.content,
                     thread.weaver,
@@ -1133,6 +1134,30 @@ class LogDatabase:
             )
             conn.commit()
         return True
+
+    def _genesis_key_control(self, thread: Thread) -> tuple:
+        """Return the (from_id, to_id) a control thread should persist with:
+        status/archive/assignment edges anchor on the folio's genesis hash, never
+        its slug (Phase 3a A2, design §5.A2). This is the UNIVERSAL enforcement
+        point — the sugar routes hand us genesis already, but the generic
+        POST /threads path (``skein close``) and any direct caller hand us a slug,
+        so the invariant is enforced here rather than at each writer.
+
+        Idempotent: a genesis endpoint (or a slug with no ref) resolves to None and
+        is left unchanged, so a row already keyed on genesis passes through. The
+        anchor column matches the A1 tolerant reader's — ``to_id`` for the
+        status/archive self-loop, ``from_id`` for assignment (from=folio,
+        to=assignee, assignee left untouched). Non-control edges are never touched.
+        """
+        if thread.type in ("status", "archive"):
+            genesis = self.genesis_of_slug(thread.to_id)
+            if genesis:
+                return genesis, genesis
+        elif thread.type == "assignment":
+            genesis = self.genesis_of_slug(thread.from_id)
+            if genesis:
+                return genesis, thread.to_id
+        return thread.from_id, thread.to_id
 
     def get_threads(
         self,
@@ -1239,6 +1264,19 @@ class LogDatabase:
             ) WHERE rn = 1
         """
         return {row["folio_id"]: row["val"] for row in conn.execute(query, params)}
+
+    def genesis_of_slug(self, slug: str) -> Optional[str]:
+        """Resolve a folio slug to its lineage genesis hash (``refs.genesis_hash``,
+        the immutable lineage id). Phase 3a A2 control writers anchor genesis-keyed
+        control edges on this. Returns None if the slug has no ref (no lineage) —
+        callers fall back to the slug so a control write never crashes on a folio
+        that is somehow refless.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT genesis_hash FROM refs WHERE slug = ?", (slug,)
+            ).fetchone()
+        return row["genesis_hash"] if row else None
 
     def get_latest_statuses(
         self, folio_ids: Optional[List[str]] = None

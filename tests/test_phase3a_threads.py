@@ -364,16 +364,13 @@ class TestA1ReaderInvariants:
         assert db.get_latest_assignments() == {"assignment-plain-folio": "agent-assignee"}
 
 
-@pytest.mark.phase3a_pending
 class TestA1TolerantReader:
     """The A1 readers (get_latest_statuses / get_latest_assignments /
     get_latest_archives) return a per-SLUG control map that unions the slug- and
-    genesis-keyspaces and resolves genesis hashes back to their slug. Today's
-    readers group by the raw endpoint (so a genesis-keyed row surfaces under the
-    hash, not the slug) and have no archive reader at all — so these fail until A1
-    re-anchors the readers. Expected values come from the independent reducer /
-    literals, never reader == rebuild. Each shape below is one today's reader gets
-    WRONG (genesis-keyed surfacing, or a missing reader), so they are genuinely RED."""
+    genesis-keyspaces and resolves genesis hashes back to their slug. Expected values
+    come from the independent reducer / literals, never reader == rebuild. GREEN as
+    of the A1 landing (marker removed); each shape is one the pre-A1 reader got wrong
+    (genesis-keyed surfacing, or a missing reader)."""
 
     def _statuses(self, path: Path) -> Dict[str, object]:
         db = _logdb(path)

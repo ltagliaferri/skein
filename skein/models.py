@@ -158,6 +158,9 @@ ThreadType = Literal[
     # edge as broken.
     "supersedes",  # the edit edge: from_id = new hash, to_id = old head hash
     "reverted",    # the revert marker: from_id = prior head hash, to_id = reused hash
+    # Phase 3a Class-A control: a genesis-anchored self-loop feeding refs.archived.
+    # Marker model (finding-20260630-0r3x): archived iff latest content == 'archived'.
+    "archive",
 ]
 
 

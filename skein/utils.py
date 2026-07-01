@@ -77,21 +77,18 @@ def parse_mentions(content: str) -> Set[str]:
 
 
 def get_current_status(folio_id: str, json_store) -> Optional[str]:
-    """Get current status of a folio from the most recent status thread."""
-    status_threads = json_store.get_threads(to_id=folio_id, type="status")
-    if not status_threads:
-        return None
-    status_threads.sort(key=lambda t: t.created_at, reverse=True)
-    return status_threads[0].content
+    """Get current status of a folio (Phase 3a A1 tolerant): via the batch reader,
+    which unions the slug/genesis keyspaces and breaks equal-created_at ties on
+    thread_id — so a genesis-keyed status written after A2 is seen, and the result
+    is deterministic. ``None`` when the folio has no status thread."""
+    return json_store.get_latest_statuses([folio_id]).get(folio_id)
 
 
 def get_current_assignment(folio_id: str, json_store) -> Optional[str]:
-    """Get current assignment of a folio from the most recent assignment thread."""
-    assignment_threads = json_store.get_threads(from_id=folio_id, type="assignment")
-    if not assignment_threads:
-        return None
-    assignment_threads.sort(key=lambda t: t.created_at, reverse=True)
-    return assignment_threads[0].to_id
+    """Get current assignment of a folio (Phase 3a A1 tolerant): via the batch
+    reader (same union + tiebreaker as get_current_status). ``None`` when the folio
+    has no assignment thread."""
+    return json_store.get_latest_assignments([folio_id]).get(folio_id)
 
 
 def enrich_folios_with_status(folios: List, store) -> None:

@@ -506,10 +506,18 @@ class LogDatabase:
                     type TEXT NOT NULL,
                     content TEXT,
                     weaver TEXT,
-                    created_at DATETIME NOT NULL
+                    created_at DATETIME NOT NULL,
+                    thread_hash TEXT
                 )
             """
             )
+
+            # A1 (Phase 3a): thread_hash — the content address for every edge.
+            # Nullable and NON-unique in 3a (the UNIQUE/PK swap is 3b). The CREATE
+            # above only fires on a fresh db, so add it via ALTER for existing dbs.
+            _thread_cols = {r[1] for r in conn.execute("PRAGMA table_info(threads)")}
+            if "thread_hash" not in _thread_cols:
+                conn.execute("ALTER TABLE threads ADD COLUMN thread_hash TEXT")
 
             conn.execute(
                 """
@@ -1153,69 +1161,110 @@ class LogDatabase:
                 for row in rows
             ]
 
+    def _latest_control_by_folio(
+        self,
+        conn,
+        *,
+        ttype: str,
+        anchor_col: str,
+        value_col: str,
+        folio_ids: Optional[List[str]] = None,
+    ) -> Dict[str, str]:
+        """Reduce control threads of ``ttype`` to one value per folio (Phase 3a A1
+        tolerant reader). A folio is identified by ``anchor_col`` — ``to_id`` for the
+        status/archive self-loops, ``from_id`` for assignment (from = folio) —
+        matching EITHER the slug (legacy) OR the folio's genesis hash (post-A2). The
+        two keyspaces are UNIONed and resolved back to the slug via ``refs`` (a
+        prefer-genesis-else-slug shortcut would return a stale value; design §5.A1).
+        The latest row wins by the deterministic ``(created_at, thread_id)`` order —
+        the SAME order the A3 rebuild uses — so an equal-``created_at`` tie breaks on
+        ``thread_id`` rather than nondeterministically. A thread whose anchor
+        resolves to no live folio (orphan) is dropped. ``anchor_col``/``value_col``
+        are fixed internal literals, never caller input.
+        """
+        # Resolve each thread's anchor to EXACTLY ONE folio, SLUG-FIRST then genesis
+        # — matching the Leg C reducer's precedence (``anchor in slugs`` before
+        # ``anchor in genesis_to_slug``, phase3a_expected.py). ``anchor_map`` gives
+        # each anchor value (a slug OR a genesis hash) a single resolved slug:
+        # ``pref = 0`` for the slug match, ``1`` for the genesis match, and the
+        # window keeps one row per anchor (pref, then slug for determinism). A plain
+        # ``ON (anchor = slug OR anchor = genesis)`` join would instead double-count
+        # a thread onto two folios if a genesis_hash were duplicated (an I1
+        # violation). I1 is an A3 precondition (0 collisions today; slug/genesis
+        # namespaces are disjoint), so this never fires on valid data — but a read
+        # path resolves to one folio deterministically rather than silently
+        # double-counting.
+        filt = ""
+        params: List[str] = [ttype]
+        if folio_ids is not None:
+            filt = "AND m.slug IN (%s)" % ",".join("?" for _ in folio_ids)
+            params.extend(folio_ids)
+        query = f"""
+            WITH anchor_map AS (
+                SELECT anchor, slug FROM (
+                    SELECT anchor, slug,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY anchor ORDER BY pref, slug
+                        ) AS arn
+                    FROM (
+                        SELECT slug AS anchor, slug AS slug, 0 AS pref FROM refs
+                        UNION ALL
+                        SELECT genesis_hash AS anchor, slug AS slug, 1 AS pref FROM refs
+                    )
+                ) WHERE arn = 1
+            )
+            SELECT folio_id, val FROM (
+                SELECT m.slug AS folio_id, t.{value_col} AS val,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY m.slug
+                        ORDER BY t.created_at DESC, t.thread_id DESC
+                    ) AS rn
+                FROM threads t
+                JOIN anchor_map m ON m.anchor = t.{anchor_col}
+                WHERE t.type = ? {filt}
+            ) WHERE rn = 1
+        """
+        return {row["folio_id"]: row["val"] for row in conn.execute(query, params)}
+
     def get_latest_statuses(
         self, folio_ids: Optional[List[str]] = None
     ) -> Dict[str, str]:
-        """Get the most recent status for each folio in a single query.
-
-        Returns dict mapping folio_id -> status content.
+        """Most recent status per folio (slug -> content). A1 tolerant: unions the
+        slug- and genesis-keyspaces (self-loop on ``to_id``) and breaks equal-
+        ``created_at`` ties on ``thread_id``.
         """
         with self._get_connection() as conn:
-            query = """
-                SELECT t.to_id AS folio_id, t.content
-                FROM threads t
-                INNER JOIN (
-                    SELECT to_id, MAX(created_at) AS max_created
-                    FROM threads WHERE type = 'status'
-                    {where_clause}
-                    GROUP BY to_id
-                ) latest ON t.to_id = latest.to_id
-                        AND t.created_at = latest.max_created
-                        AND t.type = 'status'
-            """
-            params = []
-            if folio_ids is not None:
-                placeholders = ",".join("?" for _ in folio_ids)
-                where_clause = f"AND to_id IN ({placeholders})"
-                params = list(folio_ids)
-            else:
-                where_clause = ""
-
-            query = query.format(where_clause=where_clause)
-            cursor = conn.execute(query, params)
-            return {row["folio_id"]: row["content"] for row in cursor.fetchall()}
+            return self._latest_control_by_folio(
+                conn, ttype="status", anchor_col="to_id", value_col="content",
+                folio_ids=folio_ids)
 
     def get_latest_assignments(
         self, folio_ids: Optional[List[str]] = None
     ) -> Dict[str, str]:
-        """Get the most recent assignment for each folio in a single query.
-
-        Returns dict mapping folio_id -> assigned_to (the to_id of the assignment thread).
+        """Most recent assignment per folio (slug -> assignee). A1 tolerant: the
+        folio is keyed on ``from_id`` (assignment is from=folio, to=assignee),
+        unioning both keyspaces; the returned value is the assignee (``to_id``).
         """
         with self._get_connection() as conn:
-            query = """
-                SELECT t.from_id AS folio_id, t.to_id AS assigned_to
-                FROM threads t
-                INNER JOIN (
-                    SELECT from_id, MAX(created_at) AS max_created
-                    FROM threads WHERE type = 'assignment'
-                    {where_clause}
-                    GROUP BY from_id
-                ) latest ON t.from_id = latest.from_id
-                        AND t.created_at = latest.max_created
-                        AND t.type = 'assignment'
-            """
-            params = []
-            if folio_ids is not None:
-                placeholders = ",".join("?" for _ in folio_ids)
-                where_clause = f"AND from_id IN ({placeholders})"
-                params = list(folio_ids)
-            else:
-                where_clause = ""
+            return self._latest_control_by_folio(
+                conn, ttype="assignment", anchor_col="from_id", value_col="to_id",
+                folio_ids=folio_ids)
 
-            query = query.format(where_clause=where_clause)
-            cursor = conn.execute(query, params)
-            return {row["folio_id"]: row["assigned_to"] for row in cursor.fetchall()}
+    def get_latest_archives(
+        self, folio_ids: Optional[List[str]] = None
+    ) -> Dict[str, str]:
+        """Most recent archive marker per folio (slug -> content, the marker
+        ``'archived'``/``'active'``). A1 DEDICATED reader — a self-loop on ``to_id``
+        like status, feeding ``refs.archived`` (archived iff content == 'archived',
+        finding-20260630-0r3x) — NOT folded into ``get_latest_statuses`` (which maps
+        to a different refs column). 0 archive rows exist ecosystem-wide today, so it
+        exercises no data yet, but the path must exist before A4 makes reads
+        genesis-only and A5 drops ``folios.archived``.
+        """
+        with self._get_connection() as conn:
+            return self._latest_control_by_folio(
+                conn, ttype="archive", anchor_col="to_id", value_col="content",
+                folio_ids=folio_ids)
 
     # Folio Operations
 
@@ -2082,6 +2131,12 @@ class JSONStore:
     ) -> Dict[str, str]:
         """Get the most recent assignment for each folio in a single query."""
         return self._log_db.get_latest_assignments(folio_ids)
+
+    def get_latest_archives(
+        self, folio_ids: Optional[List[str]] = None
+    ) -> Dict[str, str]:
+        """Get the most recent archive marker for each folio in a single query."""
+        return self._log_db.get_latest_archives(folio_ids)
 
     # Helper methods
 

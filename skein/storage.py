@@ -1182,21 +1182,45 @@ class LogDatabase:
         resolves to no live folio (orphan) is dropped. ``anchor_col``/``value_col``
         are fixed internal literals, never caller input.
         """
+        # Resolve each thread's anchor to EXACTLY ONE folio, SLUG-FIRST then genesis
+        # — matching the Leg C reducer's precedence (``anchor in slugs`` before
+        # ``anchor in genesis_to_slug``, phase3a_expected.py). ``anchor_map`` gives
+        # each anchor value (a slug OR a genesis hash) a single resolved slug:
+        # ``pref = 0`` for the slug match, ``1`` for the genesis match, and the
+        # window keeps one row per anchor (pref, then slug for determinism). A plain
+        # ``ON (anchor = slug OR anchor = genesis)`` join would instead double-count
+        # a thread onto two folios if a genesis_hash were duplicated (an I1
+        # violation). I1 is an A3 precondition (0 collisions today; slug/genesis
+        # namespaces are disjoint), so this never fires on valid data — but a read
+        # path resolves to one folio deterministically rather than silently
+        # double-counting.
         filt = ""
         params: List[str] = [ttype]
         if folio_ids is not None:
-            filt = "AND r.slug IN (%s)" % ",".join("?" for _ in folio_ids)
+            filt = "AND m.slug IN (%s)" % ",".join("?" for _ in folio_ids)
             params.extend(folio_ids)
         query = f"""
+            WITH anchor_map AS (
+                SELECT anchor, slug FROM (
+                    SELECT anchor, slug,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY anchor ORDER BY pref, slug
+                        ) AS arn
+                    FROM (
+                        SELECT slug AS anchor, slug AS slug, 0 AS pref FROM refs
+                        UNION ALL
+                        SELECT genesis_hash AS anchor, slug AS slug, 1 AS pref FROM refs
+                    )
+                ) WHERE arn = 1
+            )
             SELECT folio_id, val FROM (
-                SELECT r.slug AS folio_id, t.{value_col} AS val,
+                SELECT m.slug AS folio_id, t.{value_col} AS val,
                     ROW_NUMBER() OVER (
-                        PARTITION BY r.slug
+                        PARTITION BY m.slug
                         ORDER BY t.created_at DESC, t.thread_id DESC
                     ) AS rn
                 FROM threads t
-                JOIN refs r
-                  ON (t.{anchor_col} = r.slug OR t.{anchor_col} = r.genesis_hash)
+                JOIN anchor_map m ON m.anchor = t.{anchor_col}
                 WHERE t.type = ? {filt}
             ) WHERE rn = 1
         """

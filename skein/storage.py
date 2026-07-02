@@ -1333,30 +1333,26 @@ class LogDatabase:
         value_col: str,
         folio_ids: Optional[List[str]] = None,
     ) -> Dict[str, str]:
-        """Reduce control threads of ``ttype`` to one value per folio (Phase 3a A1
-        tolerant reader). A folio is identified by ``anchor_col`` — ``to_id`` for the
-        status/archive self-loops, ``from_id`` for assignment (from = folio) —
-        matching EITHER the slug (legacy) OR the folio's genesis hash (post-A2). The
-        two keyspaces are UNIONed and resolved back to the slug via ``refs`` (a
-        prefer-genesis-else-slug shortcut would return a stale value; design §5.A1).
-        The latest row wins by the deterministic ``(created_at, thread_id)`` order —
-        the SAME order the A3 rebuild uses — so an equal-``created_at`` tie breaks on
-        ``thread_id`` rather than nondeterministically. A thread whose anchor
-        resolves to no live folio (orphan) is dropped. ``anchor_col``/``value_col``
-        are fixed internal literals, never caller input.
+        """Reduce control threads of ``ttype`` to one value per folio (Phase 3a A4
+        GENESIS-ONLY reader). A folio is identified by ``anchor_col`` — ``to_id`` for
+        the status/archive self-loops, ``from_id`` for assignment (from = folio) —
+        matching the folio's GENESIS hash (``refs.genesis_hash``), resolved back to
+        the slug. Post-cutover every live control thread is genesis-keyed and the
+        gate (``all_dbs_migrated``) guarantees no live slug-keyed FOLIO control
+        remains, so the A1→A3 slug-keyspace tolerance is RETIRED here: a slug-keyed
+        leftover (or any orphan whose anchor is not a live genesis) is not surfaced —
+        it reads default (status 'open', assignment None), the exact misread the gate
+        precludes ecosystem-wide (design §5.A4, I2). The latest row wins by the
+        deterministic ``(created_at, thread_id)`` order — the SAME order the A3
+        rebuild uses. ``anchor_col``/``value_col`` are fixed internal literals, never
+        caller input.
         """
-        # Resolve each thread's anchor to EXACTLY ONE folio, SLUG-FIRST then genesis
-        # — matching the Leg C reducer's precedence (``anchor in slugs`` before
-        # ``anchor in genesis_to_slug``, phase3a_expected.py). ``anchor_map`` gives
-        # each anchor value (a slug OR a genesis hash) a single resolved slug:
-        # ``pref = 0`` for the slug match, ``1`` for the genesis match, and the
-        # window keeps one row per anchor (pref, then slug for determinism). A plain
-        # ``ON (anchor = slug OR anchor = genesis)`` join would instead double-count
-        # a thread onto two folios if a genesis_hash were duplicated (an I1
-        # violation). I1 is an A3 precondition (0 collisions today; slug/genesis
-        # namespaces are disjoint), so this never fires on valid data — but a read
-        # path resolves to one folio deterministically rather than silently
-        # double-counting.
+        # anchor_map resolves each folio's GENESIS hash to its slug (genesis-only).
+        # genesis_hash is unique per lineage (I1, an A3 precondition), so the
+        # ROW_NUMBER window is a defensive dedup — under a (never-expected) I1
+        # collision it resolves a shared genesis to one slug deterministically
+        # (min slug), matching get_threads_display and the retired tolerant map's
+        # tie-break, rather than double-counting a thread onto two folios.
         filt = ""
         params: List[str] = [ttype]
         if folio_ids is not None:
@@ -1365,15 +1361,11 @@ class LogDatabase:
         query = f"""
             WITH anchor_map AS (
                 SELECT anchor, slug FROM (
-                    SELECT anchor, slug,
+                    SELECT genesis_hash AS anchor, slug,
                         ROW_NUMBER() OVER (
-                            PARTITION BY anchor ORDER BY pref, slug
+                            PARTITION BY genesis_hash ORDER BY slug
                         ) AS arn
-                    FROM (
-                        SELECT slug AS anchor, slug AS slug, 0 AS pref FROM refs
-                        UNION ALL
-                        SELECT genesis_hash AS anchor, slug AS slug, 1 AS pref FROM refs
-                    )
+                    FROM refs
                 ) WHERE arn = 1
             )
             SELECT folio_id, val FROM (

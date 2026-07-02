@@ -349,28 +349,37 @@ def _insert_thread(path: Path, thread_id, from_id, to_id, ttype, content,
 
 
 class TestA1ReaderInvariants:
-    """The slug-keyed read paths A1 must NOT regress. These are GREEN now and stay
-    green after A1 — they lock that making the readers tolerant of genesis keys does
-    not break the all-slug-keyed case that is the whole ecosystem today."""
+    """Post-A4 the control VALUE readers are GENESIS-ONLY: the A1→A3 slug-keyspace
+    tolerance is retired (the gate all_dbs_migrated guarantees no live slug-keyed
+    folio control). A stray slug-keyed control row is therefore NOT surfaced — its
+    folio reads default. These pin that intentional removal; they asserted the
+    opposite (slug-keyed reads under the slug) while the reader was tolerant, A1→A3."""
 
-    def test_slug_keyed_status_reads_under_slug(self, tmp_dir):
+    def test_slug_keyed_status_not_surfaced(self, tmp_dir):
+        """A pure slug-keyed status (no genesis-keyed row) is invisible to the
+        genesis-only reader — the folio reads default 'open' (absent from the map).
+        The gate precludes this shape on live data; here it pins the tolerance
+        removal that the A4 flip is."""
         path = _build("status_plain_selfloop", tmp_dir)
         db = _logdb(path)
-        assert db.get_latest_statuses() == {"status-plain-selfloop-folio": "confirmed"}
+        assert db.get_latest_statuses() == {}
 
-    def test_slug_keyed_assignment_reads_under_slug(self, tmp_dir):
+    def test_slug_keyed_assignment_not_surfaced(self, tmp_dir):
+        """A pure slug-keyed assignment is invisible to the genesis-only reader — the
+        folio reads no assignee."""
         path = _build("assignment_plain", tmp_dir)
         db = _logdb(path)
-        assert db.get_latest_assignments() == {"assignment-plain-folio": "agent-assignee"}
+        assert db.get_latest_assignments() == {}
 
 
 class TestA1TolerantReader:
-    """The A1 readers (get_latest_statuses / get_latest_assignments /
-    get_latest_archives) return a per-SLUG control map that unions the slug- and
-    genesis-keyspaces and resolves genesis hashes back to their slug. Expected values
-    come from the independent reducer / literals, never reader == rebuild. GREEN as
-    of the A1 landing (marker removed); each shape is one the pre-A1 reader got wrong
-    (genesis-keyed surfacing, or a missing reader)."""
+    """The control readers (get_latest_statuses / get_latest_assignments /
+    get_latest_archives) return a per-SLUG control map, resolving genesis hashes back
+    to their slug. Post-A4 they are GENESIS-ONLY — the A1→A3 slug-keyspace union was
+    transitional tolerance for the A2→A3 mixed-keyspace window, retired once the
+    ecosystem is fully genesis-keyed. Expected values come from the independent
+    reducer / literals, never reader == rebuild. The genesis-keyed shapes below read
+    correctly; the mixed-keyspace case now reads the GENESIS value (tolerance gone)."""
 
     def _statuses(self, path: Path) -> Dict[str, object]:
         db = _logdb(path)
@@ -383,20 +392,22 @@ class TestA1TolerantReader:
         path = _build("status_already_genesis", tmp_dir)
         assert self._statuses(path) == {"status-already-genesis-folio": "confirmed"}
 
-    def test_split_keyspace_unions_to_latest(self, tmp_dir):
-        """fell:phase3-design:r1:union-reader (reader side) — a folio with both a
-        slug-keyed and a genesis-keyed status reduces to the single latest value
-        under one slug key, not two endpoint keys."""
+    def test_split_keyspace_reads_genesis_value(self, tmp_dir):
+        """Post-A4 genesis-only: this fixture has a slug-keyed 'open' (earlier) and a
+        genesis-keyed 'closed' (later). The genesis-only reader surfaces the
+        genesis-keyed 'closed' and ignores the stray slug-keyed row (here the genesis
+        value also happens to be the latest)."""
         path = _build("status_mixed_keyspace", tmp_dir)
         assert self._statuses(path) == {"status-mixed-keyspace-folio": "closed"}
 
-    def test_split_keyspace_slug_later_picks_slug(self, tmp_dir):
-        """fell:phase3-design:r1:union-reader (reader side) — the distinguishing
-        ordering: with the slug-keyed row later, union-latest returns the slug
-        value, not the stale genesis one (rejects prefer-genesis-else-slug in the
-        production reader, the same way the answer-key test does for the reducer)."""
+    def test_split_keyspace_slug_later_reads_genesis_value(self, tmp_dir):
+        """Post-A4 genesis-only (was: union-latest picks the later slug). This fixture
+        has a genesis-keyed 'open' (earlier) and a slug-keyed 'closed' (LATER). The
+        retired tolerant reader returned the later SLUG 'closed'; the genesis-only
+        reader ignores the slug row and returns the GENESIS 'open'. Pins that the
+        slug-keyspace tolerance is gone (the gate makes this shape impossible live)."""
         path = _build("status_mixed_keyspace_slug_later", tmp_dir)
-        assert self._statuses(path) == {"status-mixed-keyspace-slug-later-folio": "closed"}
+        assert self._statuses(path) == {"status-mixed-keyspace-slug-later-folio": "open"}
 
     def test_tiebreaker_named_winner(self, tmp_dir):
         """fell:phase3-design:r4:tiebreaker-determinism (reader side) — two
@@ -464,6 +475,40 @@ class TestA1TolerantReader:
             assert "thread_hash" not in unique_cols, "thread_hash must be NON-unique in 3a"
         finally:
             conn.close()
+
+
+class TestA4GenesisOnlyReader:
+    """The A4 flip made the control VALUE readers GENESIS-ONLY. These pin the
+    contract directly: a genesis-keyed control value is read; a stray slug-keyed row
+    NEVER overrides it (the A1→A3 union that would have merged them is retired). The
+    gate all_dbs_migrated guarantees this shape cannot occur on live data — these
+    build it explicitly to lock the tolerance removal for status AND assignment."""
+
+    def test_stray_slug_status_does_not_override_genesis(self, tmp_dir):
+        """Genesis-keyed status 'confirmed' + a LATER stray slug-keyed 'open': the
+        genesis-only reader returns 'confirmed', never the later slug row (the retired
+        union-latest reader would have returned 'open')."""
+        path = _build("status_already_genesis", tmp_dir)  # genesis status 'confirmed'
+        slug = "status-already-genesis-folio"
+        _insert_thread(path, "stray-slug-status", slug, slug, "status", "open",
+                       "agent-synth", "2026-06-01T00:00:00+00:00")  # later, slug-keyed
+        db = _logdb(path)
+        assert db.get_latest_statuses() == {slug: "confirmed"}
+
+    def test_stray_slug_assignment_does_not_override_genesis(self, tmp_dir):
+        """Same for assignment (anchored on from_id): a genesis-keyed assignment is
+        read; a later stray slug-keyed assignment (from=slug) is ignored."""
+        path = _build("assignment_plain", tmp_dir)
+        slug = "assignment-plain-folio"
+        g = _genesis_of(path, slug)
+        conn = sqlite3.connect(str(path))
+        conn.execute("UPDATE threads SET from_id = ? WHERE type = 'assignment'", (g,))
+        conn.commit()
+        conn.close()
+        _insert_thread(path, "stray-slug-assignment", slug, "agent-other",
+                       "assignment", None, "agent-synth", "2026-06-01T00:00:00+00:00")
+        db = _logdb(path)
+        assert db.get_latest_assignments() == {slug: "agent-assignee"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

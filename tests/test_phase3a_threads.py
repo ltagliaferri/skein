@@ -1379,6 +1379,15 @@ class TestA4Gate:
         _insert_thread(path, "orphan-status", "deleted-folio", "deleted-folio",
                        "status", "confirmed", "agent-synth", "2026-03-02T00:00:00+00:00")
         assert m.slug_keyed_control_remaining(path) == 1  # non-folio + orphan ignored
+        # pin the assignment (from_id) and archive (to_id) anchors at the gate level,
+        # not just status — a live-slug assignment and archive each count too
+        live = "status-plain-selfloop-folio"
+        _insert_thread(path, "live-assignment", live, "agent-assignee", "assignment",
+                       None, "agent-synth", "2026-03-03T00:00:00+00:00")
+        _insert_thread(path, "live-archive", live, live, "archive", "archived",
+                       "agent-synth", "2026-03-04T00:00:00+00:00")
+        assert m.slug_keyed_control_remaining(path) == 3  # status + assignment + archive
+        assert m.all_dbs_migrated([]) is True  # empty input vacuously migrated
         # a genesis-keyed status matching a live ref (already migrated) does not count
         assert m.slug_keyed_control_remaining(
             _build("status_already_genesis", tmp_dir / "g")) == 0

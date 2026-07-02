@@ -726,6 +726,157 @@ class TestA2ControlWritesGenesisKeyed:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 3b. Control-thread DISPLAY resolver (get_threads_display) — post-A3 cutover.
+#     A1 fixed control VALUES; this fixes the generic thread DISPLAY/COUNT paths
+#     that list a folio's threads BY SLUG and, post-A3, silently missed the
+#     genesis-keyed control threads (brief-20260702-zy0d). GREEN with the resolver.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _thread_dict(t):
+    """Thread -> the dict shape client/analytics + display surfaces consume
+    (version-agnostic; avoids coupling to pydantic .model_dump/.dict)."""
+    return {"thread_id": t.thread_id, "from_id": t.from_id, "to_id": t.to_id,
+            "type": t.type, "content": t.content, "weaver": t.weaver,
+            "created_at": t.created_at}
+
+
+class TestControlThreadDisplay:
+    """``LogDatabase.get_threads_display`` (behind GET /threads + the /search
+    threads branch) surfaces a folio's genesis-keyed control threads when queried
+    by SLUG and rewrites their endpoints back to the slug — reconstructing the
+    pre-A3 view every display/count surface expects. ``get_threads`` stays
+    byte-faithful. Regression coverage for the post-cutover DISPLAY gap."""
+
+    def test_byte_faithful_reader_misses_genesis_control_by_slug(self, tmp_dir):
+        """Characterizes the gap the resolver closes: the byte-faithful get_threads,
+        queried by slug, returns nothing for a genesis-keyed status (it lives on the
+        genesis hash) — exactly what made `skein threads <folio>` drop the status
+        thread post-cutover."""
+        path = _build("status_already_genesis", tmp_dir)
+        db = _logdb(path)
+        slug = "status-already-genesis-folio"
+        assert db.get_threads(from_id=slug, type="status") == []
+        assert db.get_threads(to_id=slug, type="status") == []
+
+    def test_display_surfaces_genesis_status_under_slug(self, tmp_dir):
+        """The confirmed bug: a genesis-keyed status self-loop surfaces for the folio
+        slug via the display reader on BOTH from_id and to_id queries, endpoints
+        rewritten to the slug (from=to=slug), matching the pre-A3 shape."""
+        path = _build("status_already_genesis", tmp_dir)
+        db = _logdb(path)
+        slug = "status-already-genesis-folio"
+        for q in ({"from_id": slug}, {"to_id": slug}):
+            statuses = [t for t in db.get_threads_display(**q) if t.type == "status"]
+            assert len(statuses) == 1, f"query {q} did not surface the status"
+            t = statuses[0]
+            assert t.from_id == slug and t.to_id == slug, (
+                f"status not rewritten to slug: from={t.from_id} to={t.to_id}")
+            assert t.content == "confirmed"
+
+    def test_display_rewrites_assignment_from_to_slug(self, tmp_dir):
+        """A genesis-keyed assignment (from=genesis, to=assignee) surfaces for the
+        folio slug via a from_id query, rewritten to from=slug with the assignee
+        endpoint untouched — the shape `skein torch` membership depends on. A to_id
+        query must NOT surface it (assignment to = assignee, not the folio)."""
+        path = _build("assignment_plain", tmp_dir)
+        slug = "assignment-plain-folio"
+        g = _genesis_of(path, slug)
+        conn = sqlite3.connect(str(path))
+        conn.execute("UPDATE threads SET from_id = ? WHERE type = 'assignment'", (g,))
+        conn.commit()
+        conn.close()
+        db = _logdb(path)
+        got = [t for t in db.get_threads_display(from_id=slug) if t.type == "assignment"]
+        assert len(got) == 1
+        assert got[0].from_id == slug            # folio endpoint rewritten
+        assert got[0].to_id == "agent-assignee"  # assignee untouched
+        assert [t for t in db.get_threads_display(to_id=slug)
+                if t.type == "assignment"] == []
+
+    def test_display_type_restriction_excludes_edit_edge_on_genesis(self, tmp_dir):
+        """Load-bearing guard: genesis_hash == the genesis version's content hash, so
+        a supersedes edit edge touching the genesis version shares the key. The
+        resolver's union+rewrite is restricted to CONTROL types, so a slug query
+        surfaces the genesis-keyed STATUS but NOT the supersedes edge on that hash;
+        the edge is never rewritten (byte-faithful reader still finds it on genesis)."""
+        path = _build("status_already_genesis", tmp_dir)
+        slug = "status-already-genesis-folio"
+        g = _genesis_of(path, slug)
+        _insert_thread(path, "edit-edge-on-genesis", g, "sha256::newhead",
+                       "supersedes", None, "agent-synth", "2026-03-01T00:00:00+00:00")
+        db = _logdb(path)
+        types = sorted(t.type for t in db.get_threads_display(from_id=slug))
+        assert "status" in types, "genesis-keyed status must surface for the slug"
+        assert "supersedes" not in types, (
+            "edit edge on the genesis hash must NOT be pulled in by a slug query")
+        assert any(t.type == "supersedes" for t in db.get_threads(from_id=g))
+
+    def test_display_passthrough_non_folio_and_noncontrol(self, tmp_dir):
+        """Non-folio ids pass through unchanged (no ref -> no union, no rewrite), and
+        non-control threads on a folio slug are returned verbatim."""
+        path = _build("status_already_genesis", tmp_dir)
+        slug = "status-already-genesis-folio"
+        _insert_thread(path, "msg-1", slug, "agent-x", "message", "hi", "agent-synth",
+                       "2026-03-01T00:00:00+00:00")
+        _insert_thread(path, "msg-2", "agent-x", "agent-y", "message", "yo", "agent-synth",
+                       "2026-03-02T00:00:00+00:00")
+        db = _logdb(path)
+        by_slug = db.get_threads_display(from_id=slug)
+        assert any(t.thread_id == "msg-1" and t.from_id == slug for t in by_slug)
+        by_agent = db.get_threads_display(from_id="agent-x")
+        assert [t.thread_id for t in by_agent] == ["msg-2"]
+
+    def test_orphan_analysis_clean_through_display_reader(self, tmp_dir):
+        """Surface 4 (correctness): feeding find_orphaned_threads the display reader's
+        output (control rewritten to slug) no longer flags a genesis-keyed control
+        thread as orphaned; the byte-faithful set WOULD flag it (endpoint = a hash
+        not in the folio ids)."""
+        from client.analytics import find_orphaned_threads
+        path = _build("status_already_genesis", tmp_dir)
+        slug = "status-already-genesis-folio"
+        db = _logdb(path)
+        folios = [{"folio_id": slug}]
+        raw = [_thread_dict(t) for t in db.get_threads()]
+        resolved = [_thread_dict(t) for t in db.get_threads_display()]
+        assert any(o["type"] == "status" for o in find_orphaned_threads(raw, folios)), (
+            "precondition: byte-faithful status is orphaned by slug-only folio ids")
+        assert [o for o in find_orphaned_threads(resolved, folios)
+                if o["type"] == "status"] == []
+
+    def test_endpoint_get_threads_surfaces_genesis_status_by_slug(self, tmp_dir):
+        """End-to-end: a status set through the API lands genesis-keyed (A2); GET
+        /threads?from_id=<slug> then surfaces it rewritten to the slug — the live
+        `skein threads <folio>` path the cutover regressed."""
+        from fastapi.testclient import TestClient
+        from skein_server import app
+        from skein.routes import get_project_store
+        from skein.storage import JSONStore
+        store = JSONStore(tmp_dir)
+        app.dependency_overrides[get_project_store] = lambda: store
+        try:
+            client = TestClient(app)
+            client.post("/skein/sites",
+                        json={"site_id": "s1", "purpose": "display resolver test"},
+                        headers={"X-Agent-Id": "agent-x"})
+            r = client.post("/skein/folios",
+                            json={"type": "finding", "site_id": "s1",
+                                  "title": "A title here", "content": "body"},
+                            headers={"X-Agent-Id": "agent-x"})
+            fid = r.json()["folio_id"]
+            client.post("/skein/threads",
+                        json={"from_id": fid, "to_id": fid, "type": "status",
+                              "content": "closed"},
+                        headers={"X-Agent-Id": "agent-x"})
+            got = client.get("/skein/threads", params={"from_id": fid},
+                             headers={"X-Agent-Id": "agent-x"}).json()
+            statuses = [t for t in got if t["type"] == "status"]
+            assert len(statuses) == 1, f"status not surfaced by slug: {got}"
+            assert statuses[0]["from_id"] == fid and statuses[0]["to_id"] == fid
+        finally:
+            app.dependency_overrides.pop(get_project_store, None)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 4. A3 — the migration. RED now → green at A3. Observable-state assertions.
 # ══════════════════════════════════════════════════════════════════════════════
 

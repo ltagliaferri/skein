@@ -24,6 +24,16 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Phase 3a Class-A control taxonomy: the three thread types the A3 cutover
+# re-anchored from the folio slug to the lineage genesis hash. The tolerant
+# value readers (get_latest_statuses/assignments/archives) and the presentation
+# reader (get_threads_display) both key off exactly this set. It is deliberately
+# narrow: succession/reverted edit edges are also genesis-adjacent (an edge can
+# touch the genesis VERSION, whose content hash equals the lineage genesis_hash),
+# so any genesis<->slug resolution MUST restrict to control types or it would
+# mis-resolve those edges.
+CONTROL_THREAD_TYPES = ("status", "assignment", "archive")
+
 
 def ensure_aware(dt_value) -> Optional[datetime]:
     """Ensure a datetime value is timezone-aware (UTC). Handles strings and datetime objects."""
@@ -1166,7 +1176,10 @@ class LogDatabase:
         type: Optional[str] = None,
         weaver: Optional[str] = None,
     ) -> List[Thread]:
-        """Get threads with optional filters using indexed queries."""
+        """Get threads with optional filters using indexed queries. BYTE-FAITHFUL:
+        returns endpoints exactly as stored (control threads are genesis-keyed
+        post-A3). For the client read boundary that must present control on the folio
+        slug, use :meth:`get_threads_display`."""
         with self._get_connection() as conn:
             query = "SELECT * FROM threads WHERE 1=1"
             params = []
@@ -1199,6 +1212,98 @@ class LogDatabase:
                 )
                 for row in rows
             ]
+
+    def get_threads_display(
+        self,
+        from_id: Optional[str] = None,
+        to_id: Optional[str] = None,
+        type: Optional[str] = None,
+    ) -> List[Thread]:
+        """Presentation reader behind ``GET /threads`` and the ``/search`` threads
+        branch (Phase 3a). The A3 cutover re-anchored control threads
+        (status/assignment/archive) from the folio SLUG to the lineage GENESIS hash,
+        so the byte-faithful ``get_threads`` no longer surfaces a folio's control
+        threads when queried by slug, and a fetch-all buckets them under the genesis
+        hash. This reader restores the pre-A3 slug-keyed VIEW every display/count
+        surface expects, mirroring the A1 value readers (which resolve genesis->slug
+        for status/assignment VALUES). Two parts:
+
+          (1) UNION — when ``from_id``/``to_id`` is a folio slug, also match that
+              folio's genesis-keyed control threads (anchor == ``refs.genesis_hash``
+              AND ``type`` in :data:`CONTROL_THREAD_TYPES`).
+          (2) REWRITE — every returned control thread has each endpoint equal to a
+              known ``genesis_hash`` mapped back to its slug, reconstructing the exact
+              pre-A3 shape (status/archive self-loop from=to=slug; assignment
+              from=slug, to=assignee unchanged).
+
+        Both steps are restricted to CONTROL types: ``genesis_hash`` equals the
+        genesis version's content hash, so a supersedes/reverted edit edge touching
+        the genesis version shares the key — resolving it would corrupt that edge.
+        ``get_threads`` stays byte-faithful for internal/integrity callers; only this
+        path resolves. The db remains genesis-keyed (source of truth).
+        """
+        with self._get_connection() as conn:
+            # genesis <-> slug maps from refs, slug-ordered so a (never-expected,
+            # I1=0) duplicate genesis_hash resolves the same way the A1 anchor_map
+            # does (first slug alphabetically wins the shared hash).
+            genesis_by_slug: Dict[str, str] = {}
+            slug_by_genesis: Dict[str, str] = {}
+            for ref in conn.execute(
+                "SELECT slug, genesis_hash FROM refs ORDER BY slug"
+            ):
+                genesis_by_slug[ref["slug"]] = ref["genesis_hash"]
+                slug_by_genesis.setdefault(ref["genesis_hash"], ref["slug"])
+
+            control_ph = ",".join("?" for _ in CONTROL_THREAD_TYPES)
+            clauses: List[str] = ["1=1"]
+            params: List[Any] = []
+
+            def _anchor_clause(col: str, value: str) -> None:
+                genesis = genesis_by_slug.get(value)
+                if genesis is not None:
+                    # slug endpoint (any type) OR the folio's genesis endpoint,
+                    # control threads only.
+                    clauses.append(
+                        f"({col} = ? OR ({col} = ? AND type IN ({control_ph})))"
+                    )
+                    params.append(value)
+                    params.append(genesis)
+                    params.extend(CONTROL_THREAD_TYPES)
+                else:
+                    clauses.append(f"{col} = ?")
+                    params.append(value)
+
+            if from_id:
+                _anchor_clause("from_id", from_id)
+            if to_id:
+                _anchor_clause("to_id", to_id)
+            if type:
+                clauses.append("type = ?")
+                params.append(type)
+
+            query = "SELECT * FROM threads WHERE " + " AND ".join(clauses)
+            rows = conn.execute(query, params).fetchall()
+
+        control = set(CONTROL_THREAD_TYPES)
+        threads: List[Thread] = []
+        for row in rows:
+            f_id = row["from_id"]
+            t_id = row["to_id"]
+            if row["type"] in control:
+                f_id = slug_by_genesis.get(f_id, f_id)
+                t_id = slug_by_genesis.get(t_id, t_id)
+            threads.append(
+                Thread(
+                    thread_id=row["thread_id"],
+                    from_id=f_id,
+                    to_id=t_id,
+                    type=row["type"],
+                    content=row["content"],
+                    weaver=row["weaver"],
+                    created_at=ensure_aware(row["created_at"]),
+                )
+            )
+        return threads
 
     def _latest_control_by_folio(
         self,
@@ -2184,9 +2289,23 @@ class JSONStore:
         type: Optional[str] = None,
         weaver: Optional[str] = None,
     ) -> List[Thread]:
-        """Get threads with optional filters via SQLite."""
+        """Get threads with optional filters via SQLite. BYTE-FAITHFUL — see
+        :meth:`LogDatabase.get_threads`; for the client read boundary use
+        :meth:`get_threads_display`."""
         return self._log_db.get_threads(
             from_id=from_id, to_id=to_id, type=type, weaver=weaver
+        )
+
+    def get_threads_display(
+        self,
+        from_id: Optional[str] = None,
+        to_id: Optional[str] = None,
+        type: Optional[str] = None,
+    ) -> List[Thread]:
+        """Presentation reader that resolves genesis-keyed control threads back to
+        the folio slug (Phase 3a). See :meth:`LogDatabase.get_threads_display`."""
+        return self._log_db.get_threads_display(
+            from_id=from_id, to_id=to_id, type=type
         )
 
     def get_latest_statuses(

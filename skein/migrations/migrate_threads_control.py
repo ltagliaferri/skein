@@ -188,12 +188,20 @@ def _plan_row(
     from_id, to_id, weaver = row["from_id"], row["to_id"], row["weaver"]
     content, created_at = row["content"], row["created_at"]
 
+    # Resolve the anchor SLUG-FIRST, then genesis, matching the A1 tolerant reader
+    # (its anchor_map is pref=0 slug / pref=1 genesis) and the Leg C answer key
+    # (``if anchor in slugs ... elif anchor in genesis_to_slug``). The reader was
+    # hardened in A1 to be single-valued slug-first "regardless of I1 state"; the
+    # rebuild MUST use the same precedence (design §5.A1/§8) so a slug that also
+    # collided with another lineage's genesis can never route to a different folio
+    # here than the reader/oracle expect. (Slug and genesis namespaces are in fact
+    # disjoint — slugs are ``type-date-xxxx``, genesis is ``sha256::…`` — so the two
+    # branches are mutually exclusive on real data; matching precedence is the
+    # consistency guarantee, not a behaviour change.)
     kind = "noncontrol"
     if ttype in ("status", "archive"):
         anchor = to_id                       # self-loop anchor (A1 reader's column)
-        if anchor in genesis_to_slug:        # already genesis-keyed -> pass through
-            kind = "passthrough"
-        elif anchor in slugs:                # legacy slug -> re-key to self-loop
+        if anchor in slugs:                  # legacy slug -> re-key to self-loop
             genesis = slug_to_genesis[anchor]
             # A non-self-loop (from=agent) moves the setting agent off `from` into
             # weaver; a real self-loop already carries the setter in weaver.
@@ -201,16 +209,18 @@ def _plan_row(
                 weaver = from_id
             from_id = to_id = genesis
             kind = "rekeyed"
+        elif anchor in genesis_to_slug:      # already genesis-keyed -> pass through
+            kind = "passthrough"
         else:                                # orphan (deleted lineage)
             cat = "genesis_orphan" if _is_genesis_shaped(anchor) else "slug_orphan"
             return None, {"thread_id": tid, "category": cat, "type": ttype}, "drop"
     elif ttype == "assignment":
         anchor = from_id                     # from = folio
-        if anchor in genesis_to_slug:        # already genesis-keyed -> pass through
-            kind = "passthrough"
-        elif anchor in slugs:                # legacy slug -> re-key from only
+        if anchor in slugs:                  # legacy slug -> re-key from only
             from_id = slug_to_genesis[anchor]  # to (the assignee) untouched
             kind = "rekeyed"
+        elif anchor in genesis_to_slug:      # already genesis-keyed -> pass through
+            kind = "passthrough"
         else:
             cat = "genesis_orphan" if _is_genesis_shaped(anchor) else "slug_orphan"
             return None, {"thread_id": tid, "category": cat, "type": ttype}, "drop"
@@ -304,17 +314,33 @@ def migrate_db(db_path, *, dry_run: bool = False) -> MigrationResult:
                     row, slugs, slug_to_genesis, genesis_to_slug)
                 if drop is not None:
                     result.dropped.append(drop)
-                elif kind == "rekeyed":
+                    continue
+                result.thread_hash_backfilled += 1  # every survivor is stamped
+                if kind == "rekeyed":
                     result.rekeyed += 1
                 elif kind == "passthrough":
                     result.passed_through += 1
+            result.refs_rebuilt = len(slug_to_genesis)  # every folio is rebuilt
             return result
         finally:
             conn.close()
 
+    # Preconditions FIRST, over a read-only connection, so a REFUSED db is left
+    # byte-untouched — not even the additive A1 schema-ensure below runs on it
+    # ("refuse before any mutation", design §5.A3). On a live post-A1 db the
+    # schema-ensure is a no-op regardless; this matters for a db that has not had
+    # A1 applied, whose thread_hash column would otherwise be added before refusal.
+    ro = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    ro.row_factory = sqlite3.Row
+    try:
+        slugs, slug_to_genesis, genesis_to_slug = _ref_maps(ro)   # asserts I1
+        _assert_no_cache_only_control(ro, slugs, genesis_to_slug)
+    finally:
+        ro.close()
+
     # Ensure the A1 schema (the thread_hash column) exists — idempotent, matches
     # _init_db exactly. A live post-A1 db already has it; a pre-A1 copy/fixture
-    # gets it added here before the backfill. Same posture as
+    # gets it added here (after the preconditions passed). Same posture as
     # backfill_versions_refs (LogDatabase() is the one schema source of truth).
     LogDatabase(db_path)
 
@@ -326,6 +352,9 @@ def migrate_db(db_path, *, dry_run: bool = False) -> MigrationResult:
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # Re-derive the maps under the write lock and re-assert both
+            # preconditions atomically (defends against any change between the
+            # read-only pass and the lock; the live run is quiesced regardless).
             slugs, slug_to_genesis, genesis_to_slug = _ref_maps(conn)  # asserts I1
             _assert_no_cache_only_control(conn, slugs, genesis_to_slug)
 

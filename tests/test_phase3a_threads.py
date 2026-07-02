@@ -949,6 +949,65 @@ class TestA3Migration:
         with pytest.raises(m.PreconditionError):  # typed refusal, not any crash
             m.migrate_db(path)
 
+    def test_slug_first_precedence_matches_leg_c(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:slug-first-precedence — the migration must
+        resolve an anchor SLUG-FIRST, exactly like the A1 reader (anchor_map
+        pref=0 slug) and the Leg C answer key. If a folio's slug happened to equal
+        another lineage's genesis_hash (an impossible-but-catastrophic collision
+        the A1 reader was hardened against, 'single-valued regardless of I1
+        state'), a genesis-first rebuild would route that folio's live status to
+        the OTHER lineage. Construct the collision and assert the migration agrees
+        with Leg C: the status lands on the slug-owner, not the genesis-owner."""
+        from skein.identity import compute_folio_hash
+        path = tmp_dir / "slug_genesis_collision.db"
+        # folio B: an ordinary lineage; its genesis hash GB will double as folio
+        # A's slug. folio A: its slug IS GB, its own genesis is GA.
+        gb = compute_folio_hash({"type": "finding", "title": "B", "content": "b",
+                                 "created_at": "2026-01-01T00:00:00+00:00",
+                                 "created_by": "a"})
+        ga = compute_folio_hash({"type": "finding", "title": "A", "content": "a",
+                                 "created_at": "2026-01-01T00:00:00+00:00",
+                                 "created_by": "a"})
+        _logdb(path)  # A1 schema (thread_hash column)
+        conn = sqlite3.connect(str(path))
+        conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
+                     "VALUES (?,?,?,?)", ("folio-b", gb, gb, "s"))
+        conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
+                     "VALUES (?,?,?,?)", (gb, ga, ga, "s"))  # slug == B's genesis
+        # A status self-loop keyed on folio A's slug (which equals GB).
+        conn.execute("INSERT INTO threads (thread_id, from_id, to_id, type, "
+                     "content, weaver, created_at) VALUES (?,?,?,?,?,?,?)",
+                     ("t-collision", gb, gb, "status", "closed", "agent-x",
+                      "2026-01-01T00:00:01+00:00"))
+        conn.commit()
+        # Leg C (slug-first answer key) assigns 'closed' to folio A (slug == GB).
+        expected = _expected(path)
+        _load_migration().migrate_db(path)
+        got = _refs_control(path)
+        assert got == expected, f"rebuild diverged from Leg C: {got} != {expected}"
+        assert got[gb]["status"] == "closed"        # slug-owner (folio A) got it
+        assert got["folio-b"]["status"] == "open"   # genesis-owner did NOT
+
+    def test_refused_db_left_untouched(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:refuse-before-mutation — a db refused by a
+        precondition is left byte-untouched, incl. the additive A1 schema-ensure:
+        the preconditions run read-only BEFORE LogDatabase adds thread_hash, so a
+        pre-A1 db refused for an I1 collision keeps its original (no-thread_hash)
+        schema. 'Refuse before any mutation' (design §5.A3)."""
+        path = _build("i1_genesis_collision", tmp_dir)  # pre-A1: no thread_hash col
+        def _has_thread_hash():
+            conn = _ro(path)
+            try:
+                return "thread_hash" in {
+                    r[1] for r in conn.execute("PRAGMA table_info(threads)")}
+            finally:
+                conn.close()
+        assert not _has_thread_hash()  # precondition of the test
+        m = _load_migration()
+        with pytest.raises(m.PreconditionError):
+            m.migrate_db(path)
+        assert not _has_thread_hash(), "refused db was mutated (schema changed)"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. A4 / A5 — reader genesis-only gate; folios drop survival. RED → green.

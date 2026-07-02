@@ -1241,6 +1241,12 @@ class LogDatabase:
         the genesis version shares the key — resolving it would corrupt that edge.
         ``get_threads`` stays byte-faithful for internal/integrity callers; only this
         path resolves. The db remains genesis-keyed (source of truth).
+
+        Consequence: a query by a raw ``genesis_hash`` returns its control threads
+        rewritten to the SLUG (control lives at the slug in the presentation view);
+        no live caller queries control by genesis hash. The requested slug filter is
+        re-applied after the rewrite, so every returned thread's visible endpoint
+        equals the queried slug.
         """
         with self._get_connection() as conn:
             # genesis <-> slug maps from refs, slug-ordered so a (never-expected,
@@ -1292,6 +1298,18 @@ class LogDatabase:
             if row["type"] in control:
                 f_id = slug_by_genesis.get(f_id, f_id)
                 t_id = slug_by_genesis.get(t_id, t_id)
+            # Re-apply the requested slug filter in PRESENTATION space (after the
+            # genesis->slug rewrite), so a returned thread's visible endpoint always
+            # equals the queried slug. This closes the I1-collision edge: two slugs
+            # sharing a genesis_hash resolve (like the A1 anchor_map) to a single
+            # OWNER slug, so a query for the NON-owner slug must not surface — and
+            # must never mislabel — the owner's control thread. (I1=0 is an A3
+            # precondition; this is exactness + defense-in-depth, and also makes a
+            # both-endpoints query self-consistent.)
+            if from_id and f_id != from_id:
+                continue
+            if to_id and t_id != to_id:
+                continue
             threads.append(
                 Thread(
                     thread_id=row["thread_id"],

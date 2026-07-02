@@ -875,6 +875,106 @@ class TestControlThreadDisplay:
         finally:
             app.dependency_overrides.pop(get_project_store, None)
 
+    def _mint_folio_status(self, path, slug, content, ts_offset):
+        """Mint a second lineage + a genesis-keyed status self-loop into an existing
+        fixture db (via the synth builders); return the genesis hash."""
+        conn = sqlite3.connect(str(path))
+        try:
+            g = synth._mint_lineage(conn, slug, created_at=synth._ts(ts_offset),
+                                    title="T2", content="body2")
+            synth._create_thread(conn, f"status-{slug}", g, g, "status",
+                                 content, "agent-synth", synth._ts(ts_offset + 1))
+            conn.commit()
+        finally:
+            conn.close()
+        return g
+
+    def test_display_fetch_all_shape_control_once_and_rewritten(self, tmp_dir):
+        """Fetch-all (no args — the /search + `stats threads` path): each control
+        thread appears exactly once, rewritten to ITS OWN folio slug; a second folio's
+        control resolves to its own slug (no cross-attribution); a non-control thread
+        is returned verbatim (no dup, no drop)."""
+        path = _build("status_already_genesis", tmp_dir)  # folio A + genesis "confirmed"
+        slug_a = "status-already-genesis-folio"
+        slug_b = "second-folio-with-status"
+        self._mint_folio_status(path, slug_b, "closed", 100)
+        _insert_thread(path, "plain-msg", slug_a, "agent-z", "message", "hi",
+                       "agent-synth", "2026-04-01T00:00:00+00:00")
+        db = _logdb(path)
+        got = db.get_threads_display()
+        a_status = [t for t in got if t.type == "status" and t.from_id == slug_a]
+        b_status = [t for t in got if t.type == "status" and t.from_id == slug_b]
+        assert len(a_status) == 1 and a_status[0].to_id == slug_a
+        assert a_status[0].content == "confirmed"
+        assert len(b_status) == 1 and b_status[0].to_id == slug_b
+        assert b_status[0].content == "closed"
+        assert not [t for t in got if t.type == "status"
+                    and t.from_id not in (slug_a, slug_b)], "status rewritten to wrong key"
+        msgs = [t for t in got if t.thread_id == "plain-msg"]
+        assert len(msgs) == 1 and msgs[0].from_id == slug_a and msgs[0].to_id == "agent-z"
+
+    def test_display_archive_selfloop_rewritten_to_slug(self, tmp_dir):
+        """Archive is a to_id self-loop in CONTROL_THREAD_TYPES: a genesis-keyed
+        archive marker surfaces for the folio slug rewritten to from=to=slug (same
+        branch as status; 0 archive rows exist live, so pin the path explicitly)."""
+        path = _build("archive_selfloop", tmp_dir)
+        slug = "archive-selfloop-folio"
+        db = _logdb(path)
+        got = [t for t in db.get_threads_display(to_id=slug) if t.type == "archive"]
+        assert len(got) == 1
+        assert got[0].from_id == slug and got[0].to_id == slug
+        assert got[0].content == ARCHIVED_MARKER
+
+    def test_display_i1_collision_resolves_owner_hides_nonowner(self, tmp_dir):
+        """Under an I1 collision (two slugs sharing a genesis_hash — an A3 precondition
+        = 0, tested for defense-in-depth), the reader resolves the shared genesis to
+        the OWNER slug (min slug, matching the A1 anchor_map), and the presentation-
+        space filter means a query for the NON-owner slug does NOT surface (nor
+        mislabel) the owner's control thread. (fell-r1: codex I1-consistency finding.)"""
+        path = _build("status_plain_selfloop", tmp_dir)
+        owner = "aaa-collision-folio"
+        nonowner = "zzz-collision-folio"
+        conn = sqlite3.connect(str(path))
+        try:
+            g = synth._mint_lineage(conn, owner, created_at=synth._ts(200),
+                                    title="T", content="body")
+            synth._mint_lineage(conn, nonowner, created_at=synth._ts(201),
+                                title="T2", content="body2")
+            # Force the I1 violation: both slugs now share one genesis_hash.
+            conn.execute("UPDATE refs SET genesis_hash = ? WHERE slug = ?", (g, nonowner))
+            synth._create_thread(conn, "collision-status", g, g, "status",
+                                 "collision-marker", "agent-synth", synth._ts(202))
+            conn.commit()
+        finally:
+            conn.close()
+        db = _logdb(path)
+        owner_hits = [t for t in db.get_threads_display(from_id=owner) if t.type == "status"]
+        assert len(owner_hits) == 1
+        assert owner_hits[0].from_id == owner and owner_hits[0].to_id == owner
+        # non-owner query must NOT surface a status labeled with the owner slug
+        assert [t for t in db.get_threads_display(from_id=nonowner)
+                if t.type == "status"] == []
+        # fetch-all attributes the shared-genesis status to the owner (min slug) only
+        allhits = [t for t in db.get_threads_display()
+                   if t.type == "status" and t.content == "collision-marker"]
+        assert len(allhits) == 1 and allhits[0].from_id == owner
+
+    def test_display_fetch_all_does_not_rewrite_edit_edge_on_genesis(self, tmp_dir):
+        """Fetch-all rewrite guard (companion to the slug-query guard): a supersedes
+        edge whose to_id IS a live genesis hash is left byte-faithful by the no-args
+        display reader — the rewrite is gated on control type, so hoisting it out of
+        that guard would be caught here. (fell-r1: opus rewrite-guard test gap.)"""
+        path = _build("status_already_genesis", tmp_dir)
+        slug = "status-already-genesis-folio"
+        g = _genesis_of(path, slug)
+        _insert_thread(path, "supersedes-to-genesis", "sha256::newhead", g,
+                       "supersedes", None, "agent-synth", "2026-05-01T00:00:00+00:00")
+        db = _logdb(path)
+        edge = [t for t in db.get_threads_display() if t.thread_id == "supersedes-to-genesis"]
+        assert len(edge) == 1
+        assert edge[0].from_id == "sha256::newhead" and edge[0].to_id == g, (
+            "supersedes edge on the genesis hash must NOT be rewritten in fetch-all")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. A3 — the migration. RED now → green at A3. Observable-state assertions.

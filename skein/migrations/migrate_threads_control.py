@@ -401,6 +401,44 @@ def migrate_db(db_path, *, dry_run: bool = False) -> MigrationResult:
 
 # ── CLI (copy-proof first, then live --all --backup) ─────────────────────────
 
+def slug_keyed_control_remaining(db_path) -> int:
+    """Count control threads still anchored on a LIVE folio SLUG — the observable the
+    A4 gate reads. FOLIO control ONLY (A2 carry-forward, finding-20260701-ehjw): an
+    anchor that is not a live ``refs.slug`` — a non-folio id (a ``status`` posted on a
+    thread-id/agent-id), or a deleted-folio orphan — is pass-through / dropped by the
+    tolerant reader and must NOT block the genesis-only flip. Genesis-keyed control
+    (anchor == ``refs.genesis_hash``) is already migrated and does not count. 0 means
+    the db holds no slug-keyed folio control, i.e. the genesis-only reader would read
+    it identically to the A1 tolerant reader. Read-only (``mode=ro``), safe on a live
+    WAL db. ``anchor_col`` is a fixed internal literal (CONTROL_ANCHORS), not input.
+    """
+    db_path = Path(db_path)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        live_slugs = {r["slug"] for r in conn.execute("SELECT slug FROM refs")}
+        remaining = 0
+        for ttype, anchor_col in CONTROL_ANCHORS:
+            for (anchor,) in conn.execute(
+                f"SELECT {anchor_col} FROM threads WHERE type = ?", (ttype,)
+            ):
+                if anchor in live_slugs:
+                    remaining += 1
+        return remaining
+    finally:
+        conn.close()
+
+
+def all_dbs_migrated(db_paths) -> bool:
+    """The A4 gate: True iff EVERY db in ``db_paths`` holds 0 slug-keyed folio control
+    (so the genesis-only reader flip is safe ecosystem-wide). One un-migrated db
+    blocks the whole flip — under the genesis-only reader its non-open folios would
+    read 'open' (``folio -> genesis -> to_id = genesis`` finds nothing; design §5.A4).
+    Empty input is vacuously True.
+    """
+    return all(slug_keyed_control_remaining(p) == 0 for p in db_paths)
+
+
 def _backup_db(db_path: Path) -> Path:
     """A consistent single-file backup via SQLite's online-backup API."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

@@ -1344,7 +1344,6 @@ class TestA3Migration:
 # 5. A4 / A5 — reader genesis-only gate; folios drop survival. RED → green.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3a_pending
 class TestA4Gate:
     def test_all_dbs_gate_refuses_flip_while_slug_keyed_control_remains(self, tmp_dir):
         """fell:phase3-design:r1:a4-alldbs-gate — A4 (reader becomes genesis-only)
@@ -1364,6 +1363,25 @@ class TestA4Gate:
         assert m.all_dbs_migrated([migrated]) is True
         assert m.all_dbs_migrated([slug_db]) is False
         assert m.all_dbs_migrated([migrated, slug_db]) is False  # one blocks all
+
+    def test_gate_counts_folio_control_only(self, tmp_dir):
+        """A2 carry-forward (finding-20260701-ehjw): the gate counts FOLIO control
+        only. A status on a NON-folio id (a thread-id/agent-id with no ref) is
+        pass-through, and a control thread on a deleted-folio slug (no live ref) is a
+        reader-dropped orphan — NEITHER may block the flip. A genesis-keyed control
+        row (already migrated) does not count either. Only live-slug-anchored control
+        does. Else a stray non-folio status would falsely block the flip forever."""
+        m = _load_migration()
+        path = _build("status_plain_selfloop", tmp_dir)  # 1 live-slug status
+        assert m.slug_keyed_control_remaining(path) == 1
+        _insert_thread(path, "nonfolio-status", "agent-x", "agent-x", "status",
+                       "confirmed", "agent-synth", "2026-03-01T00:00:00+00:00")
+        _insert_thread(path, "orphan-status", "deleted-folio", "deleted-folio",
+                       "status", "confirmed", "agent-synth", "2026-03-02T00:00:00+00:00")
+        assert m.slug_keyed_control_remaining(path) == 1  # non-folio + orphan ignored
+        # a genesis-keyed status matching a live ref (already migrated) does not count
+        assert m.slug_keyed_control_remaining(
+            _build("status_already_genesis", tmp_dir / "g")) == 0
 
 
 def _drop_folios(path: Path):

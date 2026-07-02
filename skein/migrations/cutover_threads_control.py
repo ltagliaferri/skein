@@ -83,10 +83,19 @@ def cutover_one(pid: str, db: Path, *, live: bool, stamp: str) -> Tuple[bool, st
     dry-run: target is a private temp COPY (live db untouched).
     live:    target is the live db; the pre-image snapshot is the restore point."""
     if live:
+        # Refuse if ANY prior threads-control backup exists for this db (any
+        # stamp), not just this run's — a pre-existing .bak means a prior cutover
+        # or a prior attempt touched this db. Re-migrating would be an idempotent
+        # no-op on the data but would write a NEW backup of the ALREADY-MIGRATED
+        # db, burying the true pre-A3 restore point. Fail closed and let the
+        # (supervised) operator resolve the partial/prior state by hand.
+        prior = sorted(db.parent.glob(f"{db.name}.bak-threads-control-*"))
+        if prior:
+            return (False, f"refused: prior backup exists ({prior[0].name}) — "
+                    f"already cut over or a prior attempt; resolve by hand before "
+                    f"re-running (the first run's .bak is the true pre-A3 image)",
+                    ["prior threads-control backup exists"])
         pre = db.with_name(f"{db.name}.bak-threads-control-{stamp}")
-        if pre.exists():
-            return (False, "skipped (backup exists — already cut over?)",
-                    ["a backup for this stamp already exists"])
         _backup_copy(db, pre)          # restore point == pre-image
         target = db
         tmp = None
@@ -111,7 +120,11 @@ def cutover_one(pid: str, db: Path, *, live: bool, stamp: str) -> Tuple[bool, st
         label = (f"{status} | rekeyed={r.rekeyed} pass={r.passed_through} "
                  f"dropped={len(r.dropped)}{(' ' + str(drops)) if drops else ''} "
                  f"refs={r.refs_rebuilt}")
-        passed = status == "verified" or status.startswith("not migrated")
+        # STRICT: only the full-gate "verified" is a cutover pass. After
+        # migrate_db(target) the db always has thread_hash, so it is never "not
+        # migrated" — accepting that (or "incomplete") would let a non-migrated or
+        # unproven db slip through and weaken A4's all-dbs-migrated precondition.
+        passed = status == "verified"
         # Surface a reason even when verify_db reported no explicit problems (e.g.
         # an "incomplete" gate) so a non-pass never slips through as OK.
         if not passed and not problems:

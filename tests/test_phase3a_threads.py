@@ -780,7 +780,6 @@ def _refs_control(path: Path) -> Dict[str, Dict[str, object]]:
         conn.close()
 
 
-@pytest.mark.phase3a_pending
 class TestA3Migration:
     """The A3 re-anchor migration, asserted by OBSERVABLE database state so the
     specs pin behavior, not an implementation shape. The one interface assumption
@@ -949,6 +948,145 @@ class TestA3Migration:
         m = _load_migration()
         with pytest.raises(m.PreconditionError):  # typed refusal, not any crash
             m.migrate_db(path)
+
+    def test_slug_first_precedence_matches_leg_c(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:slug-first-precedence — the migration must
+        resolve an anchor SLUG-FIRST, exactly like the A1 reader (anchor_map
+        pref=0 slug) and the Leg C answer key. If a folio's slug happened to equal
+        another lineage's genesis_hash (an impossible-but-catastrophic collision
+        the A1 reader was hardened against, 'single-valued regardless of I1
+        state'), a genesis-first rebuild would route that folio's live status to
+        the OTHER lineage. Construct the collision and assert the migration agrees
+        with Leg C: the status lands on the slug-owner, not the genesis-owner."""
+        from skein.identity import compute_folio_hash
+        path = tmp_dir / "slug_genesis_collision.db"
+        # folio B: an ordinary lineage; its genesis hash GB will double as folio
+        # A's slug. folio A: its slug IS GB, its own genesis is GA.
+        gb = compute_folio_hash({"type": "finding", "title": "B", "content": "b",
+                                 "created_at": "2026-01-01T00:00:00+00:00",
+                                 "created_by": "a"})
+        ga = compute_folio_hash({"type": "finding", "title": "A", "content": "a",
+                                 "created_at": "2026-01-01T00:00:00+00:00",
+                                 "created_by": "a"})
+        _logdb(path)  # A1 schema (thread_hash column)
+        conn = sqlite3.connect(str(path))
+        conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
+                     "VALUES (?,?,?,?)", ("folio-b", gb, gb, "s"))
+        conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
+                     "VALUES (?,?,?,?)", (gb, ga, ga, "s"))  # slug == B's genesis
+        # A status self-loop keyed on folio A's slug (which equals GB).
+        conn.execute("INSERT INTO threads (thread_id, from_id, to_id, type, "
+                     "content, weaver, created_at) VALUES (?,?,?,?,?,?,?)",
+                     ("t-collision", gb, gb, "status", "closed", "agent-x",
+                      "2026-01-01T00:00:01+00:00"))
+        conn.commit()
+        # Leg C (slug-first answer key) assigns 'closed' to folio A (slug == GB).
+        expected = _expected(path)
+        _load_migration().migrate_db(path)
+        got = _refs_control(path)
+        assert got == expected, f"rebuild diverged from Leg C: {got} != {expected}"
+        assert got[gb]["status"] == "closed"        # slug-owner (folio A) got it
+        assert got["folio-b"]["status"] == "open"   # genesis-owner did NOT
+
+    def test_refused_db_left_untouched(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:refuse-before-mutation — a db refused by a
+        precondition is left byte-untouched, incl. the additive A1 schema-ensure:
+        the preconditions run read-only BEFORE LogDatabase adds thread_hash, so a
+        pre-A1 db refused for an I1 collision keeps its original (no-thread_hash)
+        schema. 'Refuse before any mutation' (design §5.A3)."""
+        path = _build("i1_genesis_collision", tmp_dir)  # pre-A1: no thread_hash col
+        def _has_thread_hash():
+            conn = _ro(path)
+            try:
+                return "thread_hash" in {
+                    r[1] for r in conn.execute("PRAGMA table_info(threads)")}
+            finally:
+                conn.close()
+        assert not _has_thread_hash()  # precondition of the test
+        m = _load_migration()
+        with pytest.raises(m.PreconditionError):
+            m.migrate_db(path)
+        assert not _has_thread_hash(), "refused db was mutated (schema changed)"
+
+    def test_write_failure_rolls_back_schema_and_data(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:atomic-schema-ensure — the thread_hash schema
+        ensure runs INSIDE the migration transaction, so a mid-transform write
+        failure on a pre-A1 db rolls back the ADD COLUMN together with the data. No
+        partial write (not even the additive column) escapes on exception (design
+        §5.A3 atomicity)."""
+        path = _build("status_multi_history", tmp_dir)  # pre-A1; passes preconditions
+
+        def has_th():
+            conn = _ro(path)
+            try:
+                return "thread_hash" in {
+                    r[1] for r in conn.execute("PRAGMA table_info(threads)")}
+            finally:
+                conn.close()
+
+        assert not has_th()
+        before_threads = _threads_of_type(path, "status")   # slug-keyed, pre-migration
+        before_refs = _refs_control(path)
+        # A trigger that aborts the migration's UPDATE threads (the backfill/re-key),
+        # forcing a failure AFTER the schema ensure + transform start.
+        conn = sqlite3.connect(str(path))
+        conn.execute("CREATE TRIGGER boom BEFORE UPDATE ON threads "
+                     "BEGIN SELECT RAISE(ABORT, 'boom'); END")
+        conn.commit()
+        conn.close()
+        m = _load_migration()
+        with pytest.raises(Exception) as ei:
+            m.migrate_db(path)
+        assert not isinstance(ei.value, m.PreconditionError)  # a transform-time failure
+        assert not has_th(), "ADD COLUMN escaped rollback (partial write)"
+        assert _threads_of_type(path, "status") == before_threads  # data rolled back
+        assert _refs_control(path) == before_refs
+
+    def test_genesis_nonselfloop_normalized_to_selfloop(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:genesis-nonselfloop-i2 — a genesis-keyed
+        status that is NOT a self-loop (from=agent, to=genesis) must be normalized
+        by A3 to a genesis self-loop, not passed through. Such a row is producible
+        via POST /threads (save_thread only re-keys a SLUG to_id, so a genesis-hash
+        to_id is stored as-is); a passthrough would fail the oracle's I2 self-loop
+        check and block the A4 flip. The setting agent is preserved in weaver."""
+        from skein.identity import compute_folio_hash
+        from skein.migrations import verify_threads_control as vtc
+        path = tmp_dir / "genesis_nonselfloop.db"
+        genesis = compute_folio_hash({"type": "finding", "title": "T",
+                                      "content": "body",
+                                      "created_at": "2026-01-01T00:00:00+00:00",
+                                      "created_by": "a"})
+        _logdb(path)  # A1 schema
+        conn = sqlite3.connect(str(path))
+        conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
+                     "VALUES (?,?,?,?)", ("folio-a", genesis, genesis, "s"))
+        conn.execute("INSERT INTO threads (thread_id, from_id, to_id, type, "
+                     "content, weaver, created_at) VALUES (?,?,?,?,?,?,?)",
+                     ("t-ns", "agent-direct", genesis, "status", "closed", None,
+                      "2026-01-01T00:00:01+00:00"))
+        conn.commit()
+        conn.close()
+        m = _load_migration()
+        m.migrate_db(path)
+        rows = _threads_of_type(path, "status")
+        assert len(rows) == 1
+        assert rows[0]["from_id"] == genesis and rows[0]["to_id"] == genesis
+        assert rows[0]["weaver"] == "agent-direct"      # setter preserved
+        assert _refs_control(path)["folio-a"]["status"] == "closed"
+        # The exact invariant codex flagged: the row now passes the oracle's I2.
+        conn = _ro(path)
+        try:
+            problems = vtc.structural(conn)
+        finally:
+            conn.close()
+        assert problems == [], f"oracle structural/I2 failed: {problems}"
+        # Idempotent for this normalized shape (the coverage the parametrized
+        # idempotency test omits, since this shape is constructed inline).
+        img1, refs1 = _all_threads_full(path), _refs_control(path)
+        result2 = m.migrate_db(path)
+        assert _all_threads_full(path) == img1
+        assert _refs_control(path) == refs1
+        assert list(result2.dropped) == []
 
 
 # ══════════════════════════════════════════════════════════════════════════════

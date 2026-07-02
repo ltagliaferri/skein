@@ -77,17 +77,18 @@ def parse_mentions(content: str) -> Set[str]:
 
 
 def get_current_status(folio_id: str, json_store) -> Optional[str]:
-    """Get current status of a folio (Phase 3a A1 tolerant): via the batch reader,
-    which unions the slug/genesis keyspaces and breaks equal-created_at ties on
-    thread_id — so a genesis-keyed status written after A2 is seen, and the result
-    is deterministic. ``None`` when the folio has no status thread."""
+    """Get current status of a folio (Phase 3a A4 genesis-only): via the batch
+    reader, which keys control on the folio's genesis hash and breaks equal-
+    created_at ties on thread_id — deterministic. The A1→A3 slug-keyspace tolerance
+    was retired at A4 (gate all_dbs_migrated). ``None`` when the folio has no status
+    thread."""
     return json_store.get_latest_statuses([folio_id]).get(folio_id)
 
 
 def get_current_assignment(folio_id: str, json_store) -> Optional[str]:
-    """Get current assignment of a folio (Phase 3a A1 tolerant): via the batch
-    reader (same union + tiebreaker as get_current_status). ``None`` when the folio
-    has no assignment thread."""
+    """Get current assignment of a folio (Phase 3a A4 genesis-only): via the batch
+    reader (same genesis-only reduction + tiebreaker as get_current_status).
+    ``None`` when the folio has no assignment thread."""
     return json_store.get_latest_assignments([folio_id]).get(folio_id)
 
 

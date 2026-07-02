@@ -510,6 +510,17 @@ class TestA4GenesisOnlyReader:
         db = _logdb(path)
         assert db.get_latest_assignments() == {slug: "agent-assignee"}
 
+    def test_stray_slug_archive_does_not_override_genesis(self, tmp_dir):
+        """Archive (a to_id self-loop, same reduction as status): a genesis-keyed
+        'archived' marker is read; a LATER stray slug-keyed 'active' is ignored — the
+        symmetric case the status/assignment tests leave uncovered (fell-r1 obs)."""
+        path = _build("archive_selfloop", tmp_dir)  # genesis archive 'archived'
+        slug = "archive-selfloop-folio"
+        _insert_thread(path, "stray-slug-archive", slug, slug, "archive", "active",
+                       "agent-synth", "2026-06-01T00:00:00+00:00")  # later, slug-keyed
+        db = _logdb(path)
+        assert db.get_latest_archives() == {slug: ARCHIVED_MARKER}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. A2 — writers emit genesis-keyed control + stamp thread_hash. RED → green @ A2.

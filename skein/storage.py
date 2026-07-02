@@ -25,9 +25,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Phase 3a Class-A control taxonomy: the three thread types the A3 cutover
-# re-anchored from the folio slug to the lineage genesis hash. The tolerant
-# value readers (get_latest_statuses/assignments/archives) and the presentation
-# reader (get_threads_display) both key off exactly this set. It is deliberately
+# re-anchored from the folio slug to the lineage genesis hash. The control value
+# readers (get_latest_statuses/assignments/archives) and the presentation reader
+# (get_threads_display) both key off exactly this set. It is deliberately
 # narrow: succession/reverted edit edges are also genesis-adjacent (an edge can
 # touch the genesis VERSION, whose content hash equals the lineage genesis_hash),
 # so any genesis<->slug resolution MUST restrict to control types or it would
@@ -1155,7 +1155,7 @@ class LogDatabase:
 
         Idempotent: a genesis endpoint (or a slug with no ref) resolves to None and
         is left unchanged, so a row already keyed on genesis passes through. The
-        anchor column matches the A1 tolerant reader's — ``to_id`` for the
+        anchor column matches the control reader's — ``to_id`` for the
         status/archive self-loop, ``from_id`` for assignment (from=folio,
         to=assignee, assignee left untouched). Non-control edges are never touched.
         """
@@ -1397,9 +1397,10 @@ class LogDatabase:
     def get_latest_statuses(
         self, folio_ids: Optional[List[str]] = None
     ) -> Dict[str, str]:
-        """Most recent status per folio (slug -> content). A1 tolerant: unions the
-        slug- and genesis-keyspaces (self-loop on ``to_id``) and breaks equal-
-        ``created_at`` ties on ``thread_id``.
+        """Most recent status per folio (slug -> content). A4 genesis-only: keys the
+        self-loop on the folio's genesis hash (``to_id``), resolves it to the slug,
+        and breaks equal-``created_at`` ties on ``thread_id``. (The A1→A3 slug-
+        keyspace union was retired at A4; gate all_dbs_migrated.)
         """
         with self._get_connection() as conn:
             return self._latest_control_by_folio(
@@ -1409,9 +1410,10 @@ class LogDatabase:
     def get_latest_assignments(
         self, folio_ids: Optional[List[str]] = None
     ) -> Dict[str, str]:
-        """Most recent assignment per folio (slug -> assignee). A1 tolerant: the
-        folio is keyed on ``from_id`` (assignment is from=folio, to=assignee),
-        unioning both keyspaces; the returned value is the assignee (``to_id``).
+        """Most recent assignment per folio (slug -> assignee). A4 genesis-only: the
+        folio is keyed on ``from_id`` = its genesis hash (assignment is from=folio,
+        to=assignee), resolved to the slug; the returned value is the assignee
+        (``to_id``). (The A1→A3 slug-keyspace union was retired at A4.)
         """
         with self._get_connection() as conn:
             return self._latest_control_by_folio(
@@ -1422,12 +1424,13 @@ class LogDatabase:
         self, folio_ids: Optional[List[str]] = None
     ) -> Dict[str, str]:
         """Most recent archive marker per folio (slug -> content, the marker
-        ``'archived'``/``'active'``). A1 DEDICATED reader — a self-loop on ``to_id``
-        like status, feeding ``refs.archived`` (archived iff content == 'archived',
+        ``'archived'``/``'active'``). DEDICATED reader — a self-loop on ``to_id`` like
+        status, feeding ``refs.archived`` (archived iff content == 'archived',
         finding-20260630-0r3x) — NOT folded into ``get_latest_statuses`` (which maps
-        to a different refs column). 0 archive rows exist ecosystem-wide today, so it
-        exercises no data yet, but the path must exist before A4 makes reads
-        genesis-only and A5 drops ``folios.archived``.
+        to a different refs column). A4 genesis-only like the other control readers
+        (keys on the genesis hash, resolved to the slug). 0 archive rows exist
+        ecosystem-wide today, so it exercises no data yet, but the path exists ahead
+        of A5 dropping ``folios.archived``.
         """
         with self._get_connection() as conn:
             return self._latest_control_by_folio(

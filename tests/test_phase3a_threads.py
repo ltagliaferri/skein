@@ -1066,7 +1066,8 @@ class TestA3Migration:
                       "2026-01-01T00:00:01+00:00"))
         conn.commit()
         conn.close()
-        _load_migration().migrate_db(path)
+        m = _load_migration()
+        m.migrate_db(path)
         rows = _threads_of_type(path, "status")
         assert len(rows) == 1
         assert rows[0]["from_id"] == genesis and rows[0]["to_id"] == genesis
@@ -1079,6 +1080,13 @@ class TestA3Migration:
         finally:
             conn.close()
         assert problems == [], f"oracle structural/I2 failed: {problems}"
+        # Idempotent for this normalized shape (the coverage the parametrized
+        # idempotency test omits, since this shape is constructed inline).
+        img1, refs1 = _all_threads_full(path), _refs_control(path)
+        result2 = m.migrate_db(path)
+        assert _all_threads_full(path) == img1
+        assert _refs_control(path) == refs1
+        assert list(result2.dropped) == []
 
 
 # ══════════════════════════════════════════════════════════════════════════════

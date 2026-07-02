@@ -333,11 +333,6 @@ def migrate_db(db_path, *, dry_run: bool = False) -> MigrationResult:
         finally:
             conn.close()
 
-    # Preconditions FIRST, over a read-only connection, so a REFUSED db is left
-    # byte-untouched — not even the additive A1 schema-ensure below runs on it
-    # ("refuse before any mutation", design §5.A3). On a live post-A1 db the
-    # schema-ensure is a no-op regardless; this matters for a db that has not had
-    # A1 applied, whose thread_hash column would otherwise be added before refusal.
     # EVERYTHING — schema-ensure, preconditions, transform, rebuild — runs inside
     # ONE BEGIN IMMEDIATE transaction, so it ALL rolls back together on any failure
     # (design §5.A3 atomicity: no partial write escapes). A refused db is left

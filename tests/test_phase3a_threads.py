@@ -780,7 +780,6 @@ def _refs_control(path: Path) -> Dict[str, Dict[str, object]]:
         conn.close()
 
 
-@pytest.mark.phase3a_pending
 class TestA3Migration:
     """The A3 re-anchor migration, asserted by OBSERVABLE database state so the
     specs pin behavior, not an implementation shape. The one interface assumption

@@ -1042,6 +1042,44 @@ class TestA3Migration:
         assert _threads_of_type(path, "status") == before_threads  # data rolled back
         assert _refs_control(path) == before_refs
 
+    def test_genesis_nonselfloop_normalized_to_selfloop(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:genesis-nonselfloop-i2 — a genesis-keyed
+        status that is NOT a self-loop (from=agent, to=genesis) must be normalized
+        by A3 to a genesis self-loop, not passed through. Such a row is producible
+        via POST /threads (save_thread only re-keys a SLUG to_id, so a genesis-hash
+        to_id is stored as-is); a passthrough would fail the oracle's I2 self-loop
+        check and block the A4 flip. The setting agent is preserved in weaver."""
+        from skein.identity import compute_folio_hash
+        from skein.migrations import verify_threads_control as vtc
+        path = tmp_dir / "genesis_nonselfloop.db"
+        genesis = compute_folio_hash({"type": "finding", "title": "T",
+                                      "content": "body",
+                                      "created_at": "2026-01-01T00:00:00+00:00",
+                                      "created_by": "a"})
+        _logdb(path)  # A1 schema
+        conn = sqlite3.connect(str(path))
+        conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
+                     "VALUES (?,?,?,?)", ("folio-a", genesis, genesis, "s"))
+        conn.execute("INSERT INTO threads (thread_id, from_id, to_id, type, "
+                     "content, weaver, created_at) VALUES (?,?,?,?,?,?,?)",
+                     ("t-ns", "agent-direct", genesis, "status", "closed", None,
+                      "2026-01-01T00:00:01+00:00"))
+        conn.commit()
+        conn.close()
+        _load_migration().migrate_db(path)
+        rows = _threads_of_type(path, "status")
+        assert len(rows) == 1
+        assert rows[0]["from_id"] == genesis and rows[0]["to_id"] == genesis
+        assert rows[0]["weaver"] == "agent-direct"      # setter preserved
+        assert _refs_control(path)["folio-a"]["status"] == "closed"
+        # The exact invariant codex flagged: the row now passes the oracle's I2.
+        conn = _ro(path)
+        try:
+            problems = vtc.structural(conn)
+        finally:
+            conn.close()
+        assert problems == [], f"oracle structural/I2 failed: {problems}"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. A4 / A5 — reader genesis-only gate; folios drop survival. RED → green.

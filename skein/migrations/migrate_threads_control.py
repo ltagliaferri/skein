@@ -201,19 +201,27 @@ def _plan_row(
     kind = "noncontrol"
     if ttype in ("status", "archive"):
         anchor = to_id                       # self-loop anchor (A1 reader's column)
-        if anchor in slugs:                  # legacy slug -> re-key to self-loop
+        if anchor in slugs:                  # legacy slug
             genesis = slug_to_genesis[anchor]
-            # A non-self-loop (from=agent) moves the setting agent off `from` into
-            # weaver; a real self-loop already carries the setter in weaver.
+        elif anchor in genesis_to_slug:      # already genesis-keyed
+            genesis = anchor
+        else:                                # orphan (deleted lineage)
+            cat = "genesis_orphan" if _is_genesis_shaped(anchor) else "slug_orphan"
+            return None, {"thread_id": tid, "category": cat, "type": ttype}, "drop"
+        # Target shape is a genesis SELF-LOOP regardless of prior keying — A3 must
+        # produce it for every kept row, not assume already-genesis == already a
+        # self-loop. A genesis-keyed non-self-loop (from=agent, to=genesis) is
+        # producible via POST /threads and would otherwise pass through and fail
+        # the oracle's I2 self-loop check, blocking the A4 flip. A non-self-loop
+        # moves the setting agent off `from` into weaver (24bk #2); a row already
+        # in target shape (from==to==genesis) is a true passthrough (no change).
+        if from_id == genesis and to_id == genesis:
+            kind = "passthrough"
+        else:
             if weaver is None and from_id != to_id:
                 weaver = from_id
             from_id = to_id = genesis
             kind = "rekeyed"
-        elif anchor in genesis_to_slug:      # already genesis-keyed -> pass through
-            kind = "passthrough"
-        else:                                # orphan (deleted lineage)
-            cat = "genesis_orphan" if _is_genesis_shaped(anchor) else "slug_orphan"
-            return None, {"thread_id": tid, "category": cat, "type": ttype}, "drop"
     elif ttype == "assignment":
         anchor = from_id                     # from = folio
         if anchor in slugs:                  # legacy slug -> re-key from only

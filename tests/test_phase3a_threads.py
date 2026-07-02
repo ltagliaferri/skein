@@ -1008,6 +1008,40 @@ class TestA3Migration:
             m.migrate_db(path)
         assert not _has_thread_hash(), "refused db was mutated (schema changed)"
 
+    def test_write_failure_rolls_back_schema_and_data(self, tmp_dir):
+        """fell:phase3-a3:shard-0701:atomic-schema-ensure — the thread_hash schema
+        ensure runs INSIDE the migration transaction, so a mid-transform write
+        failure on a pre-A1 db rolls back the ADD COLUMN together with the data. No
+        partial write (not even the additive column) escapes on exception (design
+        §5.A3 atomicity)."""
+        path = _build("status_multi_history", tmp_dir)  # pre-A1; passes preconditions
+
+        def has_th():
+            conn = _ro(path)
+            try:
+                return "thread_hash" in {
+                    r[1] for r in conn.execute("PRAGMA table_info(threads)")}
+            finally:
+                conn.close()
+
+        assert not has_th()
+        before_threads = _threads_of_type(path, "status")   # slug-keyed, pre-migration
+        before_refs = _refs_control(path)
+        # A trigger that aborts the migration's UPDATE threads (the backfill/re-key),
+        # forcing a failure AFTER the schema ensure + transform start.
+        conn = sqlite3.connect(str(path))
+        conn.execute("CREATE TRIGGER boom BEFORE UPDATE ON threads "
+                     "BEGIN SELECT RAISE(ABORT, 'boom'); END")
+        conn.commit()
+        conn.close()
+        m = _load_migration()
+        with pytest.raises(Exception) as ei:
+            m.migrate_db(path)
+        assert not isinstance(ei.value, m.PreconditionError)  # a transform-time failure
+        assert not has_th(), "ADD COLUMN escaped rollback (partial write)"
+        assert _threads_of_type(path, "status") == before_threads  # data rolled back
+        assert _refs_control(path) == before_refs
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. A4 / A5 — reader genesis-only gate; folios drop survival. RED → green.

@@ -80,7 +80,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from skein.identity import compute_thread_hash  # noqa: E402
-from skein.storage import LogDatabase, load_project_registry  # noqa: E402
+from skein.storage import load_project_registry  # noqa: E402
 
 BUSY_TIMEOUT_MS = 30000
 
@@ -330,33 +330,29 @@ def migrate_db(db_path, *, dry_run: bool = False) -> MigrationResult:
     # ("refuse before any mutation", design §5.A3). On a live post-A1 db the
     # schema-ensure is a no-op regardless; this matters for a db that has not had
     # A1 applied, whose thread_hash column would otherwise be added before refusal.
-    ro = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    ro.row_factory = sqlite3.Row
-    try:
-        slugs, slug_to_genesis, genesis_to_slug = _ref_maps(ro)   # asserts I1
-        _assert_no_cache_only_control(ro, slugs, genesis_to_slug)
-    finally:
-        ro.close()
-
-    # Ensure the A1 schema (the thread_hash column) exists — idempotent, matches
-    # _init_db exactly. A live post-A1 db already has it; a pre-A1 copy/fixture
-    # gets it added here (after the preconditions passed). Same posture as
-    # backfill_versions_refs (LogDatabase() is the one schema source of truth).
-    LogDatabase(db_path)
-
-    # isolation_level=None -> autocommit; we drive BEGIN IMMEDIATE / COMMIT so the
-    # write lock is held across read+compute+write (no interleaving writer).
+    # EVERYTHING — schema-ensure, preconditions, transform, rebuild — runs inside
+    # ONE BEGIN IMMEDIATE transaction, so it ALL rolls back together on any failure
+    # (design §5.A3 atomicity: no partial write escapes). A refused db is left
+    # byte-untouched because the refusal rolls back even the additive thread_hash
+    # ALTER; and a mid-transform write failure can never leave the schema half-
+    # migrated. isolation_level=None -> autocommit; we drive BEGIN/COMMIT ourselves
+    # so the write lock is held across read+compute+write (no interleaving writer).
     conn = sqlite3.connect(str(db_path), isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            # Re-derive the maps under the write lock and re-assert both
-            # preconditions atomically (defends against any change between the
-            # read-only pass and the lock; the live run is quiesced regardless).
             slugs, slug_to_genesis, genesis_to_slug = _ref_maps(conn)  # asserts I1
             _assert_no_cache_only_control(conn, slugs, genesis_to_slug)
+
+            # Ensure the A1 thread_hash column exists — INSIDE the transaction, so a
+            # pre-A1 db half-migrated by a later failure never keeps an escaped
+            # column (SQLite DDL is transactional). A live post-A1 db already has
+            # it -> no-op. This is the one column A3 writes.
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(threads)")}
+            if "thread_hash" not in cols:
+                conn.execute("ALTER TABLE threads ADD COLUMN thread_hash TEXT")
 
             updates: List[tuple] = []
             drops: List[str] = []

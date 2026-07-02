@@ -1183,8 +1183,10 @@ async def get_threads(
         search: Full-text search in thread content
         since: Time filter (e.g., '1hour', '2days', or ISO timestamp)
     """
-    # Get base threads with existing filters
-    threads = store.get_threads(from_id=from_id, to_id=to_id, type=type)
+    # Get base threads with existing filters. Use the presentation reader so
+    # genesis-keyed control threads (Phase 3a A3) surface for a folio slug and are
+    # rewritten back to the slug view every client display/count path expects.
+    threads = store.get_threads_display(from_id=from_id, to_id=to_id, type=type)
 
     # Apply weaver filter
     if weaver:
@@ -1428,7 +1430,9 @@ async def unified_search(
 
     # Search threads
     if "threads" in resource_list:
-        threads = store.get_threads()
+        # Presentation reader: control threads (Phase 3a A3) are rewritten back to
+        # the folio slug so the from_id/to_id filters below match them by slug.
+        threads = store.get_threads_display()
 
         # Text search
         if q:

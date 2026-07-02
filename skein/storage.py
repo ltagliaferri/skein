@@ -1242,11 +1242,12 @@ class LogDatabase:
         ``get_threads`` stays byte-faithful for internal/integrity callers; only this
         path resolves. The db remains genesis-keyed (source of truth).
 
-        Consequence: a query by a raw ``genesis_hash`` returns its control threads
-        rewritten to the SLUG (control lives at the slug in the presentation view);
-        no live caller queries control by genesis hash. The requested slug filter is
-        re-applied after the rewrite, so every returned thread's visible endpoint
-        equals the queried slug.
+        Consequence: control lives at the slug in the presentation view, so a query
+        by a raw ``genesis_hash`` no longer surfaces its control threads — they rewrite
+        to the slug and the re-applied slug filter then drops them (matching pre-A3,
+        when control was slug-keyed and a genesis-hash query returned none either). No
+        live caller queries control by genesis hash. Net: every returned thread's
+        visible endpoint equals the queried slug.
         """
         with self._get_connection() as conn:
             # genesis <-> slug maps from refs, slug-ordered so a (never-expected,

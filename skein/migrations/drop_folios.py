@@ -67,7 +67,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from skein.identity import compute_folio_hash  # noqa: E402
 from skein.migrations.migrate_threads_control import _db_paths_from_registry  # noqa: E402
+from skein.storage import KNURL_AVAILABLE  # noqa: E402
 
 _MIRROR_COLS = ("target_agent", "omlet", "acknowledged_at")
 
@@ -135,14 +137,39 @@ def check_preconditions(conn: sqlite3.Connection) -> Tuple[bool, List[str]]:
     if n:
         v.append(f"{n} folio(s) with folios.archived set")
 
-    # target_agent / omlet / acknowledged_at / metadata mirrored in refs
+    # target_agent / omlet / acknowledged_at / metadata mirrored in refs;
+    # identity/site recoverable from refs⋈versions.
     mism = {c: 0 for c in _MIRROR_COLS}
     mism["metadata"] = 0
+    identity_mism = {
+        "head_hash_not_in_versions": 0,
+        "content_hash_head_hash": 0,
+        "site_id_refs_site_id": 0,
+        "identity_hash_head_hash": 0,
+    }
     for f in conn.execute("SELECT * FROM folios"):
         r = conn.execute("SELECT * FROM refs WHERE slug=?",
                          (f["folio_id"],)).fetchone()
         if r is None:
             continue  # already counted by folios ⊆ refs above
+        head = conn.execute("SELECT * FROM versions WHERE content_hash=?",
+                            (r["head_hash"],)).fetchone()
+        if head is None:
+            identity_mism["head_hash_not_in_versions"] += 1
+        if (f["content_hash"] or "") != (r["head_hash"] or ""):
+            identity_mism["content_hash_head_hash"] += 1
+        if f["site_id"] != r["site_id"]:
+            identity_mism["site_id_refs_site_id"] += 1
+        if KNURL_AVAILABLE:
+            f_hash = compute_folio_hash({
+                "type": f["type"],
+                "title": f["title"],
+                "content": f["content"],
+                "created_at": f["created_at"],
+                "created_by": f["created_by"],
+            })
+            if f_hash != r["head_hash"]:
+                identity_mism["identity_hash_head_hash"] += 1
         for col in _MIRROR_COLS:
             if f[col] != r[col]:
                 mism[col] += 1
@@ -151,6 +178,18 @@ def check_preconditions(conn: sqlite3.Connection) -> Tuple[bool, List[str]]:
     bad = {c: k for c, k in mism.items() if k}
     if bad:
         v.append(f"folios/refs mirror mismatch (unmirrored control): {bad}")
+    if identity_mism["identity_hash_head_hash"]:
+        v.append(f"{identity_mism['identity_hash_head_hash']} folio(s) whose identity "
+                 f"does not hash to the head")
+    if identity_mism["content_hash_head_hash"]:
+        v.append(f"{identity_mism['content_hash_head_hash']} folio(s) with content_hash "
+                 f"!= refs.head_hash")
+    if identity_mism["site_id_refs_site_id"]:
+        v.append(f"{identity_mism['site_id_refs_site_id']} folio(s) with site_id "
+                 f"!= refs.site_id")
+    if identity_mism["head_hash_not_in_versions"]:
+        v.append(f"{identity_mism['head_hash_not_in_versions']} folio(s) whose "
+                 f"head_hash is not in versions")
 
     return (not v, v)
 
@@ -216,6 +255,10 @@ def drop_one(pid: str, db: Path, *, live: bool, stamp: str) -> Tuple[bool, str, 
         # 2. live restore point (== pre-drop image)
         if live:
             pre = db.with_name(f"{db.name}.bak-folios-drop-{stamp}")
+            if pre.exists():
+                return (False, f"refused: backup destination already exists "
+                        f"({pre.name}) — resolve by hand (the first .bak is the true "
+                        f"pre-drop image)", ["backup destination already exists"])
             _backup_copy(db, pre)
 
         # 3. DROP (its indexes drop with it), in one immediate transaction

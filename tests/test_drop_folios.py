@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from skein.identity import compute_folio_hash
 from skein.migrations import drop_folios as df
 from skein.models import Folio
 from skein.storage import LogDatabase
@@ -83,8 +84,22 @@ def _precheck(path):
 # ── precondition: the happy path ──────────────────────────────────────────────
 
 def test_precondition_passes_on_clean_mirrored_db(tmp_path):
-    _build(tmp_path / "skein.db")
-    ok, violations = _precheck(tmp_path / "skein.db")
+    path = _build(tmp_path / "skein.db")
+    c = _conn(path)
+    try:
+        f = c.execute("SELECT * FROM folios WHERE folio_id='folio-1'").fetchone()
+        r = c.execute("SELECT * FROM refs WHERE slug='folio-1'").fetchone()
+        assert compute_folio_hash({
+            "type": f["type"],
+            "title": f["title"],
+            "content": f["content"],
+            "created_at": f["created_at"],
+            "created_by": f["created_by"],
+        }) == r["head_hash"]
+    finally:
+        c.close()
+
+    ok, violations = _precheck(path)
     assert ok and violations == []
 
 
@@ -180,6 +195,39 @@ def test_precondition_mirror_mismatch(tmp_path):
     assert not ok and any("mirror mismatch" in v for v in violations)
 
 
+def test_precondition_identity_hash_mismatch(tmp_path):
+    path = _build(tmp_path / "skein.db")
+    c = _conn(path)
+    c.execute("UPDATE folios SET title='A diverged title' WHERE folio_id='folio-1'")
+    c.commit()
+    c.close()
+    ok, violations = _precheck(path)
+    assert not ok and any("identity does not hash to the head" in v
+                          for v in violations)
+
+
+def test_precondition_site_id_mismatch(tmp_path):
+    path = _build(tmp_path / "skein.db")
+    c = _conn(path)
+    c.execute("UPDATE folios SET site_id='site-b' WHERE folio_id='folio-1'")
+    c.commit()
+    c.close()
+    ok, violations = _precheck(path)
+    assert not ok and any("site_id != refs.site_id" in v for v in violations)
+
+
+def test_precondition_content_hash_mismatch(tmp_path):
+    path = _build(tmp_path / "skein.db")
+    c = _conn(path)
+    c.execute("UPDATE folios SET content_hash='sha256::deadbeef' "
+              "WHERE folio_id='folio-1'")
+    c.commit()
+    c.close()
+    ok, violations = _precheck(path)
+    assert not ok and any("content_hash != refs.head_hash" in v
+                          for v in violations)
+
+
 def test_precondition_metadata_null_vs_empty_object_is_not_a_mismatch(tmp_path):
     # NULL folios.metadata vs '{}' refs.metadata both read as {} -> not a mismatch.
     path = _build(tmp_path / "skein.db")
@@ -244,6 +292,28 @@ def test_live_refuses_when_prior_backup_exists(tmp_path):
     passed, label, problems = df.drop_one("p", path, live=True, stamp="NEW")
     assert not passed and "prior folios-drop backup" in label
     # live db untouched — folios still present
+    c = _conn(path)
+    try:
+        assert c.execute("SELECT 1 FROM sqlite_master WHERE name='folios'").fetchone() is not None
+    finally:
+        c.close()
+
+
+def test_live_refuses_exact_backup_destination_race(tmp_path, monkeypatch):
+    path = _build(tmp_path / "skein.db")
+    stamp = "RACESTAMP"
+    pre = path.parent / f"{path.name}.bak-folios-drop-{stamp}"
+    pre.write_text("original backup bytes")
+
+    # Simulate a direct-driver race where the prior-backup glob saw nothing, but
+    # the exact stamped destination exists before the restore-point copy opens it.
+    monkeypatch.setattr(type(path.parent), "glob", lambda self, pattern: iter(()))
+
+    passed, label, problems = df.drop_one("p", path, live=True, stamp=stamp)
+    assert not passed and "backup destination already exists" in label
+    assert problems == ["backup destination already exists"]
+    assert pre.read_text() == "original backup bytes"
+
     c = _conn(path)
     try:
         assert c.execute("SELECT 1 FROM sqlite_master WHERE name='folios'").fetchone() is not None

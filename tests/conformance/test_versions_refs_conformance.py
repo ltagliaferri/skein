@@ -375,9 +375,35 @@ def test_converge_then_diverge_is_safe(store):
     assert not problems, f"unexpected blocker problems: {problems}"
 
 
-# ── 7. move_folio dual-writes site, mints no version, returns the new site ─────
+def test_verify_db_tolerates_dropped_folios(store):
+    # Phase 3a A5 regression: after folios is dropped, verify_db must not raise
+    # 'no such table: folios'. It skips the folios-mirror checks and still runs the
+    # folios-independent structural checks (version self-verify + acyclic supersedes
+    # DAG), so it stays a useful versions/refs integrity gate post-drop.
+    from skein.migrations.verify_versions_refs import verify_db
+    _make_site(store)
+    f = _folio("finding-20260629-drop", "v1")
+    store.save_folio(f)
+    f2 = store.get_folio("finding-20260629-drop")
+    f2.content = "v2"
+    store.save_folio(f2, editor="e")  # mint a supersedes edge for the DAG check
 
-def test_move_folio_dual_writes_site(store):
+    c = _conn(store)
+    try:
+        c.execute("DROP TABLE IF EXISTS folios")
+        c.commit()
+    finally:
+        c.close()
+
+    problems, _warnings = verify_db(store.base_dir / "skein.db")
+    assert not problems, f"folios-free db must have no blocker problems: {problems}"
+
+
+# ── 7. move_folio writes refs.site_id, mints no version, returns the new site ──
+
+def test_move_folio_updates_refs_site_no_new_version(store):
+    # Phase 3a A5 retired move_folio's folios dual-write; it now writes only
+    # refs.site_id. site_id is ref-local control, so a move mints no new version.
     _make_site(store, "alpha")
     _make_site(store, "beta")
     f = _folio("finding-20260629-ffff", "body", site_id="alpha")
@@ -388,14 +414,7 @@ def test_move_folio_dual_writes_site(store):
     assert moved.site_id == "beta"
 
     ref = _ref(store, "finding-20260629-ffff")
-    c = _conn(store)
-    try:
-        frow = c.execute("SELECT site_id FROM folios WHERE folio_id=?",
-                         ("finding-20260629-ffff",)).fetchone()
-    finally:
-        c.close()
     assert ref["site_id"] == "beta", "refs.site_id updated"
-    assert frow["site_id"] == "beta", "folios.site_id updated (dual-write)"
     assert ref["head_hash"] == head_before, "move mints no new version"
 
 
@@ -445,10 +464,16 @@ def test_module_level_readers_return_heads(tmp_dir, monkeypatch):
     assert "px" in ts and isinstance(ts["px"], int)
 
 
-def test_module_readers_fall_back_to_folios_for_legacy_db(tmp_dir, monkeypatch):
-    # A registered legacy db with ONLY folios (not yet backfilled, no refs table)
-    # must still resolve cross-project — fall back to folios rather than silently
-    # vanish. Steady state (all dbs backfilled via verify --all gate) never hits this.
+# RETIRED in Phase 3a A5: test_module_readers_fall_back_to_folios_for_legacy_db.
+# A5 removes the `_has_refs_table` else->folios cross-project fallback (design
+# §5.A5). A registered legacy db with ONLY folios (no refs table) is no longer
+# folios-resolved — it is skipped (the refs query raises `no such table: refs`,
+# which the readers catch and skip). Steady state has every registered db
+# backfilled to refs, so this path was already dead; the test below locks the
+# deliberate new behavior.
+
+def test_module_readers_skip_unbackfilled_legacy_db(tmp_dir, monkeypatch):
+    # Post-A5: a folios-only db (no refs) is skipped, not folios-resolved.
     data_dir = tmp_dir / "legacy" / ".skein" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     db = data_dir / "skein.db"
@@ -470,10 +495,9 @@ def test_module_readers_fall_back_to_folios_for_legacy_db(tmp_dir, monkeypatch):
                            "name": "legacy"}}
     monkeypatch.setattr(storage_mod, "load_project_registry", lambda: registry)
 
-    assert search_folio_across_projects("finding-legacy-0001", None) is not None
-    res = resolve_folio_across_projects("finding-legacy-0001", None)
-    assert res and res["folio"].content == "legacy body"
-    assert "legacy" in get_project_last_activity_timestamps()
+    assert search_folio_across_projects("finding-legacy-0001", None) is None
+    assert resolve_folio_across_projects("finding-legacy-0001", None) is None
+    assert "legacy" not in get_project_last_activity_timestamps()
 
 
 # ── target_agent / metadata survive a content edit through the read path ──────

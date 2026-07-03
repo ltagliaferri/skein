@@ -20,7 +20,7 @@ import pytest
 from skein import identity
 from skein.migrations.backfill_content_hash import backfill_db
 from skein.models import Folio
-from skein.storage import KNURL_AVAILABLE, LogDatabase, compute_folio_hash
+from skein.storage import KNURL_AVAILABLE, LogDatabase, compute_folio_hash, ensure_aware
 
 pytestmark = pytest.mark.skipif(not KNURL_AVAILABLE, reason="knurl not installed")
 
@@ -142,27 +142,57 @@ def test_json_cold_migration_recomputes_hash(tmp_path):
     assert stored != "folio:sha256:deadbeef"
 
 
+# Phase 3a A5 retired the folios table from the storage layer, so these tests for
+# backfill_content_hash (which reads and rewrites folios.content_hash) build a
+# faithful pre-A5 db themselves: three folios in versions/refs (correct head
+# hashes, exercised by get_folio) PLUS a legacy folios table carrying the SAME
+# rows with corrupted content_hash for the backfill to correct.
+_LEGACY_FOLIOS_DDL = """
+    CREATE TABLE IF NOT EXISTS folios (
+        folio_id TEXT PRIMARY KEY, type TEXT NOT NULL, site_id TEXT NOT NULL,
+        created_at DATETIME NOT NULL, created_by TEXT NOT NULL, title TEXT NOT NULL,
+        content TEXT NOT NULL, status TEXT DEFAULT 'open', assigned_to TEXT,
+        target_agent TEXT, omlet TEXT, archived INTEGER DEFAULT 0, metadata JSON,
+        acknowledged_at DATETIME, content_hash TEXT
+    )
+"""
+
+
+def _insert_folios_row(conn, folio, content_hash):
+    ca = (folio.created_at.isoformat()
+          if hasattr(folio.created_at, "isoformat") else folio.created_at)
+    conn.execute(
+        "INSERT OR REPLACE INTO folios (folio_id, type, site_id, created_at, "
+        "created_by, title, content, status, metadata, content_hash) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '{}', ?)",
+        (folio.folio_id, folio.type, folio.site_id, ca, folio.created_by,
+         folio.title, folio.content, content_hash),
+    )
+
+
 def _populate_and_corrupt(db_path):
-    """A real-schema db with three folios whose stored hashes are: reframed
-    (same digest, old framing), digest_changed (wrong hex), and missing."""
+    """A faithful pre-A5 db with three folios whose stored folios.content_hash is:
+    reframed (same digest, old framing), digest_changed (wrong hex), and missing."""
     db = LogDatabase(db_path)
     ids = ("finding-20260101-r000", "finding-20260101-d000", "finding-20260101-m000")
     db.save_folio(_folio(folio_id=ids[0], content="uniquewordxyz reframed body"))
     db.save_folio(_folio(folio_id=ids[1], content="digest body"))
     db.save_folio(_folio(folio_id=ids[2], content="missing body"))
 
-    conn = sqlite3.connect(db_path)
-    # reframed: keep the true digest, restore the old folio:sha256: framing.
     true_hex = db.get_folio(ids[0]).content_hash.split("::", 1)[1]
-    conn.execute("UPDATE folios SET content_hash=? WHERE folio_id=?",
-                 (f"folio:sha256:{true_hex}", ids[0]))
-    # digest_changed: a wrong digest in the new framing.
-    conn.execute("UPDATE folios SET content_hash=? WHERE folio_id=?",
-                 ("sha256::" + "0" * 64, ids[1]))
-    # missing: no stored hash at all.
-    conn.execute("UPDATE folios SET content_hash=NULL WHERE folio_id=?", (ids[2],))
-    conn.commit()
-    conn.close()
+    corrupt = {
+        ids[0]: f"folio:sha256:{true_hex}",  # reframed: true digest, old framing
+        ids[1]: "sha256::" + "0" * 64,        # digest_changed: wrong hex
+        ids[2]: None,                          # missing: no stored hash
+    }
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(_LEGACY_FOLIOS_DDL)
+        for fid in ids:
+            _insert_folios_row(conn, db.get_folio(fid), corrupt[fid])
+        conn.commit()
+    finally:
+        conn.close()
     return ids
 
 
@@ -306,12 +336,27 @@ def test_backfill_real_fixture_idempotent_on_copy(tmp_path):
 
 @pytest.mark.skipif(not ARCHIVE_DB.exists(), reason="archive fixture absent")
 def test_real_corpus_hashes_are_wellformed_and_stable():
-    """Over real folios: the delegation produces a well-formed sha256:: and is
-    deterministic — a wild created_at encoding can't break the normalize path."""
-    folios = LogDatabase(ARCHIVE_DB).get_folios()
-    assert folios, "archive fixture has no folios"
+    """Over real folios from the legacy archive: the delegation produces a
+    well-formed sha256:: and is deterministic — a wild created_at encoding can't
+    break the normalize path. The archive is a pre-Phase-2 snapshot (folios only,
+    no versions/refs) and A5 retired the folios read path, so read its folios table
+    directly rather than through the versions/refs join."""
+    conn = sqlite3.connect(f"file:{ARCHIVE_DB}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT type, title, content, created_at, created_by FROM folios LIMIT 200"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert rows, "archive fixture has no folios"
     checked = 0
-    for folio in folios[:200]:
+    for row in rows:
+        folio = Folio(
+            folio_id="finding-20260101-arch", type=row["type"], site_id="s",
+            created_at=ensure_aware(row["created_at"]), created_by=row["created_by"],
+            title=row["title"], content=row["content"],
+        )
         h = compute_folio_hash(folio)
         assert h.startswith("sha256::") and len(h) == len("sha256::") + 64
         assert compute_folio_hash(folio) == h  # deterministic

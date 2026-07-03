@@ -85,17 +85,28 @@ def verify_db(db_path: Path, *, sample: int = 0):
     try:
         versions = {r["content_hash"]: r for r in conn.execute("SELECT * FROM versions")}
         refs = {r["slug"]: r for r in conn.execute("SELECT * FROM refs")}
-        folios = {r["folio_id"]: r for r in conn.execute("SELECT * FROM folios")}
+        # Phase 3a A5 retires the folios table. When it is absent, the folios-mirror
+        # checks (1, 3, 4, 5) have no baseline and are skipped; the folios-independent
+        # structural checks (2 dangling, 6 self-verify, 7 acyclic DAG) still run, so
+        # verify_db stays a useful versions/refs integrity gate post-drop.
+        folios_present = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='folios'"
+        ).fetchone() is not None
+        folios = (
+            {r["folio_id"]: r for r in conn.execute("SELECT * FROM folios")}
+            if folios_present else {}
+        )
 
-        # 1. Row parity.
-        only_refs = set(refs) - set(folios)
-        only_folios = set(folios) - set(refs)
-        if only_refs:
-            problems.append(f"{len(only_refs)} slug(s) in refs but not folios: "
-                            f"{sorted(only_refs)[:5]}")
-        if only_folios:
-            problems.append(f"{len(only_folios)} folio(s) with no ref (would vanish "
-                            f"at read-flip): {sorted(only_folios)[:5]}")
+        # 1. Row parity (only meaningful while folios still backs the mirror).
+        if folios_present:
+            only_refs = set(refs) - set(folios)
+            only_folios = set(folios) - set(refs)
+            if only_refs:
+                problems.append(f"{len(only_refs)} slug(s) in refs but not folios: "
+                                f"{sorted(only_refs)[:5]}")
+            if only_folios:
+                problems.append(f"{len(only_folios)} folio(s) with no ref (would vanish "
+                                f"at read-flip): {sorted(only_folios)[:5]}")
 
         for slug, ref in refs.items():
             # 2. No dangling.

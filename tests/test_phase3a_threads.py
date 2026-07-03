@@ -1482,28 +1482,27 @@ class TestReadsSurviveFoliosDrop:
         assert any(f.folio_id == "listed-1" for f in got)
 
 
-@pytest.mark.phase3a_pending
 class TestA5FoliosConsumersSurviveDrop:
     """A5 drops folios.status and the folios table and retires every folios-touching
-    consumer (design §3 A5). The ones that still reference folios today raise
-    'no such table: folios' after the drop — RED until A5 removes the folios access.
-    Covered here: the two writer paths (save_folio dual-write, move_folio's separate
-    write) and migrate_folios_from_json (which counts folios). The SAME LogDatabase
-    object is reused after the drop (a fresh one would re-run _init_db and resurrect
-    folios, masking the regression).
+    consumer (design §3 A5). GREEN as of the A5 code contraction: the reachable
+    folios consumers no longer name the table after it is dropped. Covered here: the
+    two writer paths (save_folio, move_folio) and migrate_folios_from_json (re-based
+    onto refs). The SAME LogDatabase object is reused after the drop as a
+    belt-and-suspenders guard (post-A5 _init_db no longer creates folios, so it
+    would not be resurrected regardless).
 
-    The dead ``FROM folios`` fallbacks (storage.py:200/254/305) are NOT
-    behaviorally testable: they sit behind ``not _has_refs_table(conn)``, and every
-    live db is backfilled (refs present) since Phase 1/2, so the guard is always
-    True and the fallback branch never executes — it cannot be driven to raise. Its
-    removal is a source cleanup verified at the A5 fell (the branch merely *names* a
-    dropped table); the reachable folios consumers are the ones pinned here."""
+    The dead ``FROM folios`` fallbacks removed by A5 were NOT behaviorally testable:
+    they sat behind a refs-table guard that is always satisfied on backfilled dbs,
+    so the fallback branch never executed — it could not be driven to raise. Their
+    removal was a source cleanup verified at the A5 fell (the branches merely
+    *named* a table being dropped); the reachable folios consumers are pinned
+    here."""
 
     def test_move_folio_survives_folios_drop(self, tmp_dir):
         """fell:phase3-design:r1:move-folio-after-drop — POST /folios/{id}/move (->
         move_folio) returns the moved folio, not a 'no such table: folios' 500,
-        after the folios drop. move_folio must stop its separate folios write
-        (storage.py:1517) and keep only the refs.site_id write."""
+        after the folios drop. A5 dropped move_folio's separate folios write and
+        kept only the refs.site_id write."""
         path = tmp_dir / "skein.db"
         db = _logdb(path)
         db.save_folio(_make_folio("move-me-1", site_id="site-a"))
@@ -1519,9 +1518,9 @@ class TestA5FoliosConsumersSurviveDrop:
         assert site == "site-b"
 
     def test_save_folio_edit_survives_folios_drop(self, tmp_dir):
-        """The save_folio dual-write to folios (storage.py:1320-1345) must be
-        retired in A5: after the drop, editing a folio updates versions/refs and
-        does not raise on the missing folios table."""
+        """A5 retired the save_folio dual-write to folios: after the drop, editing a
+        folio updates versions/refs and does not raise on the missing folios
+        table."""
         path = tmp_dir / "skein.db"
         db = _logdb(path)
         f = _make_folio("edit-me-1")
@@ -1533,11 +1532,10 @@ class TestA5FoliosConsumersSurviveDrop:
 
     def test_migrate_folios_from_json_survives_folios_drop(self, tmp_dir):
         """fell:phase3-design:r1:move-folio-after-drop (sibling consumer) —
-        migrate_folios_from_json counts `SELECT COUNT(*) FROM folios`
-        (storage.py:1692); A5 must gate or remove it so it does not crash on the
-        dropped table. An existing but empty sites_dir passes its early exists()
-        guard and reaches the folios query, so this is red on the missing table
-        today and green once A5 gates the path."""
+        migrate_folios_from_json used to probe `SELECT COUNT(*) FROM folios`; A5
+        re-based it onto refs (idempotency probe on refs, no folios access), so it
+        does not crash on the dropped table. An existing but empty sites_dir passes
+        the early exists() guard and returns 0 without naming folios."""
         path = tmp_dir / "skein.db"
         db = _logdb(path)
         sites_dir = tmp_dir / "sites"

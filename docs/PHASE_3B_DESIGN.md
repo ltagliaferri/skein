@@ -231,9 +231,10 @@ discipline is stated explicitly, not inherited.
 - No prior `<db>.bak-threads-pk-*` backup (don't bury the restore point).
 
 **Steps.** Step 1 (backup) runs before the transaction; steps 2–5 (build /
-re-anchor / copy / drop / rename) run inside one `BEGIN IMMEDIATE` — a write
-landing between copy and drop would otherwise be lost — then `COMMIT`; the
-checkpoint (step 6) runs after the commit, never inside the write transaction.
+re-anchor / copy / drop / rename / recreate-indexes) run inside one `BEGIN
+IMMEDIATE` — a write landing between copy and drop would otherwise be lost — then
+`COMMIT`; the checkpoint (step 6) runs after the commit, never inside the write
+transaction.
 1. **Backup** `<db>.bak-threads-pk-<stamp>` (online-backup API, WAL-consistent).
 2. `BEGIN IMMEDIATE`; build `threads_new` with the §3 schema (`thread_hash` PK) —
    **table only, no indexes yet.** SQLite index names are schema-global, so
@@ -450,10 +451,11 @@ input (runs over a private WAL-consistent copy), copy-proof digest binding.
 - **Class B display read unchanged (§6.1):** `get_threads_display` (behind `GET
   /threads` and `/search`) returns the byte-identical thread set — same visible
   endpoints (slugs for the genesis-anchored Class B types), same rows — before vs
-  after the re-anchor. This is the surface the re-anchor actually moves; the
+  after the re-anchor. The re-anchor moves the genesis-anchored Class B rows; the
   control-only shadow above would not catch a Class B view regression, so it is a
-  required, separate leg. On live speakbot that is 706 `reference` edges plus the
-  `mention`/`reply`/`succession` F→F rows.
+  required, separate leg. Display-scope on live speakbot is the 706 `reference`
+  F→F rows (703 re-anchored + 3 Class-C self-loops held byte-faithful) plus the
+  `mention`/`reply`/`succession` F→F rows — all must read identically.
 
 **Structural post-conditions:**
 - `thread_hash` is the PK and is UNIQUE (the swap held).

@@ -376,10 +376,11 @@ def test_converge_then_diverge_is_safe(store):
 
 
 def test_verify_db_tolerates_dropped_folios(store):
-    # Phase 3a A5 regression: after folios is dropped, verify_db must not raise
-    # 'no such table: folios'. It skips the folios-mirror checks and still runs the
-    # folios-independent structural checks (version self-verify + acyclic supersedes
-    # DAG), so it stays a useful versions/refs integrity gate post-drop.
+    # Phase 3a A5 regression: verify_db is folios-independent (the folios-mirror
+    # checks were retired with A5), so a dropped folios table must not raise nor
+    # produce false problems — it runs only the versions/refs/threads structural
+    # checks (dangling endpoints, version self-verify, acyclic supersedes DAG).
+    # Guards against a regression that re-introduces a folios read into verify_db.
     from skein.migrations.verify_versions_refs import verify_db
     _make_site(store)
     f = _folio("finding-20260629-drop", "v1")

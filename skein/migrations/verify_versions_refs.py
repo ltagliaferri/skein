@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
-"""B->C verification gate: prove refs/versions are a faithful mirror of folios.
+"""versions/refs structural integrity checker.
 
-Read-only. Gates the commit-C read-flip: before any reader repoints at the
-versions⋈refs heads join, this proves that the join reconstructs exactly what the
-folios rows say today, row-for-row — so the flip cannot silently change output.
-It does NOT lean on "the harness is green" (the harness is blind to head-filtering
-and to dual-write drift); it diffs the actual tables. Mirrors the diff the design
-note specifies (§8): rebuild the head + control cache from versions/refs and diff
-against the live folios rows, INCLUDING site_id, so a move_folio that updated only
-one of the two tables is caught.
+Read-only. Originally the B->C read-flip gate that proved refs/versions were a
+faithful mirror of the legacy `folios` table, row-for-row, before the reader
+repointed at the versions⋈refs heads join. That folios-mirror gate is RETIRED as
+of Phase 3a A5: A5 stopped writing `folios` (save_folio/move_folio no longer touch
+it), so a `folios` table — where one still exists in the Part 1→Part 2 window — is
+a frozen, non-authoritative vestige. Diffing refs against it would report false
+divergences on a healthy live db (refs advances; folios does not). The
+folios-mirror checks are therefore removed; what remains are the checks that
+depend only on versions/refs/threads and stay valid forever.
 
 Checks per db (any divergence is a BLOCKER and exits non-zero):
-  1. Row parity: the set of refs.slug equals the set of folios.folio_id.
-  2. No dangling: every refs.head_hash and refs.genesis_hash exists in versions.
-  3. Head == current content: refs.head_hash == folios.content_hash for every
-     slug (the dual-write invariant — folios.content_hash is the recomputed hash
-     of the current content, which is exactly the head version).
-  4. Head IDENTITY mirror: the head version's five identity fields
-     (type/title/content/created_at/created_by) equal the folios row's — proving
-     directly that what commit C reads via the join is byte-identical to what
-     folios says today, not merely that two hashes happen to match (catches a
-     stale folios.content_hash that agrees with a stale head pointer).
-  5. Control mirror: every non-identity control column on refs equals the folios
-     column row-for-row: site_id, status, assigned_to, archived, target_agent,
-     omlet, acknowledged_at, metadata (after the same read coercions).
-  6. Version self-verification (FULL by default): a versions row's content_hash
+  1. No dangling: every refs.head_hash and refs.genesis_hash exists in versions.
+  2. Version self-verification (FULL by default): a versions row's content_hash
      equals compute_folio_hash of its own five fields.
-  7. Edge integrity: every supersedes/reverted edge's endpoints (content hashes)
+  3. Edge integrity: every supersedes/reverted edge's endpoints (content hashes)
      exist in versions; the supersedes graph is acyclic (a cycle is a BLOCKER).
      A genesis->head chain gap is reported as a WARNING, not a blocker: the global
      content DAG cannot represent a converge-then-diverge cross-lineage edit as
@@ -51,33 +40,14 @@ from typing import List
 from skein.identity import compute_folio_hash
 from skein.storage import load_project_registry
 
-# The non-identity control columns refs caches from folios, and how a read coerces
-# each so the diff compares post-read values (not raw bytes that read identically).
-CONTROL_COLS = ("site_id", "status", "assigned_to", "archived", "target_agent",
-                "omlet", "acknowledged_at", "metadata")
-
-
-def _norm(col: str, value):
-    """Coerce a control value the way the read path does, so equal-on-read values
-    are not reported as drift (NULL metadata and "{}" both read as {}; a missing
-    status reads as 'open'; archived reads as a 0/1 int)."""
-    if col == "status":
-        return value or "open"
-    if col == "archived":
-        return 1 if value else 0
-    if col == "metadata":
-        # NULL and "{}" both reconstruct to {} — treat as equal.
-        return value if value not in (None, "{}", "") else "{}"
-    return value
-
-
-IDENTITY_COLS = ("type", "title", "content", "created_at", "created_by")
-
 
 def verify_db(db_path: Path, *, sample: int = 0):
-    """Return (problems, warnings). `problems` block the read-flip (exit non-zero);
+    """Return (problems, warnings). `problems` are BLOCKERS (exit non-zero);
     `warnings` are surfaced but non-blocking. ``sample`` limits the
-    self-verification scan (0 == verify every version, the default for a gate)."""
+    self-verification scan (0 == verify every version, the default for a gate).
+
+    Post-A5 this checks only versions/refs/threads structural integrity; the
+    legacy folios-mirror diff is retired (folios is no longer written)."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     problems: List[str] = []
@@ -85,64 +55,15 @@ def verify_db(db_path: Path, *, sample: int = 0):
     try:
         versions = {r["content_hash"]: r for r in conn.execute("SELECT * FROM versions")}
         refs = {r["slug"]: r for r in conn.execute("SELECT * FROM refs")}
-        # Phase 3a A5 retires the folios table. When it is absent, the folios-mirror
-        # checks (1, 3, 4, 5) have no baseline and are skipped; the folios-independent
-        # structural checks (2 dangling, 6 self-verify, 7 acyclic DAG) still run, so
-        # verify_db stays a useful versions/refs integrity gate post-drop.
-        folios_present = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='folios'"
-        ).fetchone() is not None
-        folios = (
-            {r["folio_id"]: r for r in conn.execute("SELECT * FROM folios")}
-            if folios_present else {}
-        )
 
-        # 1. Row parity (only meaningful while folios still backs the mirror).
-        if folios_present:
-            only_refs = set(refs) - set(folios)
-            only_folios = set(folios) - set(refs)
-            if only_refs:
-                problems.append(f"{len(only_refs)} slug(s) in refs but not folios: "
-                                f"{sorted(only_refs)[:5]}")
-            if only_folios:
-                problems.append(f"{len(only_folios)} folio(s) with no ref (would vanish "
-                                f"at read-flip): {sorted(only_folios)[:5]}")
-
+        # 1. No dangling: every refs head/genesis hash resolves to a version.
         for slug, ref in refs.items():
-            # 2. No dangling.
             if ref["head_hash"] not in versions:
                 problems.append(f"{slug}: head_hash not in versions")
             if ref["genesis_hash"] not in versions:
                 problems.append(f"{slug}: genesis_hash not in versions")
 
-            folio = folios.get(slug)
-            if folio is None:
-                continue
-
-            # 3. Head == current content.
-            if ref["head_hash"] != folio["content_hash"]:
-                problems.append(f"{slug}: refs.head_hash {ref['head_hash']!r} != "
-                                f"folios.content_hash {folio['content_hash']!r}")
-
-            # 4. Head IDENTITY mirror — the head VERSION's five fields == folios'.
-            # This is what commit C will read via the join; prove it directly, not
-            # via two agreeing hashes (a stale folios.content_hash matching a stale
-            # head pointer would pass check 3 yet differ in content here).
-            head = versions.get(ref["head_hash"])
-            if head is not None:
-                for col in IDENTITY_COLS:
-                    if head[col] != folio[col]:
-                        problems.append(
-                            f"{slug}: head version '{col}' {head[col]!r} != "
-                            f"folios {folio[col]!r}")
-
-            # 5. Control mirror, row-for-row.
-            for col in CONTROL_COLS:
-                rv, fv = _norm(col, ref[col]), _norm(col, folio[col])
-                if rv != fv:
-                    problems.append(f"{slug}: control '{col}' refs={rv!r} folios={fv!r}")
-
-        # 6. Version self-verification (every version by default).
+        # 2. Version self-verification (every version by default).
         items = list(versions.values())
         if sample:
             items = items[:sample]
@@ -155,7 +76,7 @@ def verify_db(db_path: Path, *, sample: int = 0):
                 problems.append(f"version {v['content_hash']!r} does not self-verify "
                                 f"(recomputed {h!r})")
 
-        # 7. Edge integrity: endpoints exist; supersedes graph acyclic; every head
+        # 3. Edge integrity: endpoints exist; supersedes graph acyclic; every head
         # reachable from its genesis.
         succ = {}  # old_hash -> [new_hash] (supersedes: from=new, to=old)
         for e in conn.execute(
@@ -244,7 +165,8 @@ def _db_paths_from_registry() -> list:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="B->C verification: refs/versions mirror folios.")
+    p = argparse.ArgumentParser(
+        description="versions/refs structural integrity check.")
     p.add_argument("db_path", type=Path, nargs="?")
     p.add_argument("--all", action="store_true")
     p.add_argument("--sample", type=int, default=0, metavar="N",
@@ -265,20 +187,20 @@ def main() -> None:
             continue
         if problems:
             bad += 1
-            print(f"  DIVERGED {label}: {len(problems)} problem(s)")
+            print(f"  PROBLEMS {label}: {len(problems)} problem(s)")
             for msg in problems[:20]:
                 print(f"      - {msg}")
             if len(problems) > 20:
                 print(f"      ... and {len(problems) - 20} more")
         else:
-            print(f"  OK {label}: refs/versions mirror folios")
+            print(f"  OK {label}: versions/refs structurally sound")
         for msg in warnings:
             print(f"      ! WARN {label}: {msg}")
 
     if bad:
-        print(f"\n{bad} db(s) DIVERGED — read-flip BLOCKED")
+        print(f"\n{bad} db(s) DIVERGED — versions/refs integrity check FAILED")
         sys.exit(1)
-    print("\nAll clean — refs/versions are a faithful mirror; read-flip safe.")
+    print("\nAll clean — versions/refs structurally sound.")
 
 
 if __name__ == "__main__":

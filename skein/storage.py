@@ -1,5 +1,6 @@
 """
-SKEIN storage layer: SQLite for logs/threads/folios, JSON for roster/sites.
+SKEIN storage layer: SQLite for logs/threads/versions/refs, JSON for roster/sites.
+(The legacy folios table was retired in Phase 3a A5; folios are versions⋈refs.)
 Multi-project support via ~/.skein/projects.json registry.
 """
 
@@ -632,7 +633,7 @@ class LogDatabase:
         moves the head — a read-then-write that must not race a concurrent writer
         (a TOCTOU on head_hash would mint a duplicate or skip a supersedes edge).
         BEGIN IMMEDIATE takes the write lock BEFORE the first read, so the whole
-        version/refs/threads/folios maintenance is one atomic transaction.
+        versions/refs/threads maintenance is one atomic transaction.
         Commits on a clean exit, rolls back on any exception."""
         conn = sqlite3.connect(self.db_path, isolation_level=None, timeout=10)
         conn.row_factory = sqlite3.Row
@@ -1391,8 +1392,10 @@ class LogDatabase:
                 )
 
             # Maintain versions/refs + the supersedes/reverted edges (only when a
-            # hash is available; degraded no-knurl mode writes folios only, as
-            # before, and is not a production path).
+            # hash is available). Degraded no-knurl mode now persists NOTHING —
+            # A5 removed the folios dual-write and versions/refs needs the hash —
+            # but no-knurl is not a production path (a no-hash folios row had no
+            # head in versions/refs and was already unreadable post-commit-C).
             if KNURL_AVAILABLE and folio.content_hash:
                 self._maintain_versions_refs(
                     conn, folio, ref, folio.content_hash, created_at,
@@ -1406,7 +1409,7 @@ class LogDatabase:
         column order used by the INSERT/UPDATE below: site_id, status,
         assigned_to, archived, target_agent, omlet, acknowledged_at, metadata.
         (created_by and type are hashed identity and live on versions, not refs.)
-        The encodings match the folios dual-write exactly, so the two never drift.
+        These encodings are what a read coerces back, so a read round-trips a write.
         """
         return (
             folio.site_id,

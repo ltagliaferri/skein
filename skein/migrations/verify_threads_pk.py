@@ -19,14 +19,22 @@ Checks per db (any divergence is a BLOCKER; exits non-zero) — design §8:
      ``from_id`` / ``to_id`` / ``type`` / ``created_at`` are all non-null, and the
      schema still declares ``thread_id`` ``NOT NULL`` (``thread_id`` is not hashed, so
      a NULL would otherwise be invisible to the self-verify check).
-  4. No dangling endpoint. A VERSION-anchored edge (supersedes/reverted/published)
-     MUST have BOTH endpoints in ``versions`` — a miss is a genuine dangling BLOCKER.
-     A hash-shaped endpoint on ANY OTHER type that is not in ``versions`` is a kept
-     orphan (§5.3 — a cross-project / un-synced / pruned version the migration keeps
-     unchanged, never re-anchors) and is surfaced as a WARNING, not a blocker;
-     blocking it would reject a db the migration itself legitimately produces. Non-hash
-     endpoints (Class C / orphan slugs, assignment agents) are never required to
-     resolve.
+  4. Endpoint resolution (design §8: "every Class B row's endpoints resolve to
+     versions.content_hash — re-anchor succeeded"). The class is recomputed per row
+     with ``classify_row`` over the post-swap slugs/versions:
+       - a VERSION-anchored edge (supersedes/reverted/published) MUST have BOTH
+         endpoints in ``versions`` — a miss is a genuine dangling BLOCKER;
+       - a Class B row (a genesis-anchored structural edge whose BOTH endpoints
+         resolve as live folios and are distinct) MUST have BOTH endpoints in
+         ``versions`` — a live-SLUG endpoint means the re-anchor was MISSED, a BLOCKER.
+         This is the one post-condition a slug-keyed leftover would otherwise slip: it
+         self-verifies, and it round-trips through the display reader unchanged, so
+         only this structural check catches it;
+       - a hash-shaped endpoint on any OTHER (Class A/C) row not in ``versions`` is a
+         kept orphan (§5.3 — a cross-project / un-synced / pruned version the migration
+         keeps unchanged) and is a WARNING, not a blocker; blocking it would reject a
+         db the migration itself legitimately produces. Non-hash endpoints (Class C /
+         orphan slugs, assignment agents) are never required to resolve.
   5. All six ``idx_threads_*`` present (an unindexed hot table passes value checks).
   6. I1 holds on the post db: no ``genesis_hash`` shared across two ``refs.slug`` —
      the invariant the re-anchor rested on, re-checked after (defense in depth).
@@ -50,7 +58,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from skein.identity import compute_thread_hash  # noqa: E402
-from skein.migrations.threads_pk_swap import VERSION_ANCHORED_TYPES  # noqa: E402
+from skein.migrations.threads_pk_swap import (  # noqa: E402
+    VERSION_ANCHORED_TYPES,
+    classify_row,
+)
 from skein.storage import load_project_registry  # noqa: E402
 
 _HASH_PREFIX = "sha256::"
@@ -91,6 +102,7 @@ def verify_db(db_path, *, sample: int = 0) -> Tuple[List[str], List[str]]:
     try:
         versions = {r["content_hash"]
                     for r in conn.execute("SELECT content_hash FROM versions")}
+        slugs = {r["slug"] for r in conn.execute("SELECT slug FROM refs")}
 
         # 1. thread_hash is the sole PK and is UNIQUE.
         table_info = list(conn.execute("PRAGMA table_info(threads)"))
@@ -136,6 +148,12 @@ def verify_db(db_path, *, sample: int = 0) -> Tuple[List[str], List[str]]:
                     f"thread {row['thread_id']!r} does not self-verify (stored "
                     f"{row['thread_hash']!r}, recomputed {recomputed!r})")
             is_version_edge = row["type"] in VERSION_ANCHORED_TYPES
+            # Recompute the class over the POST-swap slugs/versions. A correctly
+            # re-anchored Class B row has both endpoints in versions (so classify_row
+            # still calls it B); a MISSED re-anchor left it slug-keyed, which
+            # classify_row ALSO calls B (both live slugs, distinct) — the gap this
+            # catches. A row whose endpoint is unresolved (an orphan) classifies C.
+            klass = classify_row(row, slugs=slugs, versions=versions)
             for col in ("from_id", "to_id"):
                 endpoint = row[col]
                 if is_version_edge:
@@ -147,12 +165,22 @@ def verify_db(db_path, *, sample: int = 0) -> Tuple[List[str], List[str]]:
                             f"dangling endpoint: {col} {endpoint!r} of a "
                             f"{row['type']} edge is not in versions "
                             f"(thread {row['thread_id']!r})")
+                elif klass == "B":
+                    # A genesis-anchored Class B row MUST have been re-anchored: both
+                    # endpoints resolve in versions (§8). A live-SLUG endpoint here is a
+                    # MISSED re-anchor — it self-verifies and displays unchanged, so
+                    # this structural check is the only gate that catches it.
+                    if endpoint not in versions:
+                        problems.append(
+                            f"Class B {row['type']} row endpoint {col} {endpoint!r} "
+                            f"not in versions — re-anchor missed (row still slug-keyed?) "
+                            f"(thread {row['thread_id']!r})")
                 elif _is_hash_shaped(endpoint) and endpoint not in versions:
-                    # A hash-shaped endpoint on a non-version-anchored row is a KEPT
-                    # orphan (§5.3): a cross-project / un-synced / pruned version the
-                    # migration keeps unchanged, indistinguishable from a botched
-                    # re-anchor in the post-image alone. Surface it (eyeball) but do
-                    # NOT block — blocking would reject a db the migration produces.
+                    # A hash-shaped endpoint on a Class A/C row is a KEPT orphan (§5.3):
+                    # a cross-project / un-synced / pruned version the migration keeps
+                    # unchanged, indistinguishable from a botched re-anchor in the
+                    # post-image alone. Surface it (eyeball) but do NOT block — blocking
+                    # would reject a db the migration legitimately produces.
                     warnings.append(
                         f"hash-shaped endpoint {col} {endpoint!r} not in local "
                         f"versions (thread {row['thread_id']!r}, type {row['type']}) — "

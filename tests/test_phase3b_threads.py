@@ -862,6 +862,31 @@ class TestVerifierPositivePath:  # GREEN (impl 4): verify_db landed
         assert any("thread_id" in p.lower() and "null" in p.lower() for p in problems), \
             f"a NULL thread_id must block (§8): {problems}"
 
+    def test_blocks_on_slug_keyed_class_b_missed_reanchor(self, store):
+        # fell:phase3b-impl:r3:classb-reanchor-missed (codex) — §8 "every Class B row's
+        # endpoints resolve to versions.content_hash (re-anchor succeeded)". A genesis-
+        # anchored Class B row left SLUG-keyed post-swap (a MISSED re-anchor) still
+        # self-verifies AND round-trips through get_threads_display unchanged (slug ->
+        # slug), so neither self-verify nor the differential display leg catches it —
+        # only the structural verifier can. Corrupt a re-anchored reference back to slugs.
+        v = self._migrated(store)  # reference j001->j002, re-anchored to genesis
+        c = _conn(store)
+        try:
+            row = c.execute(
+                "SELECT * FROM threads WHERE type='reference' LIMIT 1").fetchone()
+            f, t = "finding-20260703-j001", "finding-20260703-j002"  # back to live slugs
+            h = compute_thread_hash(f, t, "reference", row["weaver"],
+                                    row["created_at"], row["content"])  # hash recomputed
+            c.execute("UPDATE threads SET from_id=?, to_id=?, thread_hash=? "
+                      "WHERE thread_id=?", (f, t, h, row["thread_id"]))
+            c.commit()
+        finally:
+            c.close()
+        problems, _ = v.verify_db(_db(store))
+        assert any("class b" in p.lower() or "re-anchor" in p.lower()
+                   or "not in versions" in p.lower() for p in problems), \
+            f"a slug-keyed Class B leftover (missed re-anchor) must block (§8): {problems}"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 8. Differential equivalence + migration invariants. The equivalence legs are

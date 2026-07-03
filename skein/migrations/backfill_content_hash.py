@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPENT — Phase 3a A5 dropped folios ecosystem-wide 2026-07-03; this one-shot is
+# inapplicable (references a table that no longer exists on live dbs). Kept as a record.
 """Migration: backfill folios.content_hash to the corrected sha256:: identity.
 
 Phase 0 of the content-addressed migration. Recomputes every folio's content

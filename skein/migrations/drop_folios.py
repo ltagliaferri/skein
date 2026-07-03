@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPENT — executed 2026-07-03; all dbs folios-free, now an idempotent no-op.
+# Kept as a record (with tests/test_drop_folios.py) of the destructive migration.
 """Phase 3a A5 Part 2 — the destructive live `folios` DROP driver (design §5.A5).
 
 The final Phase-3a contraction: drop the legacy `folios` table on every registered

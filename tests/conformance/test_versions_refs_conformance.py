@@ -400,6 +400,83 @@ def test_verify_db_tolerates_dropped_folios(store):
     assert not problems, f"folios-free db must have no blocker problems: {problems}"
 
 
+# ── verify_db POSITIVE blocker paths: each structural defect is CAUGHT ─────────
+# The clean-path tests above prove verify_db passes a sound store; these prove it
+# FAILS a corrupted one — one focused injection each so exactly the target check
+# fires (glm's A5 Part 1 fell note; codex proved these fire via probes, this locks
+# it as a regression test). The three checks are the folios-independent invariants
+# that survive the A5 drop forever: no dangling ref endpoint, versions self-verify,
+# acyclic supersedes DAG.
+
+def test_verify_db_flags_dangling_head_hash(store):
+    # Check 1: a refs.head_hash with no matching versions row is a BLOCKER.
+    from skein.migrations.verify_versions_refs import verify_db
+    _make_site(store)
+    store.save_folio(_folio("finding-20260629-dh01", "body"))
+    c = _conn(store)
+    try:
+        c.execute("UPDATE refs SET head_hash=? WHERE slug=?",
+                  ("sha256::0000dead", "finding-20260629-dh01"))
+        c.commit()
+    finally:
+        c.close()
+
+    problems, _warnings = verify_db(store.base_dir / "skein.db")
+    assert any("head_hash not in versions" in p for p in problems), \
+        f"a dangling head_hash must be a blocker: {problems}"
+
+
+def test_verify_db_flags_version_that_does_not_self_verify(store):
+    # Check 2: a versions row whose content_hash no longer equals compute_folio_hash
+    # of its own five fields (here, tampered content) is a BLOCKER.
+    from skein.migrations.verify_versions_refs import verify_db
+    _make_site(store)
+    store.save_folio(_folio("finding-20260629-sv01", "body"))
+    c = _conn(store)
+    try:
+        # PK (content_hash) left intact so check 1 still resolves; only the content
+        # is corrupted, so the self-verify recompute diverges from the stored hash.
+        c.execute("UPDATE versions SET content=?", ("tampered — no longer hashes to its PK",))
+        c.commit()
+    finally:
+        c.close()
+
+    problems, _warnings = verify_db(store.base_dir / "skein.db")
+    assert any("does not self-verify" in p for p in problems), \
+        f"a tampered version must be a blocker: {problems}"
+
+
+def test_verify_db_flags_supersedes_cycle(store):
+    # Check 3: a cycle in the supersedes DAG is a BLOCKER. The natural edit gives a
+    # v2->v1 supersedes edge; injecting the reverse v1->v2 closes a cycle over two
+    # real versions (so endpoint-existence stays clean and ONLY the cycle fires).
+    from skein.migrations.verify_versions_refs import verify_db
+    _make_site(store)
+    store.save_folio(_folio("finding-20260629-cy01", "v1"))
+    v1 = _ref(store, "finding-20260629-cy01")["head_hash"]
+    f2 = store.get_folio("finding-20260629-cy01")
+    f2.content = "v2"
+    store.save_folio(f2, editor="e")
+    v2 = _ref(store, "finding-20260629-cy01")["head_hash"]
+    assert v1 != v2
+
+    c = _conn(store)
+    try:
+        c.execute(
+            "INSERT INTO threads (thread_id, from_id, to_id, type, content, weaver, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("cycle-injected-0001", v1, v2, "supersedes", None, "test",
+             "2026-01-01T00:00:00+00:00"),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+    problems, _warnings = verify_db(store.base_dir / "skein.db")
+    assert any("cycle" in p for p in problems), \
+        f"a supersedes cycle must be a blocker: {problems}"
+
+
 # ── 7. move_folio writes refs.site_id, mints no version, returns the new site ──
 
 def test_move_folio_updates_refs_site_no_new_version(store):

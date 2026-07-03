@@ -69,8 +69,12 @@ def classify_row(row, *, slugs, versions) -> str:
     folio_ids = slugs | versions
     if from_id not in folio_ids or to_id not in folio_ids:
         return "C"
-    # 5. distinct, both-folio, non-override → structural class B.
-    return "B"
+    # 5. distinct, both-folio, and a NAMED structural type → class B. The B decision
+    #    is an ALLOW-LIST (the §5 B-eligible set == STRUCTURAL_TYPES), symmetric with
+    #    manifest_eligible: an unknown/new type falls through to C (not re-anchored),
+    #    the fail-safe default, so adding a ThreadType without updating this module
+    #    can never silently re-key a row it shouldn't.
+    return "B" if ttype in STRUCTURAL_TYPES else "C"
 
 
 def manifest_eligible(row, *, versions) -> bool:

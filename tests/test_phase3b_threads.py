@@ -540,6 +540,15 @@ class TestBCClassification:  # GREEN (impl 1): classify_row landed
         row = {"from_id": "finding-a", "to_id": "deleted-999", "type": "reference"}
         assert m.classify_row(row, slugs=slugs, versions=versions) == "C"
 
+    def test_unknown_type_between_folios_is_c(self):
+        # fell:phase3b-impl:r1:classify-allowlist (opus note) — the B decision is an
+        # allow-list; an unknown/new type (even distinct folio->folio) falls to C, so
+        # migrate_db never silently re-anchors a row of an unrecognized type.
+        m = _load_pk_migration()
+        slugs, versions = self._sets()
+        row = {"from_id": "finding-a", "to_id": "finding-b", "type": "somenewtype"}
+        assert m.classify_row(row, slugs=slugs, versions=versions) == "C"
+
 
 class TestManifestPredicate:  # GREEN (impl 1): manifest_eligible landed
     def _versions(self):

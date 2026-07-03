@@ -198,7 +198,7 @@ def main() -> None:
             print(f"      ! WARN {label}: {msg}")
 
     if bad:
-        print(f"\n{bad} db(s) DIVERGED — versions/refs integrity check FAILED")
+        print(f"\n{bad} db(s) FAILED the versions/refs integrity check")
         sys.exit(1)
     print("\nAll clean — versions/refs structurally sound.")
 

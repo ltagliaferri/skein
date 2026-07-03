@@ -55,6 +55,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sqlite3
 import sys
@@ -143,6 +144,7 @@ def check_preconditions(conn: sqlite3.Connection) -> Tuple[bool, List[str]]:
     mism["metadata"] = 0
     identity_mism = {
         "head_hash_not_in_versions": 0,
+        "head_version_not_self_verifying": 0,
         "content_hash_head_hash": 0,
         "site_id_refs_site_id": 0,
         "identity_hash_head_hash": 0,
@@ -156,6 +158,16 @@ def check_preconditions(conn: sqlite3.Connection) -> Tuple[bool, List[str]]:
                             (r["head_hash"],)).fetchone()
         if head is None:
             identity_mism["head_hash_not_in_versions"] += 1
+        elif KNURL_AVAILABLE:
+            head_hash = compute_folio_hash({
+                "type": head["type"],
+                "title": head["title"],
+                "content": head["content"],
+                "created_at": head["created_at"],
+                "created_by": head["created_by"],
+            })
+            if head_hash != r["head_hash"]:
+                identity_mism["head_version_not_self_verifying"] += 1
         if (f["content_hash"] or "") != (r["head_hash"] or ""):
             identity_mism["content_hash_head_hash"] += 1
         if f["site_id"] != r["site_id"]:
@@ -190,6 +202,9 @@ def check_preconditions(conn: sqlite3.Connection) -> Tuple[bool, List[str]]:
     if identity_mism["head_hash_not_in_versions"]:
         v.append(f"{identity_mism['head_hash_not_in_versions']} folio(s) whose "
                  f"head_hash is not in versions")
+    if identity_mism["head_version_not_self_verifying"]:
+        v.append(f"{identity_mism['head_version_not_self_verifying']} folio(s) whose "
+                 f"head version does not self-verify")
 
     return (not v, v)
 
@@ -259,7 +274,32 @@ def drop_one(pid: str, db: Path, *, live: bool, stamp: str) -> Tuple[bool, str, 
                 return (False, f"refused: backup destination already exists "
                         f"({pre.name}) — resolve by hand (the first .bak is the true "
                         f"pre-drop image)", ["backup destination already exists"])
-            _backup_copy(db, pre)
+            tmp_pre = db.with_name(f".{pre.name}.tmp-{os.getpid()}")
+            fd = os.open(tmp_pre, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            try:
+                _backup_copy(db, tmp_pre)
+                bc = sqlite3.connect(f"file:{tmp_pre}?mode=ro", uri=True)
+                try:
+                    if "folios" not in _tables(bc):
+                        return (False, f"refused: backup missing folios ({pre.name})",
+                                ["backup missing folios"])
+                    backed_up = bc.execute("SELECT COUNT(*) FROM folios").fetchone()[0]
+                    if backed_up != n_folios:
+                        return (False, f"refused: backup folios count mismatch "
+                                f"({backed_up} != {n_folios})",
+                                ["backup folios count mismatch"])
+                finally:
+                    bc.close()
+                try:
+                    os.link(tmp_pre, pre)
+                except FileExistsError:
+                    return (False, f"refused: backup destination already exists "
+                            f"({pre.name}) — resolve by hand (the first .bak is the "
+                            f"true pre-drop image)",
+                            ["backup destination already exists"])
+            finally:
+                tmp_pre.unlink(missing_ok=True)
 
         # 3. DROP (its indexes drop with it), in one immediate transaction
         w = sqlite3.connect(str(target), isolation_level=None, timeout=30)

@@ -206,6 +206,18 @@ def test_precondition_identity_hash_mismatch(tmp_path):
                           for v in violations)
 
 
+def test_precondition_head_version_self_verify_mismatch(tmp_path):
+    path = _build(tmp_path / "skein.db")
+    c = _conn(path)
+    c.execute("UPDATE versions SET title='A corrupt head row' WHERE content_hash = "
+              "(SELECT head_hash FROM refs WHERE slug='folio-1')")
+    c.commit()
+    c.close()
+    ok, violations = _precheck(path)
+    assert not ok and any("head version does not self-verify" in v
+                          for v in violations)
+
+
 def test_precondition_site_id_mismatch(tmp_path):
     path = _build(tmp_path / "skein.db")
     c = _conn(path)
@@ -313,6 +325,33 @@ def test_live_refuses_exact_backup_destination_race(tmp_path, monkeypatch):
     assert not passed and "backup destination already exists" in label
     assert problems == ["backup destination already exists"]
     assert pre.read_text() == "original backup bytes"
+
+    c = _conn(path)
+    try:
+        assert c.execute("SELECT 1 FROM sqlite_master WHERE name='folios'").fetchone() is not None
+    finally:
+        c.close()
+
+
+def test_live_backup_restore_point_has_folios_before_drop(tmp_path, monkeypatch):
+    path = _build(tmp_path / "skein.db")
+
+    real_backup = df._backup_copy
+
+    def backup_without_folios(src, dst):
+        real_backup(src, dst)
+        c = sqlite3.connect(dst)
+        try:
+            c.execute("DROP TABLE folios")
+            c.commit()
+        finally:
+            c.close()
+
+    monkeypatch.setattr(df, "_backup_copy", backup_without_folios)
+
+    passed, label, problems = df.drop_one("p", path, live=True, stamp="BADBAK")
+    assert not passed and "backup missing folios" in label
+    assert problems == ["backup missing folios"]
 
     c = _conn(path)
     try:

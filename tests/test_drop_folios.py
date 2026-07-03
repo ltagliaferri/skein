@@ -164,6 +164,21 @@ def test_precondition_nonopen_status_with_thread_passes(tmp_path):
     assert ok, violations
 
 
+def test_precondition_nonopen_status_with_only_slug_keyed_thread_blocks(tmp_path):
+    # A4's slug-keyed status threads are retired. The live reader is genesis-keyed,
+    # so a non-open folios.status covered only by a slug thread would be lost.
+    path = _build(tmp_path / "skein.db")
+    c = _conn(path)
+    c.execute("UPDATE folios SET status='closed' WHERE folio_id='folio-1'")
+    c.execute("INSERT INTO threads (thread_id, from_id, to_id, type, content, weaver, "
+              "created_at) VALUES ('t-close-slug', 'folio-1', 'folio-1', 'status', "
+              "'closed', 'agent-x', '2026-01-02T00:00:00+00:00')")
+    c.commit()
+    c.close()
+    ok, violations = _precheck(path)
+    assert not ok and any("no covering status thread" in v for v in violations)
+
+
 def test_precondition_assigned_to_set(tmp_path):
     path = _build(tmp_path / "skein.db")
     c = _conn(path)

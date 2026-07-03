@@ -121,8 +121,7 @@ def check_preconditions(conn: sqlite3.Connection) -> Tuple[bool, List[str]]:
     n = conn.execute(
         "SELECT COUNT(*) FROM folios f WHERE COALESCE(f.status,'open') != 'open' "
         "AND NOT EXISTS (SELECT 1 FROM threads t WHERE t.type='status' AND "
-        "  t.to_id IN (f.folio_id, "
-        "    (SELECT r.genesis_hash FROM refs r WHERE r.slug = f.folio_id)))"
+        "  t.to_id = (SELECT r.genesis_hash FROM refs r WHERE r.slug = f.folio_id))"
     ).fetchone()[0]
     if n:
         v.append(f"{n} non-open folio(s) with no covering status thread "
@@ -309,6 +308,15 @@ def drop_one(pid: str, db: Path, *, live: bool, stamp: str) -> Tuple[bool, str, 
             try:
                 w.execute("DROP TABLE folios")
                 w.execute("COMMIT")
+                if live:
+                    try:
+                        row = w.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                        if row is not None and row[0]:
+                            print(f"  WARN     {pid}: wal_checkpoint(TRUNCATE) "
+                                  f"reported busy after drop: {tuple(row)}")
+                    except sqlite3.Error as e:
+                        print(f"  WARN     {pid}: wal_checkpoint(TRUNCATE) failed "
+                              f"after drop: {type(e).__name__}: {e}")
             except Exception:
                 w.execute("ROLLBACK")
                 raise

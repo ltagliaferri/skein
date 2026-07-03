@@ -501,8 +501,7 @@ class TestI1AndCollisionRefusal:
 # 5. The per-row B/C classifier + manifest predicate. RED until the module lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestBCClassification:
+class TestBCClassification:  # GREEN (impl 1): classify_row landed
     def _sets(self):
         slugs = {"finding-a", "finding-b"}
         versions = {"sha256::ga", "sha256::gb"}
@@ -542,8 +541,7 @@ class TestBCClassification:
         assert m.classify_row(row, slugs=slugs, versions=versions) == "C"
 
 
-@pytest.mark.phase3b_pending
-class TestManifestPredicate:
+class TestManifestPredicate:  # GREEN (impl 1): manifest_eligible landed
     def _versions(self):
         return {"sha256::ga", "sha256::gb"}
 

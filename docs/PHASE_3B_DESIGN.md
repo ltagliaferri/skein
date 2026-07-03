@@ -220,11 +220,13 @@ place; neither copies-drops-renames a live-written table. So the write-window
 discipline is stated explicitly, not inherited.
 
 **Preconditions (fail-closed, refuse the db):**
-- **Quiesce `skein.service` and verify it inactive.** It is the sole direct db
-  writer, and step 3 resolves slugs→hashes row-by-row in Python holding the write
-  lock long enough that an unquiesced live writer on a busy db (speakbot) hits
-  `busy_timeout` and errors — a green violation. Quiesce is mandatory (the
-  `drop_folios` apparatus already stopped the service; carried forward here).
+- **`skein.service` verified inactive.** The operator (or the apparatus, as the
+  `drop_folios` units did) quiesces it; the migration *verifies* it inactive and
+  refuses otherwise. It is the sole direct db writer, and step 3 resolves
+  slugs→hashes row-by-row in Python holding the write lock long enough that an
+  unquiesced live writer on a busy db (speakbot) hits `busy_timeout` and errors —
+  a green violation. So quiescence is mandatory, and the migration fails closed if
+  it is not in effect.
 - **I1 — `genesis_hash` unique per lineage** (no two `refs.slug` share a genesis;
   measured 0 today, §2.1). The whole re-anchor rests on this (step 4); assert it
   per db, never assume it.
@@ -522,8 +524,10 @@ alone do not prove a gate fires.
    orphans, the 17 `tag` + 54 `message` self-loops, the `reference`/`mention` F→F
    tails — confirmed against live data at migration time, not assumed from the
    sample.
-2. `within` / `published` — added to `ThreadType` now (0 rows), but their write
-   paths and exact anchor land when a feature uses them.
+2. `within` / `published` — to be added to `ThreadType` (0 rows today; not in
+   `models.py` yet), with their write paths and exact anchor, when a feature uses
+   them. The B/C classifier and manifest allow-list name them ahead of that so the
+   rule is complete, but the enum addition is deferred to first use.
 3. Class C federation model (mesh phase): does an agent-graph edge ever travel,
    and how is an agent identified on the wire.
 4. Whether the residual dead references (orphans kept in §5.3) ever get a separate

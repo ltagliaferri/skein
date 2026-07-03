@@ -165,10 +165,17 @@ def _load_pk_migration():
           Rewrites `threads` with `thread_hash` as PK in ONE transaction: re-anchor
           Class B rows (slug -> folio hash, recompute thread_hash), collapse true
           byte-duplicates via INSERT OR IGNORE, recreate the six idx_threads_* after
-          DROP+RENAME (§4.4). Preconditions refuse the db (quiesce is the operator's;
-          I1 + no-prior-backup are the module's). `result.collapsed` is a list of
-          dropped thread_hashes (byte-dup only); `result.reanchored` is the count of
-          Class B rows re-keyed. Idempotent: a second run is a no-op.
+          DROP+RENAME (§4.4). Class C rows (incl. orphans, §5.3) are KEPT unchanged
+          (endpoints not re-anchored) and logged. `result.collapsed` is the list of
+          dropped thread_hashes (byte-dup ONLY); `result.reanchored` the count of
+          Class B rows re-keyed; `result.orphans` the kept-and-logged orphan rows.
+          ``dry_run=True`` mutates nothing and returns the same plan (counts).
+          Idempotent by short-circuit: a db already at the PK schema (thread_hash is
+          the PK) is a no-op PASS, checked BEFORE the no-prior-backup precondition —
+          so a re-run after a completed migration neither refuses nor rewrites.
+      Preconditions (fail-closed, only on a not-yet-migrated db): `skein.service`
+          verified inactive (the module VERIFIES quiescence; the operator performs
+          it); I1 (genesis unique per lineage); no prior `<db>.bak-threads-pk-*`.
       PreconditionError
           Typed refusal: raised on an I1 genesis collision (two slugs share a
           genesis) OR a re-anchor collision (two DISTINCT edges would collapse) —
@@ -181,10 +188,13 @@ def _load_pk_migration():
           (self-loop); an endpoint resolving to neither slug nor version -> 'C'
           (orphan); otherwise both-folio distinct -> 'B'.
       manifest_eligible(row, *, versions) -> bool
-          The Merkle-manifest admission predicate (§7): True iff a structural type
-          (not control, not tag/message), from_id != to_id, and BOTH endpoints in
-          `versions`. Post-swap Class A self-loops also have version-hash endpoints,
-          so the type gate is load-bearing.
+          The Merkle-manifest admission predicate (§7), an explicit ALLOW-LIST: True
+          iff type in {reference, mention, reply, succession, within, published,
+          supersedes, reverted}, from_id != to_id, and BOTH endpoints in `versions`.
+          A denylist ("not control/tag/message") would silently federate any NEW
+          type; the allow-list must reject an unknown type. Class A self-loops also
+          have version-hash endpoints, so both the type gate and from!=to are
+          load-bearing (each must reject a case the other would admit).
     """
     try:
         from skein.migrations import threads_pk_swap as m
@@ -195,15 +205,21 @@ def _load_pk_migration():
 
 
 def _load_pk_verifier():
-    """The Phase 3b differential verifier (mirrors verify_threads_control.py).
+    """The Phase 3b post-swap STRUCTURAL verifier (sibling of verify_versions_refs.py).
+
+    Read-only, self-contained on a single post-swap db — no before-image needed.
+    (The DIFFERENTIAL equivalence legs — control read unchanged, Class B display
+    unchanged, row-count reconciliation — are before/after SPEC comparisons here,
+    not verify_db legs, because they need the pre-image the migration harness holds.)
 
       verify_db(db_path) -> (problems, warnings)
-          Read-only. `problems` are BLOCKERS. Post-swap structural checks (§8):
-          thread_hash is PK+UNIQUE; every thread_hash self-verifies
-          (compute_thread_hash(row) == PK); no dangling endpoints; all six
-          idx_threads_* present; row count == pre-count minus logged byte-dup
-          collapses only (a re-anchor collision is expected-0, a BLOCKER); I1 holds
-          post db; the Class B display read is unchanged (shadowed independently).
+          `problems` are BLOCKERS. Post-swap structural checks (§8):
+          - thread_hash is the declared PK and is UNIQUE (no surviving duplicate).
+          - every thread_hash self-verifies: compute_thread_hash(row) == the stored PK.
+          - no dangling endpoint: every from_id/to_id resolves (Class B/version rows
+            resolve in versions; Class C/orphan endpoints resolve as slug/agent).
+          - all six idx_threads_* present (an unindexed table passes value checks).
+          - I1 holds on the post db (no genesis_hash shared across two refs.slug).
     """
     try:
         from skein.migrations import verify_threads_pk as v
@@ -536,11 +552,20 @@ class TestManifestPredicate:
         row = {"from_id": "sha256::ga", "to_id": "sha256::gb", "type": "reference"}
         assert m.manifest_eligible(row, versions=self._versions()) is True
 
-    def test_control_self_loop_excluded_though_hash_keyed(self):
-        # fell:phase3b-design:r1:manifest-predicate-leak — Class A self-loops also
-        # have version-hash endpoints; the type gate must exclude them.
+    def test_distinct_endpoint_control_excluded_locks_type_gate(self):
+        # fell:phase3b-design:r1:manifest-predicate-leak — the type gate, isolated:
+        # DISTINCT version-hash endpoints (so from!=to does NOT exclude it) with a
+        # control type must still be rejected. A self-loop (ga->ga) would pass on the
+        # from!=to gate alone and not prove the type gate fires; this does.
         m = _load_pk_migration()
-        row = {"from_id": "sha256::ga", "to_id": "sha256::ga", "type": "status"}
+        row = {"from_id": "sha256::ga", "to_id": "sha256::gb", "type": "assignment"}
+        assert m.manifest_eligible(row, versions=self._versions()) is False
+
+    def test_unknown_type_excluded_locks_allowlist(self):
+        # The predicate is an ALLOW-LIST (§7): a NEW/unknown type between two folios
+        # must be rejected, so a denylist impl (which would federate it) fails here.
+        m = _load_pk_migration()
+        row = {"from_id": "sha256::ga", "to_id": "sha256::gb", "type": "somenewtype"}
         assert m.manifest_eligible(row, versions=self._versions()) is False
 
     @pytest.mark.parametrize("ttype", ["tag", "message"])
@@ -549,9 +574,18 @@ class TestManifestPredicate:
         row = {"from_id": "sha256::ga", "to_id": "sha256::gb", "type": ttype}
         assert m.manifest_eligible(row, versions=self._versions()) is False
 
-    def test_self_loop_excluded(self):
+    def test_self_loop_excluded_locks_fromto_gate(self):
+        # The from!=to gate, isolated: a B-eligible TYPE (reference) as a self-loop
+        # must be rejected (a type-gate-only impl would admit it).
         m = _load_pk_migration()
         row = {"from_id": "sha256::ga", "to_id": "sha256::ga", "type": "reference"}
+        assert m.manifest_eligible(row, versions=self._versions()) is False
+
+    def test_endpoint_not_in_versions_excluded(self):
+        # Both endpoints must resolve in versions; a slug-keyed (unresolved) endpoint
+        # is not manifest-eligible.
+        m = _load_pk_migration()
+        row = {"from_id": "sha256::ga", "to_id": "finding-b", "type": "reference"}
         assert m.manifest_eligible(row, versions=self._versions()) is False
 
     def test_supersedes_eligible(self):
@@ -643,16 +677,72 @@ class TestVerifierPositivePath:
         assert any("self-verify" in p for p in problems), problems
 
     def test_blocks_on_dangling_endpoint(self, store):
+        # Isolate the dangling gate: move an endpoint to a hash NOT in versions AND
+        # recompute thread_hash to MATCH — so self-verify PASSES and only a real
+        # dangling-endpoint check can fire (else this just re-proves self-verify).
         v = self._migrated(store)
         c = _conn(store)
         try:
-            c.execute("UPDATE threads SET from_id='sha256::dangling' "
-                      "WHERE type='supersedes'")
+            row = c.execute(
+                "SELECT * FROM threads WHERE type='supersedes' LIMIT 1").fetchone()
+            new_from = "sha256::00000000notinversions"
+            new_hash = compute_thread_hash(
+                new_from, row["to_id"], row["type"], row["weaver"],
+                row["created_at"], row["content"])
+            c.execute("UPDATE threads SET from_id=?, thread_hash=? WHERE thread_id=?",
+                      (new_from, new_hash, row["thread_id"]))
             c.commit()
         finally:
             c.close()
         problems, _ = v.verify_db(_db(store))
-        assert problems, "a dangling endpoint is a blocker"
+        assert any("dangl" in p.lower() or "not in versions" in p.lower()
+                   for p in problems), \
+            f"the dangling gate (not self-verify) must fire: {problems}"
+
+    def test_blocks_on_surviving_duplicate_thread_hash(self, store):
+        # design §8: a surviving duplicate thread_hash is a BLOCKER. Under a real PK
+        # a dup can't be inserted, so destroy the PK (rebuild without it) + inject a
+        # dup — the verifier must catch that thread_hash is not actually unique/PK.
+        v = self._migrated(store)
+        c = _conn(store)
+        try:
+            cols = ("thread_hash, thread_id, from_id, to_id, type, content, "
+                    "weaver, created_at")
+            c.execute("ALTER TABLE threads RENAME TO threads_old")
+            c.execute(f"CREATE TABLE threads ({cols.replace(', ', ' TEXT, ')} TEXT)")
+            c.execute(f"INSERT INTO threads ({cols}) SELECT {cols} FROM threads_old")
+            row = c.execute("SELECT * FROM threads_old LIMIT 1").fetchone()
+            c.execute(
+                f"INSERT INTO threads ({cols}) VALUES (?,?,?,?,?,?,?,?)",
+                (row["thread_hash"], "thread-dup-xxxx", row["from_id"], row["to_id"],
+                 row["type"], row["content"], row["weaver"], row["created_at"]))
+            c.execute("DROP TABLE threads_old")
+            c.commit()
+        finally:
+            c.close()
+        problems, _ = v.verify_db(_db(store))
+        assert any("uniqu" in p.lower() or "duplicate" in p.lower()
+                   or "primary key" in p.lower() or "pk" in p.lower()
+                   for p in problems), \
+            f"a surviving duplicate thread_hash must block: {problems}"
+
+    def test_blocks_on_post_i1_violation(self, store):
+        # I1 defense-in-depth: even post-swap the verifier confirms genesis is unique
+        # per lineage (inject a shared genesis).
+        v = self._migrated(store)
+        c = _conn(store)
+        try:
+            rows = c.execute("SELECT slug, genesis_hash FROM refs").fetchall()
+            if len(rows) < 2:
+                pytest.skip("need two refs to force an I1 collision")
+            c.execute("UPDATE refs SET genesis_hash=? WHERE slug=?",
+                      (rows[0]["genesis_hash"], rows[1]["slug"]))
+            c.commit()
+        finally:
+            c.close()
+        problems, _ = v.verify_db(_db(store))
+        assert any("i1" in p.lower() or "genesis" in p.lower() for p in problems), \
+            f"a post-swap I1 violation must block: {problems}"
 
     def test_blocks_on_missing_index(self, store):
         # fell:phase3b-design:r3:index-presence — an unindexed hot table passes every
@@ -667,3 +757,113 @@ class TestVerifierPositivePath:
         problems, _ = v.verify_db(_db(store))
         assert any("idx_threads_from" in p or "index" in p.lower() for p in problems), \
             problems
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. Differential equivalence + migration invariants. The equivalence legs are
+#    before/after SPEC comparisons (the migration harness holds the pre-image),
+#    not verify_db legs.
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.phase3b_pending
+class TestControlReadUnchanged:
+    """The other §8 equivalence surface: control read identical across the swap.
+    The rewrite touches every row (incl. 5283 status rows ecosystem-wide); a reorder
+    or drop must be caught, and 'thread_id is kept so it's safe' is an argument, not
+    a test."""
+
+    def test_status_and_assignment_reads_identical_across_swap(self, store):
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-k001")
+        _post_thread(store, "finding-20260703-k001", "finding-20260703-k001",
+                     "status", content="closed")
+        _post_thread(store, "finding-20260703-k001", "agent-x", "assignment")
+
+        before_s = store.get_latest_statuses(["finding-20260703-k001"])
+        before_a = store.get_latest_assignments(["finding-20260703-k001"])
+        assert before_s == {"finding-20260703-k001": "closed"}
+
+        _load_pk_migration().migrate_db(_db(store))
+
+        assert store.get_latest_statuses(["finding-20260703-k001"]) == before_s, \
+            "status read unchanged across the swap"
+        assert store.get_latest_assignments(["finding-20260703-k001"]) == before_a, \
+            "assignment read unchanged across the swap"
+
+
+@pytest.mark.phase3b_pending
+class TestMigrationInvariants:
+    def test_row_count_reconciles_to_logged_collapse_only(self, store):
+        _make_site(store)
+        ga = _mk_lineage(store, "finding-20260703-l001")
+        _mk_lineage(store, "finding-20260703-l002")
+        _post_thread(store, "finding-20260703-l001", "finding-20260703-l002", "reference")
+        before = len(_rows(store))
+        result = _load_pk_migration().migrate_db(_db(store))
+        after = len(_rows(store))
+        assert after == before - len(result.collapsed), \
+            "row count moves by exactly the logged byte-dup collapse, nothing else"
+
+    def test_second_run_is_noop_not_refused(self, store):
+        # fell:phase3b-design:r1:idempotent-vs-backup — an already-migrated db
+        # short-circuits BEFORE the no-prior-backup precondition, so a re-run neither
+        # refuses nor rewrites.
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-l003")
+        m = _load_pk_migration()
+        m.migrate_db(_db(store))
+        r2 = m.migrate_db(_db(store))  # must not raise PreconditionError
+        assert r2.reanchored == 0 and not r2.collapsed, "second run is a no-op"
+
+    def test_dry_run_mutates_nothing(self, store):
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-l004")
+        _mk_lineage(store, "finding-20260703-l005")
+        _post_thread(store, "finding-20260703-l004", "finding-20260703-l005", "reference")
+        before = sorted(_rows(store), key=lambda r: r["thread_id"])
+        _load_pk_migration().migrate_db(_db(store), dry_run=True)
+        after = sorted(_rows(store), key=lambda r: r["thread_id"])
+        assert after == before, "dry_run leaves the threads table byte-identical"
+
+    def test_orphan_reference_kept_and_logged_not_dropped(self, store):
+        # fell:phase3b-design:r1:orphan-keep-log (§5.3) — structural edges are not
+        # regenerable, so an orphan endpoint is KEPT (slug-keyed) and logged, never
+        # dropped like a 3a control orphan. This is migration BEHAVIOR, not classify.
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-l006")
+        _post_thread(store, "finding-20260703-l006", "deleted-00000000-zzzz", "reference")
+        before = len(_rows(store, "reference"))
+        result = _load_pk_migration().migrate_db(_db(store))
+        after_rows = _rows(store, "reference")
+        assert len(after_rows) == before, "orphan reference kept, not dropped"
+        orphan = [r for r in after_rows if r["to_id"] == "deleted-00000000-zzzz"]
+        assert orphan, "the orphan row survives"
+        assert orphan[0]["from_id"] == "finding-20260703-l006", \
+            "orphan stays slug-keyed (not re-anchored)"
+        assert result.orphans, "the kept orphan is logged"
+
+    def test_reverted_marker_survives_swap(self, store):
+        # §4.3 — the reverted marker is the one intentional per-event row; distinct
+        # created_at -> distinct hash, so it survives the collapse.
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-l007", "v1")
+        _edit(store, "finding-20260703-l007", "v2")
+        f3 = store.get_folio("finding-20260703-l007")
+        f3.content = "v1"
+        store.save_folio(f3, editor="e")  # revert -> mints a 'reverted' marker
+        assert len(_rows(store, "reverted")) == 1
+        _load_pk_migration().migrate_db(_db(store))
+        assert len(_rows(store, "reverted")) == 1, "reverted marker survives the swap"
+
+    def test_class_c_orphan_reference_stays_slug_keyed_in_display(self, store):
+        # codex r1: the display shadow rewrites by type; lock that a Class C
+        # (orphan) reference is NOT slugified/dropped — it stays as posted.
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-l008")
+        _post_thread(store, "finding-20260703-l008", "deleted-00000000-yyyy", "reference")
+        _load_pk_migration().migrate_db(_db(store))
+        got = _display_via_reader(store, from_id="finding-20260703-l008")
+        expected = _expected_display(_rows(store), _refs_by_slug(store),
+                                     from_id="finding-20260703-l008")
+        assert got == expected
+        assert ("finding-20260703-l008", "deleted-00000000-yyyy", "reference", None) in got

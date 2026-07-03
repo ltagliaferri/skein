@@ -518,6 +518,36 @@ class TestI1AndCollisionRefusal:  # GREEN (impl 2): migrate_db landed
             m.migrate_db(_db(store))
         assert _rows(store) == before, "a refused db is left byte-untouched"
 
+    def test_reanchor_collision_refusal_leaves_no_stray_backup(self, store):
+        # fell:phase3b-impl:r2:collision-no-stray-backup (codex) — the re-anchor
+        # collision refusal (raised inside _plan) must run BEFORE the backup, so a
+        # refused db leaves NO .bak-threads-pk-* buried (which would falsely trip the
+        # no-prior-backup gate on the next run). A MIXED-key pair (a slug->slug edge and
+        # a genesis->slug twin) collides post-anchor even though I1 holds — the case the
+        # I1 precondition does NOT mask, so it exercises the _plan-before-backup order.
+        _make_site(store)
+        ga = _mk_lineage(store, "finding-20260703-g0m1")
+        _mk_lineage(store, "finding-20260703-g0m2")
+        ts = datetime(2026, 4, 4, tzinfo=timezone.utc).isoformat()
+        c = _conn(store)
+        try:
+            for tid, frm in (("thread-mk-0001", "finding-20260703-g0m1"),
+                             ("thread-mk-0002", ga)):  # slug-keyed twin + genesis-keyed
+                h = compute_thread_hash(frm, "finding-20260703-g0m2", "reference",
+                                        "w", ts, None)
+                c.execute(
+                    "INSERT INTO threads (thread_id, from_id, to_id, type, content, "
+                    "weaver, created_at, thread_hash) VALUES (?,?,?,?,?,?,?,?)",
+                    (tid, frm, "finding-20260703-g0m2", "reference", None, "w", ts, h))
+            c.commit()
+        finally:
+            c.close()
+        m = _load_pk_migration()
+        with pytest.raises(m.PreconditionError):
+            m.migrate_db(_db(store))
+        baks = list(store.base_dir.glob("skein.db.bak-threads-pk-*"))
+        assert not baks, f"a collision-refused db leaves no stray backup: {baks}"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. The per-row B/C classifier + manifest predicate. RED until the module lands.
@@ -789,6 +819,48 @@ class TestVerifierPositivePath:  # GREEN (impl 4): verify_db landed
         problems, _ = v.verify_db(_db(store))
         assert any("idx_threads_from" in p or "index" in p.lower() for p in problems), \
             problems
+
+    def test_hash_shaped_orphan_endpoint_warns_never_blocks(self, store):
+        # fell:phase3b-impl:r2:hash-orphan-not-blocked (opus) — a Class C orphan whose
+        # unresolved endpoint is HASH-shaped (a cross-project / un-synced / pruned
+        # version) is KEPT unchanged by the migration (§5.3), so the verifier must
+        # SURFACE it as a warning, never BLOCK — else it rejects a db the migration
+        # itself produces. Only version-anchored edges require both endpoints resolve.
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-j0o1", "v1")
+        _mk_lineage(store, "finding-20260703-j0o2", "v1")  # 2nd ref for the I1 gate
+        stray = "sha256::00000000000000000000000000000000000000000000000000000000deadbeef"
+        _post_thread(store, "finding-20260703-j0o1", stray, "reference")
+        _load_pk_migration().migrate_db(_db(store))
+        problems, warnings = _load_pk_verifier().verify_db(_db(store))
+        assert not problems, f"a kept hash-shaped orphan must not block: {problems}"
+        assert any(stray in w for w in warnings), \
+            f"the kept hash-shaped orphan is surfaced as a warning: {warnings}"
+
+    def test_blocks_on_null_thread_id(self, store):
+        # fell:phase3b-impl:r2:verifier-nullcheck (codex + opus) — design §8 requires
+        # thread_id NOT NULL preserved. thread_id is not hashed, so a NULL is invisible
+        # to self-verify; the verifier must catch it directly. The real PK table forbids
+        # a NULL, so rebuild threads with a nullable thread_id + inject one.
+        v = self._migrated(store)
+        c = _conn(store)
+        try:
+            cols = ("thread_hash, thread_id, from_id, to_id, type, content, "
+                    "weaver, created_at")
+            c.execute("ALTER TABLE threads RENAME TO threads_old")
+            c.execute("CREATE TABLE threads (thread_hash TEXT PRIMARY KEY, "
+                      "thread_id TEXT, from_id TEXT, to_id TEXT, type TEXT, "
+                      "content TEXT, weaver TEXT, created_at TEXT)")
+            c.execute(f"INSERT INTO threads ({cols}) SELECT {cols} FROM threads_old")
+            c.execute("UPDATE threads SET thread_id=NULL WHERE thread_hash="
+                      "(SELECT thread_hash FROM threads LIMIT 1)")
+            c.execute("DROP TABLE threads_old")
+            c.commit()
+        finally:
+            c.close()
+        problems, _ = v.verify_db(_db(store))
+        assert any("thread_id" in p.lower() and "null" in p.lower() for p in problems), \
+            f"a NULL thread_id must block (§8): {problems}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

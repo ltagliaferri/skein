@@ -56,6 +56,14 @@ STRUCTURAL_TYPES = (
 # corruption get_threads_display's docstring warns against).
 GENESIS_ANCHORED_TYPES = ("reference", "mention", "reply", "succession", "within")
 
+# The version-anchored structural types (design §6): edit-DAG / publish edges whose
+# BOTH endpoints are, by construction, exact ``versions.content_hash`` values. The
+# post-swap verifier uses this to require both endpoints resolve in ``versions`` for
+# these types (a miss is a genuine dangling BLOCKER), while a hash-shaped endpoint on
+# any OTHER type may be a kept orphan (§5.3), not an error. Together with
+# GENESIS_ANCHORED_TYPES this partitions STRUCTURAL_TYPES.
+VERSION_ANCHORED_TYPES = ("supersedes", "reverted", "published")
+
 # The six schema-global thread indexes, recreated on the renamed table AFTER the
 # DROP+RENAME (design §4.4 step 5) — the names are schema-global, so they cannot be
 # created on ``threads_new`` while the old ``threads`` still holds them. Kept
@@ -352,12 +360,21 @@ def migrate_db(db_path, *, dry_run: bool = False) -> PKSwapResult:
         ro.close()
 
     if dry_run:
-        # Read-only: assert I1, compute the plan, mutate nothing. Safe on a live WAL
-        # db — it is the copy-proof's plan-only pass.
+        # Read-only: assert every refusal the live run would, compute the plan, mutate
+        # nothing. Safe on a live WAL db — it is the copy-proof's plan-only pass. It
+        # surfaces the SAME refusals the live run raises (I1, NULL thread_id, re-anchor
+        # collision) so a dry-run over --all before --live never hides a db that will
+        # be refused.
         ro = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         ro.row_factory = sqlite3.Row
         try:
             slugs, slug_to_genesis, _ = _ref_maps(ro)   # asserts I1
+            n_null = _null_thread_id_count(ro)
+            if n_null:
+                raise PreconditionError(
+                    f"{n_null} thread row(s) with a NULL thread_id — threads_new."
+                    f"thread_id is NOT NULL, so these would be silently lost on copy; "
+                    f"resolve by hand before migrating")
             versions = _versions_set(ro)
             _, result = _plan(ro, slugs, slug_to_genesis, versions)
             result.dry_run = True
@@ -384,8 +401,11 @@ def migrate_db(db_path, *, dry_run: bool = False) -> PKSwapResult:
         conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
         try:
             # 1. Preconditions (fail-closed) under the lock — I1, no NULL thread_id,
-            #    no prior backup — before the backup, so a refused db is left
-            #    byte-untouched with no restore point buried.
+            #    no prior backup, AND the full plan (which itself refuses a re-anchor
+            #    collision) — ALL before the backup, so EVERY refusal leaves the db
+            #    byte-untouched with no restore point buried (the plan is read-only, so
+            #    running it before the backup is safe and the later backup, still under
+            #    the held lock, is an identical pre-swap image).
             slugs, slug_to_genesis, _ = _ref_maps(conn)   # asserts I1
             n_null = _null_thread_id_count(conn)
             if n_null:
@@ -399,20 +419,21 @@ def migrate_db(db_path, *, dry_run: bool = False) -> PKSwapResult:
                     f"prior threads-pk backup exists ({prior[0].name}) — already "
                     f"migrated or a prior attempt touched this db; resolve by hand "
                     f"(the first .bak is the true pre-swap image) before re-running")
+            survivors, result = _plan(conn, slugs, slug_to_genesis,
+                                      _versions_set(conn))   # may raise (collision)
 
             # 2. Backup (online-backup API, WAL-consistent) — the restore point.
-            #    Taken UNDER the held write lock, so it is a faithful pre-swap image.
+            #    Taken UNDER the held write lock, so it is a faithful pre-swap image;
+            #    reached only after every fail-closed refusal above has passed.
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             backup = db_path.with_name(f"{db_path.name}.bak-threads-pk-{stamp}")
             _backup_copy(db_path, backup)
 
-            # 3. The rewrite — build / re-anchor / copy / drop / rename / recreate-
-            #    indexes — all still under the one lock. A plain INSERT (not OR IGNORE):
-            #    _plan already collapsed byte-dups and refused collisions, so the
-            #    survivors are unique — a plain INSERT surfaces any residual anomaly
-            #    (a leftover dup, a NULL) LOUDLY as a rollback, never a silent drop.
-            survivors, result = _plan(conn, slugs, slug_to_genesis,
-                                      _versions_set(conn))
+            # 3. The rewrite — build / copy / drop / rename / recreate-indexes — all
+            #    still under the one lock. A plain INSERT (not OR IGNORE): _plan already
+            #    collapsed byte-dups and refused collisions, so the survivors are unique
+            #    — a plain INSERT surfaces any residual anomaly (a leftover dup, a NULL)
+            #    LOUDLY as a rollback, never a silent drop.
             conn.execute(_THREADS_NEW_DDL)                 # table only, no indexes yet
             conn.executemany(
                 "INSERT INTO threads_new "

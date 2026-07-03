@@ -15,13 +15,20 @@ Checks per db (any divergence is a BLOCKER; exits non-zero) — design §8:
   2. Self-verification: ``compute_thread_hash(row)`` equals the stored ``thread_hash``
      for every row (catches a re-anchor that moved endpoints but not the hash, or a
      tampered field).
-  3. No dangling endpoint: every ``sha256::``-shaped endpoint (a content-hash
-     address — a Class B / version-anchored / control-genesis edge) resolves in
-     ``versions``. Non-hash endpoints (Class C / orphan slugs, assignment agents)
-     are NOT required to resolve — an orphan is deliberately KEPT, not an error
-     (§5.3), so requiring slug resolution here would wrongly block a healthy db.
-  4. All six ``idx_threads_*`` present (an unindexed hot table passes value checks).
-  5. I1 holds on the post db: no ``genesis_hash`` shared across two ``refs.slug`` —
+  3. No NULL in a required column (design §8): ``thread_hash`` / ``thread_id`` /
+     ``from_id`` / ``to_id`` / ``type`` / ``created_at`` are all non-null, and the
+     schema still declares ``thread_id`` ``NOT NULL`` (``thread_id`` is not hashed, so
+     a NULL would otherwise be invisible to the self-verify check).
+  4. No dangling endpoint. A VERSION-anchored edge (supersedes/reverted/published)
+     MUST have BOTH endpoints in ``versions`` — a miss is a genuine dangling BLOCKER.
+     A hash-shaped endpoint on ANY OTHER type that is not in ``versions`` is a kept
+     orphan (§5.3 — a cross-project / un-synced / pruned version the migration keeps
+     unchanged, never re-anchors) and is surfaced as a WARNING, not a blocker;
+     blocking it would reject a db the migration itself legitimately produces. Non-hash
+     endpoints (Class C / orphan slugs, assignment agents) are never required to
+     resolve.
+  5. All six ``idx_threads_*`` present (an unindexed hot table passes value checks).
+  6. I1 holds on the post db: no ``genesis_hash`` shared across two ``refs.slug`` —
      the invariant the re-anchor rested on, re-checked after (defense in depth).
 
 Usage:
@@ -43,9 +50,15 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from skein.identity import compute_thread_hash  # noqa: E402
+from skein.migrations.threads_pk_swap import VERSION_ANCHORED_TYPES  # noqa: E402
 from skein.storage import load_project_registry  # noqa: E402
 
 _HASH_PREFIX = "sha256::"
+
+# Columns that must be non-null on the post-swap table (design §8). content/weaver
+# are nullable by design and omitted.
+_REQUIRED_NONNULL = ("thread_hash", "thread_id", "from_id", "to_id", "type",
+                     "created_at")
 
 # The six schema-global thread indexes the swap must have recreated after the
 # DROP+RENAME (design §4.4 step 5 / §8). Kept in sync with storage.py and the swap.
@@ -80,7 +93,8 @@ def verify_db(db_path, *, sample: int = 0) -> Tuple[List[str], List[str]]:
                     for r in conn.execute("SELECT content_hash FROM versions")}
 
         # 1. thread_hash is the sole PK and is UNIQUE.
-        pk_cols = [r[1] for r in conn.execute("PRAGMA table_info(threads)") if r[5]]
+        table_info = list(conn.execute("PRAGMA table_info(threads)"))
+        pk_cols = [r[1] for r in table_info if r[5]]
         if pk_cols != ["thread_hash"]:
             problems.append(
                 f"thread_hash is not the sole primary key (pk columns: {pk_cols}) — "
@@ -93,7 +107,21 @@ def verify_db(db_path, *, sample: int = 0) -> Tuple[List[str], List[str]]:
                 f"duplicate thread_hash {d['thread_hash']!r} ({d['c']} rows) — "
                 f"thread_hash is not UNIQUE")
 
-        # 2 + 3. self-verification and no dangling endpoint, per row.
+        # 2. NOT-NULL post-conditions (design §8). thread_id is kept NOT NULL (it is
+        #    not hashed, so a NULL is invisible to the self-verify check) — assert both
+        #    the schema declaration and that no value is actually NULL.
+        notnull_decl = {r[1]: r[3] for r in table_info}   # name -> notnull flag
+        if notnull_decl.get("thread_id") != 1:
+            problems.append(
+                "thread_id is not declared NOT NULL (design §8 — the kept audit "
+                "handle / reader tiebreaker must stay non-null)")
+        for col in _REQUIRED_NONNULL:
+            n = conn.execute(
+                f"SELECT COUNT(*) FROM threads WHERE {col} IS NULL").fetchone()[0]
+            if n:
+                problems.append(f"{n} thread row(s) with a NULL {col} (design §8)")
+
+        # 3 + 4. self-verification and no dangling endpoint, per row.
         rows = conn.execute(
             "SELECT thread_id, from_id, to_id, type, content, weaver, created_at, "
             "thread_hash FROM threads").fetchall()
@@ -107,14 +135,30 @@ def verify_db(db_path, *, sample: int = 0) -> Tuple[List[str], List[str]]:
                 problems.append(
                     f"thread {row['thread_id']!r} does not self-verify (stored "
                     f"{row['thread_hash']!r}, recomputed {recomputed!r})")
+            is_version_edge = row["type"] in VERSION_ANCHORED_TYPES
             for col in ("from_id", "to_id"):
                 endpoint = row[col]
-                if _is_hash_shaped(endpoint) and endpoint not in versions:
-                    problems.append(
-                        f"dangling endpoint: {col} {endpoint!r} is a content-hash "
-                        f"address not in versions (thread {row['thread_id']!r})")
+                if is_version_edge:
+                    # An edit-DAG / publish edge: BOTH endpoints are content hashes by
+                    # construction and MUST resolve in versions. A miss is a real
+                    # dangling BLOCKER (a botched re-anchor / corrupted edge).
+                    if endpoint not in versions:
+                        problems.append(
+                            f"dangling endpoint: {col} {endpoint!r} of a "
+                            f"{row['type']} edge is not in versions "
+                            f"(thread {row['thread_id']!r})")
+                elif _is_hash_shaped(endpoint) and endpoint not in versions:
+                    # A hash-shaped endpoint on a non-version-anchored row is a KEPT
+                    # orphan (§5.3): a cross-project / un-synced / pruned version the
+                    # migration keeps unchanged, indistinguishable from a botched
+                    # re-anchor in the post-image alone. Surface it (eyeball) but do
+                    # NOT block — blocking would reject a db the migration produces.
+                    warnings.append(
+                        f"hash-shaped endpoint {col} {endpoint!r} not in local "
+                        f"versions (thread {row['thread_id']!r}, type {row['type']}) — "
+                        f"a kept orphan / un-synced version, not a re-anchored edge")
 
-        # 4. all six idx_threads_* present.
+        # 5. all six idx_threads_* present.
         indexes = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'")}
         for name in _EXPECTED_INDEXES:
@@ -123,7 +167,7 @@ def verify_db(db_path, *, sample: int = 0) -> Tuple[List[str], List[str]]:
                     f"missing index {name} (an unindexed hot table passes every value "
                     f"check — schema-global-name recreation trap, §4.4 step 5)")
 
-        # 5. I1: genesis unique per lineage on the post db.
+        # 6. I1: genesis unique per lineage on the post db.
         seen: dict = {}
         for slug, genesis in conn.execute("SELECT slug, genesis_hash FROM refs"):
             if genesis is None:

@@ -26,14 +26,26 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Phase 3a Class-A control taxonomy: the three thread types the A3 cutover
-# re-anchored from the folio slug to the lineage genesis hash. The control value
-# readers (get_latest_statuses/assignments/archives) and the presentation reader
-# (get_threads_display) both key off exactly this set. It is deliberately
-# narrow: succession/reverted edit edges are also genesis-adjacent (an edge can
-# touch the genesis VERSION, whose content hash equals the lineage genesis_hash),
-# so any genesis<->slug resolution MUST restrict to control types or it would
-# mis-resolve those edges.
+# re-anchored from the folio slug to the lineage genesis hash. The control VALUE
+# readers (get_latest_statuses/assignments/archives) key off exactly this set. It
+# is deliberately narrow: a genesis<->slug resolution restricted to control is what
+# lets the value readers ignore edit edges that merely touch the genesis VERSION.
 CONTROL_THREAD_TYPES = ("status", "assignment", "archive")
+
+# Phase 3b §6/§6.1: the genesis-anchored Class B structural edge types. The PK swap
+# re-anchors these from the folio slug to the lineage genesis hash (exactly as A3 did
+# for control), so the PRESENTATION reader must union + rewrite them back to slugs to
+# keep GET /threads / /search byte-identical across the swap. Version-anchored edges
+# (supersedes/reverted/published) are deliberately EXCLUDED: their endpoints are exact
+# version hashes and a genesis->slug rewrite would corrupt an edge whose endpoint is
+# the genesis version (whose content hash equals the lineage genesis_hash). This set
+# is display-only — the value readers above still key off CONTROL_THREAD_TYPES alone.
+CLASS_B_GENESIS_DISPLAY_TYPES = ("reference", "mention", "reply", "succession", "within")
+
+# The full set get_threads_display unions + genesis->slug-rewrites: control (3a) plus
+# the genesis-anchored Class B edges (3b). One source of truth for both halves of the
+# reader (the UNION clause and the rewrite loop).
+GENESIS_ANCHORED_DISPLAY_TYPES = CONTROL_THREAD_TYPES + CLASS_B_GENESIS_DISPLAY_TYPES
 
 
 def ensure_aware(dt_value) -> Optional[datetime]:
@@ -1121,18 +1133,25 @@ class LogDatabase:
         for status/assignment VALUES). Two parts:
 
           (1) UNION — when ``from_id``/``to_id`` is a folio slug, also match that
-              folio's genesis-keyed control threads (anchor == ``refs.genesis_hash``
-              AND ``type`` in :data:`CONTROL_THREAD_TYPES`).
-          (2) REWRITE — every returned control thread has each endpoint equal to a
-              known ``genesis_hash`` mapped back to its slug, reconstructing the exact
-              pre-A3 shape (status/archive self-loop from=to=slug; assignment
-              from=slug, to=assignee unchanged).
+              folio's genesis-keyed threads (anchor == ``refs.genesis_hash`` AND
+              ``type`` in :data:`GENESIS_ANCHORED_DISPLAY_TYPES`).
+          (2) REWRITE — every returned genesis-anchored thread has each endpoint equal
+              to a known ``genesis_hash`` mapped back to its slug, reconstructing the
+              exact pre-anchor shape (status/archive self-loop from=to=slug; assignment
+              from=slug, to=assignee unchanged; a Class B reference/mention/reply/
+              succession/within edge back to from=slug/to=slug).
 
-        Both steps are restricted to CONTROL types: ``genesis_hash`` equals the
-        genesis version's content hash, so a supersedes/reverted edit edge touching
-        the genesis version shares the key — resolving it would corrupt that edge.
-        ``get_threads`` stays byte-faithful for internal/integrity callers; only this
-        path resolves. The db remains genesis-keyed (source of truth).
+        Phase 3b (§6.1): the same UNION+REWRITE now covers the genesis-anchored Class B
+        structural edges (:data:`CLASS_B_GENESIS_DISPLAY_TYPES`), because the PK swap
+        re-anchored them slug->genesis in the stored rows exactly as A3 did for control
+        — without this a slug query would stop returning a folio's reference/mention/
+        reply/succession edges and a fetch-all would surface them hash-keyed. Both steps
+        remain restricted to :data:`GENESIS_ANCHORED_DISPLAY_TYPES`: the VERSION-anchored
+        edges (supersedes/reverted/published) are left byte-faithful because
+        ``genesis_hash`` equals the genesis version's content hash, so resolving an edit
+        edge that touches the genesis version would corrupt it. ``get_threads`` stays
+        byte-faithful for internal/integrity callers; only this path resolves. The db
+        remains genesis-keyed (source of truth).
 
         Consequence: control lives at the slug in the presentation view, so a query
         by a raw ``genesis_hash`` no longer surfaces its control threads — they rewrite
@@ -1153,7 +1172,7 @@ class LogDatabase:
                 genesis_by_slug[ref["slug"]] = ref["genesis_hash"]
                 slug_by_genesis.setdefault(ref["genesis_hash"], ref["slug"])
 
-            control_ph = ",".join("?" for _ in CONTROL_THREAD_TYPES)
+            resolve_ph = ",".join("?" for _ in GENESIS_ANCHORED_DISPLAY_TYPES)
             clauses: List[str] = ["1=1"]
             params: List[Any] = []
 
@@ -1161,13 +1180,13 @@ class LogDatabase:
                 genesis = genesis_by_slug.get(value)
                 if genesis is not None:
                     # slug endpoint (any type) OR the folio's genesis endpoint,
-                    # control threads only.
+                    # genesis-anchored types only (control + Class B, §6.1).
                     clauses.append(
-                        f"({col} = ? OR ({col} = ? AND type IN ({control_ph})))"
+                        f"({col} = ? OR ({col} = ? AND type IN ({resolve_ph})))"
                     )
                     params.append(value)
                     params.append(genesis)
-                    params.extend(CONTROL_THREAD_TYPES)
+                    params.extend(GENESIS_ANCHORED_DISPLAY_TYPES)
                 else:
                     clauses.append(f"{col} = ?")
                     params.append(value)
@@ -1183,12 +1202,12 @@ class LogDatabase:
             query = "SELECT * FROM threads WHERE " + " AND ".join(clauses)
             rows = conn.execute(query, params).fetchall()
 
-        control = set(CONTROL_THREAD_TYPES)
+        resolve = set(GENESIS_ANCHORED_DISPLAY_TYPES)
         threads: List[Thread] = []
         for row in rows:
             f_id = row["from_id"]
             t_id = row["to_id"]
-            if row["type"] in control:
+            if row["type"] in resolve:
                 f_id = slug_by_genesis.get(f_id, f_id)
                 t_id = slug_by_genesis.get(t_id, t_id)
             # Re-apply the requested slug filter in PRESENTATION space (after the

@@ -1,11 +1,12 @@
 """Phase 3b test-first specs — thread_hash PK swap + the Class B structural DAG.
 
 RSP phase-2 test design (``docs/PHASE_3B_DESIGN.md``): the executable spec for the
-3b migration, written **before** the implementation. Every production spec carries
-``@pytest.mark.phase3b_pending`` so the regression health check
-(``pytest -m 'not phase3a_pending and not phase3b_pending'``) stays green while the
-code does not exist yet. As each step lands its specs turn green; **remove the
-marker from a test once it passes for real.**
+3b migration, written **before** the implementation. Each production spec carried
+``@pytest.mark.phase3b_pending`` while its code did not exist, so the regression
+health check (``pytest -m 'not phase3a_pending and not phase3b_pending'``) stayed
+green through the test-first window; the marker was removed from each class as its
+increment landed. As of impl 2–4 (migrate_db / get_threads_display / verify_db) the
+whole file is green with no pending markers.
 
 Two kinds of test live here:
 
@@ -46,9 +47,10 @@ from skein.models import Folio, Site, Thread
 from skein.storage import JSONStore
 from skein.utils import generate_thread_id
 
-# NOTE: phase3b_pending is applied per production CLASS below, NOT module-wide —
-# TestOracleIsIndependent (the de-circularizer regression net) must stay GREEN and
-# always run, so it is deliberately left unmarked.
+# NOTE: phase3b_pending was applied per production CLASS (never module-wide) so
+# TestOracleIsIndependent (the de-circularizer regression net) always ran; every
+# class is now landed/green and unmarked. The marker stays registered so the
+# health-check command above remains valid.
 
 # The six schema-global thread index names the swap must recreate after the
 # DROP+RENAME (design §4.4 step 5 / §8 index-presence post-condition).
@@ -492,6 +494,30 @@ class TestI1AndCollisionRefusal:  # GREEN (impl 2): migrate_db landed
         with pytest.raises(m.PreconditionError):
             m.migrate_db(_db(store))
 
+    def test_null_thread_id_refused_not_silently_dropped(self, store):
+        # fell:phase3b-impl:r1:null-thread-id (codex) — SQLite does NOT enforce
+        # NOT-NULL on a non-INTEGER PRIMARY KEY, so the legacy thread_id TEXT PK can
+        # hold a NULL. threads_new.thread_id is NOT NULL, so a bare copy would silently
+        # swallow such a row (row loss NOT in result.collapsed). Refuse the db instead.
+        _make_site(store)
+        g = _mk_lineage(store, "finding-20260703-g0n1")
+        c = _conn(store)
+        try:
+            ts = datetime(2026, 3, 3, tzinfo=timezone.utc).isoformat()
+            h = compute_thread_hash(g, g, "reference", "w", ts, None)
+            c.execute(
+                "INSERT INTO threads (thread_id, from_id, to_id, type, content, "
+                "weaver, created_at, thread_hash) VALUES (NULL,?,?,?,?,?,?,?)",
+                (g, g, "reference", None, "w", ts, h))
+            c.commit()
+        finally:
+            c.close()
+        before = _rows(store)
+        m = _load_pk_migration()
+        with pytest.raises(m.PreconditionError):
+            m.migrate_db(_db(store))
+        assert _rows(store) == before, "a refused db is left byte-untouched"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. The per-row B/C classifier + manifest predicate. RED until the module lands.
@@ -602,8 +628,7 @@ class TestManifestPredicate:  # GREEN (impl 1): manifest_eligible landed
 #    Asserted against the INDEPENDENT shadow, never reader==reader.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestClassBReadViewPreserved:
+class TestClassBReadViewPreserved:  # GREEN (impl 3): get_threads_display extended
     def test_reference_edge_still_queryable_by_slug_after_swap(self, store):
         # fell:phase3b-design:r2:classb-read-view — the load-bearing one: re-anchoring
         # slug->genesis must NOT drop a Class B edge from a slug query, and must
@@ -653,8 +678,7 @@ class TestClassBReadViewPreserved:
 #    (the lesson from the A5-cleanup fell).
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestVerifierPositivePath:
+class TestVerifierPositivePath:  # GREEN (impl 4): verify_db landed
     def _migrated(self, store, folio_id="finding-20260703-j001"):
         # TWO lineages (so the post-I1 gate has two refs to collide) + a re-anchored
         # Class B reference (so the clean-path covers a re-keyed row) + an edit (a

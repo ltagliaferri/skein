@@ -345,13 +345,13 @@ class TestPKSwapSchema:
 
     def test_duplicate_thread_hash_rejected_after_swap(self, store):
         _make_site(store)
-        _mk_lineage(store, "finding-20260703-dddd")
+        _mk_lineage(store, "finding-20260703-dddd", "v1")
+        _edit(store, "finding-20260703-dddd", "v2")  # mint a supersedes row to dup
         _load_pk_migration().migrate_db(_db(store))
         c = _conn(store)
         try:
             row = c.execute("SELECT * FROM threads LIMIT 1").fetchone()
-            if row is None:
-                pytest.skip("no thread rows to duplicate")
+            assert row is not None, "the migrated db has a thread row to duplicate"
             with pytest.raises(sqlite3.IntegrityError):
                 c.execute(
                     "INSERT INTO threads (thread_hash, thread_id, from_id, to_id, "
@@ -653,8 +653,13 @@ class TestClassBReadViewPreserved:
 @pytest.mark.phase3b_pending
 class TestVerifierPositivePath:
     def _migrated(self, store, folio_id="finding-20260703-j001"):
+        # TWO lineages (so the post-I1 gate has two refs to collide) + a re-anchored
+        # Class B reference (so the clean-path covers a re-keyed row) + an edit (a
+        # supersedes row for the dangling test to target).
         _make_site(store)
         _mk_lineage(store, folio_id, "v1")
+        _mk_lineage(store, "finding-20260703-j002", "v1")
+        _post_thread(store, folio_id, "finding-20260703-j002", "reference")
         _edit(store, folio_id, "v2")
         _load_pk_migration().migrate_db(_db(store))
         return _load_pk_verifier()
@@ -722,19 +727,19 @@ class TestVerifierPositivePath:
             c.close()
         problems, _ = v.verify_db(_db(store))
         assert any("uniqu" in p.lower() or "duplicate" in p.lower()
-                   or "primary key" in p.lower() or "pk" in p.lower()
+                   or "primary key" in p.lower()
                    for p in problems), \
             f"a surviving duplicate thread_hash must block: {problems}"
 
     def test_blocks_on_post_i1_violation(self, store):
         # I1 defense-in-depth: even post-swap the verifier confirms genesis is unique
-        # per lineage (inject a shared genesis).
+        # per lineage (inject a shared genesis). _migrated builds two lineages, so
+        # this ASSERTS (never skips) — a skip here would leave the I1 gate unexercised.
         v = self._migrated(store)
         c = _conn(store)
         try:
             rows = c.execute("SELECT slug, genesis_hash FROM refs").fetchall()
-            if len(rows) < 2:
-                pytest.skip("need two refs to force an I1 collision")
+            assert len(rows) >= 2, "fixture must provide two refs to force I1"
             c.execute("UPDATE refs SET genesis_hash=? WHERE slug=?",
                       (rows[0]["genesis_hash"], rows[1]["slug"]))
             c.commit()

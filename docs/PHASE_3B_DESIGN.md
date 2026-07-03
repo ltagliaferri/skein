@@ -235,8 +235,11 @@ re-anchor / copy / drop / rename) run inside one `BEGIN IMMEDIATE` — a write
 landing between copy and drop would otherwise be lost — then `COMMIT`; the
 checkpoint (step 6) runs after the commit, never inside the write transaction.
 1. **Backup** `<db>.bak-threads-pk-<stamp>` (online-backup API, WAL-consistent).
-2. `BEGIN IMMEDIATE`; build `threads_new` with the §3 schema (`thread_hash` PK)
-   and its indexes.
+2. `BEGIN IMMEDIATE`; build `threads_new` with the §3 schema (`thread_hash` PK) —
+   **table only, no indexes yet.** SQLite index names are schema-global, so
+   creating the canonical `idx_threads_*` names while the old `threads` still holds
+   them would no-op under `IF NOT EXISTS` (leaving `threads_new` unindexed) or hard
+   error; the indexes are recreated after the rename (step 5).
 3. **Re-anchor Class B rows** (§5): resolve each endpoint slug → its folio hash
    (genesis or head per §6) and **recompute `thread_hash`** — endpoints are
    hashed, so re-anchoring changes the row's identity (`compute_thread_hash`
@@ -249,7 +252,9 @@ checkpoint (step 6) runs after the commit, never inside the write transaction.
    The verifier (§8) treats any such re-anchor collision as a **BLOCKER with
    expected count 0**, never a benign delta — collapsing two distinct structural
    edges is exactly the non-regenerable-edge loss §5.3 forbids.
-5. `DROP threads; ALTER threads_new RENAME TO threads`; **`COMMIT`**.
+5. `DROP threads; ALTER threads_new RENAME TO threads`; **recreate the six
+   `idx_threads_*` indexes** on the renamed table (now the old names are free);
+   **`COMMIT`**.
 6. `wal_checkpoint(TRUNCATE)` (post-commit, outside the transaction).
 7. **Verify** (§8) or abort the whole run (already-migrated dbs restore from
    `.bak`); restart `skein.service`.
@@ -278,7 +283,8 @@ per row.
 
 ### 5.1 The live distribution (F→F share = Class B candidates)
 
-- `reference` — 706 F→F / 7 not — **99% B**
+- `reference` — 706 F→F / 7 not — **99% B** (703 true B: 3 of the F→F are
+  self-loops → C, §5.2)
 - `mention` — 145 / 40 — **78% B**
 - `succession` — 13 / 38 — **25% B** (rest agent→agent C)
 - `reply` — 5 / 235 — **2% B**
@@ -463,6 +469,9 @@ input (runs over a private WAL-consistent copy), copy-proof digest binding.
 - No `thread_hash` NULL; no `from_id`/`to_id` NULL; `thread_id` NOT NULL preserved.
 - `thread_hash` self-verifies: `compute_thread_hash(row)` equals the stored PK for
   every row (catches a re-anchor that changed endpoints but not the hash).
+- All six `idx_threads_*` indexes exist on the post table (catches the
+  schema-global-name ordering trap in §4.4 step 5 — an unindexed hot table would
+  otherwise pass every value check).
 
 **Fidelity harness:** the `threads-*` baselines stay green or are deliberately
 rebaselined with written justification tied to the logged collapse/re-anchor set
@@ -497,10 +506,11 @@ alone do not prove a gate fires.
    C-and-logged-never-dropped (§5).
 5. Class B anchors: genesis/lineage by default; version/head for
    supersedes/reverted/published (§6).
-6. The re-anchor **extends `get_threads_display`** to rewrite genesis-anchored
-   Class B endpoints back to slugs (excluding the version-anchored edges), so `GET
-   /threads`/`/search` are byte-identical across the swap; the §8 gate shadow-reads
-   this surface, not just control (§6.1).
+6. The re-anchor **extends `get_threads_display`'s UNION + rewrite** so a slug
+   query still matches a now-genesis-keyed Class B edge and it displays back as
+   slugs (excluding the version-anchored edges), keeping `GET /threads`/`/search`
+   byte-identical across the swap; the §8 gate shadow-reads this surface, not just
+   control (§6.1).
 7. The manifest admits Class B only via an **explicit recompute predicate**
    (non-control, non-tag/message, non-self-loop, both endpoints in append-only
    `versions`); the publish hookup is Phase 4 (§7).

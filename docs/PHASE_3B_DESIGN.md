@@ -40,10 +40,13 @@ commit + the differential fidelity harness as the drift alarm.
 
 ---
 
-## 2. Ground truth — re-baselined first-hand (all 47 registered dbs, `master @ 34d8437`)
+## 2. Ground truth — re-baselined first-hand (all 47 registered dbs)
 
-`PHASE_3_DESIGN` §2 was verified against `276796f`, before A2–A5. The data has
-moved; these are the numbers 3b actually operates on.
+`PHASE_3_DESIGN` §2 was verified against `276796f`, before A2–A5. Code baseline
+here is `master @ 34d8437`; the **data is live and keeps moving** (the corpus grew
+by 2 `tag` rows during this note's own fell), so every count below is a
+measurement timestamp, not a frozen fact — the migration re-measures per db at run
+time and the logged counts, never this prose, are the authority (§9 note).
 
 ### 2.1 The table today
 
@@ -65,13 +68,18 @@ threads(
   already-verified column. This is the single biggest de-risk: 3b is a *rename of
   the identity*, not a backfill.
 - **Byte-duplicate rows: exactly 1 group ecosystem-wide** (rows identical on all
-  six canonical fields, differing only by the random `thread_id`). The "table-wide
-  collapse" §4 of the parent doc anticipated is effectively empty — one group
-  collapses; everything else is already unique by content.
-- Type distribution (all dbs, 10,328 rows): `status` 5283, `message` 2417,
-  `tag` 1435, `reference` 713, `reply` 240, `mention` 185, `succession` 51,
-  `supersedes` 2, `assignment` 2. (`archive`, `within`, `published`, `reverted`:
-  0 rows.)
+  six canonical fields, differing only by the random `thread_id`). It is a
+  `message` row (Class C) in speakbot — so the one true collapse cannot touch a
+  control read. The "table-wide collapse" §4 of the parent doc anticipated is
+  effectively empty — one group collapses; everything else is already unique by
+  content.
+- **I1 holds ecosystem-wide: 0 `genesis_hash` values shared across two slugs.**
+  This is the invariant the whole re-anchor step rests on (§4.4) — measured, not
+  assumed.
+- Type distribution (all dbs, 10,330 rows at audit time): `status` 5283,
+  `message` 2417, `tag` 1437, `reference` 713, `reply` 240, `mention` 185,
+  `succession` 51, `supersedes` 2, `assignment` 2. (`archive`, `within`,
+  `published`, `reverted`: 0 rows.)
 
 ### 2.2 The five insert paths (all already compute `thread_hash`)
 
@@ -184,29 +192,59 @@ already does):
   IGNORE` keeps the swap from raising a PK violation on it.
 - The **supersedes** mint (`:1504`) already endpoint-dup-guards; add `OR IGNORE`
   as the belt-and-suspenders on the PK.
+- Path 5, `migrate_threads_from_json` (`:1933`), is **already** `OR IGNORE` — no
+  change.
+- Path 4, the `backfill_versions_refs` repair mint (`:297`), stays a plain
+  `INSERT` and needs no change **because it never runs against a `thread_hash`-PK
+  table**: it is spent as a live migration and its only remaining caller is
+  `fidelity/harness.py`, which builds a frozen `thread_id`-PK fixture that does
+  **not** adopt the swap. The design depends on that fixture staying pre-swap; if
+  it ever migrates, this path must become `OR IGNORE` too. (Stated so the
+  dependency is explicit, not implicit.)
 
-This is the distinct-row-consumer audit (§8 #5) resolved: the reverted marker is
-the only intentional per-event row, and it survives the swap.
+This is the distinct-row-consumer audit (§8 #5) resolved across all five insert
+paths: the reverted marker is the only intentional per-event row, and it survives
+the swap.
 
-### 4.4 The migration shape (SQLite can't ALTER a PK)
+### 4.4 The migration shape (SQLite can't ALTER a PK — this is a table rewrite)
 
-Per-db, fail-closed, on the `cutover_threads_control.py` / `drop_folios.py`
-template (backup → transform on a copy-proof → live with the pre-image as the
-restore point):
+Per-db, fail-closed, on the `drop_folios.py` choreography — but this is the
+**first rewrite of the hot `threads` table**. The cited templates don't cover it:
+`drop_folios` only DROPs a dead, un-written table, and the A3 cutover `UPDATE`s in
+place; neither copies-drops-renames a live-written table. So the write-window
+discipline is stated explicitly, not inherited.
 
-1. **Backup** `<db>.bak-threads-pk-<stamp>` (online-backup API, WAL-consistent);
-   refuse if a prior backup exists.
+**Preconditions (fail-closed, refuse the db):**
+- **Quiesce `skein.service` and verify it inactive.** It is the sole direct db
+  writer, and step 3 resolves slugs→hashes row-by-row in Python holding the write
+  lock long enough that an unquiesced live writer on a busy db (speakbot) hits
+  `busy_timeout` and errors — a green violation. Quiesce is mandatory (the
+  `drop_folios` apparatus already stopped the service; carried forward here).
+- **I1 — `genesis_hash` unique per lineage** (no two `refs.slug` share a genesis;
+  measured 0 today, §2.1). The whole re-anchor rests on this (step 4); assert it
+  per db, never assume it.
+- No prior `<db>.bak-threads-pk-*` backup (don't bury the restore point).
+
+**Steps (build/copy/drop/rename inside one `BEGIN IMMEDIATE` — a write landing
+between copy and drop would otherwise be lost):**
+1. **Backup** `<db>.bak-threads-pk-<stamp>` (online-backup API, WAL-consistent).
 2. Build `threads_new` with the §3 schema (`thread_hash` PK).
-3. **Re-anchor Class B rows first** (§5) — resolve endpoint slugs → hashes and
-   **recompute `thread_hash`** (endpoints are hashed, so re-anchoring changes the
-   identity). A re-anchored row may now collide with an existing row → it collapses
-   under the PK (logged).
-4. Copy every row into `threads_new` with `INSERT OR IGNORE` (the collapse). Log
-   each dropped `thread_hash` with its reason (byte-dup vs re-anchor-collision).
+3. **Re-anchor Class B rows** (§5): resolve each endpoint slug → its folio hash
+   (genesis or head per §6) and **recompute `thread_hash`** — endpoints are
+   hashed, so re-anchoring changes the row's identity (`compute_thread_hash`
+   hashes `from_id`/`to_id`, `canon.py:147`).
+4. Copy rows into `threads_new` with `INSERT OR IGNORE`. **Only true
+   byte-duplicates collapse — the 1 group in §2.1.** A collapse between two
+   *distinct* edges cannot occur under I1: re-anchoring changes only the endpoints,
+   so two non-byte-dup rows can share a post-anchor hash only if two different
+   slugs map to the same genesis — an I1 violation, ruled out by the precondition.
+   The verifier (§8) treats any such re-anchor collision as a **BLOCKER with
+   expected count 0**, never a benign delta — collapsing two distinct structural
+   edges is exactly the non-regenerable-edge loss §5.3 forbids.
 5. `DROP threads; ALTER threads_new RENAME TO threads`; rebuild indexes;
    `wal_checkpoint(TRUNCATE)`.
-6. **Verify** (§6) or abort the whole run (already-migrated dbs restore from
-   `.bak`).
+6. **Verify** (§8) or abort the whole run (already-migrated dbs restore from
+   `.bak`); restart `skein.service`.
 
 ---
 
@@ -215,7 +253,16 @@ restore point):
 `PHASE_3_DESIGN` §3.1: control class is by type (Class A, done in 3a); **every
 other row's class is decided by its endpoints, per row**. The rule at migration
 time: a non-control row is **Class B** iff *both* endpoints resolve to a folio (a
-live `refs.slug` or a `versions.content_hash`); otherwise **Class C**.
+live `refs.slug` or a `versions.content_hash`) **and** it survives the
+type-semantic overrides below; otherwise **Class C**.
+
+**Type-semantic overrides (always Class C regardless of endpoints):** `tag`
+(folio → label token) and `message` (folio commentary). Their F→F rows are
+degenerate/self-loops (§5.2), not structural folio↔folio edges; a coincidental
+endpoint match must not federate them. The B-eligible types are therefore
+`reference`, `mention`, `reply`, `succession`, and the design-forward `within` /
+`published` (plus the already-hash-keyed `supersedes` / `reverted`) — each tested
+per row.
 
 ### 5.1 The live distribution (F→F share = Class B candidates)
 
@@ -223,8 +270,8 @@ live `refs.slug` or a `versions.content_hash`); otherwise **Class C**.
 - `mention` — 145 / 40 — **78% B**
 - `succession` — 13 / 38 — **25% B** (rest agent→agent C)
 - `reply` — 5 / 235 — **2% B**
-- `message` — 54 / 2363 — **2% B**
-- `tag` — 15 / 1420 — **1% B** (but see 5.2)
+- `message` — 54 / 2363 — override → **C** (§5.2)
+- `tag` — 17 / 1420 — override → **C** (§5.2)
 
 This is the empirical proof of the per-row thesis: no type is uniformly one class.
 `reply` at 2% F→F confirms `PHASE_3_DESIGN` §3.1's warning — fmfs naming reply
@@ -235,11 +282,16 @@ This is the empirical proof of the per-row thesis: no type is uniformly one clas
 The raw "both endpoints resolve to a folio" test is necessary but not sufficient;
 the impl audit applies these overrides:
 
-- **`tag` self-loops (the 15 "F→F"):** every one is `folio → same folio`
-  (`issue-…-ojlo → issue-…-ojlo`). A tag is semantically `folio → label token`;
-  the label coinciding with the slug does not make it a structural folio↔folio
-  edge. **Override: `tag` is Class C** (or a degenerate self-loop to drop-log);
-  it does not federate.
+- **`tag` self-loops (the 17 "F→F"):** every one is `folio → same folio`
+  (`issue-…-ojlo → issue-…-ojlo`, `from_id == to_id`). A tag is semantically
+  `folio → label token`; the label coinciding with the slug does not make it a
+  structural folio↔folio edge. **Override: `tag` is Class C**; it does not federate.
+- **`message` "F→F" (the 54):** every one is a `folio → same folio` self-loop
+  carrying commentary — verdict notes, status updates, research context
+  (`"CC comparison: …"`, `"Verdict note (confirmed): …"`). This is local commentary
+  ON a folio, not an edge BETWEEN folios. **Override: `message` is Class C** —
+  matching `PHASE_3_DESIGN`'s treatment; the per-row endpoint test alone would have
+  mis-promoted these 54 to B.
 - **`reference` non-F→F (the 7):** dangling/non-folio endpoints — site names
   (`skein-development`), deleted folios (`summary-…-xxxx`), test fixtures
   (`issue-1 → summary-123`). These are **orphans**: an endpoint slug that resolves
@@ -290,6 +342,28 @@ implementation precondition, not re-litigated here.
 thread content hashes; the substrate is kind-agnostic and in place. 3b's only job
 here is **eligibility**: the manifest admits **Class B rows only**.
 
+**The predicate, stated explicitly (class is computed, not stored).** A row's B/C
+status is decided at migration time from its endpoints and is **not** a persisted
+column, so the admission check must recompute it — and the naive "both endpoints
+are version hashes" is **wrong**: Class A `status`/`archive` genesis self-loops
+also have both endpoints in `versions`, so that predicate would leak control onto
+the wire. The correct positive rule:
+
+```
+admit(row) iff
+    row.type in {reference, mention, reply, succession, within, published,
+                 supersedes, reverted}          # structural candidate types (never control, tag, message)
+    AND row.from_id != row.to_id                 # exclude degenerate/commentary self-loops
+    AND row.from_id in versions.content_hash
+    AND row.to_id   in versions.content_hash     # both endpoints are folio/version hashes
+```
+
+Because `versions` is **append-only**, this predicate is stable over time even as
+`refs` are deleted — recompute is safe and a row never silently gains or loses
+eligibility. (3b MAY instead persist a computed `kind` marker at the swap to avoid
+recompute; that is a Phase-4 convenience, not a correctness requirement — the
+predicate above is the source of truth either way.)
+
 - **Class A excluded** — local control, never federated, even though its rows are
   hash-keyed; its `assignment` endpoints are agents, so it is not even uniformly
   "over endpoint folio hashes." Admitting it leaks per-station control onto the
@@ -321,8 +395,13 @@ counts.
 
 **Structural post-conditions:**
 - `thread_hash` is the PK and is UNIQUE (the swap held).
-- Row count = pre-count − (logged byte-dup collapses + logged re-anchor
-  collisions), to the exact logged count; any larger loss is a drift alarm.
+- **Row count = pre-count − (logged byte-dup collapses only)**, to the exact count
+  (the byte-dup group(s) of §2.1). A **re-anchor collision is a BLOCKER, expected
+  count 0** — it can only be an I1 violation collapsing two *distinct* structural
+  edges (§4.4), so it is surfaced separately and never folded into an accepted
+  delta. Any loss beyond the logged byte-dup count is a drift alarm.
+- I1 holds on the post db (no `genesis_hash` shared across two `refs.slug`) — the
+  invariant the re-anchor depended on, re-checked after.
 - Every Class B row's endpoints resolve to `versions.content_hash`
   (re-anchor succeeded); every Class C row's endpoints are unchanged.
 - No `thread_hash` NULL; no `from_id`/`to_id` NULL; `thread_id` NOT NULL preserved.
@@ -347,29 +426,40 @@ alone do not prove a gate fires.
 **Decided (this gate):**
 1. `thread_id` **kept** as a NOT-NULL non-PK audit handle + reader tiebreaker
    (§4.2); dropping it is a later hygiene pass, not the swap.
-2. All steady-state inserts → `INSERT OR IGNORE` on the `thread_hash` PK (§4.3);
-   the reverted marker's per-event intent survives.
-3. Migration is a per-db table rewrite on the A3/drop-folios template, re-anchor
-   Class B **before** the copy and recompute `thread_hash`, collapse via
-   `OR IGNORE` with every dropped hash logged (§4.4).
+2. All five inserts dispositioned → `INSERT OR IGNORE` on the `thread_hash` PK for
+   the three live paths; path 5 already is; path 4 stays plain (fixture-only,
+   never swapped) (§4.3). The reverted marker's per-event intent survives.
+3. Migration is a per-db rewrite of the hot `threads` table with **explicit
+   preconditions** — quiesce `skein.service`, assert I1 (genesis unique per
+   lineage), no prior backup — inside one `BEGIN IMMEDIATE`; re-anchor Class B
+   **before** the copy and recompute `thread_hash`; only true byte-duplicates
+   collapse; a **re-anchor collision is a verifier BLOCKER (expected 0)**, never a
+   benign delta (§4.4, §8).
 4. B/C is decided per row by endpoint resolution, with type-semantic overrides:
-   `tag` self-loops are C, orphans are C-and-logged-never-dropped (§5).
+   **`tag` and `message` are Class C** (label / self-loop commentary), orphans are
+   C-and-logged-never-dropped (§5).
 5. Class B anchors: genesis/lineage by default; version/head for
    supersedes/reverted/published (§6).
-6. The manifest admits Class B only; the publish hookup is Phase 4 (§7).
+6. The manifest admits Class B only via an **explicit recompute predicate**
+   (non-control, non-tag/message, non-self-loop, both endpoints in append-only
+   `versions`); the publish hookup is Phase 4 (§7).
 
 **Open (resolve in implementation or a follow-up brief):**
 1. The full per-row eyeball of the residual edge rows (§5.2) — the 7 reference
-   orphans, the 15 tag self-loops, the `reference`/`mention` F→F tails — confirmed
-   against live data at migration time, not assumed from the sample.
+   orphans, the 17 `tag` + 54 `message` self-loops, the `reference`/`mention` F→F
+   tails — confirmed against live data at migration time, not assumed from the
+   sample.
 2. `within` / `published` — added to `ThreadType` now (0 rows), but their write
    paths and exact anchor land when a feature uses them.
 3. Class C federation model (mesh phase): does an agent-graph edge ever travel,
    and how is an agent identified on the wire.
 4. Whether the residual dead references (orphans kept in §5.3) ever get a separate
    pruning pass.
+5. Persist a computed `kind` marker at the swap vs recompute the manifest
+   predicate at publish time (§7) — a Phase-4 convenience call, not a correctness
+   gate.
 
 > Note on counts: every figure here is a live per-db measurement at audit time
-> (`master @ 34d8437`, 47 dbs, 10,328 thread rows), not a frozen snapshot; the
+> (code `master @ 34d8437`, 47 dbs, 10,330 thread rows and growing), not a frozen snapshot; the
 > migration re-measures per-db at run time and the logged counts — never this
 > prose — are the transform's authority.

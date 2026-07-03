@@ -453,7 +453,7 @@ input (runs over a private WAL-consistent copy), copy-proof digest binding.
   endpoints (slugs for the genesis-anchored Class B types), same rows — before vs
   after the re-anchor. The re-anchor moves the genesis-anchored Class B rows; the
   control-only shadow above would not catch a Class B view regression, so it is a
-  required, separate leg. Display-scope on live speakbot is the 706 `reference`
+  required, separate leg. Display-scope ecosystem-wide is the 706 `reference`
   F→F rows (703 re-anchored + 3 Class-C self-loops held byte-faithful) plus the
   `mention`/`reply`/`succession` F→F rows — all must read identically.
 

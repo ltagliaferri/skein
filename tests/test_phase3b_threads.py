@@ -1,11 +1,12 @@
 """Phase 3b test-first specs — thread_hash PK swap + the Class B structural DAG.
 
 RSP phase-2 test design (``docs/PHASE_3B_DESIGN.md``): the executable spec for the
-3b migration, written **before** the implementation. Every production spec carries
-``@pytest.mark.phase3b_pending`` so the regression health check
-(``pytest -m 'not phase3a_pending and not phase3b_pending'``) stays green while the
-code does not exist yet. As each step lands its specs turn green; **remove the
-marker from a test once it passes for real.**
+3b migration, written **before** the implementation. Each production spec carried
+``@pytest.mark.phase3b_pending`` while its code did not exist, so the regression
+health check (``pytest -m 'not phase3a_pending and not phase3b_pending'``) stayed
+green through the test-first window; the marker was removed from each class as its
+increment landed. As of impl 2–4 (migrate_db / get_threads_display / verify_db) the
+whole file is green with no pending markers.
 
 Two kinds of test live here:
 
@@ -46,9 +47,10 @@ from skein.models import Folio, Site, Thread
 from skein.storage import JSONStore
 from skein.utils import generate_thread_id
 
-# NOTE: phase3b_pending is applied per production CLASS below, NOT module-wide —
-# TestOracleIsIndependent (the de-circularizer regression net) must stay GREEN and
-# always run, so it is deliberately left unmarked.
+# NOTE: phase3b_pending was applied per production CLASS (never module-wide) so
+# TestOracleIsIndependent (the de-circularizer regression net) always ran; every
+# class is now landed/green and unmarked. The marker stays registered so the
+# health-check command above remains valid.
 
 # The six schema-global thread index names the swap must recreate after the
 # DROP+RENAME (design §4.4 step 5 / §8 index-presence post-condition).
@@ -319,8 +321,7 @@ class TestOracleIsIndependent:
 # 2. The PK swap — schema. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestPKSwapSchema:
+class TestPKSwapSchema:  # GREEN (impl 2): migrate_db landed
     def test_thread_hash_is_primary_key(self, store):
         _make_site(store)
         _mk_lineage(store, "finding-20260703-aaaa")
@@ -367,8 +368,7 @@ class TestPKSwapSchema:
 # 3. Byte-dup collapse + insert idempotency. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestByteDupCollapse:
+class TestByteDupCollapse:  # GREEN (impl 2): migrate_db landed
     def _inject_byte_dup(self, store, folio_id):
         """Two rows identical on all six canonical fields, differing only by
         thread_id — the exact case the PK collapse targets."""
@@ -415,8 +415,7 @@ class TestByteDupCollapse:
 # 4. Class B re-anchor + thread_hash recompute. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestClassBReanchor:
+class TestClassBReanchor:  # GREEN (impl 2): migrate_db landed
     def test_reference_reanchored_to_genesis_and_hash_recomputed(self, store):
         _make_site(store)
         ga = _mk_lineage(store, "finding-20260703-f0a1")
@@ -460,8 +459,7 @@ class TestClassBReanchor:
                 r["created_at"], r["content"]), f"row {r['thread_id']} self-verifies"
 
 
-@pytest.mark.phase3b_pending
-class TestI1AndCollisionRefusal:
+class TestI1AndCollisionRefusal:  # GREEN (impl 2): migrate_db landed
     def _force_i1_collision(self, store, slug_a, slug_b):
         """Point two refs at the SAME genesis_hash — an I1 violation."""
         ga = _mk_lineage(store, slug_a)
@@ -496,13 +494,66 @@ class TestI1AndCollisionRefusal:
         with pytest.raises(m.PreconditionError):
             m.migrate_db(_db(store))
 
+    def test_null_thread_id_refused_not_silently_dropped(self, store):
+        # fell:phase3b-impl:r1:null-thread-id (codex) — SQLite does NOT enforce
+        # NOT-NULL on a non-INTEGER PRIMARY KEY, so the legacy thread_id TEXT PK can
+        # hold a NULL. threads_new.thread_id is NOT NULL, so a bare copy would silently
+        # swallow such a row (row loss NOT in result.collapsed). Refuse the db instead.
+        _make_site(store)
+        g = _mk_lineage(store, "finding-20260703-g0n1")
+        c = _conn(store)
+        try:
+            ts = datetime(2026, 3, 3, tzinfo=timezone.utc).isoformat()
+            h = compute_thread_hash(g, g, "reference", "w", ts, None)
+            c.execute(
+                "INSERT INTO threads (thread_id, from_id, to_id, type, content, "
+                "weaver, created_at, thread_hash) VALUES (NULL,?,?,?,?,?,?,?)",
+                (g, g, "reference", None, "w", ts, h))
+            c.commit()
+        finally:
+            c.close()
+        before = _rows(store)
+        m = _load_pk_migration()
+        with pytest.raises(m.PreconditionError):
+            m.migrate_db(_db(store))
+        assert _rows(store) == before, "a refused db is left byte-untouched"
+
+    def test_reanchor_collision_refusal_leaves_no_stray_backup(self, store):
+        # fell:phase3b-impl:r2:collision-no-stray-backup (codex) — the re-anchor
+        # collision refusal (raised inside _plan) must run BEFORE the backup, so a
+        # refused db leaves NO .bak-threads-pk-* buried (which would falsely trip the
+        # no-prior-backup gate on the next run). A MIXED-key pair (a slug->slug edge and
+        # a genesis->slug twin) collides post-anchor even though I1 holds — the case the
+        # I1 precondition does NOT mask, so it exercises the _plan-before-backup order.
+        _make_site(store)
+        ga = _mk_lineage(store, "finding-20260703-g0m1")
+        _mk_lineage(store, "finding-20260703-g0m2")
+        ts = datetime(2026, 4, 4, tzinfo=timezone.utc).isoformat()
+        c = _conn(store)
+        try:
+            for tid, frm in (("thread-mk-0001", "finding-20260703-g0m1"),
+                             ("thread-mk-0002", ga)):  # slug-keyed twin + genesis-keyed
+                h = compute_thread_hash(frm, "finding-20260703-g0m2", "reference",
+                                        "w", ts, None)
+                c.execute(
+                    "INSERT INTO threads (thread_id, from_id, to_id, type, content, "
+                    "weaver, created_at, thread_hash) VALUES (?,?,?,?,?,?,?,?)",
+                    (tid, frm, "finding-20260703-g0m2", "reference", None, "w", ts, h))
+            c.commit()
+        finally:
+            c.close()
+        m = _load_pk_migration()
+        with pytest.raises(m.PreconditionError):
+            m.migrate_db(_db(store))
+        baks = list(store.base_dir.glob("skein.db.bak-threads-pk-*"))
+        assert not baks, f"a collision-refused db leaves no stray backup: {baks}"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. The per-row B/C classifier + manifest predicate. RED until the module lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestBCClassification:
+class TestBCClassification:  # GREEN (impl 1): classify_row landed
     def _sets(self):
         slugs = {"finding-a", "finding-b"}
         versions = {"sha256::ga", "sha256::gb"}
@@ -541,9 +592,17 @@ class TestBCClassification:
         row = {"from_id": "finding-a", "to_id": "deleted-999", "type": "reference"}
         assert m.classify_row(row, slugs=slugs, versions=versions) == "C"
 
+    def test_unknown_type_between_folios_is_c(self):
+        # fell:phase3b-impl:r1:classify-allowlist (opus note) — the B decision is an
+        # allow-list; an unknown/new type (even distinct folio->folio) falls to C, so
+        # migrate_db never silently re-anchors a row of an unrecognized type.
+        m = _load_pk_migration()
+        slugs, versions = self._sets()
+        row = {"from_id": "finding-a", "to_id": "finding-b", "type": "somenewtype"}
+        assert m.classify_row(row, slugs=slugs, versions=versions) == "C"
 
-@pytest.mark.phase3b_pending
-class TestManifestPredicate:
+
+class TestManifestPredicate:  # GREEN (impl 1): manifest_eligible landed
     def _versions(self):
         return {"sha256::ga", "sha256::gb"}
 
@@ -594,13 +653,52 @@ class TestManifestPredicate:
         assert m.manifest_eligible(row, versions=self._versions()) is True
 
 
+class TestTypeSetInvariants:  # fell:phase3b-impl:r5 (opus + codex) — cross-module locks
+    def test_migration_reanchor_set_is_reader_rewrite_set(self):
+        # fell:phase3b-impl:r5:single-source (opus) — the migration's genesis re-anchor
+        # set and the reader's genesis->slug rewrite set MUST be identical, or a re-keyed
+        # edge drops out of a slug query (§6.1). They are single-sourced (the migration
+        # imports the storage constant); this locks the invariant against a re-split.
+        from skein.storage import CLASS_B_GENESIS_DISPLAY_TYPES
+        m = _load_pk_migration()
+        assert tuple(m.GENESIS_ANCHORED_TYPES) == tuple(CLASS_B_GENESIS_DISPLAY_TYPES)
+
+    def test_structural_types_is_the_genesis_version_partition(self):
+        # STRUCTURAL_TYPES (classifier/manifest allow-list) is EXACTLY the genesis +
+        # version anchored sets, disjoint and covering — derived, so it cannot drift.
+        m = _load_pk_migration()
+        g = set(m.GENESIS_ANCHORED_TYPES)
+        v = set(m.VERSION_ANCHORED_TYPES)
+        assert g | v == set(m.STRUCTURAL_TYPES) and g.isdisjoint(v)
+
+    def test_within_published_deferred_from_threadtype_enum(self):
+        # fell:phase3b-impl:r5:within-published-deferred (codex) — within/published are
+        # named ahead in the 3b classifier/manifest/display constants "so the rule is
+        # complete" (§9 #2), but their ThreadType enum add is DEFERRED to first use
+        # (with write paths + exact anchor). That deferral is the GATE that keeps 0 such
+        # rows: the Thread model rejects them, so none can be created via any app path,
+        # so the display reader (which cannot instantiate one) never encounters one.
+        # Adding `published` to the enum early would be UNSAFE — a slug-keyed published
+        # posted via POST /threads stays slug-keyed across the swap (version-anchored ->
+        # not re-anchored) and the verifier then blocks it as dangling. If a future
+        # feature adds either to ThreadType, this tripwire fires: also wire its write
+        # path + get_threads_display coverage so a stored row stays displayable.
+        from typing import get_args
+        from skein.models import ThreadType
+        enum = set(get_args(ThreadType))
+        assert "within" not in enum and "published" not in enum, (
+            "within/published must stay OUT of ThreadType until their write path + "
+            "reader coverage land together (§9 #2)")
+        m = _load_pk_migration()  # ...but they ARE named ahead in the structural rule
+        assert "within" in m.STRUCTURAL_TYPES and "published" in m.STRUCTURAL_TYPES
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 6. The §6.1 read-view — GET /threads//search unchanged across the swap.
 #    Asserted against the INDEPENDENT shadow, never reader==reader.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestClassBReadViewPreserved:
+class TestClassBReadViewPreserved:  # GREEN (impl 3): get_threads_display extended
     def test_reference_edge_still_queryable_by_slug_after_swap(self, store):
         # fell:phase3b-design:r2:classb-read-view — the load-bearing one: re-anchoring
         # slug->genesis must NOT drop a Class B edge from a slug query, and must
@@ -643,6 +741,27 @@ class TestClassBReadViewPreserved:
             assert f.startswith("sha256::") and t.startswith("sha256::"), \
                 "version-anchored edge shown byte-faithful (hash endpoints)"
 
+    @pytest.mark.parametrize("ttype", ["mention", "reply", "succession"])
+    def test_genesis_anchored_classb_edge_round_trips_by_type(self, store, ttype):
+        # fell:phase3b-impl:r5:reader-multitype (opus) — the read-view round-trip was
+        # only exercised for `reference`, so a source-level drift between the reader's
+        # rewrite set and the migration's re-anchor set on mention/reply/succession
+        # would ship green while corrupting GET /threads. Exercise the other public
+        # genesis-anchored types end-to-end. (within is omitted — not yet a ThreadType,
+        # §9 #2; the type-set-invariant test covers its constant membership.)
+        _make_site(store)
+        a, b = "finding-20260703-cb01", "finding-20260703-cb02"
+        _mk_lineage(store, a)
+        _mk_lineage(store, b)
+        _post_thread(store, a, b, ttype)
+        before = _display_via_reader(store, from_id=a)
+        _load_pk_migration().migrate_db(_db(store))
+        after = _display_via_reader(store, from_id=a)
+        assert after == before, f"{ttype} edge byte-identical across the swap"
+        expected = _expected_display(_rows(store), _refs_by_slug(store), from_id=a)
+        assert after == expected, f"{ttype} reader matches the de-circularized shadow"
+        assert (a, b, ttype, None) in after, f"{ttype} edge displayed slug-keyed"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 7. The differential verifier — positive path. RED until verify_db lands.
@@ -650,8 +769,7 @@ class TestClassBReadViewPreserved:
 #    (the lesson from the A5-cleanup fell).
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestVerifierPositivePath:
+class TestVerifierPositivePath:  # GREEN (impl 4): verify_db landed
     def _migrated(self, store, folio_id="finding-20260703-j001"):
         # TWO lineages (so the post-I1 gate has two refs to collide) + a re-anchored
         # Class B reference (so the clean-path covers a re-keyed row) + an edit (a
@@ -763,6 +881,73 @@ class TestVerifierPositivePath:
         assert any("idx_threads_from" in p or "index" in p.lower() for p in problems), \
             problems
 
+    def test_hash_shaped_orphan_endpoint_warns_never_blocks(self, store):
+        # fell:phase3b-impl:r2:hash-orphan-not-blocked (opus) — a Class C orphan whose
+        # unresolved endpoint is HASH-shaped (a cross-project / un-synced / pruned
+        # version) is KEPT unchanged by the migration (§5.3), so the verifier must
+        # SURFACE it as a warning, never BLOCK — else it rejects a db the migration
+        # itself produces. Only version-anchored edges require both endpoints resolve.
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-j0o1", "v1")
+        _mk_lineage(store, "finding-20260703-j0o2", "v1")  # 2nd ref for the I1 gate
+        stray = "sha256::00000000000000000000000000000000000000000000000000000000deadbeef"
+        _post_thread(store, "finding-20260703-j0o1", stray, "reference")
+        _load_pk_migration().migrate_db(_db(store))
+        problems, warnings = _load_pk_verifier().verify_db(_db(store))
+        assert not problems, f"a kept hash-shaped orphan must not block: {problems}"
+        assert any(stray in w for w in warnings), \
+            f"the kept hash-shaped orphan is surfaced as a warning: {warnings}"
+
+    def test_blocks_on_null_thread_id(self, store):
+        # fell:phase3b-impl:r2:verifier-nullcheck (codex + opus) — design §8 requires
+        # thread_id NOT NULL preserved. thread_id is not hashed, so a NULL is invisible
+        # to self-verify; the verifier must catch it directly. The real PK table forbids
+        # a NULL, so rebuild threads with a nullable thread_id + inject one.
+        v = self._migrated(store)
+        c = _conn(store)
+        try:
+            cols = ("thread_hash, thread_id, from_id, to_id, type, content, "
+                    "weaver, created_at")
+            c.execute("ALTER TABLE threads RENAME TO threads_old")
+            c.execute("CREATE TABLE threads (thread_hash TEXT PRIMARY KEY, "
+                      "thread_id TEXT, from_id TEXT, to_id TEXT, type TEXT, "
+                      "content TEXT, weaver TEXT, created_at TEXT)")
+            c.execute(f"INSERT INTO threads ({cols}) SELECT {cols} FROM threads_old")
+            c.execute("UPDATE threads SET thread_id=NULL WHERE thread_hash="
+                      "(SELECT thread_hash FROM threads LIMIT 1)")
+            c.execute("DROP TABLE threads_old")
+            c.commit()
+        finally:
+            c.close()
+        problems, _ = v.verify_db(_db(store))
+        assert any("thread_id" in p.lower() and "null" in p.lower() for p in problems), \
+            f"a NULL thread_id must block (§8): {problems}"
+
+    def test_blocks_on_slug_keyed_class_b_missed_reanchor(self, store):
+        # fell:phase3b-impl:r3:classb-reanchor-missed (codex) — §8 "every Class B row's
+        # endpoints resolve to versions.content_hash (re-anchor succeeded)". A genesis-
+        # anchored Class B row left SLUG-keyed post-swap (a MISSED re-anchor) still
+        # self-verifies AND round-trips through get_threads_display unchanged (slug ->
+        # slug), so neither self-verify nor the differential display leg catches it —
+        # only the structural verifier can. Corrupt a re-anchored reference back to slugs.
+        v = self._migrated(store)  # reference j001->j002, re-anchored to genesis
+        c = _conn(store)
+        try:
+            row = c.execute(
+                "SELECT * FROM threads WHERE type='reference' LIMIT 1").fetchone()
+            f, t = "finding-20260703-j001", "finding-20260703-j002"  # back to live slugs
+            h = compute_thread_hash(f, t, "reference", row["weaver"],
+                                    row["created_at"], row["content"])  # hash recomputed
+            c.execute("UPDATE threads SET from_id=?, to_id=?, thread_hash=? "
+                      "WHERE thread_id=?", (f, t, h, row["thread_id"]))
+            c.commit()
+        finally:
+            c.close()
+        problems, _ = v.verify_db(_db(store))
+        assert any("class b" in p.lower() or "re-anchor" in p.lower()
+                   or "not in versions" in p.lower() for p in problems), \
+            f"a slug-keyed Class B leftover (missed re-anchor) must block (§8): {problems}"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 8. Differential equivalence + migration invariants. The equivalence legs are
@@ -770,8 +955,7 @@ class TestVerifierPositivePath:
 #    not verify_db legs.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestControlReadUnchanged:
+class TestControlReadUnchanged:  # GREEN (impl 2): migrate_db landed
     """The other §8 equivalence surface: control read identical across the swap.
     The rewrite touches every row (incl. 5283 status rows ecosystem-wide); a reorder
     or drop must be caught, and 'thread_id is kept so it's safe' is an argument, not
@@ -796,8 +980,7 @@ class TestControlReadUnchanged:
             "assignment read unchanged across the swap"
 
 
-@pytest.mark.phase3b_pending
-class TestMigrationInvariants:
+class TestMigrationInvariants:  # GREEN (impl 2): migrate_db landed
     def test_row_count_reconciles_to_logged_collapse_only(self, store):
         _make_site(store)
         ga = _mk_lineage(store, "finding-20260703-l001")

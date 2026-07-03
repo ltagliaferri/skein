@@ -319,8 +319,7 @@ class TestOracleIsIndependent:
 # 2. The PK swap — schema. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestPKSwapSchema:
+class TestPKSwapSchema:  # GREEN (impl 2): migrate_db landed
     def test_thread_hash_is_primary_key(self, store):
         _make_site(store)
         _mk_lineage(store, "finding-20260703-aaaa")
@@ -367,8 +366,7 @@ class TestPKSwapSchema:
 # 3. Byte-dup collapse + insert idempotency. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestByteDupCollapse:
+class TestByteDupCollapse:  # GREEN (impl 2): migrate_db landed
     def _inject_byte_dup(self, store, folio_id):
         """Two rows identical on all six canonical fields, differing only by
         thread_id — the exact case the PK collapse targets."""
@@ -415,8 +413,7 @@ class TestByteDupCollapse:
 # 4. Class B re-anchor + thread_hash recompute. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestClassBReanchor:
+class TestClassBReanchor:  # GREEN (impl 2): migrate_db landed
     def test_reference_reanchored_to_genesis_and_hash_recomputed(self, store):
         _make_site(store)
         ga = _mk_lineage(store, "finding-20260703-f0a1")
@@ -460,8 +457,7 @@ class TestClassBReanchor:
                 r["created_at"], r["content"]), f"row {r['thread_id']} self-verifies"
 
 
-@pytest.mark.phase3b_pending
-class TestI1AndCollisionRefusal:
+class TestI1AndCollisionRefusal:  # GREEN (impl 2): migrate_db landed
     def _force_i1_collision(self, store, slug_a, slug_b):
         """Point two refs at the SAME genesis_hash — an I1 violation."""
         ga = _mk_lineage(store, slug_a)
@@ -777,8 +773,7 @@ class TestVerifierPositivePath:
 #    not verify_db legs.
 # ══════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.phase3b_pending
-class TestControlReadUnchanged:
+class TestControlReadUnchanged:  # GREEN (impl 2): migrate_db landed
     """The other §8 equivalence surface: control read identical across the swap.
     The rewrite touches every row (incl. 5283 status rows ecosystem-wide); a reorder
     or drop must be caught, and 'thread_id is kept so it's safe' is an argument, not
@@ -803,8 +798,7 @@ class TestControlReadUnchanged:
             "assignment read unchanged across the swap"
 
 
-@pytest.mark.phase3b_pending
-class TestMigrationInvariants:
+class TestMigrationInvariants:  # GREEN (impl 2): migrate_db landed
     def test_row_count_reconciles_to_logged_collapse_only(self, store):
         _make_site(store)
         ga = _mk_lineage(store, "finding-20260703-l001")

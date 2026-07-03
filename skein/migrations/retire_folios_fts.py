@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPENT — Phase 3a A5 dropped folios ecosystem-wide 2026-07-03; this one-shot is
+# inapplicable (references a table that no longer exists on live dbs). Kept as a record.
 """Migration: retire the legacy folios_fts index and its sync triggers.
 
 Phase 3 step 0 (the contraction's safest cut, pulled ahead of the folios drop).

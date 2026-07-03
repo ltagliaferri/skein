@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-# SPENT — Phase 3a A5 dropped folios ecosystem-wide 2026-07-03; this one-shot is
-# inapplicable (references a table that no longer exists on live dbs). Kept as a record.
+# SPENT as a live-db migration — Phase 3a A5 dropped folios ecosystem-wide
+# 2026-07-03, so this one-shot can no longer seed a live db (none carry folios).
+# NOT dead: fidelity/harness.py build_fixture() still calls backfill_db to seed
+# versions/refs from the frozen legacy archive fixture, which retains folios. Keep it.
 """Migration: seed versions + refs from the existing folios rows.
 
 Commit A of Phase 1+2 (address-by-hash + slug-as-head ref + edit-as-commit).

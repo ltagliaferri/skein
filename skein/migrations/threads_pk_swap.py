@@ -210,34 +210,23 @@ def _already_migrated(conn: sqlite3.Connection) -> bool:
     return _thread_pk_columns(conn) == ["thread_hash"]
 
 
-def _verify_quiesced(db_path: Path) -> None:
-    """Verify skein.service (the sole direct db writer, §4.4) is quiesced by proving
-    the threads db yields its WRITE lock immediately. ``BEGIN IMMEDIATE`` takes the
-    write lock; on a live-written db it blocks and, past the short probe budget,
-    errors ``database is locked`` → a typed refusal. On a quiesced db it acquires in
-    microseconds and we roll back untouched. This is a stronger check than a
-    unit-name lookup: it refuses ANY concurrent writer, and step 3 of the swap holds
-    the write lock across a row-by-row Python transform long enough that an
-    unquiesced writer would otherwise hit ``busy_timeout`` mid-transform — a green
-    violation this turns into a clean pre-flight refusal."""
-    conn = sqlite3.connect(str(db_path), isolation_level=None,
-                           timeout=QUIESCE_PROBE_MS / 1000)
-    try:
-        conn.execute(f"PRAGMA busy_timeout = {QUIESCE_PROBE_MS}")
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError as e:
-            raise PreconditionError(
-                f"skein.service not quiesced: the threads db is write-locked "
-                f"({e}) — stop skein.service before migrating (§4.4)") from e
-        conn.execute("ROLLBACK")
-    finally:
-        conn.close()
+def _null_thread_id_count(conn: sqlite3.Connection) -> int:
+    """Count rows with a NULL ``thread_id``. SQLite does NOT enforce NOT-NULL on a
+    non-INTEGER ``PRIMARY KEY`` column, so the legacy ``thread_id TEXT PRIMARY KEY``
+    can hold NULLs. Since ``threads_new.thread_id`` IS ``NOT NULL``, such a row would
+    be silently swallowed on copy and lost — refuse the db up front instead."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM threads WHERE thread_id IS NULL").fetchone()[0]
 
 
 def _backup_copy(src: Path, dst: Path) -> None:
     """Consistent snapshot src → dst via SQLite's online-backup API (torn-read-safe,
-    includes committed WAL frames), matching drop_folios/cutover_threads_control."""
+    includes committed WAL frames), matching drop_folios/cutover_threads_control. The
+    read connection is independent, so this is safe to call while the migration
+    connection holds ``BEGIN IMMEDIATE`` (a write lock with no writes yet): in WAL the
+    read sees the committed pre-swap snapshot, and the held lock guarantees no writer
+    can slip a commit in between the backup and the rewrite (the restore point is a
+    faithful pre-swap image)."""
     s = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
     try:
         d = sqlite3.connect(str(dst))
@@ -280,8 +269,10 @@ def _plan(
     seen: Dict[str, tuple] = {}           # new_hash → the ORIGINAL canonical tuple
     survivors: List[tuple] = []
     # A stable order so the row kept from a byte-dup group is deterministic (design
-    # §4.3 "keeps the original row"); (created_at, thread_id) matches the reader's
-    # tiebreaker so control byte-dups keep the tiebreak-winning row.
+    # §4.3 "keeps the original row"). WHICH thread_id survives is immaterial: a
+    # byte-dup group is identical on all six canonical fields (incl. content and
+    # created_at), so the reduced control value is the same whichever row survives —
+    # the order only pins determinism, not a semantically-preferred winner.
     rows = conn.execute(
         "SELECT thread_id, from_id, to_id, type, content, weaver, created_at "
         "FROM threads ORDER BY created_at, thread_id"
@@ -336,8 +327,17 @@ def migrate_db(db_path, *, dry_run: bool = False) -> PKSwapResult:
     checked BEFORE the no-prior-backup precondition, so a re-run neither refuses nor
     rewrites. ``dry_run=True`` mutates nothing (no backup, no writes) and returns the
     same plan (counts). Preconditions (fail-closed, only on a not-yet-migrated db):
-    ``skein.service`` quiesced, I1 (genesis unique per lineage), no prior backup —
-    each a :class:`PreconditionError`.
+    ``skein.service`` quiesced (proven by acquiring the write lock), I1 (genesis
+    unique per lineage), no NULL ``thread_id``, no prior backup — each a
+    :class:`PreconditionError`.
+
+    Quiescence and atomicity are ONE held write lock. The migration connection takes
+    ``BEGIN IMMEDIATE`` (a short-budget acquire — a live skein.service writer holds
+    the lock and trips it → refusal) and holds it across the I1/thread_id/no-backup
+    checks, the backup, AND the rewrite, releasing only at COMMIT. So the backup is a
+    faithful pre-swap image (no writer can commit between the snapshot and the swap)
+    and no live write is ever lost to a later restore — closing the probe-then-backup
+    TOCTOU a separate quiescence probe would leave open.
     """
     db_path = Path(db_path)
 
@@ -365,44 +365,57 @@ def migrate_db(db_path, *, dry_run: bool = False) -> PKSwapResult:
         finally:
             ro.close()
 
-    # 1. Preconditions (fail-closed) — quiesced, I1, no prior backup — before the
-    #    backup so a refused db is left byte-untouched with no restore point buried.
-    _verify_quiesced(db_path)
-    ro = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    ro.row_factory = sqlite3.Row
-    try:
-        _ref_maps(ro)   # asserts I1 before we touch anything
-    finally:
-        ro.close()
-    prior = sorted(db_path.parent.glob(f"{db_path.name}.bak-threads-pk-*"))
-    if prior:
-        raise PreconditionError(
-            f"prior threads-pk backup exists ({prior[0].name}) — already migrated or "
-            f"a prior attempt touched this db; resolve by hand (the first .bak is the "
-            f"true pre-swap image) before re-running")
-
-    # 2. Backup (online-backup API, WAL-consistent) — the restore point.
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = db_path.with_name(f"{db_path.name}.bak-threads-pk-{stamp}")
-    _backup_copy(db_path, backup)
-
-    # 3. The rewrite — build / re-anchor / copy / drop / rename / recreate-indexes —
-    #    inside ONE BEGIN IMMEDIATE, so a write landing between copy and drop cannot
-    #    be lost and any failure rolls the whole thing back (isolation_level=None so
-    #    we drive BEGIN/COMMIT ourselves and hold the write lock across the transform).
-    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    # LIVE path. Acquire the write lock FIRST (isolation_level=None so we drive
+    # BEGIN/COMMIT ourselves), with a short busy_timeout so an unquiesced writer trips
+    # it fast → a clean refusal rather than a mid-transform busy error. Every
+    # precondition, the backup, and the rewrite then run under this one lock.
+    conn = sqlite3.connect(str(db_path), isolation_level=None,
+                           timeout=QUIESCE_PROBE_MS / 1000)
     conn.row_factory = sqlite3.Row
-    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    conn.execute(f"PRAGMA busy_timeout = {QUIESCE_PROBE_MS}")
     try:
-        conn.execute("BEGIN IMMEDIATE")
         try:
-            slugs, slug_to_genesis, _ = _ref_maps(conn)   # re-assert I1 under the lock
-            versions = _versions_set(conn)
-            survivors, result = _plan(conn, slugs, slug_to_genesis, versions)
+            conn.execute("BEGIN IMMEDIATE")   # quiescence proof + the atomicity lock
+        except sqlite3.OperationalError as e:
+            raise PreconditionError(
+                f"skein.service not quiesced: the threads db is write-locked "
+                f"({e}) — stop skein.service before migrating (§4.4)") from e
+        # We hold the write lock now; no other writer can commit until we do.
+        conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        try:
+            # 1. Preconditions (fail-closed) under the lock — I1, no NULL thread_id,
+            #    no prior backup — before the backup, so a refused db is left
+            #    byte-untouched with no restore point buried.
+            slugs, slug_to_genesis, _ = _ref_maps(conn)   # asserts I1
+            n_null = _null_thread_id_count(conn)
+            if n_null:
+                raise PreconditionError(
+                    f"{n_null} thread row(s) with a NULL thread_id — threads_new."
+                    f"thread_id is NOT NULL, so these would be silently lost on copy; "
+                    f"resolve by hand before migrating")
+            prior = sorted(db_path.parent.glob(f"{db_path.name}.bak-threads-pk-*"))
+            if prior:
+                raise PreconditionError(
+                    f"prior threads-pk backup exists ({prior[0].name}) — already "
+                    f"migrated or a prior attempt touched this db; resolve by hand "
+                    f"(the first .bak is the true pre-swap image) before re-running")
 
+            # 2. Backup (online-backup API, WAL-consistent) — the restore point.
+            #    Taken UNDER the held write lock, so it is a faithful pre-swap image.
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup = db_path.with_name(f"{db_path.name}.bak-threads-pk-{stamp}")
+            _backup_copy(db_path, backup)
+
+            # 3. The rewrite — build / re-anchor / copy / drop / rename / recreate-
+            #    indexes — all still under the one lock. A plain INSERT (not OR IGNORE):
+            #    _plan already collapsed byte-dups and refused collisions, so the
+            #    survivors are unique — a plain INSERT surfaces any residual anomaly
+            #    (a leftover dup, a NULL) LOUDLY as a rollback, never a silent drop.
+            survivors, result = _plan(conn, slugs, slug_to_genesis,
+                                      _versions_set(conn))
             conn.execute(_THREADS_NEW_DDL)                 # table only, no indexes yet
             conn.executemany(
-                "INSERT OR IGNORE INTO threads_new "
+                "INSERT INTO threads_new "
                 "(thread_hash, thread_id, from_id, to_id, type, content, weaver, "
                 " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 survivors)

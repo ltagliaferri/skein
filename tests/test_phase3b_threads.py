@@ -653,6 +653,46 @@ class TestManifestPredicate:  # GREEN (impl 1): manifest_eligible landed
         assert m.manifest_eligible(row, versions=self._versions()) is True
 
 
+class TestTypeSetInvariants:  # fell:phase3b-impl:r5 (opus + codex) — cross-module locks
+    def test_migration_reanchor_set_is_reader_rewrite_set(self):
+        # fell:phase3b-impl:r5:single-source (opus) — the migration's genesis re-anchor
+        # set and the reader's genesis->slug rewrite set MUST be identical, or a re-keyed
+        # edge drops out of a slug query (§6.1). They are single-sourced (the migration
+        # imports the storage constant); this locks the invariant against a re-split.
+        from skein.storage import CLASS_B_GENESIS_DISPLAY_TYPES
+        m = _load_pk_migration()
+        assert tuple(m.GENESIS_ANCHORED_TYPES) == tuple(CLASS_B_GENESIS_DISPLAY_TYPES)
+
+    def test_structural_types_is_the_genesis_version_partition(self):
+        # STRUCTURAL_TYPES (classifier/manifest allow-list) is EXACTLY the genesis +
+        # version anchored sets, disjoint and covering — derived, so it cannot drift.
+        m = _load_pk_migration()
+        g = set(m.GENESIS_ANCHORED_TYPES)
+        v = set(m.VERSION_ANCHORED_TYPES)
+        assert g | v == set(m.STRUCTURAL_TYPES) and g.isdisjoint(v)
+
+    def test_within_published_deferred_from_threadtype_enum(self):
+        # fell:phase3b-impl:r5:within-published-deferred (codex) — within/published are
+        # named ahead in the 3b classifier/manifest/display constants "so the rule is
+        # complete" (§9 #2), but their ThreadType enum add is DEFERRED to first use
+        # (with write paths + exact anchor). That deferral is the GATE that keeps 0 such
+        # rows: the Thread model rejects them, so none can be created via any app path,
+        # so the display reader (which cannot instantiate one) never encounters one.
+        # Adding `published` to the enum early would be UNSAFE — a slug-keyed published
+        # posted via POST /threads stays slug-keyed across the swap (version-anchored ->
+        # not re-anchored) and the verifier then blocks it as dangling. If a future
+        # feature adds either to ThreadType, this tripwire fires: also wire its write
+        # path + get_threads_display coverage so a stored row stays displayable.
+        from typing import get_args
+        from skein.models import ThreadType
+        enum = set(get_args(ThreadType))
+        assert "within" not in enum and "published" not in enum, (
+            "within/published must stay OUT of ThreadType until their write path + "
+            "reader coverage land together (§9 #2)")
+        m = _load_pk_migration()  # ...but they ARE named ahead in the structural rule
+        assert "within" in m.STRUCTURAL_TYPES and "published" in m.STRUCTURAL_TYPES
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 6. The §6.1 read-view — GET /threads//search unchanged across the swap.
 #    Asserted against the INDEPENDENT shadow, never reader==reader.
@@ -700,6 +740,27 @@ class TestClassBReadViewPreserved:  # GREEN (impl 3): get_threads_display extend
         for f, t, ty, _c in got:
             assert f.startswith("sha256::") and t.startswith("sha256::"), \
                 "version-anchored edge shown byte-faithful (hash endpoints)"
+
+    @pytest.mark.parametrize("ttype", ["mention", "reply", "succession"])
+    def test_genesis_anchored_classb_edge_round_trips_by_type(self, store, ttype):
+        # fell:phase3b-impl:r5:reader-multitype (opus) — the read-view round-trip was
+        # only exercised for `reference`, so a source-level drift between the reader's
+        # rewrite set and the migration's re-anchor set on mention/reply/succession
+        # would ship green while corrupting GET /threads. Exercise the other public
+        # genesis-anchored types end-to-end. (within is omitted — not yet a ThreadType,
+        # §9 #2; the type-set-invariant test covers its constant membership.)
+        _make_site(store)
+        a, b = "finding-20260703-cb01", "finding-20260703-cb02"
+        _mk_lineage(store, a)
+        _mk_lineage(store, b)
+        _post_thread(store, a, b, ttype)
+        before = _display_via_reader(store, from_id=a)
+        _load_pk_migration().migrate_db(_db(store))
+        after = _display_via_reader(store, from_id=a)
+        assert after == before, f"{ttype} edge byte-identical across the swap"
+        expected = _expected_display(_rows(store), _refs_by_slug(store), from_id=a)
+        assert after == expected, f"{ttype} reader matches the de-circularized shadow"
+        assert (a, b, ttype, None) in after, f"{ttype} edge displayed slug-keyed"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

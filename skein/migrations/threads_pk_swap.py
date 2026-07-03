@@ -30,39 +30,48 @@ if str(_REPO_ROOT) not in sys.path:
 from skein.identity import compute_thread_hash  # noqa: E402
 
 # Control types are class A by TYPE regardless of endpoints (design §3.1 / §5):
-# the server mints them and they drive refs filters. Kept in sync with
-# storage.CONTROL_THREAD_TYPES (imported so there is one source of truth).
-from skein.storage import CONTROL_THREAD_TYPES  # noqa: E402
+# the server mints them and they drive refs filters. The genesis-anchored Class B
+# set is ALSO imported from storage (not re-declared) so the migration's re-anchor
+# set and the reader's genesis→slug rewrite set (design §6/§6.1) are ONE source of
+# truth — a drift between them would silently corrupt the display round-trip across
+# the swap (a genesis-anchored edge re-keyed by the migration but not rewritten back
+# by the reader would drop out of a slug query). Only `reference` was exercised
+# end-to-end before, so such a drift on mention/reply/succession/within could ship
+# green (fell:phase3b-impl:r5, opus).
+from skein.storage import (  # noqa: E402
+    CLASS_B_GENESIS_DISPLAY_TYPES,
+    CONTROL_THREAD_TYPES,
+)
 
 # Types that are never structural folio↔folio edges even when both endpoints
 # happen to resolve to a folio (design §5.2): a tag is folio→label, a message is
 # folio commentary. Their F→F rows are degenerate self-loops, not edges.
 SEMANTIC_C_TYPES = ("tag", "message")
 
-# The manifest allow-list (design §7): the structural edge types that may federate.
-# An ALLOW-LIST, not a denylist — an unknown/new type must be rejected, never
-# silently federated. `within`/`published` are named ahead of their enum addition
-# (design §9 #2) so the rule is complete.
-STRUCTURAL_TYPES = (
-    "reference", "mention", "reply", "succession", "within", "published",
-    "supersedes", "reverted",
-)
-
-# The Class B types whose endpoints are anchored on the lineage GENESIS hash and
-# so are re-keyed slug→genesis at the swap (design §6). The remaining structural
-# types (supersedes/reverted/published) are VERSION-anchored — their endpoints are
-# already content hashes minted at write time, so the swap leaves them byte-faithful
-# and does NOT slug-resolve them (resolving a version endpoint to a slug is the
-# corruption get_threads_display's docstring warns against).
-GENESIS_ANCHORED_TYPES = ("reference", "mention", "reply", "succession", "within")
+# The Class B types whose endpoints are anchored on the lineage GENESIS hash and are
+# re-keyed slug→genesis at the swap (design §6) — the SAME set the reader rewrites
+# back to slugs (imported above, single source). `within` is named here ahead of its
+# ThreadType enum addition (deferred to first use, design §9 #2 — see the tripwire
+# test_within_published_deferred_from_threadtype_enum); it has 0 rows and the Thread
+# model rejects it, so the migration never actually encounters one.
+GENESIS_ANCHORED_TYPES = CLASS_B_GENESIS_DISPLAY_TYPES
 
 # The version-anchored structural types (design §6): edit-DAG / publish edges whose
 # BOTH endpoints are, by construction, exact ``versions.content_hash`` values. The
-# post-swap verifier uses this to require both endpoints resolve in ``versions`` for
-# these types (a miss is a genuine dangling BLOCKER), while a hash-shaped endpoint on
-# any OTHER type may be a kept orphan (§5.3), not an error. Together with
-# GENESIS_ANCHORED_TYPES this partitions STRUCTURAL_TYPES.
+# post-swap verifier requires both endpoints resolve in ``versions`` for these types
+# (a miss is a genuine dangling BLOCKER), while a hash-shaped endpoint on any OTHER
+# type may be a kept orphan (§5.3), not an error. `published` is likewise named ahead
+# of its enum (§9 #2): it must stay OUT of ThreadType until its write path guarantees
+# version-keyed endpoints, or a slug-keyed `published` posted via POST /threads would
+# be kept slug-keyed by the swap (version-anchored → not re-anchored) and then blocked
+# by the verifier as dangling.
 VERSION_ANCHORED_TYPES = ("supersedes", "reverted", "published")
+
+# The manifest allow-list (design §7): the structural edge types that may federate.
+# An ALLOW-LIST, not a denylist — an unknown/new type must be rejected, never
+# silently federated. DERIVED from the genesis + version partition (not hand-listed)
+# so it can never drift out of sync with either half.
+STRUCTURAL_TYPES = tuple(GENESIS_ANCHORED_TYPES) + VERSION_ANCHORED_TYPES
 
 # The six schema-global thread indexes, recreated on the renamed table AFTER the
 # DROP+RENAME (design §4.4 step 5) — the names are schema-global, so they cannot be

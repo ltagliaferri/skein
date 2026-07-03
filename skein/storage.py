@@ -38,8 +38,12 @@ CONTROL_THREAD_TYPES = ("status", "assignment", "archive")
 # keep GET /threads / /search byte-identical across the swap. Version-anchored edges
 # (supersedes/reverted/published) are deliberately EXCLUDED: their endpoints are exact
 # version hashes and a genesis->slug rewrite would corrupt an edge whose endpoint is
-# the genesis version (whose content hash equals the lineage genesis_hash). This set
-# is display-only — the value readers above still key off CONTROL_THREAD_TYPES alone.
+# the genesis version (whose content hash equals the lineage genesis_hash). This is
+# the SINGLE SOURCE of the genesis-anchored set: skein.migrations.threads_pk_swap
+# imports it as GENESIS_ANCHORED_TYPES (the migration re-anchor set), so the reader's
+# rewrite set and the migration's re-anchor set can never drift apart (design §6/§6.1;
+# a drift would silently drop a re-keyed edge from a slug query). Display-only — the
+# value readers above still key off CONTROL_THREAD_TYPES alone.
 CLASS_B_GENESIS_DISPLAY_TYPES = ("reference", "mention", "reply", "succession", "within")
 
 # The full set get_threads_display unions + genesis->slug-rewrites: control (3a) plus

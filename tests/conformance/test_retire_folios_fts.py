@@ -44,16 +44,47 @@ def _conn(store):
     return c
 
 
+# A5 retired the folios table from the storage layer (_init_db no longer creates
+# it and save_folio no longer writes it). retire_folios_fts still operates on the
+# legacy folios + folios_fts shape, so these tests build a faithful pre-A5 db: a
+# real folio in versions/refs (so the live get/save path is exercisable) PLUS a
+# legacy folios table carrying the same row (the FTS mirror's content source).
+_LEGACY_FOLIOS_DDL = """
+    CREATE TABLE IF NOT EXISTS folios (
+        folio_id TEXT PRIMARY KEY, type TEXT NOT NULL, site_id TEXT NOT NULL,
+        created_at DATETIME NOT NULL, created_by TEXT NOT NULL, title TEXT NOT NULL,
+        content TEXT NOT NULL, status TEXT DEFAULT 'open', assigned_to TEXT,
+        target_agent TEXT, omlet TEXT, archived INTEGER DEFAULT 0, metadata JSON,
+        acknowledged_at DATETIME, content_hash TEXT
+    )
+"""
+
+
 def _seed_folio(store, folio_id="finding-20260630-aaaa"):
+    now = datetime.now(timezone.utc)
     store.save_site(Site(
-        site_id="alpha", created_at=datetime.now(timezone.utc),
+        site_id="alpha", created_at=now,
         created_by="t", purpose="p",
     ))
     store.save_folio(Folio(
         folio_id=folio_id, type="finding", site_id="alpha",
-        created_at=datetime.now(timezone.utc), created_by="a",
+        created_at=now, created_by="a",
         title="T", content="genesis body", status="open", metadata={},
     ))
+    # Add the legacy folios row the FTS mirror indexes (A5 dropped this write).
+    c = _conn(store)
+    try:
+        c.execute(_LEGACY_FOLIOS_DDL)
+        c.execute(
+            "INSERT OR REPLACE INTO folios "
+            "(folio_id, type, site_id, created_at, created_by, title, content, "
+            " status, metadata) "
+            "VALUES (?, 'finding', 'alpha', ?, 'a', 'T', 'genesis body', 'open', '{}')",
+            (folio_id, now.isoformat()),
+        )
+        c.commit()
+    finally:
+        c.close()
 
 
 # The legacy DDL this migration retires — recreated here so the test owns a
@@ -197,11 +228,12 @@ def test_backup_snapshots_the_pre_retire_db(store):
 
 
 def test_writes_still_work_after_retire(store):
-    # With the triggers gone, INSERT OR REPLACE INTO folios must still succeed.
+    # With folios_fts + its triggers gone, the live write path (save_folio ->
+    # versions/refs) must still succeed and reads must reflect the edit.
     _seed_folio(store)
     _install_legacy_fts(store)
     retire_db(_db(store), dry_run=False)
-    # An edit through the live path (save_folio does INSERT OR REPLACE).
+    # An edit through the live path (save_folio writes versions/refs).
     f = store.get_folio("finding-20260630-aaaa")
     f.content = "edited body"
     assert store.save_folio(f, editor="e") is not False

@@ -1,5 +1,6 @@
 """
-SKEIN storage layer: SQLite for logs/threads/folios, JSON for roster/sites.
+SKEIN storage layer: SQLite for logs/threads/versions/refs, JSON for roster/sites.
+(The legacy folios table was retired in Phase 3a A5; folios are versions⋈refs.)
 Multi-project support via ~/.skein/projects.json registry.
 """
 
@@ -109,40 +110,6 @@ def _folio_from_head_row(row: "sqlite3.Row") -> Folio:
     )
 
 
-def _folio_from_folios_row(row: "sqlite3.Row") -> Folio:
-    """Reconstruct a Folio from a raw folios row (the pre-Phase-2 shape). Used only
-    as the cross-project fallback for a registered legacy db that has not been
-    backfilled yet (no refs table) — folios stays alive through Phase 2."""
-    return Folio(
-        folio_id=row["folio_id"],
-        type=row["type"],
-        site_id=row["site_id"],
-        created_at=ensure_aware(row["created_at"]),
-        created_by=row["created_by"],
-        title=row["title"],
-        content=row["content"],
-        status=(row["status"] if "status" in row.keys() else None) or "open",
-        assigned_to=row["assigned_to"] if "assigned_to" in row.keys() else None,
-        target_agent=row["target_agent"] if "target_agent" in row.keys() else None,
-        omlet=row["omlet"] if "omlet" in row.keys() else None,
-        archived=bool(row["archived"]) if "archived" in row.keys() else False,
-        metadata=json.loads(row["metadata"]) if ("metadata" in row.keys() and row["metadata"]) else {},
-        acknowledged_at=ensure_aware(row["acknowledged_at"]) if "acknowledged_at" in row.keys() else None,
-        content_hash=row["content_hash"] if "content_hash" in row.keys() else None,
-    )
-
-
-def _has_refs_table(conn: "sqlite3.Connection") -> bool:
-    """Whether this db has been backfilled to the Phase 2 shape. A registered
-    legacy db with only folios (not yet backfilled) lacks refs; the cross-project
-    readers fall back to folios for it so a folio that exists still resolves
-    rather than silently vanishing. Steady state (all registered dbs migrated by
-    the §5 --all backfill, gated by verify_versions_refs --all) never hits this."""
-    return conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='refs'"
-    ).fetchone() is not None
-
-
 # Project Registry
 def load_project_registry() -> Dict[str, Dict[str, Any]]:
     """Load project registry from ~/.skein/projects.json."""
@@ -200,16 +167,10 @@ def search_folio_across_projects(
                 continue
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             try:
-                # Existence is per-slug on refs (heads layer); fall back to folios
-                # for a not-yet-backfilled legacy db (no refs table).
-                if _has_refs_table(conn):
-                    cursor = conn.execute(
-                        "SELECT 1 FROM refs WHERE slug = ? LIMIT 1", (folio_id,)
-                    )
-                else:
-                    cursor = conn.execute(
-                        "SELECT 1 FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
-                    )
+                # Existence is per-slug on refs (the heads layer).
+                cursor = conn.execute(
+                    "SELECT 1 FROM refs WHERE slug = ? LIMIT 1", (folio_id,)
+                )
                 if cursor.fetchone():
                     project_path = project_info.get("path", str(data_dir))
                     return {"project_name": project_name, "project_path": project_path}
@@ -258,11 +219,8 @@ def get_project_last_activity_timestamps() -> Dict[str, int]:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             try:
                 # Latest head activity = MAX(created_at) over heads (genesis ts,
-                # inherited); fall back to folios for a not-yet-backfilled db.
-                if _has_refs_table(conn):
-                    cursor = conn.execute("SELECT MAX(v.created_at) " + _HEAD_FROM)
-                else:
-                    cursor = conn.execute("SELECT MAX(created_at) FROM folios")
+                # inherited via the versions/refs join).
+                cursor = conn.execute("SELECT MAX(v.created_at) " + _HEAD_FROM)
                 row = cursor.fetchone()
                 if not row or row[0] is None:
                     continue
@@ -303,19 +261,12 @@ def resolve_folio_across_projects(
             conn.row_factory = sqlite3.Row
             try:
                 # Resolve the slug's HEAD via the join (identity from versions,
-                # control from refs); fall back to the raw folios row for a
-                # not-yet-backfilled legacy db (no refs table).
-                if _has_refs_table(conn):
-                    row = conn.execute(
-                        f"SELECT {_HEAD_SELECT} {_HEAD_FROM} WHERE r.slug = ? LIMIT 1",
-                        (folio_id,),
-                    ).fetchone()
-                    folio = _folio_from_head_row(row) if row else None
-                else:
-                    row = conn.execute(
-                        "SELECT * FROM folios WHERE folio_id = ? LIMIT 1", (folio_id,)
-                    ).fetchone()
-                    folio = _folio_from_folios_row(row) if row else None
+                # control from refs).
+                row = conn.execute(
+                    f"SELECT {_HEAD_SELECT} {_HEAD_FROM} WHERE r.slug = ? LIMIT 1",
+                    (folio_id,),
+                ).fetchone()
+                folio = _folio_from_head_row(row) if row else None
                 if folio is not None:
                     logger.info(
                         f"Resolved {folio_id} from project '{project_name}' (cascade)"
@@ -573,70 +524,11 @@ class LogDatabase:
             """
             )
 
-            # Folios table
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS folios (
-                    folio_id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    site_id TEXT NOT NULL,
-                    created_at DATETIME NOT NULL,
-                    created_by TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    status TEXT DEFAULT 'open',
-                    assigned_to TEXT,
-                    target_agent TEXT,
-                    omlet TEXT,
-                    archived INTEGER DEFAULT 0,
-                    metadata JSON,
-                    acknowledged_at DATETIME,
-                    content_hash TEXT
-                )
-            """
-            )
-
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_folios_site
-                ON folios(site_id)
-            """
-            )
-
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_folios_type
-                ON folios(type)
-            """
-            )
-
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_folios_status
-                ON folios(status)
-            """
-            )
-
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_folios_created
-                ON folios(created_at DESC)
-            """
-            )
-
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_folios_created_by
-                ON folios(created_by)
-            """
-            )
-
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_folios_assigned
-                ON folios(assigned_to)
-            """
-            )
+            # Phase 3a A5: the legacy ``folios`` table (and its indexes) is
+            # retired. Reads have been off folios since the commit-C read-flip and
+            # the writers (save_folio/move_folio) no longer touch it, so fresh dbs
+            # are born folios-free. Existing dbs keep a now-unwritten vestigial
+            # table until the destructive live DROP (A5 Part 2).
 
             # Phase 3 step 0: folios_fts (legacy external-content FTS5) and its
             # three sync triggers (folios_ai/ad/au) are retired — search reads
@@ -741,7 +633,7 @@ class LogDatabase:
         moves the head — a read-then-write that must not race a concurrent writer
         (a TOCTOU on head_hash would mint a duplicate or skip a supersedes edge).
         BEGIN IMMEDIATE takes the write lock BEFORE the first read, so the whole
-        version/refs/threads/folios maintenance is one atomic transaction.
+        versions/refs/threads maintenance is one atomic transaction.
         Commits on a clean exit, rolls back on any exception."""
         conn = sqlite3.connect(self.db_path, isolation_level=None, timeout=10)
         conn.row_factory = sqlite3.Row
@@ -1440,7 +1332,7 @@ class LogDatabase:
     # Folio Operations
 
     def save_folio(self, folio: Folio, editor: Optional[str] = None) -> bool:
-        """Save or update a folio: dual-write folios + maintain versions/refs.
+        """Save or update a folio into versions/refs (Phase 3a A5: folios retired).
 
         Phase 2 edit-as-commit, all in one BEGIN IMMEDIATE transaction:
           - CREATE (no ref yet): mint the genesis version, insert the ref.
@@ -1450,15 +1342,16 @@ class LogDatabase:
             a durable ``reverted`` marker, mint nothing (no cycle).
           - EDIT, no identity change (status/assignment/archive/move/no-op): refresh
             the refs control cache only; mint nothing.
-        The folios row is still INSERT OR REPLACE-d as today (dual-write through
-        Phase 2). ``created_at``/``created_by`` inherit the lineage genesis, so a
-        status-only edit cannot change the hash through a timestamp; the per-edit
+        The legacy ``folios`` dual-write is gone as of Phase 3a A5 (reads have been
+        off ``folios`` since the commit-C read-flip); versions/refs is the sole
+        write target. ``created_at``/``created_by`` inherit the lineage genesis, so
+        a status-only edit cannot change the hash through a timestamp; the per-edit
         editor lives on the supersedes/reverted edge's weaver (``editor``), not on
         the version — the Folio's ``created_by`` is the genesis author by design.
 
-        State (status/assignment/archive) is still written by the routes as
-        slug-keyed threads; save_folio does NOT mint or move any state thread. It
-        only copies the folio object's control fields into the refs cache columns.
+        State (status/assignment/archive) is written by the routes as genesis-keyed
+        threads; save_folio does NOT mint or move any state thread. It only copies
+        the folio object's control fields into the refs cache columns.
         """
         with self._immediate_txn() as conn:
             # Resolve the ref to tell CREATE from EDIT. On EDIT, reassert the
@@ -1499,41 +1392,16 @@ class LogDatabase:
                 )
 
             # Maintain versions/refs + the supersedes/reverted edges (only when a
-            # hash is available; degraded no-knurl mode writes folios only, as
-            # before, and is not a production path).
+            # hash is available). Degraded no-knurl mode now persists NOTHING —
+            # A5 removed the folios dual-write and versions/refs needs the hash —
+            # but no-knurl is not a production path (a no-hash folios row had no
+            # head in versions/refs and was already unreadable post-commit-C).
             if KNURL_AVAILABLE and folio.content_hash:
                 self._maintain_versions_refs(
                     conn, folio, ref, folio.content_hash, created_at,
                     acknowledged_at, editor,
                 )
-
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO folios
-                (folio_id, type, site_id, created_at, created_by, title, content,
-                 status, assigned_to, target_agent, omlet, archived, metadata,
-                 acknowledged_at, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    folio.folio_id,
-                    folio.type,
-                    folio.site_id,
-                    created_at,
-                    folio.created_by,
-                    folio.title,
-                    folio.content,
-                    folio.status or "open",
-                    folio.assigned_to,
-                    folio.target_agent,
-                    folio.omlet,
-                    1 if folio.archived else 0,
-                    json.dumps(folio.metadata) if folio.metadata else "{}",
-                    acknowledged_at,
-                    folio.content_hash,
-                ),
-            )
-            # FTS index updated automatically via triggers
+            # versions_fts is updated automatically via its AFTER INSERT trigger.
         return True
 
     def _refs_control(self, folio: Folio, acknowledged_at: Optional[str]) -> tuple:
@@ -1541,7 +1409,7 @@ class LogDatabase:
         column order used by the INSERT/UPDATE below: site_id, status,
         assigned_to, archived, target_agent, omlet, acknowledged_at, metadata.
         (created_by and type are hashed identity and live on versions, not refs.)
-        The encodings match the folios dual-write exactly, so the two never drift.
+        These encodings are what a read coerces back, so a read round-trips a write.
         """
         return (
             folio.site_id,
@@ -1724,13 +1592,12 @@ class LogDatabase:
             return [_folio_from_head_row(row) for row in cursor.fetchall()]
 
     def move_folio(self, folio_id: str, dest_site_id: str) -> Optional[Folio]:
-        """Move a folio to a different site — a dual-write transaction.
+        """Move a folio to a different site.
 
         site_id is ref-local control, not an identity field, so a move mints NO
-        version. But move_folio is a second folios-write path outside save_folio,
-        so it carries the companion refs write itself: it UPDATEs both
-        folios.site_id and refs.site_id in one transaction, and (at commit C)
-        returns the head reconstructed from the join.
+        version — it only UPDATEs refs.site_id and returns the head reconstructed
+        from the join. (Phase 3a A5 retired the companion ``folios`` write this
+        path used to carry alongside the refs write.)
         """
         with self._immediate_txn() as conn:
             exists = conn.execute(
@@ -1739,10 +1606,6 @@ class LogDatabase:
             if not exists:
                 return None
 
-            conn.execute(
-                "UPDATE folios SET site_id = ? WHERE folio_id = ?",
-                (dest_site_id, folio_id),
-            )
             conn.execute(
                 "UPDATE refs SET site_id = ? WHERE slug = ?",
                 (dest_site_id, folio_id),
@@ -1907,19 +1770,25 @@ class LogDatabase:
 
     def migrate_folios_from_json(self, sites_dir: Path) -> int:
         """
-        Migrate folio JSON files from all sites into SQLite.
+        Migrate folio JSON files from all sites into SQLite (versions/refs).
         Returns count of migrated folios. Idempotent.
+
+        Phase 3a A5 re-based this cold import off the retired ``folios`` table: the
+        idempotency probe and the writes are on versions/refs (the live read
+        layer), so it survives a dropped folios table and never names it.
         """
         if not sites_dir.exists():
             return 0
 
-        # Check if we already have data (idempotent)
+        # Check if we already have data (idempotent). Probed on refs (the lineage
+        # head layer) since A5 retired folios; a store whose data already lives in
+        # versions/refs is not re-imported.
         with self._get_connection() as conn:
-            cursor = conn.execute("SELECT COUNT(*) FROM folios")
+            cursor = conn.execute("SELECT COUNT(*) FROM refs")
             existing_count = cursor.fetchone()[0]
             if existing_count > 0:
                 logger.info(
-                    f"Folios table already has {existing_count} rows, skipping migration"
+                    f"refs already has {existing_count} lineage(s), skipping JSON import"
                 )
                 return 0
 
@@ -1976,39 +1845,11 @@ class LogDatabase:
                     else:
                         content_hash = data.get("content_hash")
 
-                    conn.execute(
-                        """
-                        INSERT OR IGNORE INTO folios
-                        (folio_id, type, site_id, created_at, created_by, title, content,
-                         status, assigned_to, target_agent, omlet, archived, metadata,
-                         acknowledged_at, content_hash)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            folio_id,
-                            ftype,
-                            site_id,
-                            created_at,
-                            created_by,
-                            title,
-                            content,
-                            data.get("status", "open"),
-                            data.get("assigned_to"),
-                            data.get("target_agent"),
-                            data.get("omlet"),
-                            1 if data.get("archived", False) else 0,
-                            json.dumps(metadata) if metadata else "{}",
-                            data.get("acknowledged_at"),
-                            content_hash,
-                        ),
-                    )
-
-                    # Phase 2: this cold JSON import is a folios writer too, so it
-                    # populates versions/refs for every row — otherwise a fresh
-                    # legacy-JSON import after the read-flip would have folios rows
-                    # with no head and read empty post-C. Genesis = head = the
-                    # recomputed content_hash; the full control set is copied. (No
-                    # supersedes edge — each imported row is a lineage genesis.)
+                    # This cold JSON import writes versions/refs (the live read
+                    # layer) directly — A5 retired the folios dual-write. Genesis =
+                    # head = the recomputed content_hash; the full control set is
+                    # copied. (No supersedes edge — each imported row is a lineage
+                    # genesis.) A row with no usable hash is skipped, not imported.
                     if content_hash:
                         conn.execute(
                             "INSERT OR IGNORE INTO versions "
@@ -2030,7 +1871,7 @@ class LogDatabase:
                              data.get("acknowledged_at"),
                              json.dumps(metadata) if metadata else "{}"),
                         )
-                    count += 1
+                        count += 1
                 except Exception as e:
                     logger.error(f"Failed to migrate {folio_file.name}: {e}")
                     errors += 1

@@ -7896,6 +7896,60 @@ rites:
         click.echo()
 
 
+@cli.command()
+@click.argument("refs", nargs=-1)
+@click.option("--to", "instance_url", required=True,
+              help="Target station publish URL (e.g. https://ingress.example)")
+@click.option("--folio-hash", "folio_hashes", multiple=True,
+              help="Publish a folio by content hash (repeatable)")
+@click.option("--thread", "thread_hashes", multiple=True,
+              help="Include a thread by its hash (repeatable)")
+@click.option("--token", default=None,
+              help="OIDC token from a prior 1-click login (required to actually send)")
+@click.option("--dry-run", is_flag=True, help="Resolve + lint only; sign and send nothing")
+@click.option("--json", "output_json", is_flag=True, help="Output the raw result as JSON")
+@click.pass_context
+def publish(ctx, refs, instance_url, folio_hashes, thread_hashes, token, dry_run, output_json):
+    """Publish declared folios/threads to a remote station as a signed manifest.
+
+    Names an EXPLICIT author-declared set: positional REFS are resolved to their content
+    hashes via the API, plus any --folio-hash / --thread given directly. This is a THIN
+    wrapper — the server assembles, signs, and POSTs; nothing is signed in the client.
+    """
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = ctx.obj.get("agent")
+
+    folios = list(folio_hashes)
+    for ref in refs:
+        folio = make_request("GET", f"/folios/{ref}", base_url, agent_id)
+        h = folio.get("content_hash")
+        if not h:
+            raise click.ClickException(f"folio '{ref}' has no content_hash to publish")
+        folios.append(h)
+
+    body = {
+        "to": instance_url,
+        "manifest": {"folios": folios, "threads": list(thread_hashes)},
+        "token": token,
+        "dry_run": dry_run,
+    }
+    result = make_request("POST", "/publish", base_url, agent_id, json=body)
+
+    if output_json:
+        click.echo(json.dumps(result, indent=2))
+        return
+    declared = result.get("declared", {})
+    click.echo(f"declared: {len(declared.get('folios', []))} folio(s), "
+               f"{len(declared.get('threads', []))} thread(s)")
+    for w in result.get("warnings", []):
+        click.echo(f"  warn [{w.get('code')}] {w.get('subject', '')}: {w.get('message')}",
+                   err=True)
+    if result.get("sent"):
+        click.echo(f"published to {instance_url}")
+    elif dry_run:
+        click.echo("dry-run — nothing signed or sent")
+
+
 def main():
     """Entry point for the skein CLI (called by pip-installed command)."""
     cli()

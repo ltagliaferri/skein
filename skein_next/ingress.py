@@ -281,6 +281,7 @@ def ingest(
         thread_accepted: List[str] = []
         thread_existing: List[str] = []
         thread_rejected: List[Dict[str, str]] = []
+        thread_dangling: List[str] = []
 
         def present(endpoint: Any) -> bool:
             # On the instance iff it exists in the store — either landed in this
@@ -304,13 +305,13 @@ def ingest(
                 _, mreason = manifest_decision(claimed)
                 thread_rejected.append({"thread_hash": claimed, "reason": mreason})
                 continue
-            # The manifest verifies AND binds: present() can still legitimately yield
-            # 'dangling endpoint' for a member-thread whose endpoint folio did not
-            # land. Refuse edges whose endpoints are not both on the instance — the
-            # graph stays closed (the client already filters; defense in depth).
-            if not present(wt.get("from_id")) or not present(wt.get("to_id")):
-                thread_rejected.append({"thread_hash": claimed, "reason": "dangling endpoint"})
-                continue
+            # Dangling endpoints are ALLOWED (accept-and-flag, PHASE_4_DESIGN §5.3): a
+            # member-thread whose endpoint folio has not (yet) landed is STORED and
+            # NOTED, never rejected — its hash is a signed manifest leaf regardless of
+            # whether its endpoints are held, and the threads table has no endpoint FK.
+            # The manifest_decision gate below still applies, so under require_signed a
+            # dangling edge must still be a signed member.
+            dangling = not present(wt.get("from_id")) or not present(wt.get("to_id"))
             if require_signed:
                 # Manifest verified + bound, so this can only fail 'not in manifest'.
                 admit, mreason = manifest_decision(claimed)
@@ -331,6 +332,8 @@ def ingest(
                     if require_signed:
                         write_attribution(claimed, "thread")
                     (thread_existing if already else thread_accepted).append(claimed)
+                    if dangling:
+                        thread_dangling.append(claimed)
             except Exception as exc:  # noqa: BLE001 — one bad item never 500s the batch
                 logger.debug("thread %s rolled back: %s", claimed, exc)
                 for lst in (thread_accepted, thread_existing):
@@ -347,6 +350,7 @@ def ingest(
             "accepted": thread_accepted,
             "existing": thread_existing,
             "rejected": thread_rejected,
+            "dangling": thread_dangling,
         },
     }
 

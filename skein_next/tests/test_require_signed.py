@@ -166,7 +166,13 @@ def test_on_leaf_not_in_manifest_rejects(client, instance):  # RS6
     reasons = {r["content_hash"]: r["reason"] for r in ack["rejected"]}
     finding = next(f["content_hash"] for f in batch["folios"] if f["type"] == "finding")
     assert reasons[finding] == "not in manifest"
-    # threads referencing the finding are also rejected (not in manifest)
+    # SECURITY GUARD (the accept-and-flag relaxation must NOT let a non-member dangling
+    # thread slip in): the within thread here is BOTH a non-member AND dangling; it must
+    # still reject 'not in manifest', not be accepted/flagged.
+    assert ack["threads"]["rejected"]
+    assert all(r["reason"] == "not in manifest" for r in ack["threads"]["rejected"])
+    assert not ack["threads"]["accepted"]
+    assert not ack["threads"]["dangling"]
 
 
 def test_on_covered_bound_constituent_accepts(client, instance):  # RS7
@@ -226,7 +232,8 @@ def test_reject_reasons_pairwise_distinct():  # RS10
     from skein_next.ingress import _constituent_manifest_reject_reason as R
     authz = {"no manifest", "manifest signature SIGNATURE_MISMATCH",
              "unbound signer", "revoked binding", "not in manifest"}
-    wire_integrity = {"hash mismatch", "invalid fields", "dangling endpoint"}
+    # 'dangling endpoint' retired — dangling is accept-and-flag now (PHASE_4_DESIGN §5.3)
+    wire_integrity = {"hash mismatch", "invalid fields"}
     manifest_wire = {"manifest malformed", "wrong kind", "unknown profile"}
     # the three manifest-failure buckets are DISJOINT
     assert R("no manifest") == "no manifest"
@@ -235,7 +242,7 @@ def test_reject_reasons_pairwise_distinct():  # RS10
     assert R("unknown profile") == "unknown profile"
     assert R("SIGNATURE_MISMATCH") == "manifest signature SIGNATURE_MISMATCH"
     all_reasons = authz | wire_integrity | manifest_wire
-    assert len(all_reasons) == 11  # all pairwise distinct
+    assert len(all_reasons) == 10  # all pairwise distinct ('dangling endpoint' retired)
 
 
 def test_attribution_is_manifest_signer_not_created_by_or_weaver(client, instance):  # RS11
@@ -617,23 +624,25 @@ def test_on_malformed_manifest_rejects_every_constituent_identically(client, ins
     assert instance.store.count_folios() == 0
 
 
-def test_on_valid_manifest_over_thread_not_endpoints_keeps_dangling(client, instance):  # FIX 2 (b)
+def test_on_valid_manifest_over_thread_not_endpoints_accepts_dangling(client, instance):  # FIX 2 (b)
     # ON + a VALID bound manifest covering the thread's hash but NOT its endpoint
-    # folios: the endpoint folios reject 'not in manifest', and the thread (itself a
-    # member) reaches present() and rejects 'dangling endpoint' — present() is
-    # preserved under a verified+bound manifest.
+    # folios: the endpoint folios reject 'not in manifest'; the thread (itself a
+    # member) is now ACCEPTED and flagged dangling (accept-and-flag, PHASE_4_DESIGN
+    # §5.3) — present() no longer rejects a signed member whose endpoint folios did
+    # not land. The manifest-membership gate is unchanged.
     _seed(client)
     _bind(instance)
     from skein_next import publish as pub
     folios, threads, slugs = pub.collect_publish_set(client, site="specs")
     batch = wire.build_batch(folios, threads, slugs)
-    assert batch["threads"], "need a within thread to exercise present()"
+    assert batch["threads"], "need a within thread to exercise the dangling path"
     thread_hash = batch["threads"][0]["thread_hash"]
     batch["manifest_signature"] = sign_mod.sign_manifest([thread_hash], _signer())
     ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
     assert ack["rejected"] and all(r["reason"] == "not in manifest" for r in ack["rejected"])
-    assert ack["threads"]["rejected"]
-    assert all(r["reason"] == "dangling endpoint" for r in ack["threads"]["rejected"])
+    assert thread_hash in ack["threads"]["dangling"]
+    assert thread_hash in ack["threads"]["accepted"]
+    assert not ack["threads"]["rejected"]
     assert instance.store.count_folios() == 0
 
 

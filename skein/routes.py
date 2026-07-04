@@ -8,6 +8,7 @@ import re
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Union
 from pathlib import Path
+from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -44,6 +45,7 @@ from .storage import (
 )
 from .address_legacy import parse as parse_address
 from . import address as rev3_address
+from . import publish as _pub
 from .utils import (
     generate_folio_id,
     generate_thread_id,
@@ -2127,3 +2129,87 @@ async def hypothesis_verdict(
         "hypothesis_id": hypothesis_id,
         "verdict": verdict_req.verdict,
     }
+
+
+# ── Phase 4: author-declared publish (docs/PHASE_4_DESIGN.md §4) ─────────────
+class PublishManifest(BaseModel):
+    """The author-DECLARED set: exact content hashes to publish (§5.1)."""
+    folios: List[str] = []      # folio content_hashes
+    threads: List[str] = []     # thread_hashes
+
+
+class PublishRequest(BaseModel):
+    to: str                              # target station publish URL
+    manifest: PublishManifest
+    token: Optional[str] = None          # OIDC token from a prior 1-click login (§6)
+    oidc_issuer: Optional[str] = None
+    dry_run: bool = False
+
+
+def _folio_wire_from_version(vv: VersionView) -> Dict[str, Any]:
+    """Map a by-hash version to the publish wire folio (canonical fields + hash). The
+    type is coerced to its raw string so it re-hashes to the same content hash."""
+    ttype = vv.type.value if hasattr(vv.type, "value") else vv.type
+    return {
+        "content_hash": vv.content_hash, "type": ttype, "title": vv.title,
+        "content": vv.content, "created_at": vv.created_at, "created_by": vv.created_by,
+    }
+
+
+@router.post("/publish")
+def publish_folios(
+    body: PublishRequest,
+    log_db: LogDatabase = Depends(get_project_log_db),
+) -> Dict[str, Any]:
+    """Sign an author-declared manifest of content hashes and POST it to a remote
+    station's ingress (curlable; the thin CLI wraps this). Declarative: the author
+    names exact hashes; the server resolves each from its own store, lints (advisory),
+    then physics→sign→post via the un-forgettable orchestrator. ``dry_run`` returns the
+    resolved set + warnings without signing or sending (no Rekor entry)."""
+    folios: List[Dict[str, Any]] = []
+    for h in body.manifest.folios:
+        vv = log_db.get_version_by_hash(h)
+        if vv is None:
+            raise HTTPException(status_code=404, detail=f"unknown folio hash: {h}")
+        folios.append(_folio_wire_from_version(vv))
+    threads: List[Dict[str, Any]] = []
+    for th in body.manifest.threads:
+        row = log_db.get_thread_by_hash(th)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"unknown thread hash: {th}")
+        threads.append(row)
+
+    warnings = _pub.lint_declared_set(folios, threads)  # total, advisory, never blocks
+    declared = {"folios": [f["content_hash"] for f in folios],
+                "threads": [t["thread_hash"] for t in threads]}
+
+    if body.dry_run:
+        return {"declared": declared, "warnings": warnings, "signed": False, "sent": False}
+
+    # Cheap input validation BEFORE the irreversible Sigstore ceremony — fail closed
+    # with a 4xx and never waste a Rekor entry on trivially-bad input (gate §10 #9).
+    if not folios and not threads:
+        raise HTTPException(status_code=400, detail="nothing to publish: the manifest is empty")
+    target = (body.to or "").strip()
+    _parts = urlsplit(target)
+    if _parts.scheme not in ("http", "https") or not _parts.netloc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid target url (need http(s):// with a host): {body.to!r}")
+    if not body.token:
+        raise HTTPException(status_code=400,
+                            detail="publish requires a token (run login) — refusing to sign")
+
+    try:
+        signer = _pub.signer_from_token(body.token, body.oidc_issuer)
+        ack = _pub.publish(target, folios, threads, signer)
+    except _pub.PhysicsError as e:
+        raise HTTPException(status_code=400, detail=f"physics rejected: {e}")
+    except _pub.PublishError as e:
+        raise HTTPException(status_code=502, detail=f"publish failed: {e}")
+    except (ValueError, _pub.canon.MerkleError) as e:
+        raise HTTPException(status_code=400, detail=f"manifest rejected: {e}")
+    except Exception as e:  # a bad/expired token surfaces from signing — fail closed 4xx
+        logger.exception("publish route: unexpected signing/assembly failure")
+        raise HTTPException(status_code=400, detail=f"publish rejected: {e}")
+    return {"declared": declared, "warnings": warnings, "signed": True, "sent": True, "ack": ack}

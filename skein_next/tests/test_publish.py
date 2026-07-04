@@ -110,8 +110,10 @@ def test_tampered_folio_is_rejected_on_hash_mismatch(client, instance):
     assert instance.store.get_folio(finding["content_hash"]) is None
 
 
-def test_dangling_thread_is_refused_by_instance(client, instance):
-    """An edge whose endpoints did not land is dropped (graph stays closed)."""
+def test_dangling_thread_is_accepted_and_flagged(client, instance):
+    """An edge whose endpoint folio did not land is STORED and flagged dangling, not
+    rejected (PHASE_4_DESIGN §5.3 accept-and-flag): its hash is self-certifying and the
+    endpoint resolves lazily if that folio ever arrives."""
     _seed_site(client)
     folios, threads, slugs = collect_publish_set(client, site="specs")
     batch = wire.build_batch(folios, threads, slugs)
@@ -131,7 +133,10 @@ def test_dangling_thread_is_refused_by_instance(client, instance):
 
     ack = ingest(instance, batch)
 
-    assert any(r["thread_hash"] == bad["thread_hash"] for r in ack["threads"]["rejected"])
+    assert bad["thread_hash"] in ack["threads"]["dangling"]
+    assert bad["thread_hash"] in ack["threads"]["accepted"]
+    assert not any(r["thread_hash"] == bad["thread_hash"] for r in ack["threads"]["rejected"])
+    assert instance.store.get_thread(bad["thread_hash"]) is not None
 
 
 def test_dropped_edge_is_convergent_on_later_publish(client, instance):

@@ -1126,6 +1126,23 @@ class LogDatabase:
                 for row in rows
             ]
 
+    def get_thread_by_hash(self, thread_hash: str) -> Optional[Dict[str, Any]]:
+        """One thread row by its content hash (the post-swap PK), as a dict with the
+        six canonical fields + ``thread_hash``. The publish path (docs/PHASE_4_DESIGN.md
+        §4) needs the STORED hash, which the ``Thread`` model does not carry. Read-only,
+        additive."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT thread_hash, from_id, to_id, type, weaver, created_at, content "
+                "FROM threads WHERE thread_hash = ?", (thread_hash,)).fetchone()
+            if not row:
+                return None
+            return {
+                "thread_hash": row["thread_hash"], "from_id": row["from_id"],
+                "to_id": row["to_id"], "type": row["type"], "weaver": row["weaver"],
+                "created_at": ensure_aware(row["created_at"]), "content": row["content"],
+            }
+
     def get_threads_display(
         self,
         from_id: Optional[str] = None,

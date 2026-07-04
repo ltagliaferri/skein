@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 # Make the repo root importable so a direct
 # ``python skein/migrations/threads_pk_swap.py`` (not just ``-m``) works.

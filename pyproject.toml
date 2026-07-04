@@ -137,6 +137,11 @@ extend-exclude = ["docs"]
 # The signing bit-flip probe deliberately imports after an explanatory setup
 # block (E402) — the staging is intentional, not an accident.
 "tests/test_signing/bit_flip_matrix_probe.py" = ["E402"]
+# skein_next mesh tests bind single-letter identifiers straight from the crypto /
+# OIDC spec notation they mirror — I (issuer), l / r (merkle left/right) — so
+# E741's ambiguous-name rule would only obscure the correspondence to the vectors
+# under test. Scope the ignore to those tests, not the package.
+"skein_next/tests/*" = ["E741"]
 
 [tool.mypy]
 python_version = "3.10"

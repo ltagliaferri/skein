@@ -472,6 +472,55 @@ class TestPostSwapWritePathIdempotency:
         assert {r["thread_id"] for r in after} == {"thread-orig-0001", "thread-new-0002"}
 
 
+class TestSpentBackfillRefusesPostSwap:
+    """backfill_versions_refs is SPENT and cannot run against a post-swap
+    (thread_hash-PK) db: `_scan` reads the `folios` table Phase 3a A5 dropped (a
+    guaranteed crash), and its REPAIR-mode plain `supersedes` INSERT could raise a
+    PK violation. So BOTH its dry-run and its write path refuse a migrated db
+    fail-closed with a clear message (design §4.3). A fresh / un-migrated
+    (thread_id-PK) db is unaffected — the guard must not over-fire on it."""
+
+    def _post_swap_db(self, store):
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-b001")
+        _load_pk_migration().migrate_db(_db(store))
+        assert _pk_columns(store) == ["thread_hash"], "db is post-swap"
+        return _db(store)
+
+    @staticmethod
+    def _snapshot(store):
+        return sorted((tuple(sorted(r.items())) for r in _rows(store)))
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_refuses_thread_hash_pk_db(self, store, dry_run):
+        from skein.migrations.backfill_versions_refs import backfill_db
+        db = self._post_swap_db(store)
+        before = self._snapshot(store)
+        with pytest.raises(RuntimeError, match="thread_hash-PK"):
+            backfill_db(db, dry_run=dry_run)
+        assert _pk_columns(store) == ["thread_hash"], "still post-swap"
+        assert self._snapshot(store) == before, "threads left untouched by the refusal"
+
+    def test_predicate_fires_only_on_thread_hash_pk(self, store):
+        # The guard must NOT over-fire on a thread_id-PK db, or it would refuse the
+        # frozen fidelity fixture / any un-migrated db (a fast unit; the heavier
+        # fidelity/conformance paths also cover it).
+        from skein.migrations.backfill_versions_refs import _is_thread_hash_pk
+        _make_site(store)
+        _mk_lineage(store, "finding-20260703-b002")
+        c = _conn(store)
+        try:
+            assert _is_thread_hash_pk(c) is False, "fresh db is thread_id-PK"
+        finally:
+            c.close()
+        _load_pk_migration().migrate_db(_db(store))
+        c = _conn(store)
+        try:
+            assert _is_thread_hash_pk(c) is True, "migrated db is thread_hash-PK"
+        finally:
+            c.close()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. Class B re-anchor + thread_hash recompute. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════

@@ -88,6 +88,15 @@ def _trigger_names(conn: sqlite3.Connection) -> list:
     ))
 
 
+def _is_thread_hash_pk(conn: sqlite3.Connection) -> bool:
+    """True iff ``threads`` is at the Phase 3b post-swap schema (``thread_hash`` the
+    sole PK). This module is SPENT and its plain ``supersedes`` INSERT would risk a
+    PK violation on that PK, so both the dry-run and the write path refuse such a db
+    (design §4.3). Fresh / un-migrated (``thread_id``-PK) dbs return False."""
+    return [r[1] for r in conn.execute("PRAGMA table_info(threads)")
+            if r[5]] == ["thread_hash"]
+
+
 def _existing(conn: sqlite3.Connection) -> Tuple[set, set]:
     """The content_hashes already in versions and the slugs already in refs.
 
@@ -251,6 +260,10 @@ def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
+            if _is_thread_hash_pk(conn):
+                raise RuntimeError(
+                    f"{db_path} is at the Phase 3b thread_hash-PK schema; "
+                    f"backfill_versions_refs is SPENT — refusing (design §4.3).")
             stats, records, _, _, _, _ = _scan(conn, repair=repair)
             return stats, records
         finally:
@@ -267,6 +280,19 @@ def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[
     try:
         conn.execute("BEGIN IMMEDIATE")  # write lock BEFORE the read
         try:
+            # Phase 3b guard (design §4.3): this SPENT module cannot run against a
+            # post-swap db. Two hazards it converts to a clean refusal: (1) guaranteed
+            # on every real db — `_scan` reads the `folios` table that Phase 3a A5
+            # dropped, so it crashes `no such table: folios`; (2) narrower — the
+            # REPAIR-mode plain `supersedes` INSERT below could raise a PK violation on
+            # the thread_hash PK. Refuse fail-closed under the held lock (rolled back
+            # below) rather than crash. Fresh/un-migrated (thread_id-PK) dbs are
+            # unaffected and still processed.
+            if _is_thread_hash_pk(conn):
+                raise RuntimeError(
+                    f"{db_path} is at the Phase 3b thread_hash-PK schema; "
+                    f"backfill_versions_refs is SPENT and its plain supersedes INSERT "
+                    f"would risk a PK violation on that PK — refusing (design §4.3).")
             triggers_before = _trigger_names(conn)
             stats, records, version_rows, ref_insert_rows, ref_update_rows, \
                 supersedes_rows = _scan(conn, repair=repair)

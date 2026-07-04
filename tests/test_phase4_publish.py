@@ -313,6 +313,8 @@ def test_signer_from_token_reads_issuer_from_token_and_rejects_missing():
         publish.signer_from_token(_tok({"aud": "sigstore"}))   # no iss
     with pytest.raises(ValueError):
         publish.signer_from_token("not-a-jwt")                  # malformed
+    with pytest.raises(ValueError):
+        publish.signer_from_token(_tok({"iss": 123}))           # non-string iss
 
 
 def test_wire_datetime_normalization_still_rehashes_on_the_receiver():

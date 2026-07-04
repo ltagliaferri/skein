@@ -298,8 +298,8 @@ def signer_from_token(token: str) -> Signer:
     from .signing import OIDCProviderConfig, _parse_jwt_payload
 
     issuer = (_parse_jwt_payload(token) or {}).get("iss")
-    if not issuer:
-        raise ValueError("OIDC token has no iss claim (not a well-formed identity token)")
+    if not isinstance(issuer, str) or not issuer:
+        raise ValueError("OIDC token has no usable string iss claim (not a well-formed identity token)")
     provider = OIDCProviderConfig(issuer=issuer, token=token, provider_id=None)
     return make_oidc_signer(provider)
 

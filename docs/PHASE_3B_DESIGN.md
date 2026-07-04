@@ -540,3 +540,37 @@ alone do not prove a gate fires.
 > (code `master @ 34d8437`, 47 dbs, 10,330 thread rows and growing), not a frozen snapshot; the
 > migration re-measures per-db at run time and the logged counts — never this
 > prose — are the transform's authority.
+
+---
+
+## 10. Cutover record — DONE (live on all 47 dbs)
+
+The swap is live. Implementation (`migrate_db` / `get_threads_display` Class B
+extension / `verify_threads_pk`) merged at `cb11169`; the operational leg — the
+§4.3 write-path flip (`INSERT OR IGNORE`) and the `cutover_threads_pk` driver —
+merged at `198d411`, two-genotype fell (opus + codex) clean.
+
+The supervised live run (quiesced `skein.service` → `--dry-run` reprove →
+`--live`) migrated **all 47 dbs**, each passing the structural gate (`verify_db`)
+**and** the three differential equivalence legs — control read unchanged, Class B
+display-set unchanged, row-count `== pre − len(collapsed)`. An independent
+`verify_threads_pk --all` pass confirmed all 47 structurally sound afterward, and
+a production read + write round-trip verified the live service on the post-swap
+schema.
+
+Authoritative run-level facts (the logged counts, per the note above):
+- **Exactly one byte-duplicate collapse ecosystem-wide** — the known speakbot
+  `message` dup (§2.1 / §4.1). No other row loss on any db; every row-count leg
+  reconciled to `pre − 1` (speakbot) or `pre` (all others).
+- Headline re-anchors: **speakbot 218** (94 orphans kept), **skein-opensource
+  555** (166 orphans kept); the remaining dbs are small (portfolio 43, warp 17,
+  riftlog/spindle 8, …). Orphans (Class C rows with an endpoint resolving to no
+  live folio) are kept slug-keyed and logged, never dropped (§5.3).
+- Each db wrote its own `<db>.bak-threads-pk-<stamp>` restore point (47 total).
+
+Completion record: `finding-20260704-no30`. **Known follow-up (HIGH):** the
+fresh-db birth schema in `storage.py` (`_get_connection`) is still `thread_id`-PK,
+so a *newly created* project db is born pre-swap and fails `verify_threads_pk` —
+its own leg because it entangles the migration-test methodology
+(`brief-20260704-kasq`). The forward stub is Phase 4 (the publish/federation
+hookup over the Class-B-only manifest, §7).

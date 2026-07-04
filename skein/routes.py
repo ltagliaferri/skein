@@ -2142,7 +2142,6 @@ class PublishRequest(BaseModel):
     to: str                              # target station publish URL
     manifest: PublishManifest
     token: Optional[str] = None          # OIDC token from a prior 1-click login (§6)
-    oidc_issuer: Optional[str] = None
     dry_run: bool = False
 
 
@@ -2201,7 +2200,7 @@ def publish_folios(
                             detail="publish requires a token (run login) — refusing to sign")
 
     try:
-        signer = _pub.signer_from_token(body.token, body.oidc_issuer)
+        signer = _pub.signer_from_token(body.token)  # issuer derived from the token only
         ack = _pub.publish(target, folios, threads, signer)
     except _pub.PhysicsError as e:
         raise HTTPException(status_code=400, detail=f"physics rejected: {e}")

@@ -298,17 +298,21 @@ def test_wire_serializes_datetime_created_at_to_a_string():
     _json.dumps(batch)  # must not raise TypeError
 
 
-def test_signer_from_token_derives_issuer_from_jwt():
-    # regression for the live-smoke bug: OIDCProviderConfig requires a str issuer, so
-    # signer_from_token must read `iss` from the token when no issuer is passed.
+def test_signer_from_token_reads_issuer_from_token_and_rejects_missing():
+    # regression for the live-smoke bug + the fell: derive the issuer from the token's
+    # own iss (never a caller override), and fail as a typed ValueError (route -> 4xx),
+    # not a raw pydantic ValidationError, when there is no usable iss.
     import base64, json as _json
-    p = base64.urlsafe_b64encode(
-        _json.dumps({"iss": "https://oauth2.sigstore.dev/auth"}).encode()).rstrip(b"=").decode()
-    tok = "h." + p + ".s"
-    assert publish._issuer_from_jwt(tok) == "https://oauth2.sigstore.dev/auth"
-    assert publish._issuer_from_jwt("not-a-jwt") is None
-    signer = publish.signer_from_token(tok)  # would raise on issuer=None before the fix
-    assert callable(signer)
+
+    def _tok(claims):
+        p = base64.urlsafe_b64encode(_json.dumps(claims).encode()).rstrip(b"=").decode()
+        return "h." + p + ".s"
+
+    assert callable(publish.signer_from_token(_tok({"iss": "https://oauth2.sigstore.dev/auth"})))
+    with pytest.raises(ValueError):
+        publish.signer_from_token(_tok({"aud": "sigstore"}))   # no iss
+    with pytest.raises(ValueError):
+        publish.signer_from_token("not-a-jwt")                  # malformed
 
 
 def test_wire_datetime_normalization_still_rehashes_on_the_receiver():

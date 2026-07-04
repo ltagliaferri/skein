@@ -286,29 +286,21 @@ def make_oidc_signer(oidc_provider: Any, identity_scheme: str = "sigstore-public
     return _sign
 
 
-def _issuer_from_jwt(token: str) -> Optional[str]:
-    """The ``iss`` claim from a JWT's (UNVERIFIED) payload — used only to route the
-    provider. The token's signature is verified for real inside signing.sign via
-    Fulcio; reading ``iss`` here is just addressing, not trust."""
-    import base64
-    try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)  # restore base64 padding
-        return json.loads(base64.urlsafe_b64decode(payload)).get("iss")
-    except Exception:
-        return None
-
-
-def signer_from_token(token: str, issuer: Optional[str] = None) -> Signer:
+def signer_from_token(token: str) -> Signer:
     """Build a manifest Signer from an OIDC ``token`` obtained by a prior 1-click login
-    (gate §6). When ``issuer`` is not given it is read from the token's own ``iss``
-    claim (the token is self-describing) — OIDCProviderConfig requires a real issuer
-    string. The publish route hands its token here; the interactive login is a separate
-    client step. Tests inject a fake signer in place of this."""
-    from .signing import OIDCProviderConfig
+    (gate §6). The issuer is read from the token's OWN ``iss`` claim via the strict
+    shared parser — never a caller-supplied override, so the v0 issuer allowlist stays
+    meaningful (a caller cannot present an allowlisted issuer for a token minted by a
+    different one). ``iss`` here is only addressing for OIDCProviderConfig; the token's
+    signature is verified for real by Fulcio in ``signing.sign``, and the recorded
+    identity comes from the Fulcio cert, not this claim. Raises ``ValueError`` (which the
+    route maps to a 4xx) on a token with no usable ``iss``."""
+    from .signing import OIDCProviderConfig, _parse_jwt_payload
 
-    resolved_issuer = issuer or _issuer_from_jwt(token)
-    provider = OIDCProviderConfig(issuer=resolved_issuer, token=token, provider_id=None)
+    issuer = (_parse_jwt_payload(token) or {}).get("iss")
+    if not issuer:
+        raise ValueError("OIDC token has no iss claim (not a well-formed identity token)")
+    provider = OIDCProviderConfig(issuer=issuer, token=token, provider_id=None)
     return make_oidc_signer(provider)
 
 

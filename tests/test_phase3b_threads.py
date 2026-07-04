@@ -38,7 +38,7 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import pytest
 
@@ -245,7 +245,6 @@ def _expected_display(rows: List[dict], refs_by_slug: Dict[str, dict],
     GENESIS_ANCHORED = {"status", "assignment", "archive",  # control (3a)
                         "reference", "mention", "reply", "succession", "within"}
     slug_of_genesis = {r["genesis_hash"]: s for s, r in refs_by_slug.items()}
-    genesis_of_slug = {s: r["genesis_hash"] for s, r in refs_by_slug.items()}
 
     out = []
     for row in rows:
@@ -412,6 +411,68 @@ class TestByteDupCollapse:  # GREEN (impl 2): migrate_db landed
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 3b. Post-swap write path — INSERT OR IGNORE on the thread_hash PK (§4.3).
+#     GREEN with the save_thread OR REPLACE -> OR IGNORE flip. This is the write
+#     path the LIVE system runs AFTER the cutover, on a thread_hash-PK db.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPostSwapWritePathIdempotency:
+    """On a post-swap (thread_hash-PK) db, save_thread is INSERT OR IGNORE (§4.3): a
+    byte-identical re-save keeps the ORIGINAL row and its thread_id audit handle
+    (OR REPLACE would churn the handle); a re-save at a distinct normalized instant
+    is a different hash and appends, so the audit trail is preserved. Uses a Class C
+    ``message`` self-loop (a §5.2 override) whose endpoints the migration leaves
+    slug-keyed, so its thread_hash is stable across the swap and the test isolates
+    the write-path collision semantics, not the re-anchor."""
+
+    def _seed_message(self, store, folio_id, thread_id, *, created_at, content="note"):
+        _mk_lineage(store, folio_id)
+        store.save_thread(Thread(
+            thread_id=thread_id, from_id=folio_id, to_id=folio_id, type="message",
+            content=content, weaver="w", created_at=created_at))
+
+    def test_byte_identical_resave_keeps_original_thread_id(self, store):
+        _make_site(store)
+        ts = datetime(2026, 3, 3, tzinfo=timezone.utc)
+        self._seed_message(store, "finding-20260703-e100", "thread-orig-0001",
+                           created_at=ts)
+        _load_pk_migration().migrate_db(_db(store))            # -> thread_hash PK
+        assert _pk_columns(store) == ["thread_hash"], "post-swap schema in effect"
+        seeded = _rows(store, "message")
+        assert len(seeded) == 1 and seeded[0]["thread_id"] == "thread-orig-0001"
+        original_hash = seeded[0]["thread_hash"]
+
+        # Re-save the SAME six canonical fields with a DIFFERENT thread_id.
+        store.save_thread(Thread(
+            thread_id="thread-new-0002", from_id="finding-20260703-e100",
+            to_id="finding-20260703-e100", type="message", content="note",
+            weaver="w", created_at=ts))
+
+        after = _rows(store, "message")
+        assert len(after) == 1, "OR IGNORE: a byte-dup re-save did not append a row"
+        assert after[0]["thread_id"] == "thread-orig-0001", (
+            "OR IGNORE keeps the ORIGINAL thread_id audit handle "
+            "(OR REPLACE would have churned it to thread-new-0002)")
+        assert after[0]["thread_hash"] == original_hash
+
+    def test_distinct_instant_resave_appends(self, store):
+        _make_site(store)
+        ts = datetime(2026, 3, 3, tzinfo=timezone.utc)
+        self._seed_message(store, "finding-20260703-e101", "thread-orig-0001",
+                           created_at=ts)
+        _load_pk_migration().migrate_db(_db(store))
+        # A re-save at a distinct instant -> distinct hash -> a NEW row (audit trail
+        # intact; OR IGNORE only collapses a genuine byte-duplicate).
+        store.save_thread(Thread(
+            thread_id="thread-new-0002", from_id="finding-20260703-e101",
+            to_id="finding-20260703-e101", type="message", content="note",
+            weaver="w", created_at=ts + timedelta(seconds=1)))
+        after = _rows(store, "message")
+        assert len(after) == 2, "distinct created_at -> distinct hash -> both kept"
+        assert {r["thread_id"] for r in after} == {"thread-orig-0001", "thread-new-0002"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 4. Class B re-anchor + thread_hash recompute. RED until migrate_db lands.
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -448,8 +509,8 @@ class TestClassBReanchor:  # GREEN (impl 2): migrate_db landed
 
     def test_every_post_row_thread_hash_self_verifies(self, store):
         _make_site(store)
-        ga = _mk_lineage(store, "finding-20260703-f0d1")
-        gb = _mk_lineage(store, "finding-20260703-f0e1")
+        _mk_lineage(store, "finding-20260703-f0d1")
+        _mk_lineage(store, "finding-20260703-f0e1")
         _post_thread(store, "finding-20260703-f0d1", "finding-20260703-f0e1", "reference")
         _edit(store, "finding-20260703-f0d1", "v2")
         _load_pk_migration().migrate_db(_db(store))
@@ -487,7 +548,7 @@ class TestI1AndCollisionRefusal:  # GREEN (impl 2): migrate_db landed
         _make_site(store)
         self._force_i1_collision(store, "finding-20260703-g0c1", "finding-20260703-g0d1")
         # two references from each colliding lineage to a common target
-        gt = _mk_lineage(store, "finding-20260703-g0t1")
+        _mk_lineage(store, "finding-20260703-g0t1")
         _post_thread(store, "finding-20260703-g0c1", "finding-20260703-g0t1", "reference")
         _post_thread(store, "finding-20260703-g0d1", "finding-20260703-g0t1", "reference")
         m = _load_pk_migration()
@@ -983,7 +1044,7 @@ class TestControlReadUnchanged:  # GREEN (impl 2): migrate_db landed
 class TestMigrationInvariants:  # GREEN (impl 2): migrate_db landed
     def test_row_count_reconciles_to_logged_collapse_only(self, store):
         _make_site(store)
-        ga = _mk_lineage(store, "finding-20260703-l001")
+        _mk_lineage(store, "finding-20260703-l001")
         _mk_lineage(store, "finding-20260703-l002")
         _post_thread(store, "finding-20260703-l001", "finding-20260703-l002", "reference")
         before = len(_rows(store))

@@ -1032,9 +1032,14 @@ class LogDatabase:
             created_at, thread.content,
         )
         with self._get_connection() as conn:
+            # OR IGNORE on the thread_hash PK (§4.3): a byte-identical re-save keeps
+            # the ORIGINAL row — and its thread_id audit handle — rather than churning
+            # it. Pre-swap (thread_id-PK) dbs are unaffected: thread_ids are random, so
+            # a collision only happens on a genuine byte-dup, where OR IGNORE == OR
+            # REPLACE. Post-swap (thread_hash-PK) it is the required end-state semantics.
             conn.execute(
                 """
-                INSERT OR REPLACE INTO threads
+                INSERT OR IGNORE INTO threads
                 (thread_id, from_id, to_id, type, content, weaver, created_at,
                  thread_hash)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1497,13 +1502,15 @@ class LogDatabase:
             # REVERT / DAG re-entry — new_hash is reachable backward from head along
             # supersedes edges. This is also EXACTLY the condition under which a
             # new->head edge would close a cycle, so we must not mint one. Move the
-            # head and write a durable reverted marker. (No UNIQUE on the marker's
-            # endpoints, so this is a plain append, not an upsert — a revert/redo
-            # toggle accumulates one marker per revert, which is the intended audit
-            # trail.)
+            # head and write a durable reverted marker. A revert/redo toggle
+            # accumulates one marker per revert (the intended audit trail): distinct
+            # reverts carry distinct created_at → distinct thread_hash → distinct rows.
+            # OR IGNORE on the thread_hash PK (§4.3) only guards the physically-
+            # impossible same-normalized-instant double-revert, keeping the swap from
+            # raising a PK violation on it rather than changing the audit semantics.
             self._update_refs(conn, folio.folio_id, new_hash, control)
             conn.execute(
-                "INSERT INTO threads "
+                "INSERT OR IGNORE INTO threads "
                 "(thread_id, from_id, to_id, type, content, weaver, created_at, "
                 " thread_hash) "
                 "VALUES (?, ?, ?, 'reverted', NULL, ?, ?, ?)",
@@ -1523,8 +1530,11 @@ class LogDatabase:
             (new_hash, head_hash),
         ).fetchone()
         if not dup:
+            # The endpoint dup-check above already guards a repeat edge; OR IGNORE on
+            # the thread_hash PK (§4.3) is the belt-and-suspenders that keeps the swap
+            # from raising a PK violation on a residual collision.
             conn.execute(
-                "INSERT INTO threads "
+                "INSERT OR IGNORE INTO threads "
                 "(thread_id, from_id, to_id, type, content, weaver, created_at, "
                 " thread_hash) "
                 "VALUES (?, ?, ?, 'supersedes', NULL, ?, ?, ?)",

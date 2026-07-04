@@ -1388,22 +1388,38 @@ def shard_inspect(ctx, worktree_name, output_json):
 
         if shutil.which("xgun"):
             worktree_path = shard_info["worktree_path"]
-            try:
-                result = subprocess.run(
-                    ["xgun", "scan", worktree_path, "--output", "json"],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    cwd=worktree_path,
-                )
-                if result.returncode in (0, 1):
-                    xgun_result = json.loads(result.stdout)
-            except (
-                subprocess.TimeoutExpired,
-                subprocess.SubprocessError,
-                json.JSONDecodeError,
-            ):
-                pass
+            # xgun takes an explicit diff now: review what the shard changed
+            # since its base (base...HEAD, three-dot). Base from stored metadata,
+            # falling back to detection; if it can't be determined, skip xgun.
+            base_branch = drift_info.get("base_branch")
+            if not base_branch:
+                try:
+                    base_branch = shard_engine._get_shard_base_branch(worktree_name)
+                except Exception:
+                    base_branch = None
+            if base_branch:
+                try:
+                    result = subprocess.run(
+                        [
+                            "xgun", "scan",
+                            "--repo", worktree_path,
+                            "--old", base_branch,
+                            "--new", "HEAD",
+                            "--output", "json",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        cwd=worktree_path,
+                    )
+                    if result.returncode in (0, 1):
+                        xgun_result = json.loads(result.stdout)
+                except (
+                    subprocess.TimeoutExpired,
+                    subprocess.SubprocessError,
+                    json.JSONDecodeError,
+                ):
+                    pass
 
         if xgun_result:
             review_data["xgun"] = xgun_result

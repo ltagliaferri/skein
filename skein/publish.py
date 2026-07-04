@@ -286,13 +286,29 @@ def make_oidc_signer(oidc_provider: Any, identity_scheme: str = "sigstore-public
     return _sign
 
 
+def _issuer_from_jwt(token: str) -> Optional[str]:
+    """The ``iss`` claim from a JWT's (UNVERIFIED) payload — used only to route the
+    provider. The token's signature is verified for real inside signing.sign via
+    Fulcio; reading ``iss`` here is just addressing, not trust."""
+    import base64
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # restore base64 padding
+        return json.loads(base64.urlsafe_b64decode(payload)).get("iss")
+    except Exception:
+        return None
+
+
 def signer_from_token(token: str, issuer: Optional[str] = None) -> Signer:
     """Build a manifest Signer from an OIDC ``token`` obtained by a prior 1-click login
-    (gate §6). The publish route hands its token here; the interactive login is a
-    separate client step. Tests inject a fake signer in place of this."""
+    (gate §6). When ``issuer`` is not given it is read from the token's own ``iss``
+    claim (the token is self-describing) — OIDCProviderConfig requires a real issuer
+    string. The publish route hands its token here; the interactive login is a separate
+    client step. Tests inject a fake signer in place of this."""
     from .signing import OIDCProviderConfig
 
-    provider = OIDCProviderConfig(issuer=issuer, token=token, provider_id=None)
+    resolved_issuer = issuer or _issuer_from_jwt(token)
+    provider = OIDCProviderConfig(issuer=resolved_issuer, token=token, provider_id=None)
     return make_oidc_signer(provider)
 
 

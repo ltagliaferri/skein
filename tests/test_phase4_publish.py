@@ -298,6 +298,19 @@ def test_wire_serializes_datetime_created_at_to_a_string():
     _json.dumps(batch)  # must not raise TypeError
 
 
+def test_signer_from_token_derives_issuer_from_jwt():
+    # regression for the live-smoke bug: OIDCProviderConfig requires a str issuer, so
+    # signer_from_token must read `iss` from the token when no issuer is passed.
+    import base64, json as _json
+    p = base64.urlsafe_b64encode(
+        _json.dumps({"iss": "https://oauth2.sigstore.dev/auth"}).encode()).rstrip(b"=").decode()
+    tok = "h." + p + ".s"
+    assert publish._issuer_from_jwt(tok) == "https://oauth2.sigstore.dev/auth"
+    assert publish._issuer_from_jwt("not-a-jwt") is None
+    signer = publish.signer_from_token(tok)  # would raise on issuer=None before the fix
+    assert callable(signer)
+
+
 def test_wire_datetime_normalization_still_rehashes_on_the_receiver():
     # the strong check: after normalizing a datetime created_at to the wire string, the
     # RECEIVER's integrity floor (skein_next.wire) must still recompute the same hash —

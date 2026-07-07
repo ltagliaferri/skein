@@ -185,39 +185,60 @@ def folio_verdict(
 
     root = proof["root"]
     leaf_list = _json.loads(proof["leaf_list_json"])
-    issuer, subject = proof["issuer"], proof["subject"]
+    stored_issuer, stored_subject = proof["issuer"], proof["subject"]
 
     # Step 3 — SIGNATURE (the cache-elided expensive Sigstore step). A warm cache
     # returns the stored verdict WITHOUT invoking Sigstore (VC8); a cold/absent
     # cache computes in-process (VC7/VC10/VC14) and writes nothing (read app ro).
+    # Either way this is the ONLY identity the crypto actually vouches for — the
+    # cache row is written from the same verify_wire_manifest identity at ingest
+    # (VC6), never from the denormalized attribution row.
     cached = store.verify_cache_get(proof["manifest_hash"], bundle_hash_for(proof["bundle_json"]))
     if cached is not None:
         sig_status = cached["status"]
+        verified_issuer, verified_subject = cached["issuer"], cached["subject"]
     else:
         manifest_signature = {
             "descriptor": _json.loads(proof["descriptor_json"]),
             "leaf_list": leaf_list,
             "signature_bundle": proof["bundle_json"],
         }
-        verified, reason, _ = verify_wire_manifest(manifest_signature)
+        verified, reason, identity = verify_wire_manifest(manifest_signature)
         sig_status = "VERIFIED" if verified else reason
+        verified_issuer, verified_subject = (
+            (identity["issuer"], identity["subject"]) if identity else (None, None)
+        )
     if sig_status != "VERIFIED":
         if sig_status in _VERIFIER_UNAVAILABLE:
             return (f"UNVERIFIED — verifier unavailable ({sig_status})", None)
         return (f"SIGNATURE INVALID — {sig_status}", None)
+
+    # The signature only ever vouches for (verified_issuer, verified_subject) — the
+    # identity verify_wire_manifest just derived from the cert. The stored
+    # attribution row is a denormalized copy written at ingest time and must never
+    # be trusted over it: if the corpus ever holds a constituent whose attribution
+    # disagrees with what its own covering manifest verifies to (corruption, a
+    # non-ingress writer, a stale migration), display the stored subject as
+    # verified would render a signer the crypto never actually checked. Fail
+    # closed instead of falling through to the stored identity (gate §6).
+    if (verified_issuer, verified_subject) != (stored_issuer, stored_subject):
+        return ("NOT VERIFIED — identity mismatch", None)
 
     # Step 2 — MEMBERSHIP (live recompute).
     if not canon.manifest_membership(leaf_list, root, content_hash):
         return ("NOT VERIFIED — not in manifest", None)
 
     # Step 4 — BINDING (LIVE per read, never cached; verdict-bearing, not display).
-    binding = store.get_binding(issuer, subject)
+    binding = store.get_binding(verified_issuer, verified_subject)
     if binding is None:
         return ("NOT VERIFIED — unbound signer", None)
     if binding.revoked_at is not None:
         return ("NOT VERIFIED — revoked binding", None)
 
-    return (f"SIGNED — {subject or 'verified'} (verified)", {"issuer": issuer, "subject": subject})
+    return (
+        f"SIGNED — {verified_subject or 'verified'} (verified)",
+        {"issuer": verified_issuer, "subject": verified_subject},
+    )
 
 
 def _folio_href(content_hash: str) -> str:

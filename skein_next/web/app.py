@@ -404,12 +404,17 @@ def create_app() -> FastAPI:
     def html(request: Request, name: str, ctx: dict, *, status: int = 200) -> Response:
         # Vary: Accept — HTML is one Accept/UA-negotiated representation among json
         # and markdown, so a shared cache must key on Accept (RFC 9110 §12.5.5).
+        # Cache-Control: no-cache matches every sibling machine surface (JSON folio
+        # 294, markdown 314, bundle 562) — without it this is the one representation
+        # eligible for browser bfcache / heuristic proxy freshness, so a revoked
+        # "SIGNED … (verified)" verdict could keep rendering here after the live
+        # verdict has already flipped (VC15's revocation-is-live invariant).
         return templates.TemplateResponse(
             request,
             name,
             {**base_ctx, "request": request, **ctx},
             status_code=status,
-            headers={"Vary": "Accept"},
+            headers={"Cache-Control": "no-cache", "Vary": "Accept"},
         )
 
     def html_error(request: Request, code: str, address: str) -> Response:

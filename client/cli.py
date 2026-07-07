@@ -7922,19 +7922,51 @@ rites:
 @click.option("--thread", "thread_hashes", multiple=True,
               help="Include a thread by its hash (repeatable)")
 @click.option("--token", default=None,
-              help="OIDC token from a prior 1-click login (required to actually send)")
+              help="OIDC token from a prior login (mutually exclusive with --login)")
+@click.option("--login", is_flag=True,
+              help="Run the interactive Sigstore login here and sign with it (no --token juggling)")
+@click.option("--oob", "force_oob", is_flag=True,
+              help="With --login: out-of-band code flow for headless/SSH (no local browser)")
 @click.option("--dry-run", is_flag=True, help="Resolve + lint only; sign and send nothing")
 @click.option("--json", "output_json", is_flag=True, help="Output the raw result as JSON")
 @click.pass_context
-def publish(ctx, refs, instance_url, folio_hashes, thread_hashes, token, dry_run, output_json):
+def publish(ctx, refs, instance_url, folio_hashes, thread_hashes, token, login,
+            force_oob, dry_run, output_json):
     """Publish declared folios/threads to a remote station as a signed manifest.
 
     Names an EXPLICIT author-declared set: positional REFS are resolved to their content
     hashes via the API, plus any --folio-hash / --thread given directly. This is a THIN
     wrapper — the server assembles, signs, and POSTs; nothing is signed in the client.
+
+    Identity for a real send comes from either --login (runs the interactive Sigstore
+    ceremony here and hands the token to the route) or --token (a token from a prior
+    login). The ceremony is the ONLY client-side step; the server still does the signing.
     """
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = ctx.obj.get("agent")
+
+    # Identity resolution (client-side ceremony only; the route does the signing).
+    if login and token:
+        raise click.ClickException("use one of --login or --token, not both")
+    if force_oob and not login:
+        raise click.ClickException("--oob only applies with --login")
+    if dry_run and login:
+        # A dry run signs and sends nothing, so a login ceremony would pop a browser
+        # for no reason — skip it (the resolved set + warnings need no identity).
+        click.echo("dry-run: skipping login (nothing is signed or sent)", err=True)
+        login = False
+    if login:
+        from skein import publish as _pub  # lazy: keeps sigstore off every other CLI path
+        try:
+            ident = _pub.acquire_login_token(force_oob=force_oob)
+        except Exception as e:  # a cancelled/failed OIDC ceremony -> clean error, not a traceback
+            raise click.ClickException(f"Sigstore login failed: {e}")
+        click.echo(f"signed in as {ident['subject']} (via {ident['issuer']})", err=True)
+        token = ident["token"]
+    elif not dry_run and not token:
+        raise click.ClickException(
+            "a real publish needs an identity: pass --login (interactive) or --token TOKEN "
+            "(from a prior login). Use --dry-run to preview without signing.")
 
     folios = list(folio_hashes)
     for ref in refs:

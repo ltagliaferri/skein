@@ -38,6 +38,15 @@ _SEPARATOR = b"\x00"
 # Sized for the public write surface: a real publish is a handful of leaves.
 MAX_LEAVES = 2048
 
+# The interactive login federates through Sigstore's public production Dex broker;
+# the token it mints carries iss=this broker, which is on the signing v0 allowlist.
+# NOTE (the cert-issuer gotcha, gate §6.1): this BROKER issuer is what login prints
+# and what signer_from_token reads as addressing — it is NOT the Fulcio CERT issuer
+# (e.g. https://accounts.google.com) that the ingress records as the signer and that
+# an operator binding must name. Login speaks the broker; the recorded identity comes
+# from the Fulcio cert issued during signing.
+SIGSTORE_PROD_ISSUER = "https://oauth2.sigstore.dev/auth"
+
 # Bookkeeping edge that never travels (a folio->instance publish-state ledger).
 PUBLISHED_THREAD = "published"
 
@@ -302,6 +311,32 @@ def signer_from_token(token: str) -> Signer:
         raise ValueError("OIDC token has no usable string iss claim (not a well-formed identity token)")
     provider = OIDCProviderConfig(issuer=issuer, token=token, provider_id=None)
     return make_oidc_signer(provider)
+
+
+def acquire_login_token(issuer_url: Optional[str] = None, force_oob: bool = False) -> Dict[str, str]:
+    """Run the interactive Sigstore OIDC login on the AUTHOR's machine; return the
+    identity token plus the discovered identity (gate §6).
+
+    Client-side by nature: a server cannot pop a browser, so the CLI runs this locally
+    and hands the returned ``token`` to the publish route exactly as an out-of-band
+    ``--token`` would. This is only the OIDC ceremony — NO Fulcio cert and NO Rekor
+    entry are created here; those happen server-side when the route signs the manifest.
+
+    ``force_oob`` uses the out-of-band code flow (a pasted code instead of a browser
+    redirect) for a headless/SSH box with no local browser. ``subject`` is read off the
+    identity token for display only — the authoritative signer identity still comes from
+    the Fulcio cert at sign time. Returns ``{"token", "issuer", "subject"}``. Network +
+    interactive by nature — exercised at the ceremony, not in CI (tests inject a fake).
+    """
+    from sigstore.oidc import Issuer  # lazy: only the ceremony needs the browser flow
+
+    identity_token = Issuer(issuer_url or SIGSTORE_PROD_ISSUER).identity_token(
+        force_oob=force_oob)
+    return {
+        "token": str(identity_token),
+        "issuer": identity_token.issuer,
+        "subject": identity_token.identity,
+    }
 
 
 # --- the wire batch (ported from skein_next/wire.py) ------------------------

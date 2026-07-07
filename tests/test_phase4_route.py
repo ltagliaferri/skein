@@ -11,7 +11,6 @@ import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -196,6 +195,115 @@ def test_cli_publish_is_thin_and_delegates_to_the_route(monkeypatch):
     assert posts and posts[0][1] == "/publish"                       # hits the route
     assert posts[0][2]["manifest"]["folios"] == ["sha256::" + "a" * 64]  # resolved ref
     assert posts[0][2]["dry_run"] is True
+
+
+def test_cli_login_runs_the_ceremony_and_hands_the_token_to_the_route(monkeypatch):
+    # piece-1 (§6): --login runs the interactive ceremony CLIENT-side and passes the
+    # resulting token in the request body. The client still assembles/signs nothing.
+    from click.testing import CliRunner
+    from client import cli as ccli
+    from skein import publish as P
+
+    monkeypatch.setattr(
+        P, "acquire_login_token",
+        lambda force_oob=False: {"token": "TOK", "issuer": "iss", "subject": "me@x"})
+
+    posts = []
+
+    def fake_make_request(method, endpoint, base_url, agent_id, **kwargs):
+        if method == "GET":
+            return {"content_hash": "sha256::" + "a" * 64}
+        posts.append((endpoint, kwargs.get("json")))
+        return {"declared": {"folios": ["sha256::" + "a" * 64], "threads": []},
+                "warnings": [], "signed": True, "sent": True, "ack": {}}
+
+    monkeypatch.setattr(ccli, "make_request", fake_make_request)
+    result = CliRunner().invoke(
+        ccli.cli, ["publish", "myref", "--to", "http://s:9101", "--login"])
+    assert result.exit_code == 0, result.output
+    assert posts and posts[0][0] == "/publish"
+    assert posts[0][1]["token"] == "TOK"        # the acquired token rode to the route
+
+
+def test_cli_login_and_token_are_mutually_exclusive():
+    from click.testing import CliRunner
+    from client import cli as ccli
+    result = CliRunner().invoke(
+        ccli.cli, ["publish", "myref", "--to", "http://s:9101", "--login", "--token", "T"])
+    assert result.exit_code != 0
+    assert "one of --login or --token" in result.output
+
+
+def test_cli_oob_requires_login():
+    from click.testing import CliRunner
+    from client import cli as ccli
+    result = CliRunner().invoke(
+        ccli.cli, ["publish", "myref", "--to", "http://s:9101", "--token", "T", "--oob"])
+    assert result.exit_code != 0
+    assert "--oob only applies with --login" in result.output
+
+
+def test_cli_real_send_without_identity_is_a_friendly_error():
+    # no --login, no --token, not a dry run -> fail fast client-side (the route also 400s).
+    from click.testing import CliRunner
+    from client import cli as ccli
+    result = CliRunner().invoke(ccli.cli, ["publish", "myref", "--to", "http://s:9101"])
+    assert result.exit_code != 0
+    assert "needs an identity" in result.output
+
+
+def test_cli_dry_run_skips_the_login_ceremony(monkeypatch):
+    # a dry run signs/sends nothing, so --login must NOT pop a browser (ceremony skipped).
+    from click.testing import CliRunner
+    from client import cli as ccli
+    from skein import publish as P
+
+    called = {"n": 0}
+
+    def _should_not_run(force_oob=False):
+        called["n"] += 1
+        return {"token": "TOK", "issuer": "i", "subject": "s"}
+
+    monkeypatch.setattr(P, "acquire_login_token", _should_not_run)
+
+    def fake_make_request(method, endpoint, base_url, agent_id, **kwargs):
+        if method == "GET":
+            return {"content_hash": "sha256::" + "a" * 64}
+        return {"declared": {"folios": [], "threads": []}, "warnings": [],
+                "signed": False, "sent": False}
+
+    monkeypatch.setattr(ccli, "make_request", fake_make_request)
+    result = CliRunner().invoke(
+        ccli.cli, ["publish", "myref", "--to", "http://s:9101", "--login", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert called["n"] == 0    # ceremony skipped on dry-run
+
+
+def test_cli_login_failure_is_a_clean_error_not_a_traceback(monkeypatch):
+    # a cancelled/failed OIDC ceremony becomes a clean ClickException, and NO publish is
+    # attempted (token is never set, so control never reaches the POST).
+    from click.testing import CliRunner
+    from client import cli as ccli
+    from skein import publish as P
+
+    def _boom(force_oob=False):
+        raise RuntimeError("user cancelled the browser prompt")
+
+    monkeypatch.setattr(P, "acquire_login_token", _boom)
+
+    calls = []
+
+    def fake_make_request(method, endpoint, base_url, agent_id, **kwargs):
+        calls.append(method)
+        return {}
+
+    monkeypatch.setattr(ccli, "make_request", fake_make_request)
+    result = CliRunner().invoke(
+        ccli.cli, ["publish", "myref", "--to", "http://s:9101", "--login"])
+    assert result.exit_code != 0
+    assert "Sigstore login failed" in result.output   # clean error, not a raw traceback
+    assert "RuntimeError" not in result.output         # the traceback did not leak
+    assert "POST" not in calls                          # nothing published on a failed login
 
 
 def test_dangling_thread_warns_but_still_publishes(monkeypatch):

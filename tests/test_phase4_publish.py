@@ -216,19 +216,22 @@ def test_C3_empty_manifest_is_rejected():
 
 # ── C1 (extended). physics_check is TOTAL — every malformed row is typed ─────
 def test_C1_missing_content_hash_is_typed():
-    a = _folio("A"); del a["content_hash"]
+    a = _folio("A")
+    del a["content_hash"]
     with pytest.raises(publish.PhysicsError):
         publish.physics_check([a], [])
 
 
 def test_C1_none_content_hash_is_typed():
-    a = _folio("A"); a["content_hash"] = None
+    a = _folio("A")
+    a["content_hash"] = None
     with pytest.raises(publish.PhysicsError):
         publish.physics_check([a], [])
 
 
 def test_C1_nonstr_field_is_typed():
-    a = _folio("A"); a["type"] = 123  # canon rejects non-str -> PhysicsError, not 500
+    a = _folio("A")
+    a["type"] = 123  # canon rejects non-str -> PhysicsError, not 500
     with pytest.raises(publish.PhysicsError):
         publish.physics_check([a], [])
 
@@ -246,7 +249,8 @@ def test_E_orchestrator_attaches_signature_over_exactly_the_declared_set():
 
 
 def test_E_orchestrator_physics_first_never_reaches_signer():
-    a = _folio("A"); a["content_hash"] = "sha256::" + "0" * 64
+    a = _folio("A")
+    a["content_hash"] = "sha256::" + "0" * 64
     signer = _FakeSigner()
     with pytest.raises(publish.PhysicsError):
         publish.assemble_signed_batch([a], [], {}, signer)
@@ -302,7 +306,8 @@ def test_signer_from_token_reads_issuer_from_token_and_rejects_missing():
     # regression for the live-smoke bug + the fell: derive the issuer from the token's
     # own iss (never a caller override), and fail as a typed ValueError (route -> 4xx),
     # not a raw pydantic ValidationError, when there is no usable iss.
-    import base64, json as _json
+    import base64
+    import json as _json
 
     def _tok(claims):
         p = base64.urlsafe_b64encode(_json.dumps(claims).encode()).rstrip(b"=").decode()
@@ -315,6 +320,42 @@ def test_signer_from_token_reads_issuer_from_token_and_rejects_missing():
         publish.signer_from_token("not-a-jwt")                  # malformed
     with pytest.raises(ValueError):
         publish.signer_from_token(_tok({"iss": 123}))           # non-string iss
+
+
+def test_acquire_login_token_runs_the_ceremony_and_returns_identity(monkeypatch):
+    # the client-side login helper (--login): run the interactive Sigstore ceremony and
+    # return {token, issuer, subject}. Browser+network by nature, so inject a fake Issuer;
+    # assert it federates through the broker issuer and threads force_oob to the ceremony.
+    import sigstore.oidc as _oidc
+
+    seen = {}
+
+    class _FakeIdentityToken:
+        issuer = "https://oauth2.sigstore.dev/auth"
+        identity = "patricksmyth01@gmail.com"
+
+        def __str__(self):
+            return "fake.jwt.token"
+
+    class _FakeIssuer:
+        def __init__(self, url):
+            seen["url"] = url
+
+        def identity_token(self, force_oob=False):
+            seen["force_oob"] = force_oob
+            return _FakeIdentityToken()
+
+    monkeypatch.setattr(_oidc, "Issuer", _FakeIssuer)
+
+    out = publish.acquire_login_token()
+    assert out == {"token": "fake.jwt.token",
+                   "issuer": "https://oauth2.sigstore.dev/auth",
+                   "subject": "patricksmyth01@gmail.com"}
+    assert seen["url"] == publish.SIGSTORE_PROD_ISSUER   # federates through the broker
+    assert seen["force_oob"] is False
+
+    publish.acquire_login_token(force_oob=True)          # --oob threads through
+    assert seen["force_oob"] is True
 
 
 def test_wire_datetime_normalization_still_rehashes_on_the_receiver():

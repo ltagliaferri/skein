@@ -144,6 +144,17 @@ def test_folio_html_from_wire(client, seeded):
     assert "Brief B" in r.text            # threads_out peer title
 
 
+def test_folio_byline_is_a_claim_not_verified_authorship(client, seeded):
+    # gate §6.1: created_by is self-asserted, never verified authorship. The metadata
+    # byline must label it a claim, not present it as a bare "author: alice". (a is
+    # unsigned, so no authenticated signer is named.)
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert "alice" in r                       # the created_by value is still shown
+    assert "author (self-declared)" in r      # relabeled — not a bare "author"
+    assert "unverified claim" in r            # framed as a claim
+    assert "the authenticated actor is the signer" not in r  # nothing authenticated when unsigned
+
+
 def test_folio_for_agents_box(client, seeded):
     # The handoff widget: a content-addressed .md link + Copy button, the address,
     # the mesh-fetch command, and the unsigned provenance line — all from the wire.
@@ -210,6 +221,33 @@ def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
     r = client.get(f"/folio/{seeded['a']}").text
     assert "Signed by alice@example.com" in r
     assert "Unsigned — operator-vouched." not in r
+    # §6.1: the byline still frames created_by as a claim, now naming the authenticated
+    # signer — created_by ("alice") and the verified signer ("alice@example.com") differ.
+    assert "author (self-declared)" in r
+    assert "the authenticated actor is the signer: alice@example.com" in r
+
+
+def test_folio_byline_names_signer_even_when_subject_is_empty(seeded, monkeypatch):
+    # FIX B regression: a VERIFIED-signed folio whose signer subject is falsy must NOT read
+    # like an unsigned folio. The byline still states there is an authenticated signer, just
+    # without a name — distinct from the unsigned case (which names no signer at all). An
+    # empty-string subject is the reachable falsy case (a NULL subject fails the binding
+    # match on SQL NULL semantics, so it comes back unverified, not verified-null-subject).
+    from skein_next import signing
+
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    _cover_folio(seeded["data_dir"], seeded["a"], subject="", bind=True)
+    monkeypatch.setattr(
+        signing, "verify_multi",
+        lambda cb, b: signing.MultiVerifyResult(
+            results=[signing.VerifyResult(status=signing.VerifyStatus.VERIFIED,
+                                          issuer="https://idp", subject="")],
+            overall=signing.VerifyStatus.VERIFIED,
+        ),
+    )
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert "the authenticated actor is the signer" in r        # signed state IS shown...
+    assert "the authenticated actor is the signer:" not in r   # ...but no subject is named
 
 
 def test_folio_for_agents_box_does_not_call_bad_signature_unsigned(seeded, monkeypatch):

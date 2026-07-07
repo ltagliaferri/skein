@@ -155,7 +155,26 @@ by appending .md or by requesting Accept: text/markdown.</pre>
     </section>
 
     <dl class="metadata">
-      <dt>author</dt><dd>{{ body.created_by }}</dd>
+      {#
+        created_by is one of the hashed folio fields — SELF-ASSERTED at authoring
+        time and NOT authenticated by the signature (gate §6.1). The signature
+        vouches for the content hashes; the only authenticated actor is the signer
+        (shown as `subject` under provenance). So the byline is labeled a claim, never
+        verified authorship — the disclaimer names the authenticated signer when there
+        is one. The label carries the meaning in text (a screen reader reads the <dt>).
+      #}
+      <dt>author (self-declared)</dt>
+      <dd>{{ body.created_by }}
+        {#
+          Name the authenticated actor when the folio is verified-signed. Guard on
+          asserted.signer (the verified-signer object), NOT on its subject: a verified
+          signature with a null subject is still an authenticated actor, so keying the
+          whole clause on subject would make a signed folio read identically to an
+          unsigned one. Mirror the "For your agent" box's null-subject-tolerant pattern
+          (show the signer, append the subject only when present).
+        #}
+        <span class="disclaimer">[unverified claim; a signature vouches for content, not authorship{% if asserted.signer %} — the authenticated actor is the signer{% if asserted.signer.subject %}: {{ asserted.signer.subject }}{% endif %}{% endif %}]</span>
+      </dd>
       <dt>created</dt><dd>{{ body.created_at }}</dd>
       <dt>status</dt><dd>{{ asserted.status }}</dd>
       {% if asserted.site %}

@@ -184,6 +184,70 @@ def test_strict_verifies_over_the_domain_separated_preimage():
     assert seen["bytes"] != canon.folio_canonical_bytes(wf)
 
 
+@pytest.mark.parametrize("bad", [None, [], 7, "str", True])
+def test_verify_wire_folio_hostile_shape_is_typed_reject_not_raise(bad):
+    # A non-mapping wire_folio (incl. None) must not hit wire_folio.get() and
+    # raise AttributeError — it's a typed reject, matching every other
+    # verify_wire_* totality guard.
+    verified, reason, identity = sign_mod.verify_wire_folio(bad, _ok_verifier)
+    assert (verified, reason, identity) == (False, "invalid fields", None)
+
+
+def test_verify_wire_folio_bad_field_type_is_typed_reject_before_crypto():
+    # title=True is signed-looking (carries a parseable signature_bundle) but
+    # canon.folio_canonical_bytes raises CanonError on a non-str/non-None
+    # scalar field. That must surface as a typed reject, not an unhandled raise,
+    # and the verifier must never run.
+    bundle = _fake_signer(b"irrelevant-never-reached")
+    wf = {
+        "type": "finding",
+        "title": True,
+        "content": "body",
+        "created_at": "2026-01-01T00:00:00Z",
+        "created_by": "a",
+        "signature_bundle": bundle.model_dump_json(),
+    }
+    v, seen = _capturing_ok()
+    verified, reason, identity = sign_mod.verify_wire_folio(wf, v)
+    assert (verified, reason, identity) == (False, "invalid fields", None)
+    assert "bytes" not in seen  # crypto never ran
+
+
+def test_verify_wire_folio_unparseable_created_at_is_typed_reject_before_crypto():
+    # An unparseable created_at raises ValueError inside canon; must also be a
+    # typed reject rather than an unhandled raise.
+    bundle = _fake_signer(b"irrelevant-never-reached")
+    wf = {
+        "type": "finding",
+        "title": "T",
+        "content": "body",
+        "created_at": "not-a-date",
+        "created_by": "a",
+        "signature_bundle": bundle.model_dump_json(),
+    }
+    v, seen = _capturing_ok()
+    verified, reason, identity = sign_mod.verify_wire_folio(wf, v)
+    assert (verified, reason, identity) == (False, "invalid fields", None)
+    assert "bytes" not in seen  # crypto never ran
+
+
+def test_verify_multi_empty_bundle_list_is_bundle_malformed_not_raise():
+    # SignatureBundle's own validator raises the custom EmptySignatureBundle
+    # (not a ValueError/ValidationError) for bundles=[]; verify_multi is a
+    # wire-facing entrypoint that must fail closed on that, not propagate it.
+    result = signing.verify_multi(
+        b"x",
+        {
+            "identity_scheme": "sigstore-public-v1",
+            "bundles": [],
+            "canonical_bytes": b"x",
+            "canon_version": "skein.folio.canon/v1",
+        },
+    )
+    assert result.overall == signing.VerifyStatus.BUNDLE_MALFORMED
+    assert result.results == [signing.VerifyResult(status=signing.VerifyStatus.BUNDLE_MALFORMED)]
+
+
 def test_require_signed_env_reaches_create_app(monkeypatch):
     from skein_next import ingress
 

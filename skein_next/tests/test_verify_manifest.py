@@ -214,6 +214,27 @@ def test_verify_wire_manifest_non_string_leaf_within_bounds_still_rejects():  # 
     assert (verified, reason, identity) == (False, "manifest malformed", None)
 
 
+def test_verify_wire_manifest_multi_signer_bundle_rejected_before_crypto():
+    # A v0 manifest has exactly one signer (sign_manifest builds bundles=[single]).
+    # A bundle carrying 2+ copies must be rejected 'manifest malformed' BEFORE the
+    # verifier ever runs — otherwise an attacker packs up to 256 harvested-bundle
+    # copies into one POST and forces 256x full Sigstore verify work per request.
+    ms = sign_mod.sign_manifest([A, B], _manifest_signer)
+    bundle = signing.SignatureBundle.model_validate_json(ms["signature_bundle"])
+    multi = bundle.model_copy(update={"bundles": [bundle.bundles[0], bundle.bundles[0]]})
+    ms["signature_bundle"] = multi.model_dump_json()
+
+    calls = []
+
+    def counting_verifier(canonical_bytes, b):
+        calls.append(b)
+        return _binding_verifier(canonical_bytes, b)
+
+    verified, reason, identity = sign_mod.verify_wire_manifest(ms, counting_verifier)
+    assert (verified, reason, identity) == (False, "manifest malformed", None)
+    assert calls == []  # the verifier never ran
+
+
 def test_membership_by_root_recompute():  # VM8
     ms = sign_mod.build_manifest([A, B])
     assert canon.manifest_membership(ms["leaf_list"], ms["root"], A) is True

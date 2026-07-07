@@ -164,6 +164,28 @@ def test_verify_redeem_wrong_route_is_signature_mismatch():
     assert ok is False and reason == "SIGNATURE_MISMATCH"
 
 
+def test_verify_redeem_multi_signer_bundle_rejected_before_crypto():
+    # Same DoS guard as verify_wire_manifest: a redeem proof with 2+ signer
+    # bundles must be rejected 'proof malformed' BEFORE the verifier runs.
+    token = "tok-xyz"
+    p = _proof(token)
+    bundle = signing.SignatureBundle.model_validate_json(p["signature_bundle"])
+    multi = bundle.model_copy(update={"bundles": [bundle.bundles[0], bundle.bundles[0]]})
+    p = {**p, "signature_bundle": multi.model_dump_json()}
+
+    calls = []
+
+    def counting_verifier(canonical_bytes, b):
+        calls.append(b)
+        return _binding_verifier()(canonical_bytes, b)
+
+    ok, reason, ident = sign_mod.verify_wire_redeem(
+        p, hash_token(token), ORIGIN, sign_mod.REDEEM_ROUTE, counting_verifier
+    )
+    assert (ok, reason, ident) == (False, "proof malformed", None)
+    assert calls == []  # the verifier never ran
+
+
 # --- INV-2/3: store CAS burn + revoked-binding guard ------------------------
 
 

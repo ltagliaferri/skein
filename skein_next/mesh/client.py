@@ -168,8 +168,14 @@ def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict],
     wire = {**body, "content_hash": claimed}
 
     # The content's true identity, re-derived from the body. This — not the
-    # station's claim — is what gets pinned to the address.
-    actual = content_hash_for_bytes(canon.folio_canonical_bytes(wire))
+    # station's claim — is what gets pinned to the address. A hostile station
+    # can serve a body with a field shape canon rejects (non-str type/title/
+    # content/created_by, an unparseable created_at); that must fail closed as
+    # "malformed body", not crash the client with a traceback.
+    try:
+        actual = content_hash_for_bytes(canon.folio_canonical_bytes(wire))
+    except (canon.CanonError, ValueError, TypeError):
+        return "invalid", EXIT_SIGNATURE_INVALID, "malformed envelope (invalid fields)", None, None
 
     # Cross-check: if the station claimed a hash, it must match the body it served.
     if claimed is not None and actual != claimed:

@@ -322,6 +322,15 @@ def verify_wire_manifest(
         bundle = signing.SignatureBundle.model_validate_json(raw)
     except Exception:  # noqa: BLE001 — any parse failure is a malformed manifest
         return (False, "manifest malformed", None)
+    # SINGLE-SIGNER GUARD, before any crypto: a v0 manifest has exactly one
+    # signer (sign_manifest builds bundles=[single], and only results[0] is
+    # ever read below). SignatureBundle.bundles is capped at 256
+    # (signing.py), so without this an attacker can pack up to 256 copies of
+    # one harvested valid bundle into a single POST and force a full
+    # Fulcio+Rekor verify per copy — a cheap check ahead of any crypto,
+    # mirroring the MAX_LEAVES pattern above.
+    if len(bundle.bundles) != 1:
+        return (False, "manifest malformed", None)
 
     # Step 1 — ROOT-vs-LEAFLIST CONSISTENCY (Q6). The recompute proves the SAME
     # tree was rebuilt; leaf_count pins tree SHAPE. A mismatch is 'manifest malformed'.
@@ -432,6 +441,11 @@ def verify_wire_redeem(
         bundle = signing.SignatureBundle.model_validate_json(raw)
     except Exception:  # noqa: BLE001 — any parse failure is a malformed proof
         return (False, "proof malformed", None)
+    # SINGLE-SIGNER GUARD, before any crypto — see verify_wire_manifest for the
+    # DoS this closes (an attacker packing many copies of one harvested valid
+    # bundle to force a full Fulcio+Rekor verify per copy).
+    if len(bundle.bundles) != 1:
+        return (False, "proof malformed", None)
 
     # Step 1 — PROFILE + KIND PIN. Unknown profile and wrong kind are DISTINCT. The
     # kind pin is the wrong-kind cross-path guard: a folio/manifest bundle harvested
@@ -496,6 +510,10 @@ def verify_wire_folio(
     (tgg8 §4 step 3) before the envelope is assembled. A "verified" result means
     "these bytes were signed by X", not "this is the folio at that address".
     """
+    # Step 0 — SHAPE TOTALITY: a non-mapping wire_folio (incl. None, a list, an
+    # int) is 'invalid fields', not an AttributeError from .get() below.
+    if not isinstance(wire_folio, Mapping):
+        return (False, "invalid fields", None)
     raw = wire_folio.get("signature_bundle")
     if not raw:
         return (False, "unsigned", None)
@@ -506,7 +524,14 @@ def verify_wire_folio(
 
     # (1) integrity: the body must hash to the claimed content hash. Serialize the
     # canonical bytes once and hash those directly (no second serialization).
-    canonical = canon.folio_canonical_bytes(wire_folio)
+    # canon.folio_canonical_bytes raises on a hostile field shape (non-str
+    # type/title/content/created_by, an unparseable or wrongly-typed
+    # created_at); this function is documented to never raise, so any such
+    # failure is a typed reject, mirroring wire.folio_reject_reason.
+    try:
+        canonical = canon.folio_canonical_bytes(wire_folio)
+    except (canon.CanonError, ValueError, TypeError):
+        return (False, "invalid fields", None)
     claimed = wire_folio.get("content_hash")
     if claimed is not None and content_hash_for_bytes(canonical) != claimed:
         return (False, "hash mismatch", None)

@@ -132,12 +132,22 @@
           <p class="for-agents-label">Run in a terminal:</p>
           <p class="cryptography">mesh fetch {{ env.address }}</p>
           <p class="for-agents-prov">
+            {#
+              signer=None and signature_bundle=None both when the folio is truly
+              UNSIGNED and when it is NOT VERIFIED with no covering bundle (proof
+              missing / integrity failure) — those two cases must not collapse
+              into the same line, so the fallback is keyed on prov_state (the same
+              verdict-derived state the card above uses), not on signer/bundle
+              presence alone.
+            #}
             {% if asserted.signer %}
             Signed{% if asserted.signer.subject %} by {{ asserted.signer.subject }}{% endif %}{% if links.bundle %} · <a href="{{ links.bundle }}">verify</a>{% endif %}
             {% elif proof.signature_bundle %}
             Signature present but not verified — see provenance{% if links.bundle %} · <a href="{{ links.bundle }}">verify</a>{% endif %}
-            {% else %}
+            {% elif prov_state == "unsigned" %}
             Unsigned — operator-vouched.
+            {% else %}
+            {{ asserted.verdict }} — see provenance
             {% endif %}
           </p>
         </div>

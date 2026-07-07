@@ -144,6 +144,15 @@ def test_folio_html_from_wire(client, seeded):
     assert "Brief B" in r.text            # threads_out peer title
 
 
+def test_folio_html_cache_control_is_no_cache(client, seeded):
+    # Every machine surface revalidates (JSON no-cache + ETag, markdown no-store,
+    # bundle no-cache + ETag); the HTML trust page must too, or a revoked "SIGNED
+    # … (verified)" verdict can keep rendering via browser bfcache / a shared
+    # proxy after the live verdict has already flipped.
+    r = client.get(f"/folio/{seeded['a']}")
+    assert r.headers["cache-control"] == "no-cache"
+
+
 def test_folio_byline_is_a_claim_not_verified_authorship(client, seeded):
     # gate §6.1: created_by is self-asserted, never verified authorship. The metadata
     # byline must label it a claim, not present it as a bare "author: alice". (a is
@@ -268,6 +277,76 @@ def test_folio_for_agents_box_does_not_call_bad_signature_unsigned(seeded, monke
     r = client.get(f"/folio/{seeded['a']}").text
     assert "Signature present but not verified" in r
     assert "Unsigned — operator-vouched." not in r
+
+
+def test_folio_identity_mismatch_fails_closed_not_signed_stored(seeded, monkeypatch):
+    # The stored attribution row (proof.issuer/subject) is a denormalized copy
+    # written at ingest time; it can drift from what the manifest's own signature
+    # actually verifies to (corpus corruption / a non-ingress writer). The read
+    # verdict must authenticate off the freshly-verified cert identity, never the
+    # stored one — a mismatch fails closed rather than rendering
+    # "SIGNED — alice@example.com (verified)" for a manifest that verified as a
+    # different signer entirely.
+    from skein_next import signing
+
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    _cover_folio(seeded["data_dir"], seeded["a"], subject="alice@example.com", bind=True)
+    monkeypatch.setattr(
+        signing, "verify_multi",
+        lambda cb, b: signing.MultiVerifyResult(
+            results=[signing.VerifyResult(status=signing.VerifyStatus.VERIFIED,
+                                          issuer="https://idp", subject="mallory@example.com")],
+            overall=signing.VerifyStatus.VERIFIED,
+        ),
+    )
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert "SIGNED — alice@example.com" not in r
+    assert "NOT VERIFIED — identity mismatch" in r
+    assert "provenance--unverified" in r
+
+
+def test_folio_for_agents_box_proof_missing_is_not_unsigned(seeded, monkeypatch):
+    # A dangling attribution row (the manifest parent is gone — corrupted / mid-
+    # migration corpus, ST5) reads "NOT VERIFIED — proof missing". Like a true
+    # UNSIGNED folio it has signer=None and no signature_bundle, but it is NOT
+    # unsigned — the agent handoff line must not read "operator-vouched" for it.
+    from skein_next.store import SkeinNextStore
+
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    store = SkeinNextStore(seeded["data_dir"], check_same_thread=False)
+    store.conn.execute("PRAGMA foreign_keys=OFF")
+    store.add_constituent_attribution(
+        seeded["a"], "folio", "sha256::" + "9" * 64, "https://idp", "ghost@example.com"
+    )
+    store.conn.execute("PRAGMA foreign_keys=ON")
+    store.close()
+
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert "NOT VERIFIED — proof missing" in r
+    assert "Unsigned — operator-vouched." not in r
+    assert "provenance--unverified" in r
+
+
+def test_folio_for_agents_box_integrity_fail_is_not_unsigned(seeded, monkeypatch):
+    # A tampered body (the stored content no longer hashes to its content_hash key)
+    # reads "NOT VERIFIED — integrity" even with no covering manifest at all — same
+    # signer=None / no-bundle shape as UNSIGNED, but the handoff line must still not
+    # read "operator-vouched" for it.
+    from skein_next.store import SkeinNextStore
+
+    client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
+    store = SkeinNextStore(seeded["data_dir"], check_same_thread=False)
+    store.conn.execute(
+        "UPDATE folios SET content = ? WHERE content_hash = ?",
+        ("tampered body — was 'body A here'", seeded["a"]),
+    )
+    store.conn.commit()
+    store.close()
+
+    r = client.get(f"/folio/{seeded['a']}").text
+    assert "NOT VERIFIED — integrity" in r
+    assert "Unsigned — operator-vouched." not in r
+    assert "provenance--unverified" in r
 
 
 def test_folio_threads_in_and_out(client, seeded):

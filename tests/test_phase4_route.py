@@ -306,6 +306,32 @@ def test_cli_login_failure_is_a_clean_error_not_a_traceback(monkeypatch):
     assert "POST" not in calls                          # nothing published on a failed login
 
 
+def test_declared_set_over_max_leaves_is_400_before_any_resolution(monkeypatch):
+    # a hostile caller can't force unbounded DB resolution + linting before the
+    # MAX_LEAVES/token gates by just naming a huge declared set (fell finding 9).
+    resolved = {"n": 0}
+
+    class _CountingDB(_FakeDB):
+        def get_version_by_hash(self, h):
+            resolved["n"] += 1
+            return super().get_version_by_hash(h)
+
+        def get_thread_by_hash(self, th):
+            resolved["n"] += 1
+            return super().get_thread_by_hash(th)
+
+    ha, va = _mk_version("A")
+    db = _CountingDB({ha: va}, {})
+    client, calls = _client(db, monkeypatch)
+    huge = [ha] * (P.MAX_LEAVES + 1)
+    r = client.post("/publish", json={"to": "http://station:9101",
+                                      "manifest": {"folios": huge, "threads": []}})
+    assert r.status_code == 400
+    assert "MAX_LEAVES" in r.json()["detail"]
+    assert resolved["n"] == 0        # rejected before any get_version_by_hash/get_thread_by_hash
+    assert calls["signer"] == 0      # and before the token/ceremony gate
+
+
 def test_dangling_thread_warns_but_still_publishes(monkeypatch):
     ha, va = _mk_version("A")
     hc, _ = _mk_version("C")  # NOT declared -> the edge dangles

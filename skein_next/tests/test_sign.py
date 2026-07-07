@@ -259,6 +259,31 @@ def test_require_signed_env_reaches_create_app(monkeypatch):
     assert ingress._require_signed() is False
 
 
+def test_require_signed_recognizes_wider_truthy_and_falsy_spellings(monkeypatch):  # finding-8
+    from skein_next import ingress
+
+    for truthy in ("1", "true", "yes", "on", "enabled", "y", "TRUE", "On", " yes "):
+        monkeypatch.setenv(ingress.ENV_REQUIRE_SIGNED, truthy)
+        assert ingress._require_signed() is True, truthy
+    for falsy in ("0", "false", "no", "off", ""):
+        monkeypatch.setenv(ingress.ENV_REQUIRE_SIGNED, falsy)
+        assert ingress._require_signed() is False, falsy
+
+
+def test_require_signed_unrecognized_value_fails_loud_not_open(monkeypatch):  # finding-8
+    """A plausible-but-unrecognized spelling (a typo, or a value from some other
+    tool's boolean convention) must never be silently treated as OFF — that would
+    boot the public ingress accepting unsigned content with only a log line. It
+    must raise instead, at the exact call site create_app() uses to decide the
+    startup posture."""
+    from skein_next import ingress
+
+    for garbage in ("onn", "enable", "2", "truthy", "nope"):
+        monkeypatch.setenv(ingress.ENV_REQUIRE_SIGNED, garbage)
+        with pytest.raises(ingress.RequireSignedConfigError):
+            ingress._require_signed()
+
+
 def test_acquire_oidc_provider_extracts_issuer_and_token(monkeypatch):
     """The login flow's IdentityToken -> OIDCProviderConfig mapping (no browser)."""
     captured = {}

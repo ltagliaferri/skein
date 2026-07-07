@@ -225,6 +225,22 @@ def test_revoke_invite_then_cas_race_lost(station):
     assert station.store.redeem_invite_cas(th, ISSUER, SUBJECT) == "race_lost"
 
 
+def test_cas_refuses_operator_role_invite_and_does_not_burn(station):  # finding-6(a)
+    # The single-active-operator invariant (A7) must hold no matter how an
+    # operator-role invite row came to exist (the supported mint CLI restricts
+    # --role to author; this exercises a row minted directly, e.g. via
+    # migration/caller drift). Pre-seed ONE active operator, mirroring the
+    # probe-confirmed failure: redeeming an operator-role invite must NOT
+    # produce a second one.
+    station.store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
+    token, th = _mint(station, role="operator")
+    assert station.store.redeem_invite_cas(th, ISSUER, SUBJECT) == "invalid_role"
+    # nothing burned, nothing bound
+    assert station.store.get_invite_by_token_hash(th)["used_at"] is None
+    assert station.store.get_binding(ISSUER, SUBJECT) is None
+    assert station.store.count_active_operators() == 1
+
+
 def test_concurrent_burn_binds_exactly_once(tmp_path):
     # INV-2 under a REAL race: many connections call the CAS on one token at once;
     # BEGIN IMMEDIATE + busy_timeout serialize them, so EXACTLY ONE burns and binds.
@@ -336,6 +352,17 @@ def test_redeem_expired_cheap(station, monkeypatch):
     r = _do(station, token)
     assert not r.ok and r.status == redeem_mod.RedeemStatus.EXPIRED
     assert calls["n"] == 0
+
+
+def test_redeem_operator_role_invite_refused_cheap_no_second_operator(station, monkeypatch):  # finding-6(a)
+    station.store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
+    token, th = _mint(station, role="operator")
+    calls = _crypto_calls(monkeypatch)
+    r = _do(station, token)
+    assert not r.ok and r.status == redeem_mod.RedeemStatus.INVALID_ROLE
+    assert calls["n"] == 0  # refused BEFORE crypto, mirroring the store-level backstop
+    assert station.store.count_active_operators() == 1  # NOT 2
+    assert station.store.get_binding(ISSUER, SUBJECT) is None
 
 
 def test_redeem_bad_proof_increments_and_caps(station):

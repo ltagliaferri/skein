@@ -18,6 +18,7 @@ crypto and no DB.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
@@ -75,6 +76,8 @@ class BindingStore(Protocol):
         vouched_by_subject: Optional[str] = None,
     ) -> Binding: ...
 
+    def transaction(self) -> AbstractContextManager["BindingStore"]: ...
+
 
 def can_write(actor: Principal, bindings: BindingStore) -> bool:
     """True iff ``actor`` has an ACTIVE binding (exists AND ``revoked_at`` is NULL).
@@ -89,19 +92,25 @@ def can_write(actor: Principal, bindings: BindingStore) -> bool:
 def bootstrap_operator(bindings: BindingStore, operator: Principal) -> Binding:
     """Install the self-vouched root operator, refusing a second active one.
 
+    The existence-check and the insert run inside ONE write transaction (the
+    store's ``BEGIN IMMEDIATE``), so two concurrent callers serialize on the
+    write lock instead of both observing "no operator yet" — a bare
+    check-then-insert let 8 concurrent ``init-operator`` invocations against an
+    empty store install 4 active operators (probe-confirmed) before this fix.
     Refuse iff an ACTIVE operator already exists (A7); allowed once the prior
     operator is revoked (A8). The bootstrapped row vouches for itself (A6)."""
-    if bindings.get_operator() is not None:
-        raise OperatorAlreadyBootstrapped(
-            "an active operator already exists; refusing to bootstrap a second"
+    with bindings.transaction():
+        if bindings.get_operator() is not None:
+            raise OperatorAlreadyBootstrapped(
+                "an active operator already exists; refusing to bootstrap a second"
+            )
+        return bindings.add_binding(
+            operator.issuer,
+            operator.subject,
+            role="operator",
+            vouched_by_issuer=operator.issuer,
+            vouched_by_subject=operator.subject,
         )
-    return bindings.add_binding(
-        operator.issuer,
-        operator.subject,
-        role="operator",
-        vouched_by_issuer=operator.issuer,
-        vouched_by_subject=operator.subject,
-    )
 
 
 def default_bindings(store) -> BindingStore:

@@ -1478,6 +1478,15 @@ class SkeinNextStore:
         - ``'revoked_identity'`` — the identity currently holds a REVOKED binding;
           NOTHING is burned or bound (INV-3: a self-service redeem must never
           un-revoke an identity the operator deliberately revoked).
+        - ``'invalid_role'``     — the invite's role is not ``'author'``. A
+          self-service redeem must NEVER be the path that creates a second
+          active operator (the single-active-operator invariant, A7/D13); an
+          operator is installed ONLY via the local ``init-operator`` /
+          ``rotate-operator`` CLI path. NOTHING is burned or bound. The
+          supported mint path already restricts ``--role`` to ``author``, but
+          this is the actual bind point, so it is the backstop that must
+          refuse regardless of how a non-author-role invite row came to exist
+          (direct store use, migration, or future caller drift).
         - ``'race_lost'``        — the conditional UPDATE matched 0 rows: a
           concurrent redeem won, or the token became used/revoked/expired between
           the cheap check and here. Nothing is bound; the caller re-reads for the
@@ -1493,6 +1502,8 @@ class SkeinNextStore:
             ).fetchone()
             if inv is None:
                 return "race_lost"  # vanished between cheap check and here
+            if inv["role"] != "author":
+                return "invalid_role"
             # INV-3 — refuse to bind an identity that currently holds a REVOKED
             # binding (add_binding would reactivate it, B5). Guard BEFORE the burn so
             # nothing is consumed when we refuse.

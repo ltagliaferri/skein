@@ -269,6 +269,29 @@ def test_ingress_startup_logs_operator_status(tmp_path, monkeypatch, caplog):  #
     assert any("operator" in rec.message for rec in caplog.records)
 
 
+def test_create_app_require_signed_on_spelling_still_enforces(tmp_path, monkeypatch):  # finding-8
+    """A wider truthy spelling (e.g. 'on') must drive the SAME startup invariant
+    as '1' — no operator present must still refuse boot, not silently run open."""
+    from skein_next import ingress
+    monkeypatch.setenv("SKEIN_NEXT_DATA_DIR", str(tmp_path / ".skein-next"))
+    monkeypatch.setenv(ingress.ENV_REQUIRE_SIGNED, "on")
+    with pytest.raises(ingress.OperatorInvariantError):
+        ingress.create_app()
+    _run(tmp_path, "account", "init-operator", "--issuer", I, "--subject", S)
+    assert ingress.create_app() is not None  # with an operator present, boots fine
+
+
+def test_create_app_require_signed_garbage_value_refuses_boot(tmp_path, monkeypatch):  # finding-8
+    """An unrecognized SKEIN_NEXT_REQUIRE_SIGNED value must refuse to boot at all
+    — never silently fall back to require_signed=False and accept unsigned
+    content wide open."""
+    from skein_next import ingress
+    monkeypatch.setenv("SKEIN_NEXT_DATA_DIR", str(tmp_path / ".skein-next"))
+    monkeypatch.setenv(ingress.ENV_REQUIRE_SIGNED, "onn")
+    with pytest.raises(ingress.RequireSignedConfigError):
+        ingress.create_app()
+
+
 # --- VC9: verify-cache backfill ---------------------------------------------
 
 

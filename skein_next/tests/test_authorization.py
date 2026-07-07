@@ -9,6 +9,7 @@ binding_events tables.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Dict, Optional, Tuple
 
 import pytest
@@ -55,6 +56,12 @@ class FakeBindings:
         self._rows[(issuer, subject)] = Binding(
             b.issuer, b.subject, b.role, b.vouched_by_issuer, b.vouched_by_subject,
             b.created_at, "2026-02-01T00:00:00+00:00")
+
+    @contextmanager
+    def transaction(self):
+        # In-memory + single-threaded: no real lock needed, just the same
+        # context-manager shape the real store's BEGIN IMMEDIATE presents.
+        yield self
 
 
 I, S = "https://accounts.google.com", "alice@example.com"
@@ -206,6 +213,39 @@ def test_get_operator_single_valued_and_deterministic(store):  # B47
     op = store.get_operator()
     assert op.subject == "first"  # ORDER BY created_at LIMIT 1
     assert store.count_active_operators() == 2
+
+
+def test_bootstrap_operator_concurrent_race_yields_exactly_one_operator(tmp_path):  # finding-6(b)
+    # A bare check-then-insert bootstrap_operator let 8 concurrent callers against
+    # an empty store install 4 active operators (probe-confirmed). Wrapping the
+    # existence-check + insert in ONE BEGIN IMMEDIATE transaction serializes
+    # concurrent callers on the write lock instead: exactly one wins, the rest
+    # observe the committed operator and refuse.
+    import concurrent.futures as cf
+
+    data_dir = tmp_path / ".skein-next"
+
+    def attempt(i):
+        st = SkeinNextStore(data_dir, check_same_thread=False)
+        try:
+            bootstrap_operator(st, Principal(I, f"op{i}@example.com"))
+            return "ok"
+        except OperatorAlreadyBootstrapped:
+            return "refused"
+        finally:
+            st.close()
+
+    with cf.ThreadPoolExecutor(max_workers=8) as ex:
+        outcomes = list(ex.map(attempt, range(8)))
+
+    assert outcomes.count("ok") == 1
+    assert outcomes.count("refused") == 7
+
+    check = SkeinNextStore(data_dir, check_same_thread=False)
+    try:
+        assert check.count_active_operators() == 1
+    finally:
+        check.close()
 
 
 # --- B_E1-B_E6: binding_events append-only audit ----------------------------

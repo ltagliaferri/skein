@@ -2165,6 +2165,12 @@ def publish_folios(
     names exact hashes; the server resolves each from its own store, lints (advisory),
     then physics→sign→post via the un-forgettable orchestrator. ``dry_run`` returns the
     resolved set + warnings without signing or sending (no Rekor entry)."""
+    declared_count = len(body.manifest.folios) + len(body.manifest.threads)
+    if declared_count > _pub.MAX_LEAVES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"declared set exceeds MAX_LEAVES ({_pub.MAX_LEAVES}): {declared_count}")
+
     folios: List[Dict[str, Any]] = []
     for h in body.manifest.folios:
         vv = log_db.get_version_by_hash(h)

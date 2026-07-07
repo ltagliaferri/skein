@@ -49,6 +49,7 @@ class RedeemStatus:
     ALREADY_REDEEMED = "already_redeemed"  # burned, but by a DIFFERENT identity
     RACE_LOST = "race_lost"             # concurrent winner / became invalid mid-redeem
     REVOKED_IDENTITY = "revoked_identity"  # identity holds a revoked binding (INV-3)
+    INVALID_ROLE = "invalid_role"       # invite's role is not 'author' (A7 backstop)
     PROOF_MALFORMED = "proof_malformed"  # non-crypto proof shape failure
     PROOF_REJECTED = "proof_rejected"   # crypto/binding failure (SIGNATURE_MISMATCH, ...)
     RATE_LIMITED = "rate_limited"       # per-token attempt cap hit
@@ -143,6 +144,12 @@ def redeem(
         return RedeemResult(False, RedeemStatus.UNKNOWN, "unknown or invalid invite token")
     if row.get("revoked_at") is not None:
         return RedeemResult(False, RedeemStatus.REVOKED_INVITE, "this invite was revoked by the operator")
+    # A7 — a self-service redeem must never be the path that creates a second
+    # active operator. Checked cheaply here (mirroring redeem_invite_cas's
+    # authoritative backstop below) so a non-author-role invite is refused
+    # before the expensive verify_multi round-trip, not just before the bind.
+    if row.get("role") != "author":
+        return RedeemResult(False, RedeemStatus.INVALID_ROLE, "this invite cannot be redeemed")
 
     now = datetime.now(timezone.utc)
     used = row.get("used_at") is not None
@@ -212,6 +219,8 @@ def redeem(
             RedeemStatus.REVOKED_IDENTITY,
             "this identity was revoked by the operator and cannot self-readmit; contact the operator",
         )
+    if cas == "invalid_role":
+        return RedeemResult(False, RedeemStatus.INVALID_ROLE, "this invite cannot be redeemed")
     # race_lost — a concurrent redeem won, or the token became invalid between the
     # cheap check and the CAS. Re-read once for the idempotent-same-identity case so
     # two concurrent redeems by the SAME identity both report success (INV-6).
@@ -238,6 +247,7 @@ HTTP_STATUS = {
     RedeemStatus.ALREADY_REDEEMED: 409,
     RedeemStatus.RACE_LOST: 409,
     RedeemStatus.REVOKED_IDENTITY: 403,
+    RedeemStatus.INVALID_ROLE: 409,
     RedeemStatus.PROOF_MALFORMED: 400,
     RedeemStatus.PROOF_REJECTED: 401,
     RedeemStatus.RATE_LIMITED: 429,

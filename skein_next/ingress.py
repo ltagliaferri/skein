@@ -384,6 +384,15 @@ def backfill_verify_cache(station: Station, verifier: "_sign.Verifier" = None) -
 
 ENV_REQUIRE_SIGNED = "SKEIN_NEXT_REQUIRE_SIGNED"
 
+_REQUIRE_SIGNED_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled", "y"})
+_REQUIRE_SIGNED_FALSY = frozenset({"0", "false", "no", "off", ""})
+
+
+class RequireSignedConfigError(RuntimeError):
+    """SKEIN_NEXT_REQUIRE_SIGNED is set to a value that is neither a recognized
+    truthy nor falsy spelling. A security toggle must fail LOUD on a typo, never
+    silently pick the open posture."""
+
 
 def _require_signed() -> bool:
     """Whether this instance rejects unsigned publishes (off unless env opts in).
@@ -392,8 +401,23 @@ def _require_signed() -> bool:
     instance can demand signed content by setting the env, while the pre-mesh /
     local default stays open. (Full enforcement is the auth phase — this just
     keeps the knob reachable instead of dead.)
+
+    An UNSET env is the falsy default. A SET-but-unrecognized value (e.g. a typo
+    like ``TRUE!`` or an unsupported spelling) is refused with a raised
+    ``RequireSignedConfigError`` rather than silently treated as off — the
+    alternative lets a plausible-looking misconfiguration boot the public
+    ingress wide open with only a log line nobody reads.
     """
-    return os.environ.get(ENV_REQUIRE_SIGNED, "").strip().lower() in ("1", "true", "yes")
+    value = os.environ.get(ENV_REQUIRE_SIGNED, "").strip().lower()
+    if value in _REQUIRE_SIGNED_TRUTHY:
+        return True
+    if value in _REQUIRE_SIGNED_FALSY:
+        return False
+    raise RequireSignedConfigError(
+        f"{ENV_REQUIRE_SIGNED}={value!r} is not a recognized boolean spelling "
+        f"(truthy: {sorted(_REQUIRE_SIGNED_TRUTHY)}, falsy: {sorted(_REQUIRE_SIGNED_FALSY)}); "
+        "refusing to boot rather than silently choosing a posture"
+    )
 
 
 class OperatorInvariantError(RuntimeError):

@@ -2189,6 +2189,12 @@ def publish_folios(
                 "threads": [t["thread_hash"] for t in threads]}
 
     if body.dry_run:
+        # Physics floor (§4.3 step 3, §5.5) runs on the preview too — a dry_run that
+        # previews clean but then 400s on the real send is a misleading preview.
+        try:
+            _pub.physics_check(folios, threads)
+        except _pub.PhysicsError as e:
+            raise HTTPException(status_code=400, detail=f"physics rejected: {e}")
         return {"declared": declared, "warnings": warnings, "signed": False, "sent": False}
 
     # Cheap input validation BEFORE the irreversible Sigstore ceremony — fail closed

@@ -152,6 +152,10 @@ def lint_declared_set(
                 "looks-local", th,
                 f"{ttype} self-loop is usually local state; publishing it is deliberate"))
         for role, ep in (("from_id", frm), ("to_id", to)):
+            if frm == to and role == "to_id":
+                # a self-loop has one endpoint, not two — the from_id pass above
+                # already covers it; iterating to_id too would double the warning.
+                continue
             if ep is None:
                 continue
             if not is_content_address(ep):

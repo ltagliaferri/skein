@@ -99,6 +99,22 @@ def test_dry_run_signs_and_sends_nothing(monkeypatch):
     assert calls["signer"] == 0 and calls["posted"] is None  # no ceremony, no POST
 
 
+def test_dry_run_physics_mismatch_is_400(monkeypatch):
+    # a dry_run preview must agree with the real send on the physics floor: a stored
+    # row whose bytes don't reproduce its hash is a 400 in BOTH, not a clean preview
+    # that only fails later on the real send (round-2 fell finding 1)
+    bogus = "sha256::" + "0" * 64
+    _, bad = _mk_version("A", content_hash=bogus)
+    db = _FakeDB({bogus: bad}, {})
+    client, calls = _client(db, monkeypatch)
+    r = client.post("/publish", json={"to": "http://station:9101",
+                                      "manifest": {"folios": [bogus], "threads": []},
+                                      "dry_run": True})
+    assert r.status_code == 400
+    assert "physics" in r.json()["detail"].lower()
+    assert calls["signer"] == 0 and calls["posted"] is None  # still signs/sends nothing
+
+
 def test_real_publish_refused_without_token(monkeypatch):
     db, ha, hb, th = _two_linked_folios()
     client, _ = _client(db, monkeypatch)

@@ -231,6 +231,28 @@ def test_verify_wire_folio_unparseable_created_at_is_typed_reject_before_crypto(
     assert "bytes" not in seen  # crypto never ran
 
 
+def test_verify_wire_folio_multi_signer_bundle_rejected_before_crypto():
+    # parity with the manifest/redeem single-signer guard (fell finding 1, sibling
+    # entrypoint): a v0 folio bundle is single-signer and only results[0] is read, so a
+    # multi-blob bundle must be rejected BEFORE the verifier — else a hostile station
+    # could pack N valid blobs and force N full Sigstore verifies per `mesh fetch`.
+    ch = compute_folio_hash(_FIELDS)
+    wf = {**_FIELDS, "content_hash": ch}
+    preimage = profile.profiled_preimage(
+        profile.CANON_PROFILE_V1, canon.folio_canonical_bytes(wf))
+    multi = signing.SignatureBundle(
+        identity_scheme="sigstore-public-v1",
+        bundles=["x", "x"],  # two blobs — must be rejected
+        canonical_bytes=preimage,
+        canon_version=profile.CANON_PROFILE_V1,
+    )
+    wf["signature_bundle"] = multi.model_dump_json()
+    v, seen = _capturing_ok()
+    verified, reason, identity = sign_mod.verify_wire_folio(wf, v)
+    assert (verified, reason, identity) == (False, "bundle malformed", None)
+    assert "bytes" not in seen  # crypto never ran
+
+
 def test_verify_multi_empty_bundle_list_is_bundle_malformed_not_raise():
     # SignatureBundle's own validator raises the custom EmptySignatureBundle
     # (not a ValueError/ValidationError) for bundles=[]; verify_multi is a

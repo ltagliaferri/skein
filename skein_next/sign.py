@@ -522,6 +522,14 @@ def verify_wire_folio(
     except Exception:  # noqa: BLE001 — any parse failure is a malformed bundle
         return (False, "bundle malformed", None)
 
+    # Single-signer guard (parity with verify_wire_manifest / verify_wire_redeem): a v0
+    # folio bundle carries exactly one signer and only results[0] is ever read below.
+    # Reject a multi-blob bundle BEFORE the verifier so a hostile station cannot pack N
+    # valid blobs and force N full Fulcio+Rekor verifies per `mesh fetch` (the same
+    # Sigstore-amplification class as fell finding 1, on this sibling entrypoint).
+    if len(bundle.bundles) != 1:
+        return (False, "bundle malformed", None)
+
     # (1) integrity: the body must hash to the claimed content hash. Serialize the
     # canonical bytes once and hash those directly (no second serialization).
     # canon.folio_canonical_bytes raises on a hostile field shape (non-str

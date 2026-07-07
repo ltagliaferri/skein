@@ -285,6 +285,35 @@ def test_B_dangling_selfloop_to_undeclared_folio_warns():
     assert any(w["code"] == "dangling" for w in warns)
 
 
+def test_B_selfloop_slug_endpoint_warns_once():
+    # a self-loop (frm == to) with a slug endpoint must yield exactly ONE
+    # slug-endpoint warning for the thread, not two (round-2 fell finding 2)
+    t = _thread("some-local-slug", "some-local-slug", "reference")
+    warns = publish.lint_declared_set([], [t])
+    slug_warns = [w for w in warns if w["code"] == "slug-endpoint" and w["subject"] == t["thread_hash"]]
+    assert len(slug_warns) == 1
+
+
+def test_B_selfloop_dangling_endpoint_warns_once():
+    # a self-loop with a content-hash endpoint not in the declared set must yield
+    # exactly ONE dangling warning for the thread, not two (round-2 fell finding 2)
+    z = _folio("Z")
+    selfloop = _thread(z["content_hash"], z["content_hash"], "reference")
+    warns = publish.lint_declared_set([], [selfloop])
+    dangling_warns = [w for w in warns
+                       if w["code"] == "dangling" and w["subject"] == selfloop["thread_hash"]]
+    assert len(dangling_warns) == 1
+
+
+def test_B_normal_edge_both_slug_endpoints_still_warns_twice():
+    # frm != to is unaffected by the self-loop dedup: each endpoint still gets its
+    # own warning
+    t = _thread("slug-a", "slug-b", "reference")
+    warns = publish.lint_declared_set([], [t])
+    slug_warns = [w for w in warns if w["code"] == "slug-endpoint"]
+    assert len(slug_warns) == 2
+
+
 def test_wire_serializes_datetime_created_at_to_a_string():
     # the store returns a datetime created_at; the wire must be JSON-serializable AND
     # re-hash identically (regression for the fell's datetime->500 finding)

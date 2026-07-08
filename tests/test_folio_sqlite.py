@@ -104,20 +104,11 @@ class TestLogDatabaseFolios:
         issues = db.get_folios(type="issue")
         assert len(issues) == 2
 
-    def test_get_folios_by_status(self, db):
-        db.save_folio(make_folio("folio-1", status="open"))
-        db.save_folio(make_folio("folio-2", status="closed"))
-
-        open_folios = db.get_folios(status="open")
-        assert len(open_folios) == 1
-
-    def test_get_folios_by_archived(self, db):
-        db.save_folio(make_folio("folio-1", archived=False))
-        db.save_folio(make_folio("folio-2", archived=True))
-
-        active = db.get_folios(archived=False)
-        assert len(active) == 1
-        assert active[0].folio_id == "folio-1"
+    # (test_get_folios_by_status / test_get_folios_by_archived were removed
+    # 2026-07-08 with the threads-only contraction: get_folios no longer takes
+    # SQL-level status/archived filters — control state is thread-derived and
+    # filtered post-enrichment at the API layer, pinned end-to-end in
+    # tests/test_threads_only_control.py.)
 
     def test_get_folios_by_created_by(self, db):
         db.save_folio(make_folio("folio-1", created_by="agent-a"))
@@ -180,17 +171,9 @@ class TestLogDatabaseFolios:
         assert db.get_folio_count(site_id="site-a") == 2
         assert db.get_folio_count(site_id="site-b") == 1
 
-    def test_folio_stats(self, db):
-        db.save_folio(make_folio("folio-1", type="issue", status="open"))
-        db.save_folio(make_folio("folio-2", type="brief", status="open"))
-        db.save_folio(make_folio("folio-3", type="issue", status="closed"))
-
-        stats = db.get_folio_stats()
-        assert stats["total"] == 3
-        assert stats["by_type"]["issue"] == 2
-        assert stats["by_type"]["brief"] == 1
-        assert stats["by_status"]["open"] == 2
-        assert stats["by_status"]["closed"] == 1
+    # (test_folio_stats was removed 2026-07-08: get_folio_stats read the
+    # refs.status cache and had no production caller — the client computes stats
+    # from enriched API folios.)
 
     def test_folio_metadata(self, db):
         folio = make_folio(metadata={"key": "value", "nested": {"a": 1}})
@@ -219,7 +202,6 @@ class TestLogDatabaseFolios:
 
     def test_folio_optional_fields(self, db):
         folio = make_folio(
-            assigned_to="agent-x",
             target_agent="agent-y",
             omlet="strand-123/agent-x/turn-5",
             acknowledged_at=datetime.now(timezone.utc),
@@ -228,7 +210,9 @@ class TestLogDatabaseFolios:
         db.save_folio(folio)
 
         retrieved = db.get_folio("test-20260303-abcd")
-        assert retrieved.assigned_to == "agent-x"
+        # (assigned_to is thread-derived post-contraction — not persisted by
+        # save_folio nor returned by the storage-level read; the API overlay is
+        # pinned in tests/test_threads_only_control.py.)
         assert retrieved.target_agent == "agent-y"
         assert retrieved.omlet == "strand-123/agent-x/turn-5"
         assert retrieved.acknowledged_at is not None
@@ -380,8 +364,9 @@ class TestFolioMigration:
         assert count == 1
 
         folio = db.get_folio("issue-20260303-0001")
+        # Model default — status is thread-derived and a minimal import writes
+        # no status thread (archived was removed outright, 2026-07-08).
         assert folio.status == "open"
-        assert folio.archived is False
 
 
 # --- JSONStore integration tests ---

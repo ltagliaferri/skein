@@ -195,6 +195,36 @@ def _resolve_rev3_read(address: str, current_store: JSONStore) -> Union[Folio, V
     return folio
 
 
+def _overlay_thread_control(folio: Folio, store: JSONStore) -> None:
+    """Overlay thread-derived status/assignment on one folio, against the store
+    it was READ from. Post-contraction this is the only way a response carries
+    control state — the refs cache columns are gone, so an un-overlaid Folio
+    holds the model defaults ('open'/None). For a cross-project read
+    (folio.source_project set) the threads live in the SOURCE project's store;
+    querying the local store would find nothing and silently default. An
+    unresolvable source project leaves the defaults in place (never raises on a
+    read path)."""
+    src = store
+    if folio.source_project:
+        named = get_named_project_store(folio.source_project)
+        if named is None:
+            return
+        src = named
+    # None-checks, not truthiness: a PRESENT thread value wins even when falsy
+    # (the _normalize_control invariant — a present empty string stays empty;
+    # the 'open' default applies only on None-absence). An `or`-chain here
+    # collapsed a persisted status of '' back to 'open' (deep_code_audit r2
+    # finding 2).
+    status = get_current_status(folio.folio_id, src)
+    if status is not None:
+        folio.status = status
+    elif folio.status is None:
+        folio.status = "open"
+    assignment = get_current_assignment(folio.folio_id, src)
+    if assignment is not None:
+        folio.assigned_to = assignment
+
+
 def resolve_folio_read(
     address: str,
     current_project_id: Optional[str],
@@ -792,15 +822,14 @@ async def post_to_site(
     created_by = x_agent_id or "unknown"
     folio_id = generate_folio_id(folio_create.type)
 
-    # Status/assignment remain thread-derived for reads (the sugar threads below
-    # are still the source of truth via enrich_folios_with_status). But the
-    # genesis refs cache copies the folio object's fields at save time, so the
-    # object must carry the TRUE initial state BEFORE the create save_folio — else
-    # a folio created with a non-open status or an assignee seeds refs.status
-    # ='open'/refs.assigned_to=NULL and the refs-derived by_status stat drifts from
-    # birth (§3.3). Set them from the sugar inputs here; the sugar threads are
-    # still written afterward unchanged.
-    initial_status = folio_create.metadata.get("status") or "open"
+    # Status/assignment are thread-derived (the sugar threads below are the sole
+    # persistence — no refs cache columns since the threads-only contraction).
+    # The object still carries the initial state so the RESPONSE reflects it.
+    # None-check, not truthiness (the '' invariant): only ABSENCE defaults to
+    # 'open'; an explicit present value — including '' — is kept and minted.
+    initial_status = folio_create.metadata.get("status")
+    if initial_status is None:
+        initial_status = "open"
     folio = Folio(
         folio_id=folio_id,
         type=folio_create.type,
@@ -813,7 +842,6 @@ async def post_to_site(
         assigned_to=folio_create.assigned_to,
         target_agent=folio_create.target_agent,
         omlet=folio_create.omlet,
-        archived=False,
         metadata=folio_create.metadata,
     )
 
@@ -838,24 +866,28 @@ async def post_to_site(
 
     # SUGAR API: Create status thread if status provided (undocumented)
     # Don't create default status - let patterns emerge naturally
-    # Only create if explicitly provided AND not "open" (which is just noise)
+    # Only create if explicitly provided AND not "open" (which is just noise).
+    # None-check, not truthiness (the '' invariant): an explicit present-but-
+    # falsy status is minted faithfully — the thread is the SOLE persistence,
+    # so a truthy gate here silently dropped it at creation (deep_code_audit
+    # r4 finding 3, the create-path sibling of the pinned PATCH-path fix).
     if (
-        folio_create.metadata.get("status")
-        and folio_create.metadata.get("status") != "open"
+        initial_status is not None
+        and initial_status != "open"
     ):
         status_thread = Thread(
             thread_id=generate_thread_id(),
             from_id=folio_id,
             to_id=folio_id,
             type="status",
-            content=folio_create.metadata.get("status"),
+            content=initial_status,
             weaver=created_by,
             created_at=datetime.now(timezone.utc),
         )
         store.save_thread(status_thread)
 
     # SUGAR API: Create assignment thread if assigned_to provided (undocumented)
-    if folio_create.assigned_to:
+    if folio_create.assigned_to is not None:
         assignment_thread = Thread(
             thread_id=generate_thread_id(),
             from_id=folio_id,
@@ -902,7 +934,6 @@ async def get_folios(
     site_id: Optional[str] = None,
     assigned_to: Optional[str] = None,
     status: Optional[str] = None,
-    archived: Optional[bool] = False,
     store: JSONStore = Depends(get_project_store),
 ):
     """Get folios with filters."""
@@ -922,9 +953,6 @@ async def get_folios(
 
     if status:
         folios = [f for f in folios if f.status == status]
-
-    if not archived:
-        folios = [f for f in folios if not f.archived]
 
     return folios
 
@@ -960,13 +988,13 @@ async def get_folio(
     VersionView (immutable content + is_head/lineage_head, no mutable control)."""
     folio = resolve_folio_read(folio_id, x_project_id, store)
 
-    # A by-hash VersionView carries no mutable state — return it as-is. Only a
-    # local Folio gets the thread-derived status/assignment enrichment.
-    if isinstance(folio, Folio) and not folio.source_project:
-        computed_status = get_current_status(folio.folio_id, store)
-        computed_assignment = get_current_assignment(folio.folio_id, store)
-        folio.status = computed_status or folio.status or "open"
-        folio.assigned_to = computed_assignment or folio.assigned_to
+    # A by-hash VersionView carries no mutable state — return it as-is. A Folio
+    # gets the thread-derived status/assignment overlay — including cross-project
+    # reads, against their SOURCE store (post-contraction there is no cache
+    # column to fall back on, so skipping enrichment would return the model
+    # defaults 'open'/None regardless of truth — deep_code_audit finding 1).
+    if isinstance(folio, Folio):
+        _overlay_thread_control(folio, store)
 
     return folio
 
@@ -979,7 +1007,7 @@ async def update_folio(
     x_project_id: Optional[str] = Header(None),
     store: JSONStore = Depends(get_project_store),
 ):
-    """Update folio fields (title, content, status, assigned_to, archived)."""
+    """Update folio fields (title, content, status, assigned_to)."""
     parsed = parse_address(folio_id)
     if parsed.is_qualified:
         # Explicit project — resolve to that project's store
@@ -1041,28 +1069,17 @@ async def update_folio(
         # Also update field for backward compat (will be removed after migration)
         folio.assigned_to = update.assigned_to
 
-    # PURE THREADS: Create an archive marker thread (Phase 3a A2). A self-loop
-    # whose content is the marker 'archived'/'active'; save_thread re-keys it onto
-    # the genesis hash. The A1 get_latest_archives reader reduces archived iff the
-    # latest marker is 'archived' — this is its writer counterpart (the reader
-    # landed in A1). folio.archived is still set below for the refs cache (the live
-    # read), so this is additive until A4 makes reads thread-derived.
-    if update.archived is not None:
-        archive_thread = Thread(
-            thread_id=generate_thread_id(),
-            from_id=folio_id,
-            to_id=folio_id,
-            type="archive",
-            content="archived" if update.archived else "active",
-            weaver=created_by,
-            created_at=datetime.now(timezone.utc),
-        )
-        store.save_thread(archive_thread)
-        folio.archived = update.archived
+    # (The folio-archived feature — its archive-marker writer here, the
+    # get_latest_archives reader, and the refs.archived column — was removed
+    # 2026-07-08: zero archive threads and zero archived refs ecosystem-wide.)
 
     # editor (the per-edit agent) drives the supersedes/reverted edge weaver when a
     # content edit mints a new version; it is NOT folio.created_by (the genesis author).
     store.save_folio(folio, editor=created_by)
+    # The response folio came off the store read (model-default status/assignment
+    # post-contraction) — overlay the thread-derived truth so a title-only PATCH
+    # doesn't report a closed folio as open (deep_code_audit finding 2).
+    _overlay_thread_control(folio, store)
     return {"success": True, "folio": folio}
 
 
@@ -1125,6 +1142,10 @@ async def move_folio(
         )
         store.save_thread(move_thread)
 
+    # Same overlay as GET/PATCH: the moved head was reconstructed from the
+    # refs⋈versions join, which carries no control state post-contraction
+    # (deep_code_audit finding 3).
+    _overlay_thread_control(moved_folio, store)
     return {
         "success": True,
         "folio": moved_folio,
@@ -1266,8 +1287,14 @@ async def get_activity(
     # Sort by created_at, most recent first
     folios.sort(key=lambda f: f.created_at, reverse=True)
 
+    # Thread-derived status/assignment, like every other folio read surface —
+    # this endpoint was the one folio-returning read that skipped enrichment and
+    # served the raw refs cache. Enrich only the slice that is returned.
+    new_folios = folios[:10]
+    enrich_folios_with_status(new_folios, store)
+
     return {
-        "new_folios": folios[:10],  # Last 10 folios
+        "new_folios": new_folios,  # Last 10 folios
         "active_agents": list({f.created_by for f in folios}),
     }
 
@@ -1288,7 +1315,6 @@ async def unified_search(
     site: Optional[str] = None,
     sites: Optional[List[str]] = Query(None),
     assigned_to: Optional[str] = None,
-    archived: Optional[bool] = False,
     # Thread-specific
     thread_type: Optional[str] = None,
     weaver: Optional[str] = None,
@@ -1317,7 +1343,6 @@ async def unified_search(
         site: Exact site match
         sites: Site patterns (can repeat)
         assigned_to: Filter by assignee
-        archived: Include archived folios
         thread_type: Thread type filter
         weaver: Thread creator (supports 'me' for current agent)
         from_id: Thread source resource
@@ -1395,9 +1420,6 @@ async def unified_search(
 
         if assigned_to:
             folios = [f for f in folios if f.assigned_to == assigned_to]
-
-        if not archived:
-            folios = [f for f in folios if not f.archived]
 
         if since_dt:
             folios = [f for f in folios if f.created_at >= since_dt]
@@ -1574,7 +1596,6 @@ async def unified_search(
                 "site": site,
                 "sites": sites,
                 "assigned_to": assigned_to,
-                "archived": archived,
                 "thread_type": thread_type,
                 "weaver": weaver,
                 "from_id": from_id,
@@ -1959,12 +1980,18 @@ async def hypothesis_next(
 
     folios = store.get_folios(site_id=site_id)
     hypotheses = [f for f in folios if f.type == "hypothesis"]
+    # Batch overlay (thread-derived) — the returned hypothesis must carry its
+    # real status AND assigned_to (deep_code_audit r2 finding 3: this route was
+    # never enriched, so assigned_to was always null post-contraction). Also
+    # replaces the per-folio get_current_status N+1 below.
+    enrich_folios_with_status(hypotheses, store)
 
     # Filter to open (pending) hypotheses
     open_hypos = []
     for h in hypotheses:
-        computed_status = get_current_status(h.folio_id, store)
-        status = computed_status or h.status or "open"
+        # None-check, not truthiness (the '' invariant): after enrichment a
+        # present-but-empty status must not read as open.
+        status = h.status if h.status is not None else "open"
         # Extract just the verdict (first line)
         verdict = status.split("\n")[0]
         if verdict == "open":
@@ -1996,11 +2023,13 @@ async def hypothesis_status(
 
     folios = store.get_folios(site_id=site_id)
     hypotheses = [f for f in folios if f.type == "hypothesis"]
+    # Same batch overlay as hypothesis_next (and same N+1 removal).
+    enrich_folios_with_status(hypotheses, store)
 
     counts = {"pending": 0, "total": len(hypotheses)}
     for h in hypotheses:
-        computed_status = get_current_status(h.folio_id, store)
-        status = computed_status or h.status or "open"
+        # Same None-check as hypothesis_next (the '' invariant).
+        status = h.status if h.status is not None else "open"
         # Extract just the verdict (first line)
         verdict = status.split("\n")[0]
         if verdict == "open":
@@ -2038,11 +2067,14 @@ async def hypothesis_verdict(
             detail=f"Invalid verdict '{verdict_req.verdict}'. Must be one of: {', '.join(sorted(HYPOTHESIS_VERDICTS))}",
         )
 
-    # Check if already verdicted
+    # Check if already verdicted. None-checks, not truthiness: a PRESENT
+    # empty-string status is state, not absence (the '' invariant) — it is
+    # not 'open', so it blocks re-verdicting, consistent with
+    # /hypotheses/next excluding it as non-open (fell finding, codex r1).
     current_status = get_current_status(hypothesis_id, store)
-    if current_status:
+    if current_status is not None:
         verdict_value = current_status.split("\n")[0]
-        if verdict_value and verdict_value != "open":
+        if verdict_value != "open":
             raise HTTPException(
                 status_code=400,
                 detail=f"Hypothesis already has verdict '{verdict_value}'. Cannot re-verdict.",

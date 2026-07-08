@@ -295,6 +295,29 @@ def _logdb(path: Path):
     return LogDatabase(str(path))
 
 
+def _add_legacy_control_columns(path: Path) -> None:
+    """Give a current-DDL db the PRE-CONTRACTION refs shape the SPENT A3
+    migration operates on. The threads-only contraction (2026-07-08) dropped
+    refs.status/assigned_to/archived from _init_db, but every db A3 actually ran
+    against (and any pre-contraction backup it could ever run against again) HAD
+    them — its cache-only-control precondition and refs rebuild read/write them.
+    Tests that drive migrate_db over a _logdb-built db must restore that legacy
+    shape first; the synth fixtures are unaffected (they hand-copy the legacy
+    DDL)."""
+    conn = sqlite3.connect(str(path))
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(refs)")}
+        if "status" not in cols:
+            conn.execute(
+                "ALTER TABLE refs ADD COLUMN status TEXT DEFAULT 'open'")
+            conn.execute("ALTER TABLE refs ADD COLUMN assigned_to TEXT")
+            conn.execute(
+                "ALTER TABLE refs ADD COLUMN archived INTEGER DEFAULT 0")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _require_method(obj, name: str):
     """Return obj.<name> or fail RED with a test-first message (pre-A1 schema)."""
     fn = getattr(obj, name, None)
@@ -443,16 +466,14 @@ class TestA1TolerantReader:
         db = _logdb(path)
         assert _require_method(db, "get_latest_assignments")() == {slug: "agent-assignee"}
 
-    def test_archive_reader_exists_and_reads_marker(self, tmp_dir):
-        """fell:phase3-design:r4:archive-path (reader side) — get_latest_archives is
-        a DEDICATED reader (analogous to get_latest_statuses, self-loop on to_id)
-        feeding refs.archived; it is NOT folded into the status reader. It reads the
-        archive marker, and the status reader must not surface the archive row."""
+    def test_status_reader_does_not_surface_archive_rows(self, tmp_dir):
+        """fell:phase3-design:r4:archive-path, narrowed 2026-07-08: the
+        get_latest_archives reader was REMOVED with the folio-archived feature
+        (never used — zero archive threads ecosystem-wide), so the reader-side pin
+        that survives is the type isolation: an archive-typed self-loop row (as a
+        legacy db could carry) must NOT be surfaced by the STATUS reader."""
         path = _build("archive_selfloop", tmp_dir)
         db = _logdb(path)
-        archives = _require_method(db, "get_latest_archives")()
-        # The archive folio is archived; its status reader sees no status thread.
-        assert archives.get("archive-selfloop-folio") == ARCHIVED_MARKER
         statuses = _require_method(db, "get_latest_statuses")()
         assert "archive-selfloop-folio" not in statuses
 
@@ -510,16 +531,11 @@ class TestA4GenesisOnlyReader:
         db = _logdb(path)
         assert db.get_latest_assignments() == {slug: "agent-assignee"}
 
-    def test_stray_slug_archive_does_not_override_genesis(self, tmp_dir):
-        """Archive (a to_id self-loop, same reduction as status): a genesis-keyed
-        'archived' marker is read; a LATER stray slug-keyed 'active' is ignored — the
-        symmetric case the status/assignment tests leave uncovered (fell-r1 obs)."""
-        path = _build("archive_selfloop", tmp_dir)  # genesis archive 'archived'
-        slug = "archive-selfloop-folio"
-        _insert_thread(path, "stray-slug-archive", slug, slug, "archive", "active",
-                       "agent-synth", "2026-06-01T00:00:00+00:00")  # later, slug-keyed
-        db = _logdb(path)
-        assert db.get_latest_archives() == {slug: ARCHIVED_MARKER}
+    # (test_stray_slug_archive_does_not_override_genesis was removed 2026-07-08
+    # with the get_latest_archives reader — the folio-archived feature is gone.
+    # The genesis-only-ignores-stray-slug-rows behavior it pinned is the shared
+    # _latest_control_by_folio reduction, still covered by the status and
+    # assignment tests in this class.)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -754,31 +770,10 @@ class TestA2ControlWritesGenesisKeyed:
         finally:
             app.dependency_overrides.pop(dep, None)
 
-    def test_archive_write_lands_genesis_keyed_selfloop(self, tmp_dir):
-        """fell:phase3-a2:shard-0701:archive-writer — PATCH /folios archived=True
-        mints the A2 archive marker: a genesis-anchored self-loop whose content is
-        'archived' (the A1 get_latest_archives marker). Un-archive mints 'active'.
-        The writer counterpart to the reader A1 landed; exercised end-to-end so the
-        A4 genesis-only archive read has a real write to reduce."""
-        client, store, app, dep = self._client_store(tmp_dir)
-        try:
-            fid = self._create_folio(client)
-            genesis = self._genesis(store, fid)
-            assert genesis is not None and genesis != fid
-            r = client.patch(f"/skein/folios/{fid}", json={"archived": True},
-                             headers={"X-Agent-Id": "agent-x"})
-            assert r.status_code == 200, r.text
-            arch = store.get_threads(type="archive")
-            assert arch, "no archive thread minted"
-            for t in arch:
-                assert t.from_id == genesis and t.to_id == genesis, (
-                    f"archive marker not genesis-keyed: "
-                    f"from={t.from_id} to={t.to_id}")
-                assert t.content == "archived"
-            # The A1 reader reduces this to refs.archived semantics (marker model).
-            assert store.get_latest_archives([fid]).get(fid) == "archived"
-        finally:
-            app.dependency_overrides.pop(dep, None)
+    # (test_archive_write_lands_genesis_keyed_selfloop was removed 2026-07-08
+    # with the folio-archived feature — its writer, reader, and refs column are
+    # gone; tests/test_threads_only_control.py pins that PATCH archived is now a
+    # no-op that mints no marker.)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1276,6 +1271,7 @@ class TestA3Migration:
                                  "created_at": "2026-01-01T00:00:00+00:00",
                                  "created_by": "a"})
         _logdb(path)  # A1 schema (thread_hash column)
+        _add_legacy_control_columns(path)  # pre-contraction refs shape A3 needs
         conn = sqlite3.connect(str(path))
         conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
                      "VALUES (?,?,?,?)", ("folio-b", gb, gb, "s"))
@@ -1364,6 +1360,7 @@ class TestA3Migration:
                                       "created_at": "2026-01-01T00:00:00+00:00",
                                       "created_by": "a"})
         _logdb(path)  # A1 schema
+        _add_legacy_control_columns(path)  # pre-contraction refs shape A3 needs
         conn = sqlite3.connect(str(path))
         conn.execute("INSERT INTO refs (slug, genesis_hash, head_hash, site_id) "
                      "VALUES (?,?,?,?)", ("folio-a", genesis, genesis, "s"))

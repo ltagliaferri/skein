@@ -199,7 +199,10 @@ PROBES: List[Dict[str, Any]] = [
     {"name": "find-text",           "kind": "stable", "argv": ["find", "security", "--limit", "500", "--json"]},
     {"name": "find-text-typed",     "kind": "stable", "argv": ["find", "bug", "--type", "issue", "--limit", "500", "--json"]},
     {"name": "find-sort-asc",       "kind": "stable", "argv": ["find", "--sort", "created_asc", "--limit", "500", "--json"]},
-    {"name": "find-archived",       "kind": "stable", "argv": ["find", "--archived", "--limit", "500", "--json"]},
+    # find-archived probe RETIRED 2026-07-08: the --archived flag was removed
+    # with the folio-archived feature (threads-only contraction; zero uses
+    # ecosystem-wide). A deliberate capability drop, recorded here so the probe
+    # corpus change is conscious — any blessed find-archived baseline is stale.
 
     # search — the other engine (FTS word-match), with its filter flags
     {"name": "search-basic",        "kind": "stable", "argv": ["search", "mesh", "--limit", "500", "--json"]},

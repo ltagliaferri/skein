@@ -27,9 +27,12 @@ logger = logging.getLogger(__name__)
 
 # Phase 3a Class-A control taxonomy: the three thread types the A3 cutover
 # re-anchored from the folio slug to the lineage genesis hash. The control VALUE
-# readers (get_latest_statuses/assignments/archives) key off exactly this set. It
-# is deliberately narrow: a genesis<->slug resolution restricted to control is what
-# lets the value readers ignore edit edges that merely touch the genesis VERSION.
+# readers (get_latest_statuses/assignments) key off this set. It is deliberately
+# narrow: a genesis<->slug resolution restricted to control is what lets the
+# value readers ignore edit edges that merely touch the genesis VERSION.
+# 'archive' stays in the taxonomy for keying/display stability (threads_pk_swap
+# derives its re-anchor set from here) even though the folio-archived FEATURE —
+# its writer, reader, and refs column — was removed 2026-07-08 (never used).
 CONTROL_THREAD_TYPES = ("status", "assignment", "archive")
 
 # Phase 3b §6/§6.1: the genesis-anchored Class B structural edge types. The PK swap
@@ -98,14 +101,17 @@ def compute_folio_hash(folio: Folio) -> str:
 _HEAD_FROM = "FROM refs r JOIN versions v ON v.content_hash = r.head_hash"
 _HEAD_SELECT = (
     "r.slug, v.type, r.site_id, v.created_at, v.created_by, v.title, v.content, "
-    "r.status, r.assigned_to, r.target_agent, r.omlet, r.archived, r.metadata, "
+    "r.target_agent, r.omlet, r.metadata, "
     "r.acknowledged_at, v.content_hash"
 )
 
 
 def _folio_from_head_row(row: "sqlite3.Row") -> Folio:
     """Reconstruct a Folio from a joined refs⋈versions head row (column names per
-    _HEAD_SELECT). Identical shape to _row_to_folio off the old folios row."""
+    _HEAD_SELECT). status/assigned_to are NOT read here — they are thread-derived
+    (the control cache columns were dropped in the threads-only contraction), and
+    the API read surfaces overlay them via enrich_folios_with_status. The
+    constructed object carries the model defaults ('open'/None) until enriched."""
     metadata = json.loads(row["metadata"]) if row["metadata"] else {}
     return Folio(
         folio_id=row["slug"],
@@ -115,11 +121,8 @@ def _folio_from_head_row(row: "sqlite3.Row") -> Folio:
         created_by=row["created_by"],
         title=row["title"],
         content=row["content"],
-        status=row["status"] or "open",
-        assigned_to=row["assigned_to"],
         target_agent=row["target_agent"],
         omlet=row["omlet"],
-        archived=bool(row["archived"]),
         metadata=metadata,
         acknowledged_at=ensure_aware(row["acknowledged_at"]),
         content_hash=row["content_hash"],
@@ -572,14 +575,18 @@ class LogDatabase:
             """
             )
 
-            # refs: mutable, local, never federated — the naming + control layer.
+            # refs: mutable, local, never federated — the naming + lineage layer.
             # slug is the everyday human handle (folio_id); genesis_hash is the
             # stable lineage identity (survives edits); head_hash moves on every
-            # identity-changing edit. The control columns are a copy-of-column
-            # cache of the full non-identity set (status/assigned_to/archived/
-            # site_id/target_agent/omlet/acknowledged_at/metadata). created_by is
-            # hashed identity and lives on versions, NOT here; type is also
-            # identity-only (the edit rule freezes a lineage's type).
+            # identity-changing edit. The remaining local fields (site_id/
+            # target_agent/omlet/acknowledged_at/metadata) are workbench workflow
+            # truth with no thread counterpart. status/assigned_to/archived are
+            # NOT here: control state is thread-derived (genesis-keyed control
+            # threads are the truth; reads reduce via get_latest_statuses/
+            # assignments) — the copy-of-column cache was dropped in the
+            # threads-only contraction (2026-07-08, drop_refs_control migration).
+            # created_by is hashed identity and lives on versions, NOT here; type
+            # is also identity-only (the edit rule freezes a lineage's type).
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS refs (
@@ -587,9 +594,6 @@ class LogDatabase:
                     genesis_hash    TEXT NOT NULL,
                     head_hash       TEXT NOT NULL,
                     site_id         TEXT NOT NULL,
-                    status          TEXT DEFAULT 'open',
-                    assigned_to     TEXT,
-                    archived        INTEGER DEFAULT 0,
                     target_agent    TEXT,
                     omlet           TEXT,
                     acknowledged_at DATETIME,
@@ -598,8 +602,7 @@ class LogDatabase:
             """
             )
 
-            for col in ("site_id", "status", "assigned_to", "archived",
-                        "head_hash", "genesis_hash"):
+            for col in ("site_id", "head_hash", "genesis_hash"):
                 conn.execute(
                     f"CREATE INDEX IF NOT EXISTS idx_refs_{col} ON refs({col})"
                 )
@@ -1058,6 +1061,25 @@ class LogDatabase:
             conn.commit()
         return True
 
+    def _insert_control_thread(self, conn, ttype: str, from_id: str, to_id: str,
+                               content: str, weaver: str,
+                               created_at: str) -> None:
+        """Insert one genesis-keyed control thread on an EXISTING connection (the
+        caller's transaction) — the JSON-import path, which must mint the thread
+        alongside the versions/refs rows it imports (control state has no other
+        persistence post-contraction). Same hash-stamping and OR IGNORE semantics
+        as save_thread; endpoints are the caller's responsibility (the import
+        anchors on the genesis content hash directly)."""
+        thread_hash = compute_thread_hash(
+            from_id, to_id, ttype, weaver, created_at, content)
+        conn.execute(
+            "INSERT OR IGNORE INTO threads "
+            "(thread_id, from_id, to_id, type, content, weaver, created_at, "
+            " thread_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (generate_thread_id(), from_id, to_id, ttype, content, weaver,
+             created_at, thread_hash),
+        )
+
     def _genesis_key_control(self, thread: Thread) -> tuple:
         """Return the (from_id, to_id) a control thread should persist with:
         status/archive/assignment edges anchor on the folio's genesis hash, never
@@ -1357,22 +1379,10 @@ class LogDatabase:
                 conn, ttype="assignment", anchor_col="from_id", value_col="to_id",
                 folio_ids=folio_ids)
 
-    def get_latest_archives(
-        self, folio_ids: Optional[List[str]] = None
-    ) -> Dict[str, str]:
-        """Most recent archive marker per folio (slug -> content, the marker
-        ``'archived'``/``'active'``). DEDICATED reader — a self-loop on ``to_id`` like
-        status, feeding ``refs.archived`` (archived iff content == 'archived',
-        finding-20260630-0r3x) — NOT folded into ``get_latest_statuses`` (which maps
-        to a different refs column). A4 genesis-only like the other control readers
-        (keys on the genesis hash, resolved to the slug). 0 archive rows exist
-        ecosystem-wide today, so it exercises no data yet, but the path exists ahead
-        of A5 dropping ``folios.archived``.
-        """
-        with self._get_connection() as conn:
-            return self._latest_control_by_folio(
-                conn, ttype="archive", anchor_col="to_id", value_col="content",
-                folio_ids=folio_ids)
+    # (get_latest_archives was removed with the folio-archived feature,
+    # 2026-07-08: zero archive threads and zero archived refs existed
+    # ecosystem-wide — a never-used holdover. verify_threads_control.py, the
+    # SPENT A3 oracle, detects the reader's absence and degrades gracefully.)
 
     # Folio Operations
 
@@ -1385,8 +1395,8 @@ class LogDatabase:
             version, write a ``supersedes`` edge (new->old head), move the ref head.
           - EDIT, content reverted to an existing version: move the head back, write
             a durable ``reverted`` marker, mint nothing (no cycle).
-          - EDIT, no identity change (status/assignment/archive/move/no-op): refresh
-            the refs control cache only; mint nothing.
+          - EDIT, no identity change (status/assignment/move/no-op): refresh
+            the refs local workflow fields only; mint nothing.
         The legacy ``folios`` dual-write is gone as of Phase 3a A5 (reads have been
         off ``folios`` since the commit-C read-flip); versions/refs is the sole
         write target. ``created_at``/``created_by`` inherit the lineage genesis, so
@@ -1394,9 +1404,11 @@ class LogDatabase:
         editor lives on the supersedes/reverted edge's weaver (``editor``), not on
         the version — the Folio's ``created_by`` is the genesis author by design.
 
-        State (status/assignment/archive) is written by the routes as genesis-keyed
-        threads; save_folio does NOT mint or move any state thread. It only copies
-        the folio object's control fields into the refs cache columns.
+        State (status/assignment) is written by the routes as genesis-keyed
+        threads — the sole persistence of control state (threads-only; the refs
+        cache columns are gone). save_folio does NOT mint or move any state
+        thread; it persists only the local workflow fields (site/target_agent/
+        omlet/acknowledged_at/metadata) onto refs.
         """
         with self._immediate_txn() as conn:
             # Resolve the ref to tell CREATE from EDIT. On EDIT, reassert the
@@ -1449,18 +1461,16 @@ class LogDatabase:
             # versions_fts is updated automatically via its AFTER INSERT trigger.
         return True
 
-    def _refs_control(self, folio: Folio, acknowledged_at: Optional[str]) -> tuple:
-        """The full non-identity control set copied into the refs cache, in the
-        column order used by the INSERT/UPDATE below: site_id, status,
-        assigned_to, archived, target_agent, omlet, acknowledged_at, metadata.
-        (created_by and type are hashed identity and live on versions, not refs.)
-        These encodings are what a read coerces back, so a read round-trips a write.
+    def _refs_local(self, folio: Folio, acknowledged_at: Optional[str]) -> tuple:
+        """The local workflow fields persisted on refs, in the column order used
+        by the INSERT/UPDATE below: site_id, target_agent, omlet, acknowledged_at,
+        metadata. (created_by and type are hashed identity and live on versions,
+        not refs; status/assigned_to are thread-derived and persisted NOWHERE on
+        refs since the threads-only contraction.) These encodings are what a read
+        coerces back, so a read round-trips a write.
         """
         return (
             folio.site_id,
-            folio.status or "open",
-            folio.assigned_to,
-            1 if folio.archived else 0,
             folio.target_agent,
             folio.omlet,
             acknowledged_at,
@@ -1483,7 +1493,7 @@ class LogDatabase:
                                 created_at: str, acknowledged_at: Optional[str],
                                 editor: Optional[str]) -> None:
         """Mint the version / move the head / write the edit edge, per §3."""
-        control = self._refs_control(folio, acknowledged_at)
+        control = self._refs_local(folio, acknowledged_at)
         now = datetime.now(timezone.utc).isoformat()
         # The per-edit editor; falls back to the genesis author for direct storage
         # callers and tests that pass no editor (§3.2).
@@ -1494,16 +1504,16 @@ class LogDatabase:
             self._insert_version(conn, folio, new_hash, created_at)
             conn.execute(
                 "INSERT INTO refs "
-                "(slug, genesis_hash, head_hash, site_id, status, assigned_to, "
-                " archived, target_agent, omlet, acknowledged_at, metadata) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(slug, genesis_hash, head_hash, site_id, "
+                " target_agent, omlet, acknowledged_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (folio.folio_id, new_hash, new_hash, *control),
             )
             return
 
         head_hash = ref["head_hash"]
         if new_hash == head_hash:
-            # No identity change — refresh the control cache only, mint nothing.
+            # No identity change — refresh the local workflow fields, mint nothing.
             self._update_refs(conn, folio.folio_id, new_hash, control)
             return
 
@@ -1580,12 +1590,12 @@ class LogDatabase:
         return {r[0] for r in rows}
 
     def _update_refs(self, conn, slug: str, head_hash: str, control: tuple) -> None:
-        """Move the ref head and refresh the full control cache (genesis_hash is
-        immutable and never touched)."""
+        """Move the ref head and refresh the local workflow fields (genesis_hash
+        is immutable and never touched; status/assigned_to are thread-derived and
+        not persisted here)."""
         conn.execute(
-            "UPDATE refs SET head_hash = ?, site_id = ?, status = ?, "
-            "assigned_to = ?, archived = ?, target_agent = ?, omlet = ?, "
-            "acknowledged_at = ?, metadata = ? WHERE slug = ?",
+            "UPDATE refs SET head_hash = ?, site_id = ?, target_agent = ?, "
+            "omlet = ?, acknowledged_at = ?, metadata = ? WHERE slug = ?",
             (head_hash, *control, slug),
         )
 
@@ -1604,13 +1614,13 @@ class LogDatabase:
         self,
         site_id: Optional[str] = None,
         type: Optional[str] = None,
-        status: Optional[str] = None,
-        assigned_to: Optional[str] = None,
         created_by: Optional[str] = None,
-        archived: Optional[bool] = None,
     ) -> List[Folio]:
         """Get folios (heads only) with optional filters. Identity filters hit
-        versions (type/created_by), control filters hit refs (site/status/...)."""
+        versions (type/created_by), site hits refs. Status/assignment filtering
+        is NOT SQL-level: control state is thread-derived, so callers enrich
+        (enrich_folios_with_status) and filter on the result — which is what the
+        API routes always did; the old SQL params had no production caller."""
         with self._get_connection() as conn:
             query = f"SELECT {_HEAD_SELECT} {_HEAD_FROM} WHERE 1=1"
             params = []
@@ -1621,18 +1631,9 @@ class LogDatabase:
             if type:
                 query += " AND v.type = ?"
                 params.append(type)
-            if status:
-                query += " AND r.status = ?"
-                params.append(status)
-            if assigned_to:
-                query += " AND r.assigned_to = ?"
-                params.append(assigned_to)
             if created_by:
                 query += " AND v.created_by = ?"
                 params.append(created_by)
-            if archived is not None:
-                query += " AND r.archived = ?"
-                params.append(1 if archived else 0)
 
             # Deterministic secondary key (slug) so versions.created_at ties don't
             # reorder vs the old folios rowid order (§4 determinism).
@@ -1701,38 +1702,6 @@ class LogDatabase:
                 cursor = conn.execute("SELECT COUNT(*) FROM refs")
             return cursor.fetchone()[0]
 
-    def get_folio_stats(self, site_id: Optional[str] = None) -> Dict[str, Any]:
-        """Folio statistics over heads: by_type from the head version (join),
-        by_status from the refs control cache, total from refs (lineage count)."""
-        with self._get_connection() as conn:
-            site_where = " WHERE r.site_id = ?" if site_id else ""
-            params = [site_id] if site_id else []
-
-            # By type — from the head version (identity field).
-            cursor = conn.execute(
-                f"SELECT v.type AS type, COUNT(*) AS cnt {_HEAD_FROM}"
-                + site_where + " GROUP BY v.type",
-                params,
-            )
-            by_type = {row["type"]: row["cnt"] for row in cursor.fetchall()}
-
-            # By status — from the refs copy-of-column cache (no version needed).
-            status_where = " WHERE site_id = ?" if site_id else ""
-            cursor = conn.execute(
-                "SELECT status, COUNT(*) AS cnt FROM refs" + status_where
-                + " GROUP BY status",
-                params,
-            )
-            by_status = {row["status"]: row["cnt"] for row in cursor.fetchall()}
-
-            # Total — lineage count.
-            cursor = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM refs" + status_where, params
-            )
-            total = cursor.fetchone()["cnt"]
-
-            return {"total": total, "by_type": by_type, "by_status": by_status}
-
     def get_site_last_activity(self) -> Dict[str, datetime]:
         """Return mapping of site_id -> latest head created_at (timezone-aware).
 
@@ -1749,27 +1718,6 @@ class LogDatabase:
                 row["site_id"]: ensure_aware(row["last_created_at"])
                 for row in cursor.fetchall()
             }
-
-    def _row_to_folio(self, row: sqlite3.Row) -> Folio:
-        """Convert a SQLite row to a Folio model."""
-        metadata = json.loads(row["metadata"]) if row["metadata"] else {}
-        return Folio(
-            folio_id=row["folio_id"],
-            type=row["type"],
-            site_id=row["site_id"],
-            created_at=ensure_aware(row["created_at"]),
-            created_by=row["created_by"],
-            title=row["title"],
-            content=row["content"],
-            status=row["status"] or "open",
-            assigned_to=row["assigned_to"],
-            target_agent=row["target_agent"],
-            omlet=row["omlet"],
-            archived=bool(row["archived"]),
-            metadata=metadata,
-            acknowledged_at=ensure_aware(row["acknowledged_at"]),
-            content_hash=row["content_hash"],
-        )
 
     def get_version_by_hash(self, content_hash: str) -> Optional["VersionView"]:
         """By-hash fetch (§8): the version's five immutable identity fields + the
@@ -1897,9 +1845,20 @@ class LogDatabase:
 
                     # This cold JSON import writes versions/refs (the live read
                     # layer) directly — A5 retired the folios dual-write. Genesis =
-                    # head = the recomputed content_hash; the full control set is
-                    # copied. (No supersedes edge — each imported row is a lineage
-                    # genesis.) A row with no usable hash is skipped, not imported.
+                    # head = the recomputed content_hash. (No supersedes edge —
+                    # each imported row is a lineage genesis.) A row with no
+                    # usable hash is skipped, not imported.
+                    #
+                    # Control state is thread-derived post-contraction, so a
+                    # legacy JSON status/assignee is imported by MINTING the
+                    # genesis-keyed control thread — dropping it would silently
+                    # read every closed legacy folio as open (deep_code_audit
+                    # finding 6). The thread's created_at is the folio's own
+                    # created_at, so any real later status set wins the
+                    # (created_at DESC, thread_id DESC) reduction. A legacy
+                    # archived flag has no post-contraction meaning (the feature
+                    # was removed; zero uses existed) — logged loudly, not
+                    # imported.
                     if content_hash:
                         conn.execute(
                             "INSERT OR IGNORE INTO versions "
@@ -1908,20 +1867,52 @@ class LogDatabase:
                             (content_hash, ftype, title, content,
                              created_at, created_by),
                         )
-                        conn.execute(
+                        ref_cur = conn.execute(
                             "INSERT OR IGNORE INTO refs "
-                            "(slug, genesis_hash, head_hash, site_id, status, "
-                            " assigned_to, archived, target_agent, omlet, "
-                            " acknowledged_at, metadata) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "(slug, genesis_hash, head_hash, site_id, "
+                            " target_agent, omlet, acknowledged_at, metadata) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             (folio_id, content_hash, content_hash, site_id,
-                             data.get("status", "open"), data.get("assigned_to"),
-                             1 if data.get("archived", False) else 0,
                              data.get("target_agent"), data.get("omlet"),
                              data.get("acknowledged_at"),
                              json.dumps(metadata) if metadata else "{}"),
                         )
-                        count += 1
+                        if ref_cur.rowcount == 0:
+                            # Slug collision across site dirs: OR IGNORE kept
+                            # the FIRST file's row, so this file's folio was NOT
+                            # imported — do not mint its control threads either.
+                            # Unconditional minting here wrote an ORPHANED
+                            # status/assignment thread keyed on a genesis no ref
+                            # points at (deep_code_audit r2 finding 4): its
+                            # state was silently lost AND permanently unreadable.
+                            logger.warning(
+                                f"{folio_id}: duplicate slug in JSON import — "
+                                f"row skipped (first file wins), control state "
+                                f"of the duplicate NOT imported")
+                        else:
+                            # None-checks, not truthiness (the '' invariant):
+                            # a present-but-falsy legacy value is imported
+                            # faithfully; only ABSENCE (or the default 'open')
+                            # mints nothing.
+                            legacy_status = data.get("status")
+                            if legacy_status is not None and \
+                                    legacy_status != "open":
+                                self._insert_control_thread(
+                                    conn, "status", content_hash, content_hash,
+                                    legacy_status, created_by, created_at)
+                            legacy_assignee = data.get("assigned_to")
+                            if legacy_assignee is not None:
+                                self._insert_control_thread(
+                                    conn, "assignment", content_hash,
+                                    legacy_assignee,
+                                    f"Assigned to {legacy_assignee}",
+                                    created_by, created_at)
+                            if data.get("archived"):
+                                logger.warning(
+                                    f"{folio_id}: legacy archived=true NOT "
+                                    f"imported (folio-archived feature removed "
+                                    f"2026-07-08)")
+                            count += 1
                 except Exception as e:
                     logger.error(f"Failed to migrate {folio_file.name}: {e}")
                     errors += 1
@@ -2224,12 +2215,6 @@ class JSONStore:
     ) -> Dict[str, str]:
         """Get the most recent assignment for each folio in a single query."""
         return self._log_db.get_latest_assignments(folio_ids)
-
-    def get_latest_archives(
-        self, folio_ids: Optional[List[str]] = None
-    ) -> Dict[str, str]:
-        """Get the most recent archive marker for each folio in a single query."""
-        return self._log_db.get_latest_archives(folio_ids)
 
     # Helper methods
 

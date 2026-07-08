@@ -102,6 +102,22 @@ class PreconditionError(Exception):
     refusal without an incidental crash satisfying the same check."""
 
 
+def _assert_pre_contraction_schema(conn) -> None:
+    """Typed refusal when the db has no refs control columns: this SPENT
+    migration reads AND rebuilds refs.status/assigned_to/archived, which the
+    threads-only contraction (2026-07-08) dropped. Checked on the SAME connection
+    the work runs on — for the live path that means UNDER the held BEGIN
+    IMMEDIATE lock, so a concurrent drop_refs_control cannot land between the
+    check and the work (deep_code_audit r4 finding 5); an earlier separate-probe
+    version had exactly that race. Pre-contraction dbs/backups always carry the
+    columns and pass untouched."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(refs)")}
+    if "status" not in cols:
+        raise PreconditionError(
+            "refs has no control columns — post-contraction db (threads-only "
+            "contraction, 2026-07-08); the A3 migration is inapplicable to it")
+
+
 @dataclass
 class MigrationResult:
     """Observable outcome of one ``migrate_db`` run."""
@@ -312,6 +328,7 @@ def migrate_db(db_path, *, dry_run: bool = False) -> MigrationResult:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
+            _assert_pre_contraction_schema(conn)
             slugs, slug_to_genesis, genesis_to_slug = _ref_maps(conn)
             _assert_no_cache_only_control(conn, slugs, genesis_to_slug)
             for row in conn.execute(
@@ -346,6 +363,7 @@ def migrate_db(db_path, *, dry_run: bool = False) -> MigrationResult:
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            _assert_pre_contraction_schema(conn)  # under the held write lock
             slugs, slug_to_genesis, genesis_to_slug = _ref_maps(conn)  # asserts I1
             _assert_no_cache_only_control(conn, slugs, genesis_to_slug)
 

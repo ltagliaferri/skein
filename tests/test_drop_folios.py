@@ -4,6 +4,15 @@ The driver is destructive (DROP TABLE folios on live dbs), so every gate is test
 the precondition refuses each unsafe shape, dry-run never touches the live db, --live
 backs up before dropping and refuses to bury a prior restore point, and verify catches
 a drop that removed more than folios.
+
+Fixture note (threads-only contraction, 2026-07-08): drop_folios is SPENT (A5 ran
+ecosystem-wide 2026-07-03) and operates on the PRE-contraction refs schema — its
+mirror checks read refs.status/assigned_to/archived, which the contraction dropped
+from _init_db. ``_build`` therefore restores those legacy columns explicitly after
+the storage layer creates the db (defaults match ``_folio``'s defaults), which is
+exactly the on-disk shape of every db A5 actually ran against and of any pre-A5
+backup it could ever run against again. The safety suite stays live this way
+instead of being skipped (deep_code_audit 2026-07-08, finding 7).
 """
 
 from __future__ import annotations
@@ -11,7 +20,6 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-
 
 from skein.identity import compute_folio_hash
 from skein.migrations import drop_folios as df
@@ -45,12 +53,29 @@ def _conn(path):
     return c
 
 
+def _add_legacy_refs_control(path: Path) -> None:
+    """Restore the pre-contraction refs control columns on a current-DDL db (see
+    the module docstring's fixture note). Defaults mirror the old DDL."""
+    c = _conn(path)
+    try:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(refs)")}
+        if "status" not in cols:
+            c.execute("ALTER TABLE refs ADD COLUMN status TEXT DEFAULT 'open'")
+            c.execute("ALTER TABLE refs ADD COLUMN assigned_to TEXT")
+            c.execute("ALTER TABLE refs ADD COLUMN archived INTEGER DEFAULT 0")
+        c.commit()
+    finally:
+        c.close()
+
+
 def _build(path: Path, slugs=("folio-1", "folio-2")) -> Path:
-    """A faithful pre-A5 db: versions/refs/threads via the real storage layer, plus
-    a legacy folios table mirroring refs (the dual-write shape the drop operates on)."""
+    """A faithful pre-A5 db: versions/refs/threads via the real storage layer
+    (plus the legacy refs control columns the contraction dropped), plus a legacy
+    folios table mirroring refs (the dual-write shape the drop operates on)."""
     db = LogDatabase(path)
     for s in slugs:
         db.save_folio(_folio(s))
+    _add_legacy_refs_control(path)
     c = _conn(path)
     try:
         c.execute(_LEGACY_FOLIOS_DDL)

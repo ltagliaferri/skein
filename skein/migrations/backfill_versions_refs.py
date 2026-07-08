@@ -116,14 +116,32 @@ def _existing(conn: sqlite3.Connection) -> Tuple[set, set]:
     return _col("versions", "content_hash"), _col("refs", "slug")
 
 
+def _refuse_contracted_repair(conn, db_path, *, repair: bool) -> None:
+    """REPAIR mode re-copies the control cache; a contracted refs (threads-only
+    contraction, 2026-07-08) has none — refuse, identically in preview and
+    apply, on the connection the caller is already holding (dry-run: its RO
+    conn; apply: under the BEGIN IMMEDIATE lock, so a concurrent
+    drop_refs_control cannot land between check and work)."""
+    if not repair:
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(refs)")}
+    if "status" not in cols:
+        raise RuntimeError(
+            f"{db_path}: refs has no control columns (post-contraction "
+            f"schema) — REPAIR mode re-copies the control cache and is "
+            f"meaningless here; run without --repair.")
+
+
 def _scan(conn: sqlite3.Connection, *, repair: bool = False) -> Tuple[
-        dict, List[dict], List[tuple], List[tuple], List[tuple], List[tuple]]:
+        dict, List[dict], List[tuple], List[tuple], List[tuple], List[tuple],
+        List[tuple]]:
     """Read every folio, recompute its hash, and build the version + ref rows.
 
     Returns (stats, mapping records, version-insert tuples, ref-insert tuples,
-    ref-update tuples, supersedes-edge tuples). A version/ref row that already
-    exists is counted as *present*; the version inserts are exactly the new
-    content hashes.
+    ref-update tuples, supersedes-edge tuples, control-thread data tuples —
+    the last used only when the TARGET refs is post-contraction, see
+    backfill_db). A version/ref row that already exists is counted as
+    *present*; the version inserts are exactly the new content hashes.
 
     SEED mode (repair=False, commit A): an existing slug is left untouched (no
     update). REPAIR mode (repair=True, commit B opener): an existing slug is
@@ -158,6 +176,7 @@ def _scan(conn: sqlite3.Connection, *, repair: bool = False) -> Tuple[
     ref_insert_rows: List[tuple] = []
     ref_update_rows: List[tuple] = []
     supersedes_rows: List[tuple] = []
+    control_thread_rows: List[tuple] = []
     now = datetime.now(timezone.utc).isoformat()
 
     for r in rows:
@@ -195,7 +214,10 @@ def _scan(conn: sqlite3.Connection, *, repair: bool = False) -> Tuple[
 
         control = (
             r["site_id"],
-            r["status"] or "open",
+            # None-check, not truthiness: only an ABSENT status defaults to
+            # 'open' (matching the old DDL's DEFAULT); a present falsy value is
+            # preserved (the same invariant as every read surface).
+            "open" if r["status"] is None else r["status"],
             r["assigned_to"],
             1 if r["archived"] else 0,
             r["target_agent"],
@@ -210,6 +232,16 @@ def _scan(conn: sqlite3.Connection, *, repair: bool = False) -> Tuple[
             stats["ref_seeded"] += 1
             ref_insert_rows.append((
                 r["folio_id"], new_hash, new_hash, *control,
+            ))
+            # Data for the POST-CONTRACTION target case (decided at write time
+            # in backfill_db): a contracted refs has no control columns, so the
+            # folio's control state must be carried as genesis-keyed control
+            # THREADS instead — the same import semantics as
+            # migrate_folios_from_json (thread created_at = the folio's own
+            # created_at, so any later real write wins the reduction).
+            control_thread_rows.append((
+                r["folio_id"], new_hash, r["status"], r["assigned_to"],
+                r["archived"], r["created_by"], r["created_at"],
             ))
             records.append({"folio_id": r["folio_id"], "hash": new_hash,
                             "change": "seeded"})
@@ -241,7 +273,8 @@ def _scan(conn: sqlite3.Connection, *, repair: bool = False) -> Tuple[
     stats["total"] = len(rows)
     stats["versions_written"] = 0
     stats["refs_written"] = 0
-    return stats, records, version_rows, ref_insert_rows, ref_update_rows, supersedes_rows
+    return (stats, records, version_rows, ref_insert_rows, ref_update_rows,
+            supersedes_rows, control_thread_rows)
 
 
 def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[dict, List[dict]]:
@@ -264,7 +297,13 @@ def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[
                 raise RuntimeError(
                     f"{db_path} is at the Phase 3b thread_hash-PK schema; "
                     f"backfill_versions_refs is SPENT — refusing (design §4.3).")
-            stats, records, _, _, _, _ = _scan(conn, repair=repair)
+            # Preview must predict apply (deep_code_audit r4 finding 1): apply
+            # refuses REPAIR against a contracted refs, so the dry run raises
+            # the same refusal instead of returning stats apply would never
+            # produce. A missing refs table previews as contracted too — apply
+            # would CREATE it from the current (contracted) DDL and then refuse.
+            _refuse_contracted_repair(conn, db_path, repair=repair)
+            stats, records, _, _, _, _, _ = _scan(conn, repair=repair)
             return stats, records
         finally:
             conn.close()
@@ -295,7 +334,18 @@ def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[
                     f"would risk a PK violation on that PK — refusing (design §4.3).")
             triggers_before = _trigger_names(conn)
             stats, records, version_rows, ref_insert_rows, ref_update_rows, \
-                supersedes_rows = _scan(conn, repair=repair)
+                supersedes_rows, control_thread_rows = _scan(conn, repair=repair)
+            # Schema-adaptive refs writes (deep_code_audit r3 finding 1): the
+            # threads-only contraction (2026-07-08) dropped the refs control
+            # cache columns from _init_db, so a target db born from CURRENT
+            # code (the fidelity fixture path) has no status/assigned_to/
+            # archived — the fixed 11-column INSERT crashed on it. Detect the
+            # target schema and write accordingly; on a contracted target the
+            # control state is carried as genesis-keyed control THREADS instead
+            # (minted below, the migrate_folios_from_json semantics).
+            refs_cols = {row[1] for row in conn.execute("PRAGMA table_info(refs)")}
+            contracted = "status" not in refs_cols
+            _refuse_contracted_repair(conn, db_path, repair=repair)
             if version_rows:
                 conn.executemany(
                     "INSERT OR IGNORE INTO versions "
@@ -304,13 +354,62 @@ def backfill_db(db_path: Path, *, dry_run: bool, repair: bool = False) -> Tuple[
                     version_rows,
                 )
             if ref_insert_rows:
-                conn.executemany(
-                    "INSERT OR IGNORE INTO refs "
-                    "(slug, genesis_hash, head_hash, site_id, status, assigned_to, "
-                    " archived, target_agent, omlet, acknowledged_at, metadata) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    ref_insert_rows,
-                )
+                if contracted:
+                    # Tuple shape: (slug, genesis, head, site_id, status,
+                    # assigned_to, archived, target_agent, omlet,
+                    # acknowledged_at, metadata) — drop indices 4..6.
+                    conn.executemany(
+                        "INSERT OR IGNORE INTO refs "
+                        "(slug, genesis_hash, head_hash, site_id, "
+                        " target_agent, omlet, acknowledged_at, metadata) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        [t[:4] + t[7:] for t in ref_insert_rows],
+                    )
+                else:
+                    conn.executemany(
+                        "INSERT OR IGNORE INTO refs "
+                        "(slug, genesis_hash, head_hash, site_id, status, assigned_to, "
+                        " archived, target_agent, omlet, acknowledged_at, metadata) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        ref_insert_rows,
+                    )
+            stats["control_threads_minted"] = 0
+            stats["archived_dropped"] = 0
+            if contracted:
+                # Carry control state as threads (None-checks: a present falsy
+                # value is preserved, only absence skips — the '' invariant).
+                for slug, genesis, status, assignee, archived, created_by, \
+                        created_at in control_thread_rows:
+                    weaver = created_by or "backfill-import"
+                    if archived:
+                        # Same loud drop as migrate_folios_from_json: the
+                        # folio-archived feature is gone; a legacy archived=1
+                        # has no post-contraction representation.
+                        stats["archived_dropped"] += 1
+                        print(f"  WARNING {slug}: legacy archived=true NOT "
+                              f"carried (folio-archived feature removed "
+                              f"2026-07-08)")
+                    if status is not None and status != "open":
+                        conn.execute(
+                            "INSERT OR IGNORE INTO threads "
+                            "(thread_id, from_id, to_id, type, content, weaver, "
+                            " created_at, thread_hash) VALUES (?,?,?,?,?,?,?,?)",
+                            (generate_thread_id(), genesis, genesis, "status",
+                             status, weaver, created_at,
+                             compute_thread_hash(genesis, genesis, "status",
+                                                 weaver, created_at, status)))
+                        stats["control_threads_minted"] += 1
+                    if assignee is not None:
+                        content = f"Assigned to {assignee}"
+                        conn.execute(
+                            "INSERT OR IGNORE INTO threads "
+                            "(thread_id, from_id, to_id, type, content, weaver, "
+                            " created_at, thread_hash) VALUES (?,?,?,?,?,?,?,?)",
+                            (generate_thread_id(), genesis, assignee,
+                             "assignment", content, weaver, created_at,
+                             compute_thread_hash(genesis, assignee, "assignment",
+                                                 weaver, created_at, content)))
+                        stats["control_threads_minted"] += 1
             if ref_update_rows:  # REPAIR mode only — re-point head + re-copy control
                 conn.executemany(
                     "UPDATE refs SET head_hash = ?, site_id = ?, status = ?, "

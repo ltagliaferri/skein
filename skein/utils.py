@@ -95,7 +95,12 @@ def get_current_assignment(folio_id: str, json_store) -> Optional[str]:
 def enrich_folios_with_status(folios: List, store) -> None:
     """Batch-enrich folios with status and assignment from threads.
 
-    Uses batch queries instead of N+1 individual queries.
+    Uses batch queries instead of N+1 individual queries. None-checks, not
+    truthiness, so a present-but-falsy thread value (e.g. a persisted empty
+    string) survives instead of collapsing to the default — the same
+    _normalize_control invariant routes._overlay_thread_control applies on the
+    single-read paths; diverging here would show one status in a list and
+    another on the folio read.
     """
     if not folios:
         return
@@ -103,8 +108,14 @@ def enrich_folios_with_status(folios: List, store) -> None:
     statuses = store.get_latest_statuses(folio_ids)
     assignments = store.get_latest_assignments(folio_ids)
     for folio in folios:
-        folio.status = statuses.get(folio.folio_id) or folio.status or "open"
-        folio.assigned_to = assignments.get(folio.folio_id) or folio.assigned_to
+        status = statuses.get(folio.folio_id)
+        if status is not None:
+            folio.status = status
+        elif folio.status is None:
+            folio.status = "open"
+        assignment = assignments.get(folio.folio_id)
+        if assignment is not None:
+            folio.assigned_to = assignment
 
 
 def format_relative_time(dt: datetime) -> str:

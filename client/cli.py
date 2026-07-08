@@ -1430,7 +1430,6 @@ def resume(ctx, brief_id):
 )
 @click.option("--sort", help="Sort by: created (default), created_asc, relevance")
 @click.option("--limit", type=int, default=50, help="Max results (default: 50)")
-@click.option("--archived", "show_archived", is_flag=True, help="Include archived folios")
 @click.option(
     "--all",
     "all_projects",
@@ -1449,7 +1448,6 @@ def find(
     since,
     sort,
     limit,
-    show_archived,
     all_projects,
     output_json,
 ):
@@ -1503,9 +1501,6 @@ def find(
 
     if limit:
         params["limit"] = limit
-
-    if show_archived:
-        params["archived"] = True
 
     if all_projects:
         registry = _load_projects_registry()

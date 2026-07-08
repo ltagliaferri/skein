@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# SCOPE since the threads-only contraction (2026-07-08): A3 verified
+# ecosystem-wide 2026-07-01; the contraction then removed the get_latest_archives
+# reader and dropped the refs.status/assigned_to/archived columns this oracle
+# compares. The gate is the TARGET DB's schema, not the code vintage: on a
+# PRE-contraction db (control columns present) the oracle still runs its full
+# legs under current code — when the removed archive reader is absent, _a1_reads
+# runs the SAME reduction inline (a frozen copy of the removed reader via the
+# still-live _latest_control_by_folio helper), so a db carrying a real archive
+# thread is judged on its merits rather than read as archive-empty (the
+# zero-archive-threads-ever fact is expected but no longer load-bearing). On a
+# POST-contraction db (columns dropped) verify/manifest/digest all refuse with a
+# typed 'oracle inapplicable' report instead of crashing on the missing columns —
+# and a refusal never swallows blockers already found (see _refuse in verify_db).
 """Phase 3a differential oracle — the control-equivalence verifier (the spine).
 
 Read-only sibling of ``verify_versions_refs.py`` (the Phase 1/2 B->C gate). Same
@@ -155,9 +168,14 @@ def _materialized(db_path):
 
 # ── schema detection (pre-A1 guard) ─────────────────────────────────────────
 
-def _code_has_archive_reader() -> bool:
-    """True once the A1 ``get_latest_archives`` reader exists in the codebase."""
-    return hasattr(LogDatabase, "get_latest_archives")
+def _db_has_control_columns(conn) -> bool:
+    """True while the db carries the pre-contraction refs control cache columns
+    (status/assigned_to/archived) — the columns every oracle leg compares
+    against. A post-contraction db (threads-only contraction, 2026-07-08)
+    dropped them, so the oracle is inapplicable to it BY SCHEMA — this is the
+    single gate for that, checked per-db, never inferred from the code vintage."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(refs)")}
+    return "status" in cols
 
 
 def _db_has_thread_hash(conn) -> bool:
@@ -168,10 +186,11 @@ def _db_has_thread_hash(conn) -> bool:
 
 
 def _is_migrated(db_path) -> bool:
-    """The oracle's real legs need BOTH the A1 reader (code) and the thread_hash
-    column (db). Either missing => pre-A1 => report 'not migrated', never crash."""
-    if not _code_has_archive_reader():
-        return False
+    """A3-migrated = the db carries threads.thread_hash. (This used to also gate
+    on the code having get_latest_archives; the contraction removed that reader
+    permanently and _a1_reads reads it tolerantly now, so code vintage is no
+    longer a gate — only db schema is, and the post-contraction case is the
+    SEPARATE _db_has_control_columns gate.)"""
     with _ro(db_path) as conn:
         return _db_has_thread_hash(conn)
 
@@ -241,7 +260,29 @@ def _a1_reads(copy_path) -> Dict[str, Dict[str, object]]:
     db = LogDatabase(str(copy_path))
     statuses = db.get_latest_statuses()
     assignments = db.get_latest_assignments()
-    archives = db.get_latest_archives()
+    # Archive read: the contraction removed get_latest_archives with the
+    # folio-archived feature. When the reader exists (pre-contraction code) use
+    # it; when absent, run the SAME reduction inline — a frozen copy of the
+    # removed reader (latest 'archive'-type control thread per genesis, to_id
+    # self-loop anchor, content value; see the removal hunk in the contraction
+    # diff) via the still-live _latest_control_by_folio helper. This keeps the
+    # oracle VALUE-identical on every db WITHOUT leaning on the
+    # zero-archive-threads-ever premise: on the expected reality (zero archive
+    # threads) both forms return {} and old manifests compare byte-for-byte;
+    # on a db that does carry an archive thread the oracle now sees it on the
+    # A1 side and judges it on its merits, instead of silently reading it as
+    # archive-empty (fell finding, codex r1: archived=0 + a real archive
+    # thread previously PASSED partial verification; archived=1 previously
+    # false-red'd — both were tolerant-read artifacts). Covers every _a1_reads
+    # caller (verify legs, compute_manifest, cutover_threads_pk's manifest
+    # path — audit r3 finding 2).
+    archive_reader = getattr(db, "get_latest_archives", None)
+    if archive_reader is not None:
+        archives = archive_reader()
+    else:
+        with db._get_connection() as conn:
+            archives = db._latest_control_by_folio(
+                conn, ttype="archive", anchor_col="to_id", value_col="content")
     with _ro(copy_path) as conn:
         slugs = {r["slug"] for r in conn.execute("SELECT slug FROM refs")}
     keys = slugs | set(statuses) | set(assignments) | set(archives)
@@ -470,7 +511,19 @@ def preimage_digest(conn) -> str:
     """Stable digest over the control-thread set + refs control of a
     *pre-migration* db (design §3 copy-proof). Order-independent (rows sorted),
     canonical JSON, sha256. Does not read thread_hash, so it works on a pre-A1
-    db. Tie a proven copy to the live db by asserting both have this digest."""
+    db. Tie a proven copy to the live db by asserting both have this digest.
+
+    Refuses a post-contraction db with a typed error instead of a raw sqlite
+    OperationalError: the digest is defined over refs.status/assigned_to/
+    archived, which the 2026-07-08 threads-only contraction dropped — a digest
+    over the surviving columns would not compare against any previously-captured
+    value, so there is no meaningful post-contraction digest to compute."""
+    refs_cols = {r[1] for r in conn.execute("PRAGMA table_info(refs)")}
+    if "status" not in refs_cols:
+        raise RuntimeError(
+            "preimage_digest: refs has no control columns — this is a "
+            "post-contraction db (threads-only contraction, 2026-07-08); the "
+            "pre-image digest is only defined for pre-contraction dbs")
     payload = {"control_threads": [], "refs": []}
     for ttype in ("status", "assignment", "archive"):
         for r in conn.execute(
@@ -542,16 +595,19 @@ def verify_db(post_db, *, pre_snapshot=None, manifest=None, sample: int = 0,
       "diverged"   — a BLOCKER fired.
     ``problems`` are BLOCKERS (exit non-zero). Read-only on every input.
     """
-    if not _is_migrated(post_db):
-        why = ("get_latest_archives reader absent in code"
-               if not _code_has_archive_reader()
-               else "threads.thread_hash column absent")
-        return ("not migrated (pre-A1 schema)", [],
-                [f"{why} — pre-A1; legs skipped (run from A1 onward)"])
-
     problems: List[str] = []
     warnings: List[str] = []
     leg_c_ran = False
+
+    def _refuse(label: str, note: str) -> Tuple[str, List[str], List[str]]:
+        """Typed refusal that never swallows blockers already found (diff_audit
+        cap finding, 2026-07-08: the inapplicable/not-migrated returns passed a
+        fresh [] and discarded real digest/structural/Leg-B blockers, so a
+        detected corruption exited 0 as a skip). A real problem outranks
+        inapplicability: refuse only when nothing is already wrong."""
+        if problems:
+            return ("diverged", problems, warnings + [note])
+        return (label, [], warnings + [note])
 
     # Copy-proof: assert the preimage (the pre-snapshot) matches the proven copy.
     # The digest always binds the *preimage* (pre-migration), never the post db.
@@ -559,19 +615,62 @@ def verify_db(post_db, *, pre_snapshot=None, manifest=None, sample: int = 0,
         if pre_snapshot is None:
             raise ValueError("expect_digest requires pre_snapshot (the preimage "
                              "to bind); the post db is not a preimage")
-        with _ro(pre_snapshot) as conn:
-            got = preimage_digest(conn)
-        if not _digest_eq(got, expect_digest):
+        try:
+            with _ro(pre_snapshot) as conn:
+                got = preimage_digest(conn)
+        except RuntimeError as e:  # typed post-contraction refusal, not a crash
+            # Do NOT early-return here (fell r3, opus): that skipped the
+            # post-db legs entirely, so the digest-bound (strictest)
+            # invocation verified LESS than the unbound one against a wrong
+            # snapshot. Record the reason and fall through — the pre-side
+            # control-columns gate below reaches the SAME typed refusal after
+            # structural + Leg B have run, via _refuse (blockers preserved).
+            warnings.append(str(e))
+            got = None
+        if got is not None and not _digest_eq(got, expect_digest):
             problems.append(
                 f"copy-proof: preimage digest {got} != expected {expect_digest} "
                 f"(the proof does not apply to this preimage)")
 
     with _materialized(post_db) as post_copy:
         with _ro(post_copy) as post_conn:
+            # Schema gates, checked on the SAME materialized copy the legs read
+            # (deep_code_audit r4 finding 6: a separate earlier probe races a
+            # concurrent drop_refs_control — the copy is immutable, so gating
+            # here is race-free by construction). A POST-contraction db has no
+            # refs control columns; the oracle is inapplicable to it BY SCHEMA
+            # (a per-db fact, not a code-vintage one: on a pre-contraction db
+            # the full legs still run under current code, the removed archive
+            # reader read tolerantly by _a1_reads).
+            if not _db_has_control_columns(post_conn):
+                return _refuse(
+                    "oracle inapplicable (post-contraction db)",
+                    "refs has no control columns (threads-only "
+                    "contraction, 2026-07-08) — there is nothing for the "
+                    "legs to compare; the oracle only applies to "
+                    "pre-contraction dbs/backups")
+            if not _db_has_thread_hash(post_conn):
+                return _refuse(
+                    "not migrated (pre-A1 schema)",
+                    "threads.thread_hash column absent — pre-A1; legs "
+                    "skipped (run from A1 onward)")
             problems += structural(post_conn, sample=sample)
             problems += leg_b(post_copy, post_conn)
             if pre_snapshot is not None:
                 with _materialized(pre_snapshot) as pre_copy:
+                    # Same gate on the PRE side, on its own materialized copy
+                    # (r4 finding 2: an ungated post-contraction pre-snapshot
+                    # reached leg_c's control-column SELECT and died raw).
+                    with _ro(pre_copy) as pre_conn:
+                        pre_ok = _db_has_control_columns(pre_conn)
+                    if not pre_ok:
+                        return _refuse(
+                            "oracle inapplicable (post-contraction "
+                            "pre-snapshot)",
+                            "the pre-snapshot has no refs control columns "
+                            "(threads-only contraction, 2026-07-08) — it "
+                            "is not a pre-A3 preimage; Leg A/C cannot "
+                            "compare against it")
                     problems += leg_a(pre_copy, post_copy)
                     cp, cw = leg_c(pre_copy, post_conn)
                     problems += cp
@@ -661,8 +760,12 @@ def main() -> None:
         if target is None or args.all:
             p.error("--print-digest needs a db (db_path or --pre-snapshot) and "
                     "is incompatible with --all")
-        with _ro(target) as conn:
-            digest = preimage_digest(conn)
+        try:
+            with _ro(target) as conn:
+                digest = preimage_digest(conn)
+        except RuntimeError as e:
+            print(f"ERROR: {e}")
+            sys.exit(1)
         print(digest)
         if args.expect_digest is not None and not _digest_eq(digest, args.expect_digest):
             print(f"MISMATCH: expected {args.expect_digest}")
@@ -675,8 +778,8 @@ def main() -> None:
             p.error("--write-manifest needs db_path and is incompatible with --all")
         if not _is_migrated(args.db_path):
             print("ERROR: cannot compute manifest on a pre-A1 schema "
-                  "(get_latest_archives / thread_hash absent); capture the "
-                  "manifest at pre-A3 (post-A1) time")
+                  "(threads.thread_hash absent); capture the manifest at "
+                  "pre-A3 (post-A1) time")
             sys.exit(1)
         manifest = compute_manifest(args.db_path)
         args.write_manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True))
@@ -698,6 +801,7 @@ def main() -> None:
                else [(str(args.db_path), args.db_path)])
     bad = 0
     incomplete = 0
+    skipped = 0
     for label_id, db in targets:
         try:
             status, problems, warnings = verify_db(
@@ -718,10 +822,23 @@ def main() -> None:
             incomplete += 1
             print(f"  INCOMPLETE {label_id}: migrated, no divergence found, but "
                   f"the full Leg A/B/C gate did not run")
-        elif status.startswith("not migrated"):
+        elif status.startswith("not migrated") or status.startswith(
+                "oracle inapplicable"):
+            # 'oracle inapplicable' = post-contraction code, legs cannot run
+            # (2026-07-08). It must land on SKIP, never fall through to OK —
+            # round 2 of the deep_code_audit caught exactly that fall-through
+            # printing 'All clean' while checking nothing.
+            skipped += 1
             print(f"  SKIP {label_id}: {status}")
-        else:
+        elif status == "verified":
             print(f"  OK {label_id}: control equivalence holds (full gate)")
+        else:
+            # A label this dispatch doesn't know is a BLOCKER, not an OK: the
+            # default-else-OK shape is what let an unrecognized status lie
+            # clean. Fail loud so a future label must be classified here.
+            bad += 1
+            print(f"  UNRECOGNIZED {label_id}: status {status!r} — treating "
+                  f"as a blocker (dispatch must classify every label)")
         for msg in warnings:
             print(f"      ! WARN {label_id}: {msg}")
 
@@ -738,6 +855,10 @@ def main() -> None:
         print(f"\nClean within scope, but {incomplete} migrated db(s) ran "
               f"structural + Leg B only (--allow-partial) — NOT a full Leg A/B/C "
               f"gate pass.")
+        return
+    if skipped == len(targets):
+        print("\nNOTHING VERIFIED — every db was skipped (post-contraction "
+              "code and/or pre-A1 schema). This is NOT an equivalence pass.")
         return
     print("\nAll clean — Phase 3a control equivalence holds (full gate, or not "
           "yet migrated).")

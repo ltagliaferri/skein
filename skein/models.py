@@ -95,13 +95,16 @@ class Folio(BaseModel):
     created_by: str
     title: str
     content: str
+    # status/assigned_to are THREAD-DERIVED (genesis-keyed control threads are the
+    # truth); the API read surfaces overlay them via enrich_folios_with_status.
+    # They are not persisted on refs — the control cache columns were dropped
+    # (threads-only contraction, 2026-07-08).
     status: str = "open"
     assigned_to: Optional[str] = None
     target_agent: Optional[str] = None
     omlet: Optional[str] = (
         None  # Reference to agent execution (strand_id/agent_id/turn-N)
     )
-    archived: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
     acknowledged_at: Optional[datetime] = None
     content_hash: Optional[str] = None  # Content-addressable hash of immutable fields
@@ -138,7 +141,6 @@ class FolioUpdate(BaseModel):
     content: Optional[str] = None
     status: Optional[str] = None
     assigned_to: Optional[str] = None
-    archived: Optional[bool] = None
 
 
 # Thread Models
@@ -158,8 +160,10 @@ ThreadType = Literal[
     # edge as broken.
     "supersedes",  # the edit edge: from_id = new hash, to_id = old head hash
     "reverted",    # the revert marker: from_id = prior head hash, to_id = reused hash
-    # Phase 3a Class-A control: a genesis-anchored self-loop feeding refs.archived.
-    # Marker model (finding-20260630-0r3x): archived iff latest content == 'archived'.
+    # Phase 3a Class-A control marker (finding-20260630-0r3x). The folio-archived
+    # FEATURE was removed 2026-07-08 (never used: zero archive threads and zero
+    # archived refs ecosystem-wide) — the type stays accepted as a generic edge for
+    # wire/display compat, but nothing writes or reduces it.
     "archive",
 ]
 

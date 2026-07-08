@@ -136,8 +136,6 @@ def test_edit_mints_version_and_moves_head(store):
     assert got.content == "edited body v2"
     assert store._log_db.get_folio_count() == 1
     assert len(store.get_folios(site_id="alpha")) == 1
-    stats = store._log_db.get_folio_stats()
-    assert stats["total"] == 1
     activity = store._log_db.get_site_last_activity()
     assert set(activity.keys()) == {"alpha"}
 
@@ -172,11 +170,11 @@ def test_search_and_stats_return_heads_only(store):
     hits = store.search_folios("uniqueeditedword")
     assert [h.folio_id for h in hits] == ["finding-20260629-5555"]
 
-    # Stats count lineages (heads), not versions.
-    stats = store._log_db.get_folio_stats()
-    assert stats["total"] == 1
-    assert stats["by_type"].get("issue") == 1
-    assert sum(stats["by_status"].values()) == 1
+    # Counts are over lineages (heads), not versions. (get_folio_stats was
+    # removed 2026-07-08 with the threads-only contraction — it read the dropped
+    # refs.status cache and had no production caller.)
+    assert store._log_db.get_folio_count() == 1
+    assert len(store._log_db.get_folios(type="issue")) == 1
 
 
 def test_search_surface_is_prose_not_slug(store):
@@ -235,7 +233,7 @@ def test_genesis_fields_inherited_on_edit(store):
     assert _ref(store, "finding-20260629-bbbb")["genesis_hash"] == gen_hash
 
 
-# ── status-only edit mints nothing, refreshes the control cache ───────────────
+# ── status-only edit mints nothing (status itself is thread-derived) ──────────
 
 def test_status_only_edit_mints_no_version(store):
     _make_site(store)
@@ -243,13 +241,15 @@ def test_status_only_edit_mints_no_version(store):
     store.save_folio(f)
     before = _counts(store)
 
-    # Status-only change (content untouched) — the route sets folio.status then saves.
+    # Status-only change (content untouched) — the route writes the status THREAD
+    # (the sole persistence post-contraction) and saves; save_folio must mint no
+    # version and no edit edge for it. The version/edge invariant is the pin here;
+    # the thread-derived status read is pinned in tests/test_threads_only_control.
     f2 = store.get_folio("finding-20260629-cccc")
     f2.status = "closed"
     store.save_folio(f2, editor="x")
     after = _counts(store)
     assert after == before, "no new version / edge for a status-only edit"
-    assert _ref(store, "finding-20260629-cccc")["status"] == "closed", "control cache refreshed"
 
 
 # ── 4. revert: head returns to a prior version, reverted marker, no cycle ──────
@@ -496,17 +496,20 @@ def test_move_folio_updates_refs_site_no_new_version(store):
     assert ref["head_hash"] == head_before, "move mints no new version"
 
 
-# ── create-with-sugar: non-open status / assignee land in the genesis cache ───
+# ── create-with-sugar: status/assignee never touch refs (thread-derived) ──────
 
-def test_create_with_initial_status_seeds_refs_cache(store):
+def test_create_with_initial_status_writes_no_control_to_refs(store):
+    # Post-contraction inversion of the old seed-the-cache pin: a folio object
+    # carrying a non-open status / an assignee saves WITHOUT persisting either on
+    # refs — the columns are gone, and the create ROUTE's sugar threads are the
+    # sole persistence (pinned end-to-end in tests/test_threads_only_control.py).
     _make_site(store)
-    # Simulates the create-route fix: folio carries the true initial state BEFORE
-    # the genesis save, so the refs cache is not seeded with 'open'/NULL.
     f = _folio("finding-20260629-9999", "body", status="in_progress", assigned_to="bob")
     store.save_folio(f)
     ref = _ref(store, "finding-20260629-9999")
-    assert ref["status"] == "in_progress"
-    assert ref["assigned_to"] == "bob"
+    assert "status" not in ref.keys()
+    assert "assigned_to" not in ref.keys()
+    assert ref["site_id"] == "alpha"  # local workflow fields still round-trip
 
 
 # ── the three module-level raw readers flip to heads (cross-project surfaces) ──

@@ -3,7 +3,6 @@
 {
   "execution_time_ms": "<ms>",
   "filters": {
-    "archived": false,
     "limit": 500,
     "offset": 0,
     "sort": "created",
@@ -18,7 +17,6 @@
       "items": [
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2159 chars>",
           "content_hash": "<hash>",
@@ -36,7 +34,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1378 chars>",
           "content_hash": "<hash>",
@@ -54,7 +51,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1902 chars>",
           "content_hash": "<hash>",
@@ -72,7 +68,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2128 chars>",
           "content_hash": "<hash>",
@@ -90,7 +85,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2984 chars>",
           "content_hash": "<hash>",
@@ -108,7 +102,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4412 chars>",
           "content_hash": "<hash>",
@@ -126,7 +119,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4098 chars>",
           "content_hash": "<hash>",
@@ -144,7 +136,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6863 chars>",
           "content_hash": "<hash>",
@@ -162,7 +153,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4118 chars>",
           "content_hash": "<hash>",
@@ -180,7 +170,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2604 chars>",
           "content_hash": "<hash>",
@@ -198,7 +187,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6775 chars>",
           "content_hash": "<hash>",
@@ -216,7 +204,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3120 chars>",
           "content_hash": "<hash>",
@@ -234,7 +221,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2750 chars>",
           "content_hash": "<hash>",
@@ -252,7 +238,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3992 chars>",
           "content_hash": "<hash>",
@@ -270,7 +255,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3599 chars>",
           "content_hash": "<hash>",
@@ -288,7 +272,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9551 chars>",
           "content_hash": "<hash>",
@@ -306,7 +289,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8964 chars>",
           "content_hash": "<hash>",
@@ -324,7 +306,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7141 chars>",
           "content_hash": "<hash>",
@@ -342,7 +323,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2141 chars>",
           "content_hash": "<hash>",
@@ -360,7 +340,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5472 chars>",
           "content_hash": "<hash>",
@@ -378,7 +357,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4185 chars>",
           "content_hash": "<hash>",
@@ -396,7 +374,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2878 chars>",
           "content_hash": "<hash>",
@@ -414,7 +391,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2870 chars>",
           "content_hash": "<hash>",
@@ -432,7 +408,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3874 chars>",
           "content_hash": "<hash>",
@@ -450,7 +425,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3255 chars>",
           "content_hash": "<hash>",
@@ -468,7 +442,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2305 chars>",
           "content_hash": "<hash>",
@@ -486,7 +459,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4284 chars>",
           "content_hash": "<hash>",
@@ -504,7 +476,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5053 chars>",
           "content_hash": "<hash>",
@@ -522,7 +493,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4226 chars>",
           "content_hash": "<hash>",
@@ -540,7 +510,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3685 chars>",
           "content_hash": "<hash>",
@@ -558,7 +527,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3782 chars>",
           "content_hash": "<hash>",
@@ -576,7 +544,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7252 chars>",
           "content_hash": "<hash>",
@@ -594,7 +561,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5052 chars>",
           "content_hash": "<hash>",
@@ -612,7 +578,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1 chars>",
           "content_hash": "<hash>",
@@ -623,14 +588,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "authorization RSP Phase 1: research + boundary",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1198 chars>",
           "content_hash": "<hash>",
@@ -648,7 +612,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1486 chars>",
           "content_hash": "<hash>",
@@ -666,7 +629,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1354 chars>",
           "content_hash": "<hash>",
@@ -684,7 +646,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3093 chars>",
           "content_hash": "<hash>",
@@ -702,7 +663,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2352 chars>",
           "content_hash": "<hash>",
@@ -720,7 +680,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2521 chars>",
           "content_hash": "<hash>",
@@ -738,7 +697,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3053 chars>",
           "content_hash": "<hash>",
@@ -756,7 +714,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3417 chars>",
           "content_hash": "<hash>",
@@ -774,7 +731,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3810 chars>",
           "content_hash": "<hash>",
@@ -792,7 +748,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3463 chars>",
           "content_hash": "<hash>",
@@ -810,7 +765,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3205 chars>",
           "content_hash": "<hash>",
@@ -828,7 +782,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4085 chars>",
           "content_hash": "<hash>",
@@ -846,7 +799,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5277 chars>",
           "content_hash": "<hash>",
@@ -864,7 +816,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3564 chars>",
           "content_hash": "<hash>",
@@ -882,7 +833,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3135 chars>",
           "content_hash": "<hash>",
@@ -900,7 +850,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1716 chars>",
           "content_hash": "<hash>",
@@ -918,7 +867,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4009 chars>",
           "content_hash": "<hash>",
@@ -936,7 +884,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3790 chars>",
           "content_hash": "<hash>",
@@ -954,7 +901,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4995 chars>",
           "content_hash": "<hash>",
@@ -972,7 +918,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1108 chars>",
           "content_hash": "<hash>",
@@ -990,7 +935,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1583 chars>",
           "content_hash": "<hash>",
@@ -1008,7 +952,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9330 chars>",
           "content_hash": "<hash>",
@@ -1026,7 +969,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<638 chars>",
           "content_hash": "<hash>",
@@ -1044,7 +986,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2054 chars>",
           "content_hash": "<hash>",
@@ -1062,7 +1003,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1377 chars>",
           "content_hash": "<hash>",
@@ -1080,7 +1020,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4006 chars>",
           "content_hash": "<hash>",
@@ -1098,7 +1037,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<737 chars>",
           "content_hash": "<hash>",
@@ -1116,7 +1054,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<537 chars>",
           "content_hash": "<hash>",
@@ -1134,7 +1071,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<936 chars>",
           "content_hash": "<hash>",
@@ -1145,14 +1081,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Instance names + domains LOCKED (Patrick, 2026-05-31), resolves the naming fork in brief-20260531...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2099 chars>",
           "content_hash": "<hash>",
@@ -1170,7 +1105,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1300 chars>",
           "content_hash": "<hash>",
@@ -1188,7 +1122,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1729 chars>",
           "content_hash": "<hash>",
@@ -1206,7 +1139,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<925 chars>",
           "content_hash": "<hash>",
@@ -1224,7 +1156,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1200 chars>",
           "content_hash": "<hash>",
@@ -1242,7 +1173,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2528 chars>",
           "content_hash": "<hash>",
@@ -1253,14 +1183,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "shard graft silently DROPS commits after the first conflicting one — data loss, green tests. Root...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1988 chars>",
           "content_hash": "<hash>",
@@ -1278,7 +1207,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1840 chars>",
           "content_hash": "<hash>",
@@ -1296,7 +1224,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1853 chars>",
           "content_hash": "<hash>",
@@ -1314,7 +1241,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5498 chars>",
           "content_hash": "<hash>",
@@ -1332,7 +1258,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2018 chars>",
           "content_hash": "<hash>",
@@ -1350,7 +1275,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1027 chars>",
           "content_hash": "<hash>",
@@ -1361,14 +1285,13 @@
           "omlet": null,
           "site_id": "skein-mesh",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Slice 2 import bridge — multi-actor thread edges are the only fidelity gap (surfaced, not silent)...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3256 chars>",
           "content_hash": "<hash>",
@@ -1386,7 +1309,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2633 chars>",
           "content_hash": "<hash>",
@@ -1404,7 +1326,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4962 chars>",
           "content_hash": "<hash>",
@@ -1422,7 +1343,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10918 chars>",
           "content_hash": "<hash>",
@@ -1440,7 +1360,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2818 chars>",
           "content_hash": "<hash>",
@@ -1458,7 +1377,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1154 chars>",
           "content_hash": "<hash>",
@@ -1476,7 +1394,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2247 chars>",
           "content_hash": "<hash>",
@@ -1494,7 +1411,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3540 chars>",
           "content_hash": "<hash>",
@@ -1512,7 +1428,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4348 chars>",
           "content_hash": "<hash>",
@@ -1530,7 +1445,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<29121 chars>",
           "content_hash": "<hash>",
@@ -1548,7 +1462,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7242 chars>",
           "content_hash": "<hash>",
@@ -1566,7 +1479,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1824 chars>",
           "content_hash": "<hash>",
@@ -1584,7 +1496,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5556 chars>",
           "content_hash": "<hash>",
@@ -1602,7 +1513,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11671 chars>",
           "content_hash": "<hash>",
@@ -1620,7 +1530,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10943 chars>",
           "content_hash": "<hash>",
@@ -1638,7 +1547,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7415 chars>",
           "content_hash": "<hash>",
@@ -1656,7 +1564,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5719 chars>",
           "content_hash": "<hash>",
@@ -1674,7 +1581,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9958 chars>",
           "content_hash": "<hash>",
@@ -1692,7 +1598,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6905 chars>",
           "content_hash": "<hash>",
@@ -1710,7 +1615,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6081 chars>",
           "content_hash": "<hash>",
@@ -1728,7 +1632,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<273 chars>",
           "content_hash": "<hash>",
@@ -1746,7 +1649,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6725 chars>",
           "content_hash": "<hash>",
@@ -1764,7 +1666,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8481 chars>",
           "content_hash": "<hash>",
@@ -1782,7 +1683,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<14052 chars>",
           "content_hash": "<hash>",
@@ -1800,7 +1700,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4097 chars>",
           "content_hash": "<hash>",
@@ -1818,7 +1717,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12144 chars>",
           "content_hash": "<hash>",
@@ -1836,7 +1734,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4391 chars>",
           "content_hash": "<hash>",
@@ -1854,7 +1751,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8105 chars>",
           "content_hash": "<hash>",
@@ -1872,7 +1768,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9389 chars>",
           "content_hash": "<hash>",
@@ -1890,7 +1785,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3931 chars>",
           "content_hash": "<hash>",
@@ -1908,7 +1802,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2658 chars>",
           "content_hash": "<hash>",
@@ -1919,14 +1812,13 @@
           "omlet": null,
           "site_id": "interskein",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Brief j3kh Option A correction — sign-on-federation, not sign-on-post\n\n**Filed by:** prickle-0521...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5035 chars>",
           "content_hash": "<hash>",
@@ -1944,7 +1836,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4828 chars>",
           "content_hash": "<hash>",
@@ -1962,7 +1853,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2454 chars>",
           "content_hash": "<hash>",
@@ -1980,7 +1870,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5852 chars>",
           "content_hash": "<hash>",
@@ -1998,7 +1887,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7531 chars>",
           "content_hash": "<hash>",
@@ -2016,7 +1904,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2260 chars>",
           "content_hash": "<hash>",
@@ -2034,7 +1921,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6842 chars>",
           "content_hash": "<hash>",
@@ -2052,7 +1938,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7217 chars>",
           "content_hash": "<hash>",
@@ -2063,14 +1948,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "§D bit-flip matrix probe — EMPIRICAL RESULT: factory drift detector is over-strict\n\n**Scope:** br...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5292 chars>",
           "content_hash": "<hash>",
@@ -2088,7 +1972,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6023 chars>",
           "content_hash": "<hash>",
@@ -2106,7 +1989,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9219 chars>",
           "content_hash": "<hash>",
@@ -2124,7 +2006,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1002 chars>",
           "content_hash": "<hash>",
@@ -2142,7 +2023,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2824 chars>",
           "content_hash": "<hash>",
@@ -2160,7 +2040,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6196 chars>",
           "content_hash": "<hash>",
@@ -2178,7 +2057,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2210 chars>",
           "content_hash": "<hash>",
@@ -2196,7 +2074,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3152 chars>",
           "content_hash": "<hash>",
@@ -2214,7 +2091,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1708 chars>",
           "content_hash": "<hash>",
@@ -2225,14 +2101,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Latent breakage: three @pytest.mark.staging tests calling signing.sign() are unrunnable against r...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3899 chars>",
           "content_hash": "<hash>",
@@ -2250,7 +2125,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2246 chars>",
           "content_hash": "<hash>",
@@ -2268,7 +2142,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3574 chars>",
           "content_hash": "<hash>",
@@ -2286,7 +2159,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3485 chars>",
           "content_hash": "<hash>",
@@ -2304,7 +2176,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3218 chars>",
           "content_hash": "<hash>",
@@ -2322,7 +2193,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2939 chars>",
           "content_hash": "<hash>",
@@ -2333,14 +2203,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Actionable (deferred): tighten DER-SET heuristic in _check_sigstore_public_v1_profile — exact pat...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4495 chars>",
           "content_hash": "<hash>",
@@ -2358,7 +2227,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4714 chars>",
           "content_hash": "<hash>",
@@ -2376,7 +2244,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7113 chars>",
           "content_hash": "<hash>",
@@ -2394,7 +2261,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7213 chars>",
           "content_hash": "<hash>",
@@ -2412,7 +2278,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3168 chars>",
           "content_hash": "<hash>",
@@ -2423,14 +2288,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 4 baseline discrepancy: tests/conformance is 100% broken at 917ed47 (39 failed)\n\n**Anchor:*...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4952 chars>",
           "content_hash": "<hash>",
@@ -2448,7 +2312,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<534 chars>",
           "content_hash": "<hash>",
@@ -2466,7 +2329,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3517 chars>",
           "content_hash": "<hash>",
@@ -2484,7 +2346,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5895 chars>",
           "content_hash": "<hash>",
@@ -2502,7 +2363,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7228 chars>",
           "content_hash": "<hash>",
@@ -2520,7 +2380,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6902 chars>",
           "content_hash": "<hash>",
@@ -2538,7 +2397,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2824 chars>",
           "content_hash": "<hash>",
@@ -2556,7 +2414,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2709 chars>",
           "content_hash": "<hash>",
@@ -2574,7 +2431,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10712 chars>",
           "content_hash": "<hash>",
@@ -2592,7 +2448,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7497 chars>",
           "content_hash": "<hash>",
@@ -2610,7 +2465,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5327 chars>",
           "content_hash": "<hash>",
@@ -2628,7 +2482,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2856 chars>",
           "content_hash": "<hash>",
@@ -2646,7 +2499,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<653 chars>",
           "content_hash": "<hash>",
@@ -2664,7 +2516,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4047 chars>",
           "content_hash": "<hash>",
@@ -2682,7 +2533,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3417 chars>",
           "content_hash": "<hash>",
@@ -2700,7 +2550,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2090 chars>",
           "content_hash": "<hash>",
@@ -2718,7 +2567,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2820 chars>",
           "content_hash": "<hash>",
@@ -2736,7 +2584,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2246 chars>",
           "content_hash": "<hash>",
@@ -2754,7 +2601,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1587 chars>",
           "content_hash": "<hash>",
@@ -2772,7 +2618,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1405 chars>",
           "content_hash": "<hash>",
@@ -2790,7 +2635,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3299 chars>",
           "content_hash": "<hash>",
@@ -2808,7 +2652,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2580 chars>",
           "content_hash": "<hash>",
@@ -2826,7 +2669,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4185 chars>",
           "content_hash": "<hash>",
@@ -2844,7 +2686,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2269 chars>",
           "content_hash": "<hash>",
@@ -2862,7 +2703,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2916 chars>",
           "content_hash": "<hash>",
@@ -2880,7 +2720,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1940 chars>",
           "content_hash": "<hash>",
@@ -2898,7 +2737,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2542 chars>",
           "content_hash": "<hash>",
@@ -2916,7 +2754,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2381 chars>",
           "content_hash": "<hash>",
@@ -2934,7 +2771,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3253 chars>",
           "content_hash": "<hash>",
@@ -2952,7 +2788,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2109 chars>",
           "content_hash": "<hash>",
@@ -2970,7 +2805,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2496 chars>",
           "content_hash": "<hash>",
@@ -2988,7 +2822,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<992 chars>",
           "content_hash": "<hash>",
@@ -3006,7 +2839,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4324 chars>",
           "content_hash": "<hash>",
@@ -3024,7 +2856,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3639 chars>",
           "content_hash": "<hash>",
@@ -3042,7 +2873,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2872 chars>",
           "content_hash": "<hash>",
@@ -3060,7 +2890,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6965 chars>",
           "content_hash": "<hash>",
@@ -3078,7 +2907,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<923 chars>",
           "content_hash": "<hash>",
@@ -3096,7 +2924,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<27049 chars>",
           "content_hash": "<hash>",
@@ -3114,7 +2941,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9553 chars>",
           "content_hash": "<hash>",
@@ -3132,7 +2958,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3596 chars>",
           "content_hash": "<hash>",
@@ -3150,7 +2975,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6998 chars>",
           "content_hash": "<hash>",
@@ -3168,7 +2992,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<25 chars>",
           "content_hash": "<hash>",
@@ -3179,14 +3002,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Fix round after fell: Phase 2 unified test contract",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6139 chars>",
           "content_hash": "<hash>",
@@ -3204,7 +3026,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11636 chars>",
           "content_hash": "<hash>",
@@ -3222,7 +3043,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<530 chars>",
           "content_hash": "<hash>",
@@ -3233,14 +3053,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 unified test contract: signing.py",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10029 chars>",
           "content_hash": "<hash>",
@@ -3258,7 +3077,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8689 chars>",
           "content_hash": "<hash>",
@@ -3276,7 +3094,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4649 chars>",
           "content_hash": "<hash>",
@@ -3294,7 +3111,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6819 chars>",
           "content_hash": "<hash>",
@@ -3312,7 +3128,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6442 chars>",
           "content_hash": "<hash>",
@@ -3330,7 +3145,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6134 chars>",
           "content_hash": "<hash>",
@@ -3348,7 +3162,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5076 chars>",
           "content_hash": "<hash>",
@@ -3366,7 +3179,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5131 chars>",
           "content_hash": "<hash>",
@@ -3384,7 +3196,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3842 chars>",
           "content_hash": "<hash>",
@@ -3402,7 +3213,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11883 chars>",
           "content_hash": "<hash>",
@@ -3420,7 +3230,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21820 chars>",
           "content_hash": "<hash>",
@@ -3438,7 +3247,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<27047 chars>",
           "content_hash": "<hash>",
@@ -3456,7 +3264,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<19724 chars>",
           "content_hash": "<hash>",
@@ -3474,7 +3281,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17016 chars>",
           "content_hash": "<hash>",
@@ -3492,7 +3298,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<16799 chars>",
           "content_hash": "<hash>",
@@ -3510,7 +3315,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17336 chars>",
           "content_hash": "<hash>",
@@ -3528,7 +3332,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9484 chars>",
           "content_hash": "<hash>",
@@ -3546,7 +3349,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9823 chars>",
           "content_hash": "<hash>",
@@ -3564,7 +3366,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11521 chars>",
           "content_hash": "<hash>",
@@ -3582,7 +3383,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8364 chars>",
           "content_hash": "<hash>",
@@ -3600,7 +3400,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12088 chars>",
           "content_hash": "<hash>",
@@ -3618,7 +3417,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7590 chars>",
           "content_hash": "<hash>",
@@ -3636,7 +3434,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<28186 chars>",
           "content_hash": "<hash>",
@@ -3654,7 +3451,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<59998 chars>",
           "content_hash": "<hash>",
@@ -3672,7 +3468,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<55361 chars>",
           "content_hash": "<hash>",
@@ -3690,7 +3485,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<33181 chars>",
           "content_hash": "<hash>",
@@ -3708,7 +3502,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<35314 chars>",
           "content_hash": "<hash>",
@@ -3726,7 +3519,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<41425 chars>",
           "content_hash": "<hash>",
@@ -3744,7 +3536,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<22218 chars>",
           "content_hash": "<hash>",
@@ -3762,7 +3553,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<28066 chars>",
           "content_hash": "<hash>",
@@ -3780,7 +3570,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<30750 chars>",
           "content_hash": "<hash>",
@@ -3798,7 +3587,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<67461 chars>",
           "content_hash": "<hash>",
@@ -3816,7 +3604,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<42108 chars>",
           "content_hash": "<hash>",
@@ -3834,7 +3621,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3333 chars>",
           "content_hash": "<hash>",
@@ -3852,7 +3638,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5588 chars>",
           "content_hash": "<hash>",
@@ -3870,7 +3655,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1356 chars>",
           "content_hash": "<hash>",
@@ -3888,7 +3672,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1829 chars>",
           "content_hash": "<hash>",
@@ -3906,7 +3689,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4858 chars>",
           "content_hash": "<hash>",
@@ -3924,7 +3706,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4286 chars>",
           "content_hash": "<hash>",
@@ -3942,7 +3723,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5830 chars>",
           "content_hash": "<hash>",
@@ -3960,7 +3740,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2115 chars>",
           "content_hash": "<hash>",
@@ -3978,7 +3757,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2102 chars>",
           "content_hash": "<hash>",
@@ -3996,7 +3774,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2770 chars>",
           "content_hash": "<hash>",
@@ -4014,7 +3791,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2297 chars>",
           "content_hash": "<hash>",
@@ -4032,7 +3808,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<652 chars>",
           "content_hash": "<hash>",
@@ -4050,7 +3825,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1336 chars>",
           "content_hash": "<hash>",
@@ -4068,7 +3842,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1963 chars>",
           "content_hash": "<hash>",
@@ -4086,7 +3859,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<328 chars>",
           "content_hash": "<hash>",
@@ -4104,7 +3876,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<238 chars>",
           "content_hash": "<hash>",
@@ -4122,7 +3893,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<60 chars>",
           "content_hash": "<hash>",
@@ -4140,7 +3910,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<375 chars>",
           "content_hash": "<hash>",
@@ -4158,7 +3927,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3130 chars>",
           "content_hash": "<hash>",
@@ -4176,7 +3944,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<904 chars>",
           "content_hash": "<hash>",
@@ -4194,7 +3961,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1038 chars>",
           "content_hash": "<hash>",
@@ -4212,7 +3978,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4294 chars>",
           "content_hash": "<hash>",
@@ -4230,7 +3995,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1 chars>",
           "content_hash": "<hash>",
@@ -4248,7 +4012,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<47329 chars>",
           "content_hash": "<hash>",
@@ -4259,14 +4022,13 @@
           "omlet": null,
           "site_id": "test-site",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Synthetic Long Folio for Truncation Testing\n\nThis folio is intentionally large to test the trunca...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<45 chars>",
           "content_hash": "<hash>",
@@ -4277,14 +4039,13 @@
           "omlet": null,
           "site_id": "test-site",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "TEST: ignore me - I'll close this momentarily",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<62 chars>",
           "content_hash": "<hash>",
@@ -4302,7 +4063,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1672 chars>",
           "content_hash": "<hash>",
@@ -4320,7 +4080,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2196 chars>",
           "content_hash": "<hash>",
@@ -4338,7 +4097,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3109 chars>",
           "content_hash": "<hash>",
@@ -4356,7 +4114,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2633 chars>",
           "content_hash": "<hash>",
@@ -4374,7 +4131,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1072 chars>",
           "content_hash": "<hash>",
@@ -4392,7 +4148,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<825 chars>",
           "content_hash": "<hash>",
@@ -4410,7 +4165,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<789 chars>",
           "content_hash": "<hash>",
@@ -4428,7 +4182,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<499 chars>",
           "content_hash": "<hash>",
@@ -4446,7 +4199,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<675 chars>",
           "content_hash": "<hash>",
@@ -4464,7 +4216,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<218 chars>",
           "content_hash": "<hash>",
@@ -4482,7 +4233,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8011 chars>",
           "content_hash": "<hash>",
@@ -4500,7 +4250,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3057 chars>",
           "content_hash": "<hash>",
@@ -4518,7 +4267,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<258 chars>",
           "content_hash": "<hash>",
@@ -4536,7 +4284,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<263 chars>",
           "content_hash": "<hash>",
@@ -4554,7 +4301,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<921 chars>",
           "content_hash": "<hash>",
@@ -4572,7 +4318,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<206 chars>",
           "content_hash": "<hash>",
@@ -4590,7 +4335,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2295 chars>",
           "content_hash": "<hash>",
@@ -4608,7 +4352,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<124 chars>",
           "content_hash": "<hash>",
@@ -4626,7 +4369,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<25 chars>",
           "content_hash": "<hash>",
@@ -4644,7 +4386,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<393 chars>",
           "content_hash": "<hash>",
@@ -4655,7 +4396,7 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "## Completed Work Summary\n\nBrief #1 (Repository Cleanup) - COMPLETED:\n- Created comprehensive .gitig",
           "type": "finding"

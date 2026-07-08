@@ -3,7 +3,6 @@
 {
   "execution_time_ms": "<ms>",
   "filters": {
-    "archived": false,
     "limit": 500,
     "offset": 0,
     "since": "1day",

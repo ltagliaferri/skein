@@ -3,7 +3,6 @@
 {
   "execution_time_ms": "<ms>",
   "filters": {
-    "archived": false,
     "limit": 500,
     "offset": 0,
     "sort": "created",
@@ -18,7 +17,6 @@
       "items": [
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2469 chars>",
           "content_hash": "<hash>",
@@ -38,7 +36,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3126 chars>",
           "content_hash": "<hash>",
@@ -51,14 +48,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Stage 3 (pared) — port brief-handoff + reply-on-resource; DROP A2A messaging (SKEIN is pull, push...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5673 chars>",
           "content_hash": "<hash>",
@@ -78,7 +74,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2854 chars>",
           "content_hash": "<hash>",
@@ -98,7 +93,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4259 chars>",
           "content_hash": "<hash>",
@@ -118,7 +112,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2741 chars>",
           "content_hash": "<hash>",
@@ -138,7 +131,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3182 chars>",
           "content_hash": "<hash>",
@@ -158,7 +150,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3760 chars>",
           "content_hash": "<hash>",
@@ -178,7 +169,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7025 chars>",
           "content_hash": "<hash>",
@@ -198,7 +188,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3921 chars>",
           "content_hash": "<hash>",
@@ -211,14 +200,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Collaborator-flow dress test (pending) — bound non-operator author publishes signed over the publ...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11196 chars>",
           "content_hash": "<hash>",
@@ -238,7 +226,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10302 chars>",
           "content_hash": "<hash>",
@@ -251,14 +238,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Agent-mediated collaborator onboarding (invite → sigstore-redeem → auto-bind + supply-chain-audit...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5846 chars>",
           "content_hash": "<hash>",
@@ -271,14 +257,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Public write surface — graduate the dark-launch ingress to a public publish route (collaborator p...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4422 chars>",
           "content_hash": "<hash>",
@@ -291,14 +276,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Fix horizon watcher mode so cast agents can execute (gate wrongly blocks file-writes + glob chars)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5125 chars>",
           "content_hash": "<hash>",
@@ -311,14 +295,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RESUME: authorization RSP — derive Phase 2 contract from the revised Merkle boundary, fell, then ...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4551 chars>",
           "content_hash": "<hash>",
@@ -331,14 +314,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "authorization RSP Phase 3 (implementation) — implement to the fell-clean rev-5 contract",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2271 chars>",
           "content_hash": "<hash>",
@@ -358,7 +340,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5334 chars>",
           "content_hash": "<hash>",
@@ -371,14 +352,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Kickoff — finish the agent-facing layer, then deploy",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3335 chars>",
           "content_hash": "<hash>",
@@ -391,14 +371,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff — read surface: slices 1-4B built, fold today's specs, then deploy",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3855 chars>",
           "content_hash": "<hash>",
@@ -418,7 +397,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6616 chars>",
           "content_hash": "<hash>",
@@ -438,7 +416,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3681 chars>",
           "content_hash": "<hash>",
@@ -451,14 +428,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "New folio type: resolution — a SKEIN ADR (options, decision, reasoning)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1692 chars>",
           "content_hash": "<hash>",
@@ -478,7 +454,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2216 chars>",
           "content_hash": "<hash>",
@@ -498,7 +473,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1906 chars>",
           "content_hash": "<hash>",
@@ -518,7 +492,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1961 chars>",
           "content_hash": "<hash>",
@@ -538,7 +511,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2021 chars>",
           "content_hash": "<hash>",
@@ -558,7 +530,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3230 chars>",
           "content_hash": "<hash>",
@@ -578,7 +549,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1719 chars>",
           "content_hash": "<hash>",
@@ -598,7 +568,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2575 chars>",
           "content_hash": "<hash>",
@@ -611,14 +580,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Agent-markdown navigation contract: the .md opener + fetchable references",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8542 chars>",
           "content_hash": "<hash>",
@@ -638,7 +606,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2199 chars>",
           "content_hash": "<hash>",
@@ -658,7 +625,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9353 chars>",
           "content_hash": "<hash>",
@@ -671,14 +637,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Theming & layout contract (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6316 chars>",
           "content_hash": "<hash>",
@@ -691,14 +656,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Theming & layout contract (the human HTML surface)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3624 chars>",
           "content_hash": "<hash>",
@@ -718,7 +682,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4298 chars>",
           "content_hash": "<hash>",
@@ -731,14 +694,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff: Phase-1 read surface — slices 1+2 done (fell-clean, merged), slices 3-5 remain",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2580 chars>",
           "content_hash": "<hash>",
@@ -758,7 +720,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4975 chars>",
           "content_hash": "<hash>",
@@ -778,7 +739,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6051 chars>",
           "content_hash": "<hash>",
@@ -798,7 +758,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<14882 chars>",
           "content_hash": "<hash>",
@@ -818,7 +777,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4515 chars>",
           "content_hash": "<hash>",
@@ -838,7 +796,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11194 chars>",
           "content_hash": "<hash>",
@@ -851,14 +808,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "The SKEIN wire envelope: unified frame, versioning, agent rendering",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<19111 chars>",
           "content_hash": "<hash>",
@@ -878,7 +834,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11989 chars>",
           "content_hash": "<hash>",
@@ -891,14 +846,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Machine read interface: the content-addressed resolver",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9405 chars>",
           "content_hash": "<hash>",
@@ -918,7 +872,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5498 chars>",
           "content_hash": "<hash>",
@@ -938,7 +891,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4789 chars>",
           "content_hash": "<hash>",
@@ -951,14 +903,13 @@
           "omlet": null,
           "site_id": "mesh-web",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RESUME: sign the two live docs + close the trust-spine gap (item 4)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7494 chars>",
           "content_hash": "<hash>",
@@ -978,7 +929,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4923 chars>",
           "content_hash": "<hash>",
@@ -998,7 +948,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6022 chars>",
           "content_hash": "<hash>",
@@ -1018,7 +967,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5267 chars>",
           "content_hash": "<hash>",
@@ -1038,7 +986,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2562 chars>",
           "content_hash": "<hash>",
@@ -1058,7 +1005,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3041 chars>",
           "content_hash": "<hash>",
@@ -1078,7 +1024,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2261 chars>",
           "content_hash": "<hash>",
@@ -1098,7 +1043,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8685 chars>",
           "content_hash": "<hash>",
@@ -1118,7 +1062,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5215 chars>",
           "content_hash": "<hash>",
@@ -1138,7 +1081,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1481 chars>",
           "content_hash": "<hash>",
@@ -1158,7 +1100,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4345 chars>",
           "content_hash": "<hash>",
@@ -1178,7 +1119,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4414 chars>",
           "content_hash": "<hash>",
@@ -1191,14 +1131,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RSP: addressing — Phase 4 (hardening); Phases 1-3 fell-clean",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3397 chars>",
           "content_hash": "<hash>",
@@ -1218,7 +1157,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10871 chars>",
           "content_hash": "<hash>",
@@ -1238,7 +1176,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3480 chars>",
           "content_hash": "<hash>",
@@ -1258,7 +1195,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2598 chars>",
           "content_hash": "<hash>",
@@ -1278,7 +1214,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2522 chars>",
           "content_hash": "<hash>",
@@ -1291,14 +1226,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RSP: emoji codec — Phase 1 (alphabet curation + research)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9461 chars>",
           "content_hash": "<hash>",
@@ -1318,7 +1252,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5549 chars>",
           "content_hash": "<hash>",
@@ -1338,7 +1271,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<20309 chars>",
           "content_hash": "<hash>",
@@ -1358,7 +1290,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8417 chars>",
           "content_hash": "<hash>",
@@ -1378,7 +1309,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<26034 chars>",
           "content_hash": "<hash>",
@@ -1398,7 +1328,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10363 chars>",
           "content_hash": "<hash>",
@@ -1418,7 +1347,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<20836 chars>",
           "content_hash": "<hash>",
@@ -1438,7 +1366,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<26819 chars>",
           "content_hash": "<hash>",
@@ -1458,7 +1385,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10718 chars>",
           "content_hash": "<hash>",
@@ -1478,7 +1404,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<19704 chars>",
           "content_hash": "<hash>",
@@ -1498,7 +1423,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12333 chars>",
           "content_hash": "<hash>",
@@ -1518,7 +1442,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6896 chars>",
           "content_hash": "<hash>",
@@ -1538,7 +1461,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7225 chars>",
           "content_hash": "<hash>",
@@ -1558,7 +1480,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4224 chars>",
           "content_hash": "<hash>",
@@ -1578,7 +1499,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3549 chars>",
           "content_hash": "<hash>",
@@ -1598,7 +1518,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4042 chars>",
           "content_hash": "<hash>",
@@ -1618,7 +1537,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3307 chars>",
           "content_hash": "<hash>",
@@ -1638,7 +1556,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3264 chars>",
           "content_hash": "<hash>",
@@ -1658,7 +1575,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3446 chars>",
           "content_hash": "<hash>",
@@ -1678,7 +1594,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3057 chars>",
           "content_hash": "<hash>",
@@ -1698,7 +1613,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3446 chars>",
           "content_hash": "<hash>",
@@ -1718,7 +1632,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3337 chars>",
           "content_hash": "<hash>",
@@ -1738,7 +1651,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3924 chars>",
           "content_hash": "<hash>",
@@ -1758,7 +1670,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3048 chars>",
           "content_hash": "<hash>",
@@ -1778,7 +1689,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10911 chars>",
           "content_hash": "<hash>",
@@ -1798,7 +1708,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3914 chars>",
           "content_hash": "<hash>",
@@ -1811,14 +1720,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Stale shard triage — walk and cleanup 19 shards",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7125 chars>",
           "content_hash": "<hash>",
@@ -1838,7 +1746,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8123 chars>",
           "content_hash": "<hash>",
@@ -1858,7 +1765,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8624 chars>",
           "content_hash": "<hash>",
@@ -1871,14 +1777,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 4 entry — F-pass mid-iteration; 2 outstanding F items (supersedes brief-20260520-gdvx)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3991 chars>",
           "content_hash": "<hash>",
@@ -1891,14 +1796,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Master CI green-pass: test.yml + lint.yml red since 2026-05-19 signing push",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9910 chars>",
           "content_hash": "<hash>",
@@ -1918,7 +1822,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5702 chars>",
           "content_hash": "<hash>",
@@ -1938,7 +1841,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6399 chars>",
           "content_hash": "<hash>",
@@ -1958,7 +1860,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7644 chars>",
           "content_hash": "<hash>",
@@ -1978,7 +1879,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5572 chars>",
           "content_hash": "<hash>",
@@ -1998,7 +1898,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9807 chars>",
           "content_hash": "<hash>",
@@ -2018,7 +1917,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21632 chars>",
           "content_hash": "<hash>",
@@ -2038,7 +1936,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4057 chars>",
           "content_hash": "<hash>",
@@ -2051,14 +1948,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 implementation: log unrecognized sigstore-python exceptions",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4570 chars>",
           "content_hash": "<hash>",
@@ -2071,14 +1967,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 prereq: ratify SAN extraction policy or revisit",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4997 chars>",
           "content_hash": "<hash>",
@@ -2098,7 +1993,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<358 chars>",
           "content_hash": "<hash>",
@@ -2118,7 +2012,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<455 chars>",
           "content_hash": "<hash>",
@@ -2131,14 +2024,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3: resolve MultiVerifyResult aggregate-status rule for heterogeneous failures",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17019 chars>",
           "content_hash": "<hash>",
@@ -2158,7 +2050,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8479 chars>",
           "content_hash": "<hash>",
@@ -2178,7 +2069,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9181 chars>",
           "content_hash": "<hash>",
@@ -2198,7 +2088,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7420 chars>",
           "content_hash": "<hash>",
@@ -2218,7 +2107,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7774 chars>",
           "content_hash": "<hash>",
@@ -2238,7 +2126,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7173 chars>",
           "content_hash": "<hash>",
@@ -2258,7 +2145,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7483 chars>",
           "content_hash": "<hash>",
@@ -2278,7 +2164,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6791 chars>",
           "content_hash": "<hash>",
@@ -2298,7 +2183,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<30677 chars>",
           "content_hash": "<hash>",
@@ -2318,7 +2202,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<29176 chars>",
           "content_hash": "<hash>",
@@ -2338,7 +2221,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5427 chars>",
           "content_hash": "<hash>",
@@ -2358,7 +2240,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<25967 chars>",
           "content_hash": "<hash>",
@@ -2378,7 +2259,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<22683 chars>",
           "content_hash": "<hash>",
@@ -2398,7 +2278,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<20841 chars>",
           "content_hash": "<hash>",
@@ -2418,7 +2297,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<14987 chars>",
           "content_hash": "<hash>",
@@ -2438,7 +2316,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12505 chars>",
           "content_hash": "<hash>",
@@ -2458,7 +2335,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17514 chars>",
           "content_hash": "<hash>",
@@ -2478,7 +2354,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11308 chars>",
           "content_hash": "<hash>",
@@ -2498,7 +2373,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<23877 chars>",
           "content_hash": "<hash>",
@@ -2518,7 +2392,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<24212 chars>",
           "content_hash": "<hash>",
@@ -2538,7 +2411,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21953 chars>",
           "content_hash": "<hash>",
@@ -2558,7 +2430,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7253 chars>",
           "content_hash": "<hash>",
@@ -2578,7 +2449,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<16956 chars>",
           "content_hash": "<hash>",
@@ -2598,7 +2468,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5143 chars>",
           "content_hash": "<hash>",
@@ -2618,7 +2487,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6753 chars>",
           "content_hash": "<hash>",
@@ -2638,7 +2506,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9118 chars>",
           "content_hash": "<hash>",
@@ -2651,14 +2518,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "SKEIN Mesh v0/v1 — Specification Index (v4)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5036 chars>",
           "content_hash": "<hash>",
@@ -2678,7 +2544,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10441 chars>",
           "content_hash": "<hash>",
@@ -2698,7 +2563,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7496 chars>",
           "content_hash": "<hash>",
@@ -2718,7 +2582,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6481 chars>",
           "content_hash": "<hash>",
@@ -2738,7 +2601,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8291 chars>",
           "content_hash": "<hash>",
@@ -2751,14 +2613,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "SKEIN Mesh v1 — Specification Index (v3)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10900 chars>",
           "content_hash": "<hash>",
@@ -2778,7 +2639,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4964 chars>",
           "content_hash": "<hash>",
@@ -2791,14 +2651,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Migration (light) (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6457 chars>",
           "content_hash": "<hash>",
@@ -2818,7 +2677,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9502 chars>",
           "content_hash": "<hash>",
@@ -2831,14 +2689,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Federation Protocol (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8693 chars>",
           "content_hash": "<hash>",
@@ -2851,14 +2708,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Data Model (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6423 chars>",
           "content_hash": "<hash>",
@@ -2871,14 +2727,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Identity and Signing (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4471 chars>",
           "content_hash": "<hash>",
@@ -2898,7 +2753,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5790 chars>",
           "content_hash": "<hash>",
@@ -2911,14 +2765,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RSPs to build for mesh-v1",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6884 chars>",
           "content_hash": "<hash>",
@@ -2931,14 +2784,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Index: SKEIN Mesh v1 Specification (v2, complete)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5866 chars>",
           "content_hash": "<hash>",
@@ -2951,14 +2803,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Migration (light)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7398 chars>",
           "content_hash": "<hash>",
@@ -2978,7 +2829,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7413 chars>",
           "content_hash": "<hash>",
@@ -2998,7 +2848,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5051 chars>",
           "content_hash": "<hash>",
@@ -3018,7 +2867,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9601 chars>",
           "content_hash": "<hash>",
@@ -3031,14 +2879,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Federation Protocol (pure-pull, opt-in, subscribe-based)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6724 chars>",
           "content_hash": "<hash>",
@@ -3051,14 +2898,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Privacy Levels (local / private / instance / public)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4301 chars>",
           "content_hash": "<hash>",
@@ -3071,14 +2917,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Index: SKEIN Mesh v1 Specification",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6251 chars>",
           "content_hash": "<hash>",
@@ -3091,14 +2936,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Data Model (folio shape, addressing, content hash anchoring)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5547 chars>",
           "content_hash": "<hash>",
@@ -3111,14 +2955,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Web App v1 (read-only, signature-aware)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5676 chars>",
           "content_hash": "<hash>",
@@ -3138,7 +2981,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5323 chars>",
           "content_hash": "<hash>",
@@ -3151,14 +2993,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Identity and Signing (Sigstore-anchored)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3334 chars>",
           "content_hash": "<hash>",
@@ -3178,7 +3019,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2744 chars>",
           "content_hash": "<hash>",
@@ -3191,14 +3031,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Fix: skein shard tender fails with bogus default site",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2362 chars>",
           "content_hash": "<hash>",
@@ -3218,7 +3057,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1244 chars>",
           "content_hash": "<hash>",
@@ -3231,14 +3069,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Quartermaster mantle not discoverable via skein ignite (lives in speakbot)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1581 chars>",
           "content_hash": "<hash>",
@@ -3251,14 +3088,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Bulk timestamps endpoint for fast multi-site activity queries",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2230 chars>",
           "content_hash": "<hash>",
@@ -3278,7 +3114,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<286666 chars>",
           "content_hash": "<hash>",
@@ -3291,14 +3126,13 @@
           "omlet": null,
           "site_id": "test-site",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Huge test brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4306 chars>",
           "content_hash": "<hash>",
@@ -3318,7 +3152,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2985 chars>",
           "content_hash": "<hash>",
@@ -3338,7 +3171,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<52 chars>",
           "content_hash": "<hash>",
@@ -3358,7 +3190,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1297 chars>",
           "content_hash": "<hash>",
@@ -3378,7 +3209,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<676 chars>",
           "content_hash": "<hash>",
@@ -3398,7 +3228,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2760 chars>",
           "content_hash": "<hash>",
@@ -3418,7 +3247,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2933 chars>",
           "content_hash": "<hash>",
@@ -3438,7 +3266,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2661 chars>",
           "content_hash": "<hash>",
@@ -3458,7 +3285,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2886 chars>",
           "content_hash": "<hash>",
@@ -3478,7 +3304,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2757 chars>",
           "content_hash": "<hash>",
@@ -3498,7 +3323,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2910 chars>",
           "content_hash": "<hash>",
@@ -3518,7 +3342,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2842 chars>",
           "content_hash": "<hash>",
@@ -3538,7 +3361,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2971 chars>",
           "content_hash": "<hash>",
@@ -3558,7 +3380,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2600 chars>",
           "content_hash": "<hash>",
@@ -3578,7 +3399,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2615 chars>",
           "content_hash": "<hash>",
@@ -3598,7 +3418,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2339 chars>",
           "content_hash": "<hash>",
@@ -3618,7 +3437,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2166 chars>",
           "content_hash": "<hash>",
@@ -3638,7 +3456,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2309 chars>",
           "content_hash": "<hash>",
@@ -3658,7 +3475,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2477 chars>",
           "content_hash": "<hash>",
@@ -3678,7 +3494,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<887 chars>",
           "content_hash": "<hash>",
@@ -3698,7 +3513,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2407 chars>",
           "content_hash": "<hash>",
@@ -3718,7 +3532,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1529 chars>",
           "content_hash": "<hash>",
@@ -3738,7 +3551,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1056 chars>",
           "content_hash": "<hash>",
@@ -3758,7 +3570,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1095 chars>",
           "content_hash": "<hash>",
@@ -3778,7 +3589,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1269 chars>",
           "content_hash": "<hash>",
@@ -3798,7 +3608,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1302 chars>",
           "content_hash": "<hash>",
@@ -3811,14 +3620,13 @@
           "omlet": null,
           "site_id": "interskein",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "3-Position Fingerprint Wordlist Design",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2012 chars>",
           "content_hash": "<hash>",
@@ -3838,7 +3646,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2770 chars>",
           "content_hash": "<hash>",
@@ -3858,7 +3665,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1298 chars>",
           "content_hash": "<hash>",
@@ -3878,7 +3684,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1967 chars>",
           "content_hash": "<hash>",
@@ -3891,14 +3696,13 @@
           "omlet": null,
           "site_id": "skein-mesh",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Ledger Primitives Extraction to SpiritEngine",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3533 chars>",
           "content_hash": "<hash>",
@@ -3918,7 +3722,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2751 chars>",
           "content_hash": "<hash>",
@@ -3931,14 +3734,13 @@
           "omlet": null,
           "site_id": "skein-mesh",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Layered Addressing Scheme",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2210 chars>",
           "content_hash": "<hash>",
@@ -3958,7 +3760,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2118 chars>",
           "content_hash": "<hash>",
@@ -3978,7 +3779,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1815 chars>",
           "content_hash": "<hash>",
@@ -3998,7 +3798,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1423 chars>",
           "content_hash": "<hash>",
@@ -4018,7 +3817,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1504 chars>",
           "content_hash": "<hash>",
@@ -4031,14 +3829,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Continue shard.py hardening",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1388 chars>",
           "content_hash": "<hash>",
@@ -4058,7 +3855,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1018 chars>",
           "content_hash": "<hash>",
@@ -4078,7 +3874,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12 chars>",
           "content_hash": "<hash>",
@@ -4098,7 +3893,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2457 chars>",
           "content_hash": "<hash>",
@@ -4118,7 +3912,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<848 chars>",
           "content_hash": "<hash>",
@@ -4138,7 +3931,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1231 chars>",
           "content_hash": "<hash>",
@@ -4158,7 +3950,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<661 chars>",
           "content_hash": "<hash>",
@@ -4171,14 +3962,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<674 chars>",
           "content_hash": "<hash>",
@@ -4198,7 +3988,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1554 chars>",
           "content_hash": "<hash>",
@@ -4218,7 +4007,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1508 chars>",
           "content_hash": "<hash>",
@@ -4238,7 +4026,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1926 chars>",
           "content_hash": "<hash>",
@@ -4258,7 +4045,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2293 chars>",
           "content_hash": "<hash>",
@@ -4278,7 +4064,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2275 chars>",
           "content_hash": "<hash>",
@@ -4298,7 +4083,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1088 chars>",
           "content_hash": "<hash>",
@@ -4311,14 +4095,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1028 chars>",
           "content_hash": "<hash>",
@@ -4331,14 +4114,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1873 chars>",
           "content_hash": "<hash>",
@@ -4351,14 +4133,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1324 chars>",
           "content_hash": "<hash>",
@@ -4371,14 +4152,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1311 chars>",
           "content_hash": "<hash>",
@@ -4391,14 +4171,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1221 chars>",
           "content_hash": "<hash>",
@@ -4411,14 +4190,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<991 chars>",
           "content_hash": "<hash>",
@@ -4431,14 +4209,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1069 chars>",
           "content_hash": "<hash>",
@@ -4451,14 +4228,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1015 chars>",
           "content_hash": "<hash>",
@@ -4471,14 +4247,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<952 chars>",
           "content_hash": "<hash>",
@@ -4491,7 +4266,7 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"

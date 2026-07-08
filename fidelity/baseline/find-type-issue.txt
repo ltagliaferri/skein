@@ -3,7 +3,6 @@
 {
   "execution_time_ms": "<ms>",
   "filters": {
-    "archived": false,
     "limit": 500,
     "offset": 0,
     "sort": "created",
@@ -18,7 +17,6 @@
       "items": [
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1509 chars>",
           "content_hash": "<hash>",
@@ -36,7 +34,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<570 chars>",
           "content_hash": "<hash>",
@@ -54,7 +51,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1940 chars>",
           "content_hash": "<hash>",
@@ -65,14 +61,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "AUTHZ ROOT BUG: operator bootstrapped under accounts.google.com but human Sigstore signing produc...",
           "type": "issue"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<523 chars>",
           "content_hash": "<hash>",
@@ -90,7 +85,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<151 chars>",
           "content_hash": "<hash>",
@@ -101,14 +95,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Agents should be able to list available sites with 'skein sites' before posting. Currently they have to know site IDs ahead of time or create new ones.",
           "type": "issue"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<231 chars>",
           "content_hash": "<hash>",
@@ -119,14 +112,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "investigating",
+          "status": "open",
           "target_agent": null,
           "title": "Agent identity friction: For quick tasks without full ignition, users must pass --agent to every command. Need simpler way to set agent identity for a session (e.g., environment variable set once, or a lighter-weight registration).",
           "type": "issue"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<360 chars>",
           "content_hash": "<hash>",

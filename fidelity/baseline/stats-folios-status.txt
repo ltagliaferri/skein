@@ -2,12 +2,7 @@
 # rc: 0
 {
   "by_status": {
-    "closed": 86,
-    "complete": 135,
-    "confirmed\nPoC works, full IDOR": 1,
-    "disconfirmed\nParameterized queries, no injection point": 1,
-    "investigating": 1,
-    "open": 491
+    "open": 715
   },
   "total": 715
 }

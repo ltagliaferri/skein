@@ -3,7 +3,6 @@
 {
   "execution_time_ms": "<ms>",
   "filters": {
-    "archived": false,
     "limit": 500,
     "offset": 0,
     "sort": "created",
@@ -18,7 +17,6 @@
       "items": [
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1940 chars>",
           "content_hash": "<hash>",
@@ -29,7 +27,7 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "AUTHZ ROOT BUG: operator bootstrapped under accounts.google.com but human Sigstore signing produc...",
           "type": "issue"

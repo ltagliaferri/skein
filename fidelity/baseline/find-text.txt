@@ -3,7 +3,6 @@
 {
   "execution_time_ms": "<ms>",
   "filters": {
-    "archived": false,
     "limit": 500,
     "offset": 0,
     "sort": "created"
@@ -17,7 +16,6 @@
       "items": [
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4098 chars>",
           "content_hash": "<hash>",
@@ -35,7 +33,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1093 chars>",
           "content_hash": "<hash>",
@@ -53,7 +50,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10302 chars>",
           "content_hash": "<hash>",
@@ -66,14 +62,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Agent-mediated collaborator onboarding (invite → sigstore-redeem → auto-bind + supply-chain-audit...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5846 chars>",
           "content_hash": "<hash>",
@@ -86,14 +81,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Public write surface — graduate the dark-launch ingress to a public publish route (collaborator p...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3599 chars>",
           "content_hash": "<hash>",
@@ -111,7 +105,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5472 chars>",
           "content_hash": "<hash>",
@@ -129,7 +122,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4185 chars>",
           "content_hash": "<hash>",
@@ -147,7 +139,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5125 chars>",
           "content_hash": "<hash>",
@@ -160,14 +151,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RESUME: authorization RSP — derive Phase 2 contract from the revised Merkle boundary, fell, then ...",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4551 chars>",
           "content_hash": "<hash>",
@@ -180,14 +170,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "authorization RSP Phase 3 (implementation) — implement to the fell-clean rev-5 contract",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5053 chars>",
           "content_hash": "<hash>",
@@ -205,7 +194,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7252 chars>",
           "content_hash": "<hash>",
@@ -223,7 +211,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2216 chars>",
           "content_hash": "<hash>",
@@ -243,7 +230,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1961 chars>",
           "content_hash": "<hash>",
@@ -263,7 +249,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2521 chars>",
           "content_hash": "<hash>",
@@ -281,7 +266,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3417 chars>",
           "content_hash": "<hash>",
@@ -299,7 +283,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4085 chars>",
           "content_hash": "<hash>",
@@ -317,7 +300,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5277 chars>",
           "content_hash": "<hash>",
@@ -335,7 +317,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4009 chars>",
           "content_hash": "<hash>",
@@ -353,7 +334,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9330 chars>",
           "content_hash": "<hash>",
@@ -371,7 +351,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2633 chars>",
           "content_hash": "<hash>",
@@ -389,7 +368,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<692 chars>",
           "content_hash": "<hash>",
@@ -415,14 +393,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Default SKEIN server bind 0.0.0.0 → 127.0.0.1. Security hardening: SKEIN has no auth; loopback-by...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5292 chars>",
           "content_hash": "<hash>",
@@ -440,7 +417,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9219 chars>",
           "content_hash": "<hash>",
@@ -458,7 +434,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9910 chars>",
           "content_hash": "<hash>",
@@ -478,7 +453,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5702 chars>",
           "content_hash": "<hash>",
@@ -498,7 +472,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3574 chars>",
           "content_hash": "<hash>",
@@ -516,7 +489,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3485 chars>",
           "content_hash": "<hash>",
@@ -534,7 +506,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3218 chars>",
           "content_hash": "<hash>",
@@ -552,7 +523,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6399 chars>",
           "content_hash": "<hash>",
@@ -572,7 +542,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7113 chars>",
           "content_hash": "<hash>",
@@ -590,7 +559,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7213 chars>",
           "content_hash": "<hash>",
@@ -608,7 +576,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9807 chars>",
           "content_hash": "<hash>",
@@ -628,7 +595,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4952 chars>",
           "content_hash": "<hash>",
@@ -646,7 +612,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21632 chars>",
           "content_hash": "<hash>",
@@ -666,7 +631,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4997 chars>",
           "content_hash": "<hash>",
@@ -686,7 +650,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10712 chars>",
           "content_hash": "<hash>",
@@ -704,7 +667,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7497 chars>",
           "content_hash": "<hash>",
@@ -722,7 +684,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<27049 chars>",
           "content_hash": "<hash>",
@@ -740,7 +701,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5131 chars>",
           "content_hash": "<hash>",
@@ -758,7 +718,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<30677 chars>",
           "content_hash": "<hash>",
@@ -778,7 +737,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21820 chars>",
           "content_hash": "<hash>",
@@ -796,7 +754,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<27047 chars>",
           "content_hash": "<hash>",
@@ -814,7 +771,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17336 chars>",
           "content_hash": "<hash>",
@@ -832,7 +788,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5427 chars>",
           "content_hash": "<hash>",
@@ -852,7 +807,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<20841 chars>",
           "content_hash": "<hash>",
@@ -872,7 +826,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<14987 chars>",
           "content_hash": "<hash>",
@@ -892,7 +845,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12505 chars>",
           "content_hash": "<hash>",
@@ -912,7 +864,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11308 chars>",
           "content_hash": "<hash>",
@@ -932,7 +883,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21953 chars>",
           "content_hash": "<hash>",
@@ -952,7 +902,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<16956 chars>",
           "content_hash": "<hash>",
@@ -972,7 +921,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<28186 chars>",
           "content_hash": "<hash>",
@@ -990,7 +938,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<59998 chars>",
           "content_hash": "<hash>",
@@ -1008,7 +955,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<55361 chars>",
           "content_hash": "<hash>",
@@ -1026,7 +972,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<33181 chars>",
           "content_hash": "<hash>",
@@ -1044,7 +989,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<35314 chars>",
           "content_hash": "<hash>",
@@ -1062,7 +1006,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<41425 chars>",
           "content_hash": "<hash>",
@@ -1080,7 +1023,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<22218 chars>",
           "content_hash": "<hash>",
@@ -1098,7 +1040,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<28066 chars>",
           "content_hash": "<hash>",
@@ -1116,7 +1057,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<30750 chars>",
           "content_hash": "<hash>",
@@ -1134,7 +1074,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<67461 chars>",
           "content_hash": "<hash>",
@@ -1152,7 +1091,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<42108 chars>",
           "content_hash": "<hash>",
@@ -1170,7 +1108,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3741 chars>",
           "content_hash": "<hash>",
@@ -1188,7 +1125,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6753 chars>",
           "content_hash": "<hash>",
@@ -1208,7 +1144,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9118 chars>",
           "content_hash": "<hash>",
@@ -1221,14 +1156,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "SKEIN Mesh v0/v1 — Specification Index (v4)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6481 chars>",
           "content_hash": "<hash>",
@@ -1248,7 +1182,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8291 chars>",
           "content_hash": "<hash>",
@@ -1261,14 +1194,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "SKEIN Mesh v1 — Specification Index (v3)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6457 chars>",
           "content_hash": "<hash>",
@@ -1288,7 +1220,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9502 chars>",
           "content_hash": "<hash>",
@@ -1301,14 +1232,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Federation Protocol (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8693 chars>",
           "content_hash": "<hash>",
@@ -1321,14 +1251,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Data Model (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6423 chars>",
           "content_hash": "<hash>",
@@ -1341,14 +1270,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Identity and Signing (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4858 chars>",
           "content_hash": "<hash>",
@@ -1366,7 +1294,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4286 chars>",
           "content_hash": "<hash>",
@@ -1384,7 +1311,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5790 chars>",
           "content_hash": "<hash>",
@@ -1397,14 +1323,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RSPs to build for mesh-v1",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7398 chars>",
           "content_hash": "<hash>",
@@ -1424,7 +1349,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5051 chars>",
           "content_hash": "<hash>",
@@ -1444,7 +1368,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9601 chars>",
           "content_hash": "<hash>",
@@ -1457,14 +1380,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Federation Protocol (pure-pull, opt-in, subscribe-based)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6724 chars>",
           "content_hash": "<hash>",
@@ -1477,14 +1399,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Privacy Levels (local / private / instance / public)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3334 chars>",
           "content_hash": "<hash>",
@@ -1504,7 +1425,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3109 chars>",
           "content_hash": "<hash>",
@@ -1522,7 +1442,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2600 chars>",
           "content_hash": "<hash>",
@@ -1542,7 +1461,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2615 chars>",
           "content_hash": "<hash>",
@@ -1562,7 +1480,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8011 chars>",
           "content_hash": "<hash>",
@@ -1580,7 +1497,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1269 chars>",
           "content_hash": "<hash>",
@@ -1600,7 +1516,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3057 chars>",
           "content_hash": "<hash>",

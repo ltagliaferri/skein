@@ -3,7 +3,6 @@
 [
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1910 chars>",
     "content_hash": "<hash>",
@@ -14,14 +13,13 @@
     "omlet": null,
     "site_id": "mesh-v1",
     "source_project": null,
-    "status": "closed",
+    "status": "open",
     "target_agent": null,
     "title": "Horizon hardening mantles stall in --mode watcher on executing probe tasks (recurring; observed b...",
     "type": "friction"
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<811 chars>",
     "content_hash": "<hash>",
@@ -39,7 +37,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1601 chars>",
     "content_hash": "<hash>",
@@ -57,7 +54,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<759 chars>",
     "content_hash": "<hash>",
@@ -75,7 +71,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1151 chars>",
     "content_hash": "<hash>",
@@ -93,7 +88,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<519 chars>",
     "content_hash": "<hash>",
@@ -111,7 +105,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<258 chars>",
     "content_hash": "<hash>",
@@ -129,7 +122,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<362 chars>",
     "content_hash": "<hash>",
@@ -147,7 +139,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<454 chars>",
     "content_hash": "<hash>",
@@ -158,14 +149,13 @@
     "omlet": null,
     "site_id": "mesh-v1",
     "source_project": null,
-    "status": "closed",
+    "status": "open",
     "target_agent": null,
     "title": "test_property.py test_property_bundle_bit_flip_breaks_verify was too strong — asserted ANY single...",
     "type": "friction"
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<201 chars>",
     "content_hash": "<hash>",
@@ -183,7 +173,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<252 chars>",
     "content_hash": "<hash>",
@@ -201,7 +190,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<569 chars>",
     "content_hash": "<hash>",
@@ -219,7 +207,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<248 chars>",
     "content_hash": "<hash>",

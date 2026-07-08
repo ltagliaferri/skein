@@ -3,7 +3,6 @@
 [
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<797 chars>",
     "content_hash": "<hash>",
@@ -21,7 +20,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1345 chars>",
     "content_hash": "<hash>",
@@ -39,7 +37,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1910 chars>",
     "content_hash": "<hash>",
@@ -50,14 +47,13 @@
     "omlet": null,
     "site_id": "mesh-v1",
     "source_project": null,
-    "status": "closed",
+    "status": "open",
     "target_agent": null,
     "title": "Horizon hardening mantles stall in --mode watcher on executing probe tasks (recurring; observed b...",
     "type": "friction"
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<526 chars>",
     "content_hash": "<hash>",
@@ -75,7 +71,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<520 chars>",
     "content_hash": "<hash>",
@@ -93,7 +88,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<360 chars>",
     "content_hash": "<hash>",
@@ -111,7 +105,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<410 chars>",
     "content_hash": "<hash>",
@@ -129,7 +122,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<980 chars>",
     "content_hash": "<hash>",
@@ -147,7 +139,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<322 chars>",
     "content_hash": "<hash>",
@@ -165,7 +156,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1069 chars>",
     "content_hash": "<hash>",
@@ -183,7 +173,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<952 chars>",
     "content_hash": "<hash>",
@@ -201,7 +190,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<818 chars>",
     "content_hash": "<hash>",
@@ -219,7 +207,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<811 chars>",
     "content_hash": "<hash>",
@@ -237,7 +224,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1396 chars>",
     "content_hash": "<hash>",
@@ -255,7 +241,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1601 chars>",
     "content_hash": "<hash>",
@@ -273,7 +258,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<759 chars>",
     "content_hash": "<hash>",
@@ -291,7 +275,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1940 chars>",
     "content_hash": "<hash>",
@@ -309,7 +292,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<600 chars>",
     "content_hash": "<hash>",
@@ -327,7 +309,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<415 chars>",
     "content_hash": "<hash>",
@@ -345,7 +326,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1280 chars>",
     "content_hash": "<hash>",
@@ -363,7 +343,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<430 chars>",
     "content_hash": "<hash>",
@@ -381,7 +360,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<332 chars>",
     "content_hash": "<hash>",
@@ -399,7 +377,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<423 chars>",
     "content_hash": "<hash>",
@@ -417,7 +394,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1637 chars>",
     "content_hash": "<hash>",
@@ -435,7 +411,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2303 chars>",
     "content_hash": "<hash>",
@@ -453,7 +428,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2083 chars>",
     "content_hash": "<hash>",
@@ -471,7 +445,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1028 chars>",
     "content_hash": "<hash>",
@@ -482,14 +455,13 @@
     "omlet": null,
     "site_id": "mesh-rsps",
     "source_project": null,
-    "status": "closed",
+    "status": "open",
     "target_agent": null,
     "title": "GitHub Actions: Node.js 20 deprecation hits June 2nd, 2026; Node.js 20 removed from runners Septe...",
     "type": "friction"
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<925 chars>",
     "content_hash": "<hash>",
@@ -507,7 +479,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1220 chars>",
     "content_hash": "<hash>",
@@ -525,7 +496,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1151 chars>",
     "content_hash": "<hash>",
@@ -543,7 +513,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<519 chars>",
     "content_hash": "<hash>",
@@ -561,7 +530,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<258 chars>",
     "content_hash": "<hash>",
@@ -579,7 +547,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<362 chars>",
     "content_hash": "<hash>",
@@ -597,7 +564,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<454 chars>",
     "content_hash": "<hash>",
@@ -608,14 +574,13 @@
     "omlet": null,
     "site_id": "mesh-v1",
     "source_project": null,
-    "status": "closed",
+    "status": "open",
     "target_agent": null,
     "title": "test_property.py test_property_bundle_bit_flip_breaks_verify was too strong — asserted ANY single...",
     "type": "friction"
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<201 chars>",
     "content_hash": "<hash>",
@@ -633,7 +598,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<252 chars>",
     "content_hash": "<hash>",
@@ -651,7 +615,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<569 chars>",
     "content_hash": "<hash>",
@@ -669,7 +632,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<248 chars>",
     "content_hash": "<hash>",
@@ -687,7 +649,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<224 chars>",
     "content_hash": "<hash>",
@@ -705,7 +666,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<499 chars>",
     "content_hash": "<hash>",
@@ -723,7 +683,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<309 chars>",
     "content_hash": "<hash>",
@@ -741,7 +700,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<324 chars>",
     "content_hash": "<hash>",
@@ -759,7 +717,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1220 chars>",
     "content_hash": "<hash>",
@@ -777,7 +734,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<766 chars>",
     "content_hash": "<hash>",
@@ -795,7 +751,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<752 chars>",
     "content_hash": "<hash>",
@@ -813,7 +768,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<817 chars>",
     "content_hash": "<hash>",
@@ -831,7 +785,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<264 chars>",
     "content_hash": "<hash>",
@@ -842,14 +795,13 @@
     "omlet": null,
     "site_id": "skein-dev",
     "source_project": null,
-    "status": "closed",
+    "status": "open",
     "target_agent": null,
     "title": "skein shard stash assumes 'master' branch — fails on repos with 'main' as default. No --base-bran...",
     "type": "friction"
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<527 chars>",
     "content_hash": "<hash>",
@@ -867,7 +819,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<983 chars>",
     "content_hash": "<hash>",
@@ -885,7 +836,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1197 chars>",
     "content_hash": "<hash>",
@@ -903,7 +853,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<161 chars>",
     "content_hash": "<hash>",
@@ -921,7 +870,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4 chars>",
     "content_hash": "<hash>",
@@ -939,7 +887,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<79 chars>",
     "content_hash": "<hash>",
@@ -957,7 +904,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<127 chars>",
     "content_hash": "<hash>",
@@ -975,7 +921,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<128 chars>",
     "content_hash": "<hash>",
@@ -993,7 +938,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<137 chars>",
     "content_hash": "<hash>",

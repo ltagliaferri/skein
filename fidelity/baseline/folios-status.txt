@@ -3,7 +3,6 @@
 [
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2269 chars>",
     "content_hash": "<hash>",
@@ -21,7 +20,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2854 chars>",
     "content_hash": "<hash>",
@@ -41,7 +39,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1902 chars>",
     "content_hash": "<hash>",
@@ -59,7 +56,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1509 chars>",
     "content_hash": "<hash>",
@@ -77,7 +73,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2128 chars>",
     "content_hash": "<hash>",
@@ -95,7 +90,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<570 chars>",
     "content_hash": "<hash>",
@@ -113,7 +107,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4259 chars>",
     "content_hash": "<hash>",
@@ -133,7 +126,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3263 chars>",
     "content_hash": "<hash>",
@@ -151,7 +143,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2984 chars>",
     "content_hash": "<hash>",
@@ -169,7 +160,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2741 chars>",
     "content_hash": "<hash>",
@@ -189,7 +179,23 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<1940 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-19T20:21:25.778066Z",
+    "created_by": "elias-0619",
+    "folio_id": "issue-20260619-oufc",
+    "metadata": {},
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "AUTHZ ROOT BUG: operator bootstrapped under accounts.google.com but human Sigstore signing produc...",
+    "type": "issue"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<4412 chars>",
     "content_hash": "<hash>",
@@ -207,7 +213,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4098 chars>",
     "content_hash": "<hash>",
@@ -225,7 +230,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3182 chars>",
     "content_hash": "<hash>",
@@ -245,7 +249,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3760 chars>",
     "content_hash": "<hash>",
@@ -265,7 +268,23 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<1910 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-18T22:02:04.252612Z",
+    "created_by": "sleuth-0618",
+    "folio_id": "friction-20260618-akis",
+    "metadata": {},
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Horizon hardening mantles stall in --mode watcher on executing probe tasks (recurring; observed b...",
+    "type": "friction"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<6863 chars>",
     "content_hash": "<hash>",
@@ -283,7 +302,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<7025 chars>",
     "content_hash": "<hash>",
@@ -303,7 +321,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4118 chars>",
     "content_hash": "<hash>",
@@ -321,7 +338,25 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<3921 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-17T02:19:16.265487Z",
+    "created_by": "schlep-0614",
+    "folio_id": "brief-20260617-jxxg",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Collaborator-flow dress test (pending) — bound non-operator author publishes signed over the publ...",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<2604 chars>",
     "content_hash": "<hash>",
@@ -339,7 +374,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<11196 chars>",
     "content_hash": "<hash>",
@@ -359,7 +393,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<6775 chars>",
     "content_hash": "<hash>",
@@ -377,7 +410,25 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<10302 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-15T17:55:23.275378Z",
+    "created_by": "schlep-0614",
+    "folio_id": "brief-20260615-jfjr",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Agent-mediated collaborator onboarding (invite → sigstore-redeem → auto-bind + supply-chain-audit...",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<3120 chars>",
     "content_hash": "<hash>",
@@ -395,7 +446,25 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<5846 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-15T02:53:20.761293Z",
+    "created_by": "schmutz-0612",
+    "folio_id": "brief-20260615-wq0p",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Public write surface — graduate the dark-launch ingress to a public publish route (collaborator p...",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<4515 chars>",
     "content_hash": "<hash>",
@@ -415,7 +484,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5277 chars>",
     "content_hash": "<hash>",
@@ -433,7 +501,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<7494 chars>",
     "content_hash": "<hash>",
@@ -453,7 +520,23 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<1693 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-06-01T21:23:08.379048Z",
+    "created_by": "unknown",
+    "folio_id": "notion-20260601-eu2k",
+    "metadata": {},
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Deploying the first public instance surfaced a trust-tier the design's local-vs-federated binary ...",
+    "type": "notion"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<811 chars>",
     "content_hash": "<hash>",
@@ -471,7 +554,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2099 chars>",
     "content_hash": "<hash>",
@@ -489,7 +571,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1300 chars>",
     "content_hash": "<hash>",
@@ -507,7 +588,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1729 chars>",
     "content_hash": "<hash>",
@@ -525,7 +605,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<925 chars>",
     "content_hash": "<hash>",
@@ -543,7 +622,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5267 chars>",
     "content_hash": "<hash>",
@@ -563,7 +641,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1200 chars>",
     "content_hash": "<hash>",
@@ -581,7 +658,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1988 chars>",
     "content_hash": "<hash>",
@@ -599,7 +675,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3041 chars>",
     "content_hash": "<hash>",
@@ -619,7 +694,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1840 chars>",
     "content_hash": "<hash>",
@@ -637,7 +711,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1853 chars>",
     "content_hash": "<hash>",
@@ -655,7 +728,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1601 chars>",
     "content_hash": "<hash>",
@@ -673,7 +745,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2261 chars>",
     "content_hash": "<hash>",
@@ -693,7 +764,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<8685 chars>",
     "content_hash": "<hash>",
@@ -713,7 +783,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<759 chars>",
     "content_hash": "<hash>",
@@ -731,7 +800,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1481 chars>",
     "content_hash": "<hash>",
@@ -751,7 +819,39 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<1467 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-29T17:49:45.557949Z",
+    "created_by": "unknown",
+    "folio_id": "tender-20260529-fz44",
+    "metadata": {
+      "branch_name": "shard-402dae00-20260529-001",
+      "commits": 6,
+      "confidence": 10,
+      "files_modified": [
+        "client/cli.py",
+        "skein/address.py",
+        "skein/address_legacy.py",
+        "skein/routes.py",
+        "tests/test_address.py",
+        "tests/test_address_rev3.py"
+      ],
+      "name": "402dae00",
+      "reviewer": "prime",
+      "status": "complete",
+      "worktree_name": "402dae00-20260529-001"
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Phase 4 hardening complete (spit-0529, 2026-05-29). 4 reviewer rounds (knuth/gremlin/oracle/gpt-5...",
+    "type": "tender"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<4962 chars>",
     "content_hash": "<hash>",
@@ -769,7 +869,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1154 chars>",
     "content_hash": "<hash>",
@@ -787,7 +886,39 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<1190 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-29T16:28:14.832558Z",
+    "created_by": "unknown",
+    "folio_id": "tender-20260529-vdve",
+    "metadata": {
+      "branch_name": "shard-ba3fcb60-20260529-001",
+      "commits": 1,
+      "confidence": 8,
+      "files_modified": [
+        "skein_next/__init__.py",
+        "skein_next/identity.py",
+        "skein_next/store.py",
+        "skein_next/tests/__init__.py",
+        "skein_next/tests/test_identity.py",
+        "skein_next/tests/test_store.py"
+      ],
+      "name": "ba3fcb60",
+      "reviewer": "prime",
+      "status": "complete",
+      "worktree_name": "ba3fcb60-20260529-001"
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Slice 1: content-hash-native store module in skeinnext/. Folio identity = content hash of five ca...",
+    "type": "tender"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<10871 chars>",
     "content_hash": "<hash>",
@@ -807,7 +938,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<9461 chars>",
     "content_hash": "<hash>",
@@ -827,7 +957,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5549 chars>",
     "content_hash": "<hash>",
@@ -847,7 +976,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<20309 chars>",
     "content_hash": "<hash>",
@@ -867,7 +995,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1824 chars>",
     "content_hash": "<hash>",
@@ -885,7 +1012,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5556 chars>",
     "content_hash": "<hash>",
@@ -903,7 +1029,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<11671 chars>",
     "content_hash": "<hash>",
@@ -921,7 +1046,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<10943 chars>",
     "content_hash": "<hash>",
@@ -939,7 +1063,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<7415 chars>",
     "content_hash": "<hash>",
@@ -957,7 +1080,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5719 chars>",
     "content_hash": "<hash>",
@@ -975,7 +1097,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<8417 chars>",
     "content_hash": "<hash>",
@@ -995,7 +1116,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<26034 chars>",
     "content_hash": "<hash>",
@@ -1015,7 +1135,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<9958 chars>",
     "content_hash": "<hash>",
@@ -1033,7 +1152,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<6905 chars>",
     "content_hash": "<hash>",
@@ -1051,7 +1169,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<6081 chars>",
     "content_hash": "<hash>",
@@ -1069,7 +1186,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<10363 chars>",
     "content_hash": "<hash>",
@@ -1089,7 +1205,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<20836 chars>",
     "content_hash": "<hash>",
@@ -1109,7 +1224,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<6725 chars>",
     "content_hash": "<hash>",
@@ -1127,7 +1241,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<26819 chars>",
     "content_hash": "<hash>",
@@ -1147,7 +1260,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<10718 chars>",
     "content_hash": "<hash>",
@@ -1167,7 +1279,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<8481 chars>",
     "content_hash": "<hash>",
@@ -1185,7 +1296,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<14052 chars>",
     "content_hash": "<hash>",
@@ -1203,7 +1313,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<19704 chars>",
     "content_hash": "<hash>",
@@ -1223,7 +1332,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4097 chars>",
     "content_hash": "<hash>",
@@ -1241,7 +1349,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5572 chars>",
     "content_hash": "<hash>",
@@ -1261,7 +1368,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<9807 chars>",
     "content_hash": "<hash>",
@@ -1281,7 +1387,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4952 chars>",
     "content_hash": "<hash>",
@@ -1299,7 +1404,79 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<656 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-15T12:03:16.298159Z",
+    "created_by": "unknown",
+    "folio_id": "tender-20260515-n771",
+    "metadata": {
+      "branch_name": "shard-5322824d-20260515-001",
+      "commits": 8,
+      "confidence": 9,
+      "files_modified": [
+        "pyproject.toml",
+        "skein/signing.py",
+        "tests/test_signing/conftest.py",
+        "tests/test_signing/test_aud_validation.py",
+        "tests/test_signing/test_conformance.py",
+        "tests/test_signing/test_exception_mapping.py",
+        "tests/test_signing/test_merkle.py",
+        "tests/test_signing/test_models.py",
+        "tests/test_signing/test_property.py",
+        "tests/test_signing/test_sign.py"
+      ],
+      "name": "5322824d",
+      "reviewer": "prime",
+      "status": "complete",
+      "worktree_name": "5322824d-20260515-001"
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Phase 3 fix-round 2: A8 regression test + py classifier; 477 passed, 5 skipped, 1 xfailed",
+    "type": "tender"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<1136 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-15T11:48:39.497404Z",
+    "created_by": "unknown",
+    "folio_id": "tender-20260515-0oo5",
+    "metadata": {
+      "branch_name": "shard-5322824d-20260515-001",
+      "commits": 7,
+      "confidence": 8,
+      "files_modified": [
+        "pyproject.toml",
+        "skein/signing.py",
+        "tests/test_signing/conftest.py",
+        "tests/test_signing/test_conformance.py",
+        "tests/test_signing/test_exception_mapping.py",
+        "tests/test_signing/test_merkle.py",
+        "tests/test_signing/test_models.py",
+        "tests/test_signing/test_property.py",
+        "tests/test_signing/test_sign.py"
+      ],
+      "name": "5322824d",
+      "reviewer": "prime",
+      "status": "complete",
+      "worktree_name": "5322824d-20260515-001"
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Phase 3 fix-round: closed A1-A8 + N1-N10 from fell 512fb9bb. pytest tests/test_signing/ -q: 476 p...",
+    "type": "tender"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<1151 chars>",
     "content_hash": "<hash>",
@@ -1317,7 +1494,41 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<1729 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-15T03:31:24.527357Z",
+    "created_by": "unknown",
+    "folio_id": "tender-20260515-d24b",
+    "metadata": {
+      "branch_name": "shard-5322824d-20260515-001",
+      "commits": 2,
+      "confidence": 6,
+      "files_modified": [
+        "pyproject.toml",
+        "skein/signing.py",
+        "tests/test_signing/test_conformance.py",
+        "tests/test_signing/test_exception_mapping.py",
+        "tests/test_signing/test_merkle.py",
+        "tests/test_signing/test_models.py",
+        "tests/test_signing/test_property.py",
+        "tests/test_signing/test_sign.py"
+      ],
+      "name": "5322824d",
+      "reviewer": "prime",
+      "status": "complete",
+      "worktree_name": "5322824d-20260515-001"
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Phase 3 signing.py implementation: 2 commits, 478 passed, 3 staging-skipped, 1 xfailed (bundlev3n...",
+    "type": "tender"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<534 chars>",
     "content_hash": "<hash>",
@@ -1335,7 +1546,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<519 chars>",
     "content_hash": "<hash>",
@@ -1353,7 +1563,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<258 chars>",
     "content_hash": "<hash>",
@@ -1371,7 +1580,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<362 chars>",
     "content_hash": "<hash>",
@@ -1389,7 +1597,23 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<454 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-15T03:30:37.566779Z",
+    "created_by": "shard-0514",
+    "folio_id": "friction-20260515-kht9",
+    "metadata": {},
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "test_property.py test_property_bundle_bit_flip_breaks_verify was too strong — asserted ANY single...",
+    "type": "friction"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<201 chars>",
     "content_hash": "<hash>",
@@ -1407,7 +1631,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<252 chars>",
     "content_hash": "<hash>",
@@ -1425,7 +1648,35 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<562 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-15T01:44:23.462783Z",
+    "created_by": "unknown",
+    "folio_id": "tender-20260515-etf1",
+    "metadata": {
+      "branch_name": "shard-codex-a03aa9ae-20260515-001",
+      "commits": 1,
+      "confidence": 5,
+      "files_modified": [
+        "skein/signing.py",
+        "tests/test_signing/test_exception_mapping.py"
+      ],
+      "name": "codex-a03aa9ae",
+      "reviewer": "prime",
+      "status": "complete",
+      "worktree_name": "codex-a03aa9ae-20260515-001"
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Phase 3 signing.py implementation: 1 commit, 479 passed, 3 staging-skipped, 0 other-skipped; mypy...",
+    "type": "tender"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<569 chars>",
     "content_hash": "<hash>",
@@ -1443,7 +1694,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<21632 chars>",
     "content_hash": "<hash>",
@@ -1463,7 +1713,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3517 chars>",
     "content_hash": "<hash>",
@@ -1481,7 +1730,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5895 chars>",
     "content_hash": "<hash>",
@@ -1499,7 +1747,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2872 chars>",
     "content_hash": "<hash>",
@@ -1517,7 +1764,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<6965 chars>",
     "content_hash": "<hash>",
@@ -1535,7 +1781,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<248 chars>",
     "content_hash": "<hash>",
@@ -1553,7 +1798,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<923 chars>",
     "content_hash": "<hash>",
@@ -1571,7 +1815,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<10029 chars>",
     "content_hash": "<hash>",
@@ -1589,7 +1832,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<30677 chars>",
     "content_hash": "<hash>",
@@ -1609,7 +1851,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<29176 chars>",
     "content_hash": "<hash>",
@@ -1629,7 +1870,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3842 chars>",
     "content_hash": "<hash>",
@@ -1647,7 +1887,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<25967 chars>",
     "content_hash": "<hash>",
@@ -1667,7 +1906,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<22683 chars>",
     "content_hash": "<hash>",
@@ -1687,7 +1925,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<20841 chars>",
     "content_hash": "<hash>",
@@ -1707,7 +1944,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<14987 chars>",
     "content_hash": "<hash>",
@@ -1727,7 +1963,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<12505 chars>",
     "content_hash": "<hash>",
@@ -1747,7 +1982,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<17514 chars>",
     "content_hash": "<hash>",
@@ -1767,7 +2001,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<11308 chars>",
     "content_hash": "<hash>",
@@ -1787,7 +2020,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<23877 chars>",
     "content_hash": "<hash>",
@@ -1807,7 +2039,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<24212 chars>",
     "content_hash": "<hash>",
@@ -1827,7 +2058,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<21953 chars>",
     "content_hash": "<hash>",
@@ -1847,7 +2077,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<7253 chars>",
     "content_hash": "<hash>",
@@ -1867,7 +2096,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<16956 chars>",
     "content_hash": "<hash>",
@@ -1887,7 +2115,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<358 chars>",
     "content_hash": "<hash>",
@@ -1905,7 +2132,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<9823 chars>",
     "content_hash": "<hash>",
@@ -1923,7 +2149,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5143 chars>",
     "content_hash": "<hash>",
@@ -1943,7 +2168,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<11521 chars>",
     "content_hash": "<hash>",
@@ -1961,7 +2185,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<8364 chars>",
     "content_hash": "<hash>",
@@ -1979,7 +2202,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<12088 chars>",
     "content_hash": "<hash>",
@@ -1997,7 +2219,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<7590 chars>",
     "content_hash": "<hash>",
@@ -2015,7 +2236,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<28186 chars>",
     "content_hash": "<hash>",
@@ -2033,7 +2253,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<59998 chars>",
     "content_hash": "<hash>",
@@ -2051,7 +2270,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<55361 chars>",
     "content_hash": "<hash>",
@@ -2069,7 +2287,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<33181 chars>",
     "content_hash": "<hash>",
@@ -2087,7 +2304,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<35314 chars>",
     "content_hash": "<hash>",
@@ -2105,7 +2321,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<41425 chars>",
     "content_hash": "<hash>",
@@ -2123,7 +2338,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<22218 chars>",
     "content_hash": "<hash>",
@@ -2141,7 +2355,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<28066 chars>",
     "content_hash": "<hash>",
@@ -2159,7 +2372,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<30750 chars>",
     "content_hash": "<hash>",
@@ -2177,7 +2389,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<67461 chars>",
     "content_hash": "<hash>",
@@ -2195,7 +2406,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<42108 chars>",
     "content_hash": "<hash>",
@@ -2213,7 +2423,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3741 chars>",
     "content_hash": "<hash>",
@@ -2231,7 +2440,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<6753 chars>",
     "content_hash": "<hash>",
@@ -2251,7 +2459,25 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<9118 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T21:05:37.719401Z",
+    "created_by": "krasis-0509",
+    "folio_id": "brief-20260510-zbyz",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "SKEIN Mesh v0/v1 — Specification Index (v4)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<5036 chars>",
     "content_hash": "<hash>",
@@ -2271,7 +2497,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<10441 chars>",
     "content_hash": "<hash>",
@@ -2291,7 +2516,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<7496 chars>",
     "content_hash": "<hash>",
@@ -2311,7 +2535,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<6481 chars>",
     "content_hash": "<hash>",
@@ -2331,7 +2554,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<3333 chars>",
     "content_hash": "<hash>",
@@ -2349,7 +2571,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5588 chars>",
     "content_hash": "<hash>",
@@ -2367,7 +2588,25 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<8291 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T20:06:55.929105Z",
+    "created_by": "krasis-0509",
+    "folio_id": "brief-20260510-94o3",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "SKEIN Mesh v1 — Specification Index (v3)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<10900 chars>",
     "content_hash": "<hash>",
@@ -2387,7 +2626,25 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<4964 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T20:05:29.535482Z",
+    "created_by": "krasis-0509",
+    "folio_id": "brief-20260510-hzu0",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Migration (light) (rev 2)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<6457 chars>",
     "content_hash": "<hash>",
@@ -2407,7 +2664,63 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<9502 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T20:05:28.320710Z",
+    "created_by": "krasis-0509",
+    "folio_id": "brief-20260510-4nem",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Federation Protocol (rev 2)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<8693 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T20:05:27.741353Z",
+    "created_by": "krasis-0509",
+    "folio_id": "brief-20260510-mzou",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Data Model (rev 2)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<6423 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T20:05:27.111753Z",
+    "created_by": "krasis-0509",
+    "folio_id": "brief-20260510-u6t2",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Identity and Signing (rev 2)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<1356 chars>",
     "content_hash": "<hash>",
@@ -2425,7 +2738,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<1829 chars>",
     "content_hash": "<hash>",
@@ -2443,7 +2755,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4858 chars>",
     "content_hash": "<hash>",
@@ -2461,7 +2772,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4286 chars>",
     "content_hash": "<hash>",
@@ -2479,7 +2789,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<4471 chars>",
     "content_hash": "<hash>",
@@ -2499,7 +2808,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5830 chars>",
     "content_hash": "<hash>",
@@ -2517,7 +2825,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<2115 chars>",
     "content_hash": "<hash>",
@@ -2535,7 +2842,63 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<5790 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T02:46:54.019696Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-3kjt",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "RSPs to build for mesh-v1",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<6884 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T02:36:55.678506Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-snxp",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Index: SKEIN Mesh v1 Specification (v2, complete)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<5866 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T02:35:46.717285Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-l1a3",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Migration (light)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<7398 chars>",
     "content_hash": "<hash>",
@@ -2555,7 +2918,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<7413 chars>",
     "content_hash": "<hash>",
@@ -2575,7 +2937,6 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
     "assigned_to": null,
     "content": "<5051 chars>",
     "content_hash": "<hash>",
@@ -2595,7 +2956,101 @@
   },
   {
     "acknowledged_at": null,
-    "archived": false,
+    "assigned_to": null,
+    "content": "<9601 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T02:06:43.260449Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-cv5a",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Federation Protocol (pure-pull, opt-in, subscribe-based)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<6724 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T01:38:33.939628Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-7txc",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Privacy Levels (local / private / instance / public)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<4301 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T00:44:19.414247Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-gmj5",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Index: SKEIN Mesh v1 Specification",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<6251 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T00:43:39.901940Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-24yt",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Data Model (folio shape, addressing, content hash anchoring)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<5547 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T00:42:55.952954Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-b2od",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Web App v1 (read-only, signature-aware)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
     "assigned_to": null,
     "content": "<5676 chars>",
     "content_hash": "<hash>",
@@ -2611,6 +3066,25 @@
     "status": "open",
     "target_agent": null,
     "title": "Spec: Untrusted Content Protocol (delimiter-wrapping)",
+    "type": "brief"
+  },
+  {
+    "acknowledged_at": null,
+    "assigned_to": null,
+    "content": "<5323 chars>",
+    "content_hash": "<hash>",
+    "created_at": "2026-05-10T00:40:56.900349Z",
+    "created_by": "curtain-0508",
+    "folio_id": "brief-20260510-rkwi",
+    "metadata": {
+      "questions_enabled": true
+    },
+    "omlet": null,
+    "site_id": "mesh-v1",
+    "source_project": null,
+    "status": "open",
+    "target_agent": null,
+    "title": "Spec: Identity and Signing (Sigstore-anchored)",
     "type": "brief"
   }
 ]

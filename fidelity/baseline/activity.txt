@@ -5,7 +5,6 @@
   "new_folios": [
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<2469 chars>",
       "content_hash": "<hash>",
@@ -25,7 +24,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<3618 chars>",
       "content_hash": "<hash>",
@@ -43,7 +41,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<2159 chars>",
       "content_hash": "<hash>",
@@ -61,7 +58,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<3126 chars>",
       "content_hash": "<hash>",
@@ -81,7 +77,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<797 chars>",
       "content_hash": "<hash>",
@@ -99,7 +94,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<3130 chars>",
       "content_hash": "<hash>",
@@ -117,7 +111,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<1984 chars>",
       "content_hash": "<hash>",
@@ -153,7 +146,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<1714 chars>",
       "content_hash": "<hash>",
@@ -189,7 +181,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<5673 chars>",
       "content_hash": "<hash>",
@@ -209,7 +200,6 @@
     },
     {
       "acknowledged_at": null,
-      "archived": false,
       "assigned_to": null,
       "content": "<1917 chars>",
       "content_hash": "<hash>",

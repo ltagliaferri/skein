@@ -3,7 +3,6 @@
 {
   "execution_time_ms": "<ms>",
   "filters": {
-    "archived": false,
     "limit": 500,
     "offset": 0,
     "sort": "created_asc"
@@ -17,7 +16,6 @@
       "items": [
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<952 chars>",
           "content_hash": "<hash>",
@@ -30,14 +28,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1015 chars>",
           "content_hash": "<hash>",
@@ -50,14 +47,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1069 chars>",
           "content_hash": "<hash>",
@@ -70,14 +66,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<991 chars>",
           "content_hash": "<hash>",
@@ -90,14 +85,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<393 chars>",
           "content_hash": "<hash>",
@@ -108,14 +102,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "## Completed Work Summary\n\nBrief #1 (Repository Cleanup) - COMPLETED:\n- Created comprehensive .gitig",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1221 chars>",
           "content_hash": "<hash>",
@@ -128,14 +121,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1311 chars>",
           "content_hash": "<hash>",
@@ -148,14 +140,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1324 chars>",
           "content_hash": "<hash>",
@@ -168,14 +159,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1873 chars>",
           "content_hash": "<hash>",
@@ -188,14 +178,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<360 chars>",
           "content_hash": "<hash>",
@@ -213,7 +202,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<914 chars>",
           "content_hash": "<hash>",
@@ -231,7 +219,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1021 chars>",
           "content_hash": "<hash>",
@@ -249,7 +236,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<25 chars>",
           "content_hash": "<hash>",
@@ -267,7 +253,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1028 chars>",
           "content_hash": "<hash>",
@@ -280,14 +265,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1017 chars>",
           "content_hash": "<hash>",
@@ -305,7 +289,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1088 chars>",
           "content_hash": "<hash>",
@@ -318,14 +301,13 @@
           "omlet": null,
           "site_id": "opensource-prep",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1677 chars>",
           "content_hash": "<hash>",
@@ -343,7 +325,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2275 chars>",
           "content_hash": "<hash>",
@@ -363,7 +344,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<836 chars>",
           "content_hash": "<hash>",
@@ -381,7 +361,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<231 chars>",
           "content_hash": "<hash>",
@@ -392,14 +371,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "investigating",
+          "status": "open",
           "target_agent": null,
           "title": "Agent identity friction: For quick tasks without full ignition, users must pass --agent to every command. Need simpler way to set agent identity for a session (e.g., environment variable set once, or a lighter-weight registration).",
           "type": "issue"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<151 chars>",
           "content_hash": "<hash>",
@@ -410,14 +388,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Agents should be able to list available sites with 'skein sites' before posting. Currently they have to know site IDs ahead of time or create new ones.",
           "type": "issue"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2293 chars>",
           "content_hash": "<hash>",
@@ -437,7 +414,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1278 chars>",
           "content_hash": "<hash>",
@@ -455,7 +431,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<137 chars>",
           "content_hash": "<hash>",
@@ -473,7 +448,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<128 chars>",
           "content_hash": "<hash>",
@@ -491,7 +465,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<127 chars>",
           "content_hash": "<hash>",
@@ -509,7 +482,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<124 chars>",
           "content_hash": "<hash>",
@@ -527,7 +499,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1926 chars>",
           "content_hash": "<hash>",
@@ -547,7 +518,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1508 chars>",
           "content_hash": "<hash>",
@@ -567,7 +537,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1554 chars>",
           "content_hash": "<hash>",
@@ -587,7 +556,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<674 chars>",
           "content_hash": "<hash>",
@@ -607,7 +575,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<661 chars>",
           "content_hash": "<hash>",
@@ -620,14 +587,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Handoff Brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1231 chars>",
           "content_hash": "<hash>",
@@ -647,7 +613,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<848 chars>",
           "content_hash": "<hash>",
@@ -667,7 +632,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2457 chars>",
           "content_hash": "<hash>",
@@ -687,7 +651,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<79 chars>",
           "content_hash": "<hash>",
@@ -705,7 +668,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<33 chars>",
           "content_hash": "<hash>",
@@ -716,14 +678,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Test folio for closed today count",
           "type": "notion"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2295 chars>",
           "content_hash": "<hash>",
@@ -741,7 +702,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12 chars>",
           "content_hash": "<hash>",
@@ -761,7 +721,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<427 chars>",
           "content_hash": "<hash>",
@@ -786,14 +745,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "eaa09237-20251207-154442: Removed vestigial successor_name from SKEIN briefs - option, model fields, route",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<670 chars>",
           "content_hash": "<hash>",
@@ -827,14 +785,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "e29bbb80-20251208-001: HTMX-based web UI for SKEIN",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<489 chars>",
           "content_hash": "<hash>",
@@ -860,14 +817,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "bd512830-20251209-001: Removed vestigial successor_name field from briefs - deleted from CLI option, mo",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<289 chars>",
           "content_hash": "<hash>",
@@ -889,14 +845,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "05d9cad1-20251209-001: Added --all flag to skein roster command for including retired agents",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<315 chars>",
           "content_hash": "<hash>",
@@ -920,14 +875,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "67bc91f4-20251209-001: Added skein-dev wrapper for testing CLI changes in shard worktrees",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4 chars>",
           "content_hash": "<hash>",
@@ -945,7 +899,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<946 chars>",
           "content_hash": "<hash>",
@@ -983,14 +936,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Removes vestigial successor_name field from briefs - good cleanup. BUT also removes skein-dev docs w",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<267 chars>",
           "content_hash": "<hash>",
@@ -1012,14 +964,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add 'Closed today' count to skein status output",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<426 chars>",
           "content_hash": "<hash>",
@@ -1043,14 +994,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added missing Yield models, storage methods, and ID generator to support yield/sack API endpoints. X",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<287 chars>",
           "content_hash": "<hash>",
@@ -1073,14 +1023,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add skein shard review command for QM visibility",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<362 chars>",
           "content_hash": "<hash>",
@@ -1104,14 +1053,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Improved folio title validation: enhanced markdown stripping, added CLI helper, updated docs",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<386 chars>",
           "content_hash": "<hash>",
@@ -1133,14 +1081,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added unified 'skein post' command group with issue/brief/friction/notion/finding/summary subcommand",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<206 chars>",
           "content_hash": "<hash>",
@@ -1158,7 +1105,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<399 chars>",
           "content_hash": "<hash>",
@@ -1178,14 +1124,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Implementation already complete in commit ef75e72. Verified all 6 post subcommands work (issue, brie",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<921 chars>",
           "content_hash": "<hash>",
@@ -1203,7 +1148,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<361 chars>",
           "content_hash": "<hash>",
@@ -1226,14 +1170,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix shard self-deletion vulnerability - adds caller_cwd parameter to cleanup_shard/merge_shard and -",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<350 chars>",
           "content_hash": "<hash>",
@@ -1255,14 +1198,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add folio export command to SKEIN CLI. Supports epub, markdown, and json export formats. Also regene",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<263 chars>",
           "content_hash": "<hash>",
@@ -1280,7 +1222,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<381 chars>",
           "content_hash": "<hash>",
@@ -1303,14 +1244,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed SKEIN_PROJECT env var support for shard commands by making project root resolution lazy and ch",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<507 chars>",
           "content_hash": "<hash>",
@@ -1332,14 +1272,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Docs cleanup: removed vestigial --successor-name from brief create example. The stale shard eaa09237",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<161 chars>",
           "content_hash": "<hash>",
@@ -1357,7 +1296,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<337 chars>",
           "content_hash": "<hash>",
@@ -1379,14 +1317,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Updated stale shard: Added make_title_from_content helper for better title generation, fixed duplica",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<382 chars>",
           "content_hash": "<hash>",
@@ -1408,14 +1345,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Made skein close accept multiple folio IDs via nargs=-1. Removed the positional note arg (use --note",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<410 chars>",
           "content_hash": "<hash>",
@@ -1439,14 +1375,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed SKEINPROJECT env var support for shard commands. Added resolveproject_path() helper and upd...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<357 chars>",
           "content_hash": "<hash>",
@@ -1468,14 +1403,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed shard cleanup bug where passing full path as worktree_name caused deletion of parent worktr...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1018 chars>",
           "content_hash": "<hash>",
@@ -1495,7 +1429,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1388 chars>",
           "content_hash": "<hash>",
@@ -1515,7 +1448,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<391 chars>",
           "content_hash": "<hash>",
@@ -1539,14 +1471,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Improved skein roster command with rich activity output: relative times, activity status, working...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<400 chars>",
           "content_hash": "<hash>",
@@ -1568,14 +1499,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added validation to ready command to verify agent was registered during ignite with orienting sta...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1504 chars>",
           "content_hash": "<hash>",
@@ -1588,14 +1518,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Continue shard.py hardening",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<258 chars>",
           "content_hash": "<hash>",
@@ -1613,7 +1542,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1423 chars>",
           "content_hash": "<hash>",
@@ -1633,7 +1561,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1815 chars>",
           "content_hash": "<hash>",
@@ -1653,7 +1580,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<330 chars>",
           "content_hash": "<hash>",
@@ -1675,14 +1601,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed close command: notes now properly attach without requiring --link. Multi-ID support was alr...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<430 chars>",
           "content_hash": "<hash>",
@@ -1705,14 +1630,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed 'unknown' sentinel collision: changed getagentid() to return None instead of 'unknown' when...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<447 chars>",
           "content_hash": "<hash>",
@@ -1736,14 +1660,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added skein stats folios command for folio analytics. Extends existing stats command to show foli...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2118 chars>",
           "content_hash": "<hash>",
@@ -1763,7 +1686,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2210 chars>",
           "content_hash": "<hash>",
@@ -1783,7 +1705,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2751 chars>",
           "content_hash": "<hash>",
@@ -1796,14 +1717,13 @@
           "omlet": null,
           "site_id": "skein-mesh",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Layered Addressing Scheme",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3533 chars>",
           "content_hash": "<hash>",
@@ -1823,7 +1743,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<381 chars>",
           "content_hash": "<hash>",
@@ -1847,14 +1766,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added skein move FOLIOID SITEID command: storage layer move_folio method, API endpoint, CLI comma...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1967 chars>",
           "content_hash": "<hash>",
@@ -1867,14 +1785,13 @@
           "omlet": null,
           "site_id": "skein-mesh",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Ledger Primitives Extraction to SpiritEngine",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1298 chars>",
           "content_hash": "<hash>",
@@ -1894,7 +1811,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2770 chars>",
           "content_hash": "<hash>",
@@ -1914,7 +1830,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3057 chars>",
           "content_hash": "<hash>",
@@ -1932,7 +1847,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2012 chars>",
           "content_hash": "<hash>",
@@ -1952,7 +1866,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1302 chars>",
           "content_hash": "<hash>",
@@ -1965,14 +1878,13 @@
           "omlet": null,
           "site_id": "interskein",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "3-Position Fingerprint Wordlist Design",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1269 chars>",
           "content_hash": "<hash>",
@@ -1992,7 +1904,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1095 chars>",
           "content_hash": "<hash>",
@@ -2012,7 +1923,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1056 chars>",
           "content_hash": "<hash>",
@@ -2032,7 +1942,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8011 chars>",
           "content_hash": "<hash>",
@@ -2050,7 +1959,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<218 chars>",
           "content_hash": "<hash>",
@@ -2068,7 +1976,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1529 chars>",
           "content_hash": "<hash>",
@@ -2088,7 +1995,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<273 chars>",
           "content_hash": "<hash>",
@@ -2110,14 +2016,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add tender auto-closeout to skein shard merge command",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<236 chars>",
           "content_hash": "<hash>",
@@ -2138,14 +2043,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Test site derivation fix for tender auto-closeout",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2407 chars>",
           "content_hash": "<hash>",
@@ -2165,7 +2069,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<538 chars>",
           "content_hash": "<hash>",
@@ -2189,14 +2092,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Drift detection and graft workflow per brief-20260112-xmo8. Full end-to-end implementation with S...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<675 chars>",
           "content_hash": "<hash>",
@@ -2214,7 +2116,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<499 chars>",
           "content_hash": "<hash>",
@@ -2232,7 +2133,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<789 chars>",
           "content_hash": "<hash>",
@@ -2250,7 +2150,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<825 chars>",
           "content_hash": "<hash>",
@@ -2268,7 +2167,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1072 chars>",
           "content_hash": "<hash>",
@@ -2286,7 +2184,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<425 chars>",
           "content_hash": "<hash>",
@@ -2308,14 +2205,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add informational warning when spawning shard from worktree. Uses detectshardenvironment() to che...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<284 chars>",
           "content_hash": "<hash>",
@@ -2337,14 +2233,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix shard file counts to use base_commit for accurate reporting",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<303 chars>",
           "content_hash": "<hash>",
@@ -2366,14 +2261,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Remove redundant 'Files changed: X commits' line that mixed file/commit terminology",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<471 chars>",
           "content_hash": "<hash>",
@@ -2395,14 +2289,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed messaging for empty shards in review output. Now detects when commits=0 and shows 'No code...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<328 chars>",
           "content_hash": "<hash>",
@@ -2424,14 +2317,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed grammar error in shard review output - changed 'Files changed: N commits' to correctly show...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<303 chars>",
           "content_hash": "<hash>",
@@ -2453,14 +2345,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add conflict context to triage output - shows which files conflict and explains why",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<374 chars>",
           "content_hash": "<hash>",
@@ -2483,14 +2374,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add isnestedshard() detection and update review CLI to show appropriate messaging for nested shar...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<416 chars>",
           "content_hash": "<hash>",
@@ -2513,14 +2403,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix edge cases in nested shard detection: wire parentworktree on spawn, improve isnested_shard()...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<316 chars>",
           "content_hash": "<hash>",
@@ -2542,14 +2431,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added xgun integration to skein shard review - shows code quality checks at end of review output",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<887 chars>",
           "content_hash": "<hash>",
@@ -2569,7 +2457,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<316 chars>",
           "content_hash": "<hash>",
@@ -2591,14 +2478,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix KeyError when xgun flags/smells have line but no file",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2633 chars>",
           "content_hash": "<hash>",
@@ -2616,7 +2502,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2477 chars>",
           "content_hash": "<hash>",
@@ -2636,7 +2521,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2309 chars>",
           "content_hash": "<hash>",
@@ -2656,7 +2540,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2166 chars>",
           "content_hash": "<hash>",
@@ -2676,7 +2559,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2339 chars>",
           "content_hash": "<hash>",
@@ -2696,7 +2578,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2615 chars>",
           "content_hash": "<hash>",
@@ -2716,7 +2597,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2600 chars>",
           "content_hash": "<hash>",
@@ -2736,7 +2616,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2971 chars>",
           "content_hash": "<hash>",
@@ -2756,7 +2635,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2842 chars>",
           "content_hash": "<hash>",
@@ -2776,7 +2654,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2910 chars>",
           "content_hash": "<hash>",
@@ -2796,7 +2673,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2757 chars>",
           "content_hash": "<hash>",
@@ -2816,7 +2692,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2886 chars>",
           "content_hash": "<hash>",
@@ -2836,7 +2711,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2661 chars>",
           "content_hash": "<hash>",
@@ -2856,7 +2730,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2933 chars>",
           "content_hash": "<hash>",
@@ -2876,7 +2749,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2760 chars>",
           "content_hash": "<hash>",
@@ -2896,7 +2768,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3109 chars>",
           "content_hash": "<hash>",
@@ -2914,7 +2785,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<601 chars>",
           "content_hash": "<hash>",
@@ -2938,14 +2808,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Implemented bi-temporal timestamps for SKEIN folios. Added transactiontime field to track when fo...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<357 chars>",
           "content_hash": "<hash>",
@@ -2969,14 +2838,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add bi-temporal timestamps (event_time) to folios for temporal reasoning about agent knowledge",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2196 chars>",
           "content_hash": "<hash>",
@@ -2994,7 +2862,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1672 chars>",
           "content_hash": "<hash>",
@@ -3012,7 +2879,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<676 chars>",
           "content_hash": "<hash>",
@@ -3032,7 +2898,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<414 chars>",
           "content_hash": "<hash>",
@@ -3054,14 +2919,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Restored missing yield/sack storage methods from build/lib to skein/storage.py - added sacks tabl...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<308 chars>",
           "content_hash": "<hash>",
@@ -3083,14 +2947,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Renamed duplicate shardreview function to shardinspect to fix Click command collision",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1297 chars>",
           "content_hash": "<hash>",
@@ -3110,7 +2973,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<516 chars>",
           "content_hash": "<hash>",
@@ -3135,14 +2997,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Migrate folio storage from JSON files to SQLite. Adds folios table with FTS5 search to skein.db,...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<19 chars>",
           "content_hash": "<hash>",
@@ -3156,14 +3017,13 @@
           "omlet": null,
           "site_id": "hypo-test",
           "source_project": null,
-          "status": "confirmed\nPoC works, full IDOR",
+          "status": "open",
           "target_agent": null,
           "title": "IDOR on /api/orders",
           "type": "hypothesis"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<32 chars>",
           "content_hash": "<hash>",
@@ -3176,14 +3036,13 @@
           "omlet": null,
           "site_id": "hypo-test",
           "source_project": null,
-          "status": "disconfirmed\nParameterized queries, no injection point",
+          "status": "open",
           "target_agent": null,
           "title": "SQL injection in search endpoint",
           "type": "hypothesis"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<18 chars>",
           "content_hash": "<hash>",
@@ -3204,7 +3063,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<62 chars>",
           "content_hash": "<hash>",
@@ -3222,7 +3080,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<59 chars>",
           "content_hash": "<hash>",
@@ -3233,14 +3090,13 @@
           "omlet": null,
           "site_id": "hypo-test",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Noticed rate limiting is missing on password reset endpoint",
           "type": "notion"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<59 chars>",
           "content_hash": "<hash>",
@@ -3261,7 +3117,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<387 chars>",
           "content_hash": "<hash>",
@@ -3283,14 +3138,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Replace datetime.now() with datetime.now(timezone.utc) in 3 hypothesis verdict Thread creations (...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<433 chars>",
           "content_hash": "<hash>",
@@ -3314,14 +3168,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Replaced all 24 naive datetime.now() calls with datetime.now(timezone.utc) across routes.py, util...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<555 chars>",
           "content_hash": "<hash>",
@@ -3346,14 +3199,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix naive/aware datetime comparison bug. Added ensure_aware() in storage.py at all deserializatio...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<431 chars>",
           "content_hash": "<hash>",
@@ -3376,14 +3228,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed shard stash to always branch from master HEAD instead of current branch. Removed current-br...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<506 chars>",
           "content_hash": "<hash>",
@@ -3407,14 +3258,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch status/assignment computation to fix search N+1 query performance. Replaced per-folio loops...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<404 chars>",
           "content_hash": "<hash>",
@@ -3437,14 +3287,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added searchfolioacrossprojects() in storage.py and enriched 404 errors in routes.py getfolio and...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<545 chars>",
           "content_hash": "<hash>",
@@ -3471,14 +3320,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Implemented colon-based address resolution: address.py parser, storage layer for cross-project fe...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<516 chars>",
           "content_hash": "<hash>",
@@ -3505,14 +3353,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Colon-based cross-project address resolution for folios. New address.py parser, resolvefolioread...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<621 chars>",
           "content_hash": "<hash>",
@@ -3539,14 +3386,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Applied all 6 review fixes to the address resolution shard: reverted folioid:path routes, fixed s...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<464 chars>",
           "content_hash": "<hash>",
@@ -3569,14 +3415,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Skip validatepositionalargs on stdin content in post brief. Content from stdin can legitimately c...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<52 chars>",
           "content_hash": "<hash>",
@@ -3596,7 +3441,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<995 chars>",
           "content_hash": "<hash>",
@@ -3614,7 +3458,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2985 chars>",
           "content_hash": "<hash>",
@@ -3634,7 +3477,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<479 chars>",
           "content_hash": "<hash>",
@@ -3656,14 +3498,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added skein post playbook command. Mirrors playbook create logic under the unified post group. Al...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1197 chars>",
           "content_hash": "<hash>",
@@ -3681,7 +3522,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1379 chars>",
           "content_hash": "<hash>",
@@ -3706,14 +3546,13 @@
           "omlet": null,
           "site_id": "backup-system",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Multi-project SKEIN backup. backup create now globs ~/projects/*/.skein/data/skein.db (non-empty)...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1817 chars>",
           "content_hash": "<hash>",
@@ -3738,14 +3577,13 @@
           "omlet": null,
           "site_id": "backup-system",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix all 4 fell findings on the per-project backup shard.",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1632 chars>",
           "content_hash": "<hash>",
@@ -3770,14 +3608,13 @@
           "omlet": null,
           "site_id": "backup-system",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Round 2 fell-fix: addresses both findings from codex re-fell. Finding A (MEDIUM): removed silent...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<983 chars>",
           "content_hash": "<hash>",
@@ -3795,7 +3632,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1135 chars>",
           "content_hash": "<hash>",
@@ -3820,14 +3656,13 @@
           "omlet": null,
           "site_id": "backup-system",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Round 3 fell-fix on backup WAL handling. Finding A: added retry-on-mtime guard around snapshotske...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<829 chars>",
           "content_hash": "<hash>",
@@ -3852,14 +3687,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Round 4 fell-fix: strengthen WAL change-detection token to (stmtimens, stsize) to close residual...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<784 chars>",
           "content_hash": "<hash>",
@@ -3884,14 +3718,13 @@
           "omlet": null,
           "site_id": "backup-system",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Round 5 fell-fix: strengthen WAL token with stino + sha256 content hash. Closes the same-mtime+si...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<805 chars>",
           "content_hash": "<hash>",
@@ -3916,14 +3749,13 @@
           "omlet": null,
           "site_id": "backup-system",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Round 6 fell-fix (LOW finding): extended waltoken from 4-tuple to 5-tuple by adding stctimens. Up...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4306 chars>",
           "content_hash": "<hash>",
@@ -3943,7 +3775,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<45 chars>",
           "content_hash": "<hash>",
@@ -3954,14 +3785,13 @@
           "omlet": null,
           "site_id": "test-site",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "TEST: ignore me - I'll close this momentarily",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<47329 chars>",
           "content_hash": "<hash>",
@@ -3972,14 +3802,13 @@
           "omlet": null,
           "site_id": "test-site",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Synthetic Long Folio for Truncation Testing\n\nThis folio is intentionally large to test the trunca...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<286666 chars>",
           "content_hash": "<hash>",
@@ -3992,14 +3821,13 @@
           "omlet": null,
           "site_id": "test-site",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Huge test brief",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<795 chars>",
           "content_hash": "<hash>",
@@ -4024,14 +3852,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix folio truncation surfaced in brief-20260501-hnjy. The cap is harness-level (verified: skein A...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<397 chars>",
           "content_hash": "<hash>",
@@ -4054,14 +3881,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added --yes/-y to shard cleanup, preserved abort-on-empty-input behavior, and added CLI coverage...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1 chars>",
           "content_hash": "<hash>",
@@ -4079,7 +3905,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<390 chars>",
           "content_hash": "<hash>",
@@ -4102,14 +3927,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Aligned shard sequence-cap tests with UTC date handling and verified the full test suite passes.",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4294 chars>",
           "content_hash": "<hash>",
@@ -4127,7 +3951,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2230 chars>",
           "content_hash": "<hash>",
@@ -4147,7 +3970,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1038 chars>",
           "content_hash": "<hash>",
@@ -4165,7 +3987,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<527 chars>",
           "content_hash": "<hash>",
@@ -4183,7 +4004,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1581 chars>",
           "content_hash": "<hash>",
@@ -4196,14 +4016,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Bulk timestamps endpoint for fast multi-site activity queries",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<803 chars>",
           "content_hash": "<hash>",
@@ -4228,14 +4047,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Implements GET /sites/timestamps for bulk last-activity-per-site retrieval. Adds LogDatabase.gets...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<735 chars>",
           "content_hash": "<hash>",
@@ -4259,14 +4077,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add GET /projects/timestamps cross-project bulk activity endpoint. Cross-project counterpart to /...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1244 chars>",
           "content_hash": "<hash>",
@@ -4279,14 +4096,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Quartermaster mantle not discoverable via skein ignite (lives in speakbot)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<568 chars>",
           "content_hash": "<hash>",
@@ -4308,14 +4124,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Cascade mantle name lookup across registered projects in skein ignite --mantle. Mirrors bare-foli...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2362 chars>",
           "content_hash": "<hash>",
@@ -4335,7 +4150,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2744 chars>",
           "content_hash": "<hash>",
@@ -4348,14 +4162,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Fix: skein shard tender fails with bogus default site",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<904 chars>",
           "content_hash": "<hash>",
@@ -4373,7 +4186,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3130 chars>",
           "content_hash": "<hash>",
@@ -4391,7 +4203,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<375 chars>",
           "content_hash": "<hash>",
@@ -4409,7 +4220,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<60 chars>",
           "content_hash": "<hash>",
@@ -4427,7 +4237,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<264 chars>",
           "content_hash": "<hash>",
@@ -4438,14 +4247,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "skein shard stash assumes 'master' branch — fails on repos with 'main' as default. No --base-bran...",
           "type": "friction"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<238 chars>",
           "content_hash": "<hash>",
@@ -4463,7 +4271,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<328 chars>",
           "content_hash": "<hash>",
@@ -4481,7 +4288,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<523 chars>",
           "content_hash": "<hash>",
@@ -4499,7 +4305,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1963 chars>",
           "content_hash": "<hash>",
@@ -4517,7 +4322,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1002 chars>",
           "content_hash": "<hash>",
@@ -4543,14 +4347,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Default SKEIN server bind changed from 0.0.0.0 to 127.0.0.1. Updated skeinserver.py:30 default, c...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1336 chars>",
           "content_hash": "<hash>",
@@ -4568,7 +4371,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<817 chars>",
           "content_hash": "<hash>",
@@ -4586,7 +4388,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<784 chars>",
           "content_hash": "<hash>",
@@ -4610,14 +4411,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add detectdefaultbranch() to skein/shard.py (origin/HEAD → main → master → ShardError). spawnshar...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1133 chars>",
           "content_hash": "<hash>",
@@ -4643,14 +4443,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Three CLI surface fixes for cross-project usage. P1: Documented SKEINPROJECT env var (was undocum...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<568 chars>",
           "content_hash": "<hash>",
@@ -4674,14 +4473,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Adds detectdefaultbranch() to shard.py; fixes shardstash and shardspawn to auto-detect default br...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<687 chars>",
           "content_hash": "<hash>",
@@ -4704,14 +4502,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Add cross-project breadcrumb hints and --all flag to find/folio/activity/sites. Footer is shown u...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<663 chars>",
           "content_hash": "<hash>",
@@ -4735,14 +4532,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "fix(shard): fix-r1 — all four review findings addressed. spawnshard() API default branch auto-det...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<477 chars>",
           "content_hash": "<hash>",
@@ -4766,14 +4562,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "fix-r2 complete: recordshardmetadata basebranch param changed from str='master' to Optional[str]=...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<652 chars>",
           "content_hash": "<hash>",
@@ -4791,7 +4586,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2297 chars>",
           "content_hash": "<hash>",
@@ -4809,7 +4603,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2770 chars>",
           "content_hash": "<hash>",
@@ -4827,7 +4620,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2102 chars>",
           "content_hash": "<hash>",
@@ -4845,7 +4637,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3334 chars>",
           "content_hash": "<hash>",
@@ -4865,7 +4656,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5323 chars>",
           "content_hash": "<hash>",
@@ -4878,14 +4668,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Identity and Signing (Sigstore-anchored)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5676 chars>",
           "content_hash": "<hash>",
@@ -4905,7 +4694,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5547 chars>",
           "content_hash": "<hash>",
@@ -4918,14 +4706,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Web App v1 (read-only, signature-aware)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6251 chars>",
           "content_hash": "<hash>",
@@ -4938,14 +4725,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Data Model (folio shape, addressing, content hash anchoring)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4301 chars>",
           "content_hash": "<hash>",
@@ -4958,14 +4744,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Index: SKEIN Mesh v1 Specification",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6724 chars>",
           "content_hash": "<hash>",
@@ -4978,14 +4763,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Privacy Levels (local / private / instance / public)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9601 chars>",
           "content_hash": "<hash>",
@@ -4998,14 +4782,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Federation Protocol (pure-pull, opt-in, subscribe-based)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5051 chars>",
           "content_hash": "<hash>",
@@ -5025,7 +4808,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7413 chars>",
           "content_hash": "<hash>",
@@ -5045,7 +4827,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7398 chars>",
           "content_hash": "<hash>",
@@ -5065,7 +4846,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5866 chars>",
           "content_hash": "<hash>",
@@ -5078,14 +4858,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Migration (light)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6884 chars>",
           "content_hash": "<hash>",
@@ -5098,14 +4877,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Index: SKEIN Mesh v1 Specification (v2, complete)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5790 chars>",
           "content_hash": "<hash>",
@@ -5118,14 +4896,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "RSPs to build for mesh-v1",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2115 chars>",
           "content_hash": "<hash>",
@@ -5143,7 +4920,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5830 chars>",
           "content_hash": "<hash>",
@@ -5161,7 +4937,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<752 chars>",
           "content_hash": "<hash>",
@@ -5179,7 +4954,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4471 chars>",
           "content_hash": "<hash>",
@@ -5199,7 +4973,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4286 chars>",
           "content_hash": "<hash>",
@@ -5217,7 +4990,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4858 chars>",
           "content_hash": "<hash>",
@@ -5235,7 +5007,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1829 chars>",
           "content_hash": "<hash>",
@@ -5253,7 +5024,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1356 chars>",
           "content_hash": "<hash>",
@@ -5271,7 +5041,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6423 chars>",
           "content_hash": "<hash>",
@@ -5284,14 +5053,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Identity and Signing (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8693 chars>",
           "content_hash": "<hash>",
@@ -5304,14 +5072,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Data Model (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9502 chars>",
           "content_hash": "<hash>",
@@ -5324,14 +5091,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Federation Protocol (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6457 chars>",
           "content_hash": "<hash>",
@@ -5351,7 +5117,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4964 chars>",
           "content_hash": "<hash>",
@@ -5364,14 +5129,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Spec: Migration (light) (rev 2)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10900 chars>",
           "content_hash": "<hash>",
@@ -5391,7 +5155,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8291 chars>",
           "content_hash": "<hash>",
@@ -5404,14 +5167,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "SKEIN Mesh v1 — Specification Index (v3)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5588 chars>",
           "content_hash": "<hash>",
@@ -5429,7 +5191,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<766 chars>",
           "content_hash": "<hash>",
@@ -5447,7 +5208,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3333 chars>",
           "content_hash": "<hash>",
@@ -5465,7 +5225,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6481 chars>",
           "content_hash": "<hash>",
@@ -5485,7 +5244,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7496 chars>",
           "content_hash": "<hash>",
@@ -5505,7 +5263,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10441 chars>",
           "content_hash": "<hash>",
@@ -5525,7 +5282,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5036 chars>",
           "content_hash": "<hash>",
@@ -5545,7 +5301,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9118 chars>",
           "content_hash": "<hash>",
@@ -5558,14 +5313,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "SKEIN Mesh v0/v1 — Specification Index (v4)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6753 chars>",
           "content_hash": "<hash>",
@@ -5585,7 +5339,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3741 chars>",
           "content_hash": "<hash>",
@@ -5603,7 +5356,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<42108 chars>",
           "content_hash": "<hash>",
@@ -5621,7 +5373,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<67461 chars>",
           "content_hash": "<hash>",
@@ -5639,7 +5390,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<30750 chars>",
           "content_hash": "<hash>",
@@ -5657,7 +5407,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<28066 chars>",
           "content_hash": "<hash>",
@@ -5675,7 +5424,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<22218 chars>",
           "content_hash": "<hash>",
@@ -5693,7 +5441,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<41425 chars>",
           "content_hash": "<hash>",
@@ -5711,7 +5458,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<35314 chars>",
           "content_hash": "<hash>",
@@ -5729,7 +5475,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<33181 chars>",
           "content_hash": "<hash>",
@@ -5747,7 +5492,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<55361 chars>",
           "content_hash": "<hash>",
@@ -5765,7 +5509,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<59998 chars>",
           "content_hash": "<hash>",
@@ -5783,7 +5526,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<28186 chars>",
           "content_hash": "<hash>",
@@ -5801,7 +5543,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7590 chars>",
           "content_hash": "<hash>",
@@ -5819,7 +5560,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12088 chars>",
           "content_hash": "<hash>",
@@ -5837,7 +5577,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8364 chars>",
           "content_hash": "<hash>",
@@ -5855,7 +5594,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11521 chars>",
           "content_hash": "<hash>",
@@ -5873,7 +5611,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5143 chars>",
           "content_hash": "<hash>",
@@ -5893,7 +5630,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9823 chars>",
           "content_hash": "<hash>",
@@ -5911,7 +5647,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<358 chars>",
           "content_hash": "<hash>",
@@ -5929,7 +5664,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<16956 chars>",
           "content_hash": "<hash>",
@@ -5949,7 +5683,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7253 chars>",
           "content_hash": "<hash>",
@@ -5969,7 +5702,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21953 chars>",
           "content_hash": "<hash>",
@@ -5989,7 +5721,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<24212 chars>",
           "content_hash": "<hash>",
@@ -6009,7 +5740,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<23877 chars>",
           "content_hash": "<hash>",
@@ -6029,7 +5759,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11308 chars>",
           "content_hash": "<hash>",
@@ -6049,7 +5778,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17514 chars>",
           "content_hash": "<hash>",
@@ -6069,7 +5797,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12505 chars>",
           "content_hash": "<hash>",
@@ -6089,7 +5816,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<14987 chars>",
           "content_hash": "<hash>",
@@ -6109,7 +5835,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<20841 chars>",
           "content_hash": "<hash>",
@@ -6129,7 +5854,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<22683 chars>",
           "content_hash": "<hash>",
@@ -6149,7 +5873,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<25967 chars>",
           "content_hash": "<hash>",
@@ -6169,7 +5892,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5427 chars>",
           "content_hash": "<hash>",
@@ -6189,7 +5911,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9484 chars>",
           "content_hash": "<hash>",
@@ -6207,7 +5928,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17336 chars>",
           "content_hash": "<hash>",
@@ -6225,7 +5945,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<16799 chars>",
           "content_hash": "<hash>",
@@ -6243,7 +5962,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17016 chars>",
           "content_hash": "<hash>",
@@ -6261,7 +5979,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<19724 chars>",
           "content_hash": "<hash>",
@@ -6279,7 +5996,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<27047 chars>",
           "content_hash": "<hash>",
@@ -6297,7 +6013,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21820 chars>",
           "content_hash": "<hash>",
@@ -6315,7 +6030,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11883 chars>",
           "content_hash": "<hash>",
@@ -6333,7 +6047,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3842 chars>",
           "content_hash": "<hash>",
@@ -6351,7 +6064,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<29176 chars>",
           "content_hash": "<hash>",
@@ -6371,7 +6083,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<30677 chars>",
           "content_hash": "<hash>",
@@ -6391,7 +6102,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1220 chars>",
           "content_hash": "<hash>",
@@ -6409,7 +6119,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5131 chars>",
           "content_hash": "<hash>",
@@ -6427,7 +6136,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<444 chars>",
           "content_hash": "<hash>",
@@ -6449,14 +6157,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 property-based test contract for signing.py: 33 Hypothesis tests across 12 property secti...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5076 chars>",
           "content_hash": "<hash>",
@@ -6474,7 +6181,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<699 chars>",
           "content_hash": "<hash>",
@@ -6496,14 +6202,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added tests/testsigningcontract.py as the Phase 2 whole-surface contract for skein.signing: publi...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6134 chars>",
           "content_hash": "<hash>",
@@ -6521,7 +6226,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6442 chars>",
           "content_hash": "<hash>",
@@ -6539,7 +6243,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<324 chars>",
           "content_hash": "<hash>",
@@ -6557,7 +6260,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<813 chars>",
           "content_hash": "<hash>",
@@ -6579,14 +6281,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 test contract: signing.py happy path + standard edges. 93 tests in tests/testsigning.py c...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<309 chars>",
           "content_hash": "<hash>",
@@ -6604,7 +6305,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1521 chars>",
           "content_hash": "<hash>",
@@ -6649,14 +6349,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 signing.py conformance test contract (Team A.4): 41 tests covering corpus known-good/bad,...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6819 chars>",
           "content_hash": "<hash>",
@@ -6674,7 +6373,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<630 chars>",
           "content_hash": "<hash>",
@@ -6697,14 +6395,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 test contract for signing.py — 60 tests (happy path, all 8 VerifyStatus cases, canonical_...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4649 chars>",
           "content_hash": "<hash>",
@@ -6722,7 +6419,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<499 chars>",
           "content_hash": "<hash>",
@@ -6740,7 +6436,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<224 chars>",
           "content_hash": "<hash>",
@@ -6758,7 +6453,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8689 chars>",
           "content_hash": "<hash>",
@@ -6776,7 +6470,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1365 chars>",
           "content_hash": "<hash>",
@@ -6811,14 +6504,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 test contract for signing.py (opus whole surface, Team C). 161 tests across 9 files in te...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10029 chars>",
           "content_hash": "<hash>",
@@ -6836,7 +6528,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6791 chars>",
           "content_hash": "<hash>",
@@ -6856,7 +6547,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<530 chars>",
           "content_hash": "<hash>",
@@ -6867,14 +6557,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 unified test contract: signing.py",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<11636 chars>",
           "content_hash": "<hash>",
@@ -6892,7 +6581,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1589 chars>",
           "content_hash": "<hash>",
@@ -6951,14 +6639,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 unified test contract for signing.py RSP. 356 tests (315 in tests/test_signing/ + 41 in t...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6139 chars>",
           "content_hash": "<hash>",
@@ -6976,7 +6663,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1686 chars>",
           "content_hash": "<hash>",
@@ -7035,14 +6721,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 2 fell fixes: retired SigstoreBundleBlob vocabulary in docstrings/comments (4 regression-gu...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<25 chars>",
           "content_hash": "<hash>",
@@ -7053,14 +6738,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Fix round after fell: Phase 2 unified test contract",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6998 chars>",
           "content_hash": "<hash>",
@@ -7078,7 +6762,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3596 chars>",
           "content_hash": "<hash>",
@@ -7096,7 +6779,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9553 chars>",
           "content_hash": "<hash>",
@@ -7114,7 +6796,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<27049 chars>",
           "content_hash": "<hash>",
@@ -7132,7 +6813,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<923 chars>",
           "content_hash": "<hash>",
@@ -7150,7 +6830,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<248 chars>",
           "content_hash": "<hash>",
@@ -7168,7 +6847,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6965 chars>",
           "content_hash": "<hash>",
@@ -7186,7 +6864,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2872 chars>",
           "content_hash": "<hash>",
@@ -7204,7 +6881,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7483 chars>",
           "content_hash": "<hash>",
@@ -7224,7 +6900,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1527 chars>",
           "content_hash": "<hash>",
@@ -7286,14 +6961,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 2 signing.py cryptographic algorithm validation contract: Merkle inclusion math, checkpoint...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3639 chars>",
           "content_hash": "<hash>",
@@ -7311,7 +6985,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4324 chars>",
           "content_hash": "<hash>",
@@ -7329,7 +7002,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<992 chars>",
           "content_hash": "<hash>",
@@ -7347,7 +7019,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1232 chars>",
           "content_hash": "<hash>",
@@ -7409,14 +7080,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 2 fix round complete",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2496 chars>",
           "content_hash": "<hash>",
@@ -7434,7 +7104,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7173 chars>",
           "content_hash": "<hash>",
@@ -7454,7 +7123,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1419 chars>",
           "content_hash": "<hash>",
@@ -7516,14 +7184,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 3 long-term verification contract tests: trustrootpin behavior, cert validity edge windows,...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2109 chars>",
           "content_hash": "<hash>",
@@ -7541,7 +7208,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3253 chars>",
           "content_hash": "<hash>",
@@ -7559,7 +7225,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7774 chars>",
           "content_hash": "<hash>",
@@ -7579,7 +7244,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1692 chars>",
           "content_hash": "<hash>",
@@ -7642,14 +7306,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 4 fix: cross-impl + encoding. Added CI-safe SKEIN.sign to sigstore-python verifier stand-in...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2381 chars>",
           "content_hash": "<hash>",
@@ -7667,7 +7330,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2542 chars>",
           "content_hash": "<hash>",
@@ -7685,7 +7347,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1940 chars>",
           "content_hash": "<hash>",
@@ -7703,7 +7364,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1687 chars>",
           "content_hash": "<hash>",
@@ -7766,14 +7426,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Unmocked the SKEIN.sign to sigstore-python verification stand-ins by requiring cryptofactory.make...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2916 chars>",
           "content_hash": "<hash>",
@@ -7791,7 +7450,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7420 chars>",
           "content_hash": "<hash>",
@@ -7811,7 +7469,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2269 chars>",
           "content_hash": "<hash>",
@@ -7829,7 +7486,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1686 chars>",
           "content_hash": "<hash>",
@@ -7895,14 +7551,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 5 OIDC + boundary contract tests. Added 48 collected tests: 6 for aud=sigstore validation/n...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4185 chars>",
           "content_hash": "<hash>",
@@ -7920,7 +7575,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2580 chars>",
           "content_hash": "<hash>",
@@ -7938,7 +7592,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1254 chars>",
           "content_hash": "<hash>",
@@ -8004,14 +7657,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 5 fix round: address fell findings",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3299 chars>",
           "content_hash": "<hash>",
@@ -8029,7 +7681,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1405 chars>",
           "content_hash": "<hash>",
@@ -8047,7 +7698,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1261 chars>",
           "content_hash": "<hash>",
@@ -8113,14 +7763,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 5 second fix round: expired-token fixture",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1587 chars>",
           "content_hash": "<hash>",
@@ -8138,7 +7787,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9181 chars>",
           "content_hash": "<hash>",
@@ -8158,7 +7806,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2246 chars>",
           "content_hash": "<hash>",
@@ -8176,7 +7823,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1668 chars>",
           "content_hash": "<hash>",
@@ -8243,14 +7889,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 6 signing contracts: TUF subprocess race, network failure matrix, Unicode hardening, and no...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2820 chars>",
           "content_hash": "<hash>",
@@ -8268,7 +7913,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2090 chars>",
           "content_hash": "<hash>",
@@ -8286,7 +7930,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1421 chars>",
           "content_hash": "<hash>",
@@ -8353,14 +7996,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Batch 6 Unicode identity assertion fix: pinned NFC/NFD, ZWJ, and RTL conditionals per fell findin...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8479 chars>",
           "content_hash": "<hash>",
@@ -8380,7 +8022,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3337 chars>",
           "content_hash": "<hash>",
@@ -8398,7 +8039,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3417 chars>",
           "content_hash": "<hash>",
@@ -8416,7 +8056,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4047 chars>",
           "content_hash": "<hash>",
@@ -8434,7 +8073,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<653 chars>",
           "content_hash": "<hash>",
@@ -8452,7 +8090,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2856 chars>",
           "content_hash": "<hash>",
@@ -8470,7 +8107,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5327 chars>",
           "content_hash": "<hash>",
@@ -8488,7 +8124,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7497 chars>",
           "content_hash": "<hash>",
@@ -8506,7 +8141,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10712 chars>",
           "content_hash": "<hash>",
@@ -8524,7 +8158,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<17019 chars>",
           "content_hash": "<hash>",
@@ -8544,7 +8177,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<455 chars>",
           "content_hash": "<hash>",
@@ -8557,14 +8189,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3: resolve MultiVerifyResult aggregate-status rule for heterogeneous failures",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<358 chars>",
           "content_hash": "<hash>",
@@ -8584,7 +8215,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2709 chars>",
           "content_hash": "<hash>",
@@ -8602,7 +8232,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2824 chars>",
           "content_hash": "<hash>",
@@ -8620,7 +8249,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6902 chars>",
           "content_hash": "<hash>",
@@ -8638,7 +8266,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7228 chars>",
           "content_hash": "<hash>",
@@ -8656,7 +8283,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4997 chars>",
           "content_hash": "<hash>",
@@ -8676,7 +8302,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4570 chars>",
           "content_hash": "<hash>",
@@ -8689,14 +8314,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 prereq: ratify SAN extraction policy or revisit",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4057 chars>",
           "content_hash": "<hash>",
@@ -8709,14 +8333,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 implementation: log unrecognized sigstore-python exceptions",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5895 chars>",
           "content_hash": "<hash>",
@@ -8734,7 +8357,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3517 chars>",
           "content_hash": "<hash>",
@@ -8752,7 +8374,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<21632 chars>",
           "content_hash": "<hash>",
@@ -8772,7 +8393,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<569 chars>",
           "content_hash": "<hash>",
@@ -8790,7 +8410,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<562 chars>",
           "content_hash": "<hash>",
@@ -8813,14 +8432,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 signing.py implementation: 1 commit, 479 passed, 3 staging-skipped, 0 other-skipped; mypy...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<252 chars>",
           "content_hash": "<hash>",
@@ -8838,7 +8456,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<201 chars>",
           "content_hash": "<hash>",
@@ -8856,7 +8473,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<454 chars>",
           "content_hash": "<hash>",
@@ -8867,14 +8483,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "test_property.py test_property_bundle_bit_flip_breaks_verify was too strong — asserted ANY single...",
           "type": "friction"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<362 chars>",
           "content_hash": "<hash>",
@@ -8892,7 +8507,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<258 chars>",
           "content_hash": "<hash>",
@@ -8910,7 +8524,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<519 chars>",
           "content_hash": "<hash>",
@@ -8928,7 +8541,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<534 chars>",
           "content_hash": "<hash>",
@@ -8946,7 +8558,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1729 chars>",
           "content_hash": "<hash>",
@@ -8975,14 +8586,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 signing.py implementation: 2 commits, 478 passed, 3 staging-skipped, 1 xfailed (bundlev3n...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1151 chars>",
           "content_hash": "<hash>",
@@ -9000,7 +8610,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1136 chars>",
           "content_hash": "<hash>",
@@ -9030,14 +8639,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 fix-round: closed A1-A8 + N1-N10 from fell 512fb9bb. pytest tests/test_signing/ -q: 476 p...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<656 chars>",
           "content_hash": "<hash>",
@@ -9068,14 +8676,13 @@
           "omlet": null,
           "site_id": "mesh-v1",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 3 fix-round 2: A8 regression test + py classifier; 477 passed, 5 skipped, 1 xfailed",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4952 chars>",
           "content_hash": "<hash>",
@@ -9093,7 +8700,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9807 chars>",
           "content_hash": "<hash>",
@@ -9113,7 +8719,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3168 chars>",
           "content_hash": "<hash>",
@@ -9124,14 +8729,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 4 baseline discrepancy: tests/conformance is 100% broken at 917ed47 (39 failed)\n\n**Anchor:*...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5572 chars>",
           "content_hash": "<hash>",
@@ -9151,7 +8755,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7213 chars>",
           "content_hash": "<hash>",
@@ -9169,7 +8772,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7644 chars>",
           "content_hash": "<hash>",
@@ -9189,7 +8791,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7113 chars>",
           "content_hash": "<hash>",
@@ -9207,7 +8808,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6399 chars>",
           "content_hash": "<hash>",
@@ -9227,7 +8827,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4714 chars>",
           "content_hash": "<hash>",
@@ -9245,7 +8844,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4495 chars>",
           "content_hash": "<hash>",
@@ -9263,7 +8861,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2939 chars>",
           "content_hash": "<hash>",
@@ -9274,14 +8871,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Actionable (deferred): tighten DER-SET heuristic in _check_sigstore_public_v1_profile — exact pat...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1220 chars>",
           "content_hash": "<hash>",
@@ -9299,7 +8895,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3218 chars>",
           "content_hash": "<hash>",
@@ -9317,7 +8912,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3485 chars>",
           "content_hash": "<hash>",
@@ -9335,7 +8929,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3574 chars>",
           "content_hash": "<hash>",
@@ -9353,7 +8946,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5702 chars>",
           "content_hash": "<hash>",
@@ -9373,7 +8965,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<925 chars>",
           "content_hash": "<hash>",
@@ -9391,7 +8982,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2246 chars>",
           "content_hash": "<hash>",
@@ -9409,7 +8999,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3899 chars>",
           "content_hash": "<hash>",
@@ -9427,7 +9016,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1708 chars>",
           "content_hash": "<hash>",
@@ -9438,14 +9026,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Latent breakage: three @pytest.mark.staging tests calling signing.sign() are unrunnable against r...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3152 chars>",
           "content_hash": "<hash>",
@@ -9463,7 +9050,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9910 chars>",
           "content_hash": "<hash>",
@@ -9483,7 +9069,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3991 chars>",
           "content_hash": "<hash>",
@@ -9496,14 +9081,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Master CI green-pass: test.yml + lint.yml red since 2026-05-19 signing push",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2210 chars>",
           "content_hash": "<hash>",
@@ -9521,7 +9105,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1983 chars>",
           "content_hash": "<hash>",
@@ -9539,7 +9122,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8624 chars>",
           "content_hash": "<hash>",
@@ -9552,14 +9134,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 4 entry — F-pass mid-iteration; 2 outstanding F items (supersedes brief-20260520-gdvx)",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1156 chars>",
           "content_hash": "<hash>",
@@ -9582,14 +9163,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Shard L: fix mediaType null bypass in checksigstorepublicv1profile. Pre-fix, obj.get('mediaType',...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<746 chars>",
           "content_hash": "<hash>",
@@ -9612,14 +9192,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fix buildrekorinclusionproof empty keyid fallback: returns None per contract instead of fabricati...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6196 chars>",
           "content_hash": "<hash>",
@@ -9637,7 +9216,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1472 chars>",
           "content_hash": "<hash>",
@@ -9684,14 +9262,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "ruff format + lint clean: 25 files reformatted (all safe whitespace/line-break changes, no string...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2824 chars>",
           "content_hash": "<hash>",
@@ -9709,7 +9286,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1028 chars>",
           "content_hash": "<hash>",
@@ -9720,14 +9296,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "GitHub Actions: Node.js 20 deprecation hits June 2nd, 2026; Node.js 20 removed from runners Septe...",
           "type": "friction"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<921 chars>",
           "content_hash": "<hash>",
@@ -9750,14 +9325,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 4 §B fix: narrowed 3 handlers in sign() from except BaseException to except Exception so Ke...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1002 chars>",
           "content_hash": "<hash>",
@@ -9775,7 +9349,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<850 chars>",
           "content_hash": "<hash>",
@@ -9798,14 +9371,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 4 §B part 1: added module-load assert enforcing SEVERITYRANK keyset equals VerifyStatus (Or...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1108 chars>",
           "content_hash": "<hash>",
@@ -9828,14 +9400,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Fixed selectverifier unmaterializable era-pin branch (Oracle O-A6): raise TRUSTROOTSTALE instead...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<839 chars>",
           "content_hash": "<hash>",
@@ -9858,14 +9429,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Added WARNING log to classifysignexception catch-all (signing.py:388) mirroring mapsigstoreexcept...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9219 chars>",
           "content_hash": "<hash>",
@@ -9883,7 +9453,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2083 chars>",
           "content_hash": "<hash>",
@@ -9901,7 +9470,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2952 chars>",
           "content_hash": "<hash>",
@@ -9919,7 +9487,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1274 chars>",
           "content_hash": "<hash>",
@@ -9942,14 +9509,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Sign-path identity-extraction fail-closed (N+O from finding-20260520-j4w4). Mirror verify-side gu...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<629 chars>",
           "content_hash": "<hash>",
@@ -9972,14 +9538,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Shard P fix: dropped fabricated 'rekor.sigstore.dev\\n0\\n\\n\\n' checkpoint fallback in buildrekorin...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1175 chars>",
           "content_hash": "<hash>",
@@ -10002,14 +9567,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Shard Q: single-parse refactor in verifysingle (skein/signing.py) closes the profile-check/Bundle...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6023 chars>",
           "content_hash": "<hash>",
@@ -10027,7 +9591,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5292 chars>",
           "content_hash": "<hash>",
@@ -10045,7 +9608,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8123 chars>",
           "content_hash": "<hash>",
@@ -10065,7 +9627,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1851 chars>",
           "content_hash": "<hash>",
@@ -10076,14 +9637,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "A1: canonical_bytes has no max_length validator — design decision needed\n\nSurfaced by oracle roun...",
           "type": "notion"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2303 chars>",
           "content_hash": "<hash>",
@@ -10101,7 +9661,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1398 chars>",
           "content_hash": "<hash>",
@@ -10125,14 +9684,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Shard FEFF: fixed invisible-char blocklist gap. INVISIBLEIDENTITYCHARS missed U+FEFF (BOM) and U+...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<895 chars>",
           "content_hash": "<hash>",
@@ -10157,14 +9715,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "j4w4 round-7 oracle cleanup (A3+A4): (A3) warn on silent Rekor integratedtime floor substitution...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1070 chars>",
           "content_hash": "<hash>",
@@ -10187,14 +9744,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Tighten checksigstorepublicv1profile v0.3 SET-DER loop: inclusionPromise / inclusionProof / signe...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7217 chars>",
           "content_hash": "<hash>",
@@ -10205,14 +9761,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "§D bit-flip matrix probe — EMPIRICAL RESULT: factory drift detector is over-strict\n\n**Scope:** br...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6842 chars>",
           "content_hash": "<hash>",
@@ -10230,7 +9785,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1290 chars>",
           "content_hash": "<hash>",
@@ -10254,14 +9808,13 @@
           "omlet": null,
           "site_id": "mesh-rsps",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Phase 4 §D remediation: tightened canonicaldriftexception to mirror real sigstore-python's bit-fl...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2260 chars>",
           "content_hash": "<hash>",
@@ -10279,7 +9832,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7531 chars>",
           "content_hash": "<hash>",
@@ -10297,7 +9849,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7125 chars>",
           "content_hash": "<hash>",
@@ -10317,7 +9868,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5852 chars>",
           "content_hash": "<hash>",
@@ -10335,7 +9885,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3914 chars>",
           "content_hash": "<hash>",
@@ -10348,14 +9897,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Stale shard triage — walk and cleanup 19 shards",
           "type": "brief"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<490 chars>",
           "content_hash": "<hash>",
@@ -10378,14 +9926,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "canonicalbytes maxlength=2 MiB (notion-20260521-jm2x). Patrick chose 2 MiB as the design value; r...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2454 chars>",
           "content_hash": "<hash>",
@@ -10403,7 +9950,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<692 chars>",
           "content_hash": "<hash>",
@@ -10429,14 +9975,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Default SKEIN server bind 0.0.0.0 → 127.0.0.1. Security hardening: SKEIN has no auth; loopback-by...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4828 chars>",
           "content_hash": "<hash>",
@@ -10454,7 +9999,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<708 chars>",
           "content_hash": "<hash>",
@@ -10479,14 +10023,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "skein folio ID --raw flag for escaping harness output caps (CC/codex/kimi). Adds FOLIOFALLBACKHIN...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<829 chars>",
           "content_hash": "<hash>",
@@ -10512,14 +10055,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Cross-project CLI surface: top-level --project flag (Click group option with envvar SKEINPROJECT)...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<759 chars>",
           "content_hash": "<hash>",
@@ -10542,14 +10084,13 @@
           "omlet": null,
           "site_id": "skein-dev",
           "source_project": null,
-          "status": "complete",
+          "status": "open",
           "target_agent": null,
           "title": "Cross-project breadcrumbs and discovery: --all flag on find/activity/sites/folio queries the proj...",
           "type": "tender"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5035 chars>",
           "content_hash": "<hash>",
@@ -10567,7 +10108,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10911 chars>",
           "content_hash": "<hash>",
@@ -10587,7 +10127,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<1637 chars>",
           "content_hash": "<hash>",
@@ -10605,7 +10144,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<2658 chars>",
           "content_hash": "<hash>",
@@ -10616,14 +10154,13 @@
           "omlet": null,
           "site_id": "interskein",
           "source_project": null,
-          "status": "closed",
+          "status": "open",
           "target_agent": null,
           "title": "Brief j3kh Option A correction — sign-on-federation, not sign-on-post\n\n**Filed by:** prickle-0521...",
           "type": "finding"
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3931 chars>",
           "content_hash": "<hash>",
@@ -10641,7 +10178,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9389 chars>",
           "content_hash": "<hash>",
@@ -10659,7 +10195,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8105 chars>",
           "content_hash": "<hash>",
@@ -10677,7 +10212,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3048 chars>",
           "content_hash": "<hash>",
@@ -10697,7 +10231,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3924 chars>",
           "content_hash": "<hash>",
@@ -10717,7 +10250,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3337 chars>",
           "content_hash": "<hash>",
@@ -10737,7 +10269,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3446 chars>",
           "content_hash": "<hash>",
@@ -10757,7 +10288,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3057 chars>",
           "content_hash": "<hash>",
@@ -10777,7 +10307,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3446 chars>",
           "content_hash": "<hash>",
@@ -10797,7 +10326,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3264 chars>",
           "content_hash": "<hash>",
@@ -10817,7 +10345,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3307 chars>",
           "content_hash": "<hash>",
@@ -10837,7 +10364,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4042 chars>",
           "content_hash": "<hash>",
@@ -10857,7 +10383,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<3549 chars>",
           "content_hash": "<hash>",
@@ -10877,7 +10402,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4224 chars>",
           "content_hash": "<hash>",
@@ -10897,7 +10421,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7225 chars>",
           "content_hash": "<hash>",
@@ -10917,7 +10440,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6896 chars>",
           "content_hash": "<hash>",
@@ -10937,7 +10459,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4391 chars>",
           "content_hash": "<hash>",
@@ -10955,7 +10476,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<423 chars>",
           "content_hash": "<hash>",
@@ -10973,7 +10493,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12144 chars>",
           "content_hash": "<hash>",
@@ -10991,7 +10510,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<12333 chars>",
           "content_hash": "<hash>",
@@ -11011,7 +10529,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<332 chars>",
           "content_hash": "<hash>",
@@ -11029,7 +10546,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<4097 chars>",
           "content_hash": "<hash>",
@@ -11047,7 +10563,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<19704 chars>",
           "content_hash": "<hash>",
@@ -11067,7 +10582,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<14052 chars>",
           "content_hash": "<hash>",
@@ -11085,7 +10599,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<430 chars>",
           "content_hash": "<hash>",
@@ -11103,7 +10616,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8481 chars>",
           "content_hash": "<hash>",
@@ -11121,7 +10633,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10718 chars>",
           "content_hash": "<hash>",
@@ -11141,7 +10652,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<26819 chars>",
           "content_hash": "<hash>",
@@ -11161,7 +10671,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6725 chars>",
           "content_hash": "<hash>",
@@ -11179,7 +10688,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<20836 chars>",
           "content_hash": "<hash>",
@@ -11199,7 +10707,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<10363 chars>",
           "content_hash": "<hash>",
@@ -11219,7 +10726,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<273 chars>",
           "content_hash": "<hash>",
@@ -11237,7 +10743,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6081 chars>",
           "content_hash": "<hash>",
@@ -11255,7 +10760,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<6905 chars>",
           "content_hash": "<hash>",
@@ -11273,7 +10777,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<9958 chars>",
           "content_hash": "<hash>",
@@ -11291,7 +10794,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<26034 chars>",
           "content_hash": "<hash>",
@@ -11311,7 +10813,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<8417 chars>",
           "content_hash": "<hash>",
@@ -11331,7 +10832,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<5719 chars>",
           "content_hash": "<hash>",
@@ -11349,7 +10849,6 @@
         },
         {
           "acknowledged_at": null,
-          "archived": false,
           "assigned_to": null,
           "content": "<7415 chars>",
           "content_hash": "<hash>",

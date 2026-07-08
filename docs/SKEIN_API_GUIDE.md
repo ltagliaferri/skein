@@ -367,8 +367,7 @@ curl "http://localhost:8000/skein/sites/auth-bug-investigation/folios?type=issue
     "title": "Database timeout on user lookup",
     "content": "Users experiencing 30s timeouts...",
     "status": "open",
-    "references": [],
-    "archived": false
+    "references": []
   }
 ]
 ```
@@ -389,6 +388,30 @@ curl "http://localhost:8000/skein/sites/auth-bug-investigation/folios?type=issue
 - `tender` - Agent recommendations for worktree disposition
 - `writ` - Human decisions in response to tenders (mill integration)
 - `playbook` - Documented procedures and playbooks
+
+### Control state (status & assignment) is thread-derived
+
+A folio's `status` and `assigned_to` are **not stored fields** — they are computed
+from control threads and overlaid onto every folio-returning response:
+
+- Status = the content of the most recent `status` thread pointing at the folio
+  (genesis-keyed, so it survives content edits). Absent any status thread, the
+  default is `open`.
+- Assignment = the target of the most recent `assignment` thread from the folio.
+  Absent any assignment thread, `assigned_to` is `null`.
+
+Writes go through threads: `PATCH` with `status`/`assigned_to` creates a `status`
+or `assignment` thread rather than mutating a cache column. The **`""` invariant**
+holds everywhere control is read or written — a *present empty string* is a real
+value that survives, and the defaults above apply only on **absence** (a `null`
+status thread content is distinct from no status thread at all).
+
+The `folio-archived` feature (an `archived` field, the `--archived` CLI flag, and
+the `archived` query parameter) was **removed** 2026-07-08. Requests still passing
+`archived` are silently ignored; responses no longer carry the field.
+
+Refs carry only naming + lineage + local-workflow fields (`site_id`,
+`target_agent`, `omlet`, `acknowledged_at`, `metadata`) — never control state.
 
 ---
 
@@ -436,7 +459,6 @@ Search/filter folios.
 - `site_id` - Filter by site
 - `assigned_to` - Filter by assignee
 - `status` - Filter by status (open, in-progress, completed)
-- `archived` - Include archived (default: false)
 
 **Request:**
 ```bash
@@ -467,7 +489,6 @@ curl http://localhost:8000/skein/folios/issue-20251106-a7b3
   "status": "open",
   "assigned_to": "backend-team",
   "references": [],
-  "archived": false,
   "metadata": {"priority": "high"}
 }
 ```
@@ -512,7 +533,6 @@ Search across folios, threads, agents, and sites in a single request with compre
 - `site` - Exact site match
 - `sites` - Site patterns (supports wildcards, can repeat)
 - `assigned_to` - Filter by assignee
-- `archived` - Include archived (default: `false`)
 
 **Thread-specific filters:**
 - `thread_type` - Thread type (`message`, `mention`, `reference`, etc.)

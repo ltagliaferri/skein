@@ -1,6 +1,5 @@
 """Pytest configuration and fixtures for SKEIN tests."""
 
-import json
 import os
 import sys
 import tempfile
@@ -12,6 +11,8 @@ import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from skein.storage import save_project_registry  # noqa: E402  (needs sys.path above)
 
 
 def pytest_addoption(parser):
@@ -29,36 +30,41 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    """Setup test project registry before tests run."""
-    # Create test project directory
+    """Redirect SKEIN_HOME to a throwaway temp dir and seed the test-project
+    registry THERE, so the suite never reads or writes the real
+    ~/.skein/projects.json (issue-20260709-zl71: the old merge-write clobbered
+    the live registry, deregistering all 50 projects). The redirect is an
+    environment variable, not a monkeypatch, so a server spawned as a subprocess
+    inherits it; it is set here, before any fixture runs, so every test — in
+    process or subprocess — resolves the sandbox home.
+    """
+    test_home = Path(tempfile.mkdtemp(prefix="skein_home_test_"))
+    os.environ["SKEIN_HOME"] = str(test_home)
+    config._skein_test_home = test_home  # for pytest_unconfigure cleanup
+
+    # Test project data dir (a fixed path other tests reference).
     test_project_dir = Path("/tmp/skein-test/.skein/data")
     test_project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create global registry
-    skein_home = Path.home() / ".skein"
-    skein_home.mkdir(exist_ok=True)
+    # Seed the registry in the sandbox home via the atomic writer.
+    save_project_registry(
+        {
+            "projects": {
+                "test-project": {
+                    "data_dir": str(test_project_dir),
+                    "name": "test-project",
+                }
+            }
+        }
+    )
 
-    registry_file = skein_home / "projects.json"
 
-    # Load existing registry or create new
-    if registry_file.exists():
-        with open(registry_file) as f:
-            registry = json.load(f)
-    else:
-        registry = {"projects": {}}
-
-    # Add test project
-    registry["projects"]["test-project"] = {
-        "data_dir": str(test_project_dir),
-        "name": "test-project",
-    }
-
-    # Save registry (skip if read-only filesystem, e.g. shard worktree)
-    try:
-        with open(registry_file, "w") as f:
-            json.dump(registry, f, indent=2)
-    except OSError:
-        pass
+def pytest_unconfigure(config):
+    """Remove the throwaway SKEIN_HOME created in pytest_configure."""
+    test_home = getattr(config, "_skein_test_home", None)
+    if test_home is not None:
+        shutil.rmtree(test_home, ignore_errors=True)
+        os.environ.pop("SKEIN_HOME", None)
 
 
 @pytest.fixture

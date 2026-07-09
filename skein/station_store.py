@@ -62,10 +62,12 @@ DB_FILENAME = "skein.db"
 BUSY_TIMEOUT_MS = 5000
 
 
-# bundle_hash_for is re-homed here (from skein_next/store.py) as the ONE shared
-# verify_cache-key helper both the ingress writer and the read reader import (VC11);
-# the re-homed ``envelope.folio_verdict`` reads it from this module. The function
-# itself (docstring + body) is ported byte-for-byte from skein_next below.
+# bundle_hash_for is re-homed here (from skein_next/store.py) as the shared
+# verify_cache-key helper (VC11). The re-homed ``envelope.folio_verdict`` reads it
+# from this module; the re-homed ingress writer will import the same copy when it
+# lands (Stage 3). Until then skein_next/ingress.py keeps its own byte-identical
+# copy on the live path — keep the two in lockstep until skein_next is retired.
+# The function itself (docstring + body) is ported byte-for-byte from skein_next below.
 def bundle_hash_for(bundle_json: str) -> str:
     """The verify_cache bundle key: sha256 over a manifest's stored bundle_json.
 

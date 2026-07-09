@@ -35,6 +35,15 @@ proof level: ``content_hash`` binds the body, ``signature_bundle`` is ``null``
 for unsigned folios. The two live signed docs carry their bundle and the
 station's display verdict; the strict, domain-separated verification path and
 re-signing under the profile are slice 2.
+
+Station re-home Stage 2 boundary: ``folio_verdict`` and ``build_folio_envelope``
+call federation store accessors — ``get_constituent_proof``, ``verify_cache_get``,
+``get_binding`` — that the Stage-1 ``StationStore`` does NOT yet expose (those
+accessors ride with the read server in Stage 3+). Both functions are re-homed as
+code here but are NOT wired or exercised in Stage 2; calling them against a bare
+StationStore raises ``AttributeError`` by design until the accessors land. The
+store-free surface (``validate_envelope``, ``folio_entry``, the collection/error
+builders) is live now.
 """
 
 from __future__ import annotations
@@ -42,13 +51,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional
 
+from .profile import CANON_PROFILE_V1
+
 SCHEMA = "skein.envelope/v1"
 
 # The signed-preimage profile (§3): names the trust domain, object kind, and
 # canonicalization version in one token. At integrity level it still names the
 # canonicalization that produced ``content_hash``; at authorship level it is the
-# string bound into the signature (slice 2).
-CANON_PROFILE = "skein.folio.canon/v1"
+# string bound into the signature (slice 2). Sourced from the profile registry
+# (skein/profile.py) — the ONE place the folio profile string lives — so a
+# revision there flows through to every envelope's advertised proof.profile.
+CANON_PROFILE = CANON_PROFILE_V1
 
 # The five canonical folio fields, in nothing-but-these order (canon sorts keys;
 # this is for readers and for slicing a folio row down to its body).

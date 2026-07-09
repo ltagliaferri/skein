@@ -142,6 +142,10 @@ extend-exclude = ["docs"]
 # E741's ambiguous-name rule would only obscure the correspondence to the vectors
 # under test. Scope the ignore to those tests, not the package.
 "skein_next/tests/*" = ["E741"]
+# The re-homed station merkle test (ported verbatim from skein_next/tests/
+# test_manifest.py) carries the same l / r left/right merkle notation — same
+# rationale as the skein_next exemption above.
+"tests/test_station_manifest.py" = ["E741"]
 
 [tool.mypy]
 python_version = "3.10"

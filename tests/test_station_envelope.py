@@ -14,6 +14,13 @@ from __future__ import annotations
 import pytest
 
 from skein import envelope as env_mod
+from skein import profile
+
+
+def test_canon_profile_is_sourced_from_the_profile_registry():
+    # envelope's advertised proof.profile must be the ONE registry string, not a
+    # third hardcoded copy — so revising profile.CANON_PROFILE_V1 flows through.
+    assert env_mod.CANON_PROFILE == profile.CANON_PROFILE_V1 == "skein.folio.canon/v1"
 
 
 # --- validate_envelope ------------------------------------------------------

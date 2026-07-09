@@ -132,9 +132,14 @@ Verifier = Callable[[bytes, Any], "signing.MultiVerifyResult"]
 # hostile declared leaf_count. (Was 1_000_000 — far too loose for a public
 # endpoint; oracle flagged it both Phase-4 hardening rounds.)
 #
-# Public so the SIGNER side (publish.py) can fail fast against the SAME cap
-# before the irreversible Sigstore ceremony, instead of burning a Rekor entry on
-# a batch the verifier will reject. One source of truth for both sides.
+# Public so the SIGNER side can fail fast against the SAME cap before the
+# irreversible Sigstore ceremony, instead of burning a Rekor entry on a batch the
+# verifier will reject. NOTE (station re-home): skein/publish.py:39 still carries
+# its OWN MAX_LEAVES copy from the Phase-4 publish re-home — this is not yet the
+# single source of truth across both sides. Consolidating the signer (publish.py)
+# onto this constant is deferred to the fork-consolidation work (design §10 #1);
+# until then the two MUST stay in lockstep (both 2048) or a client publish can pass
+# publish.py's stale fail-fast check and burn a ceremony the verifier then rejects.
 MAX_LEAVES = 2048
 
 

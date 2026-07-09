@@ -947,10 +947,10 @@ class StationStore:
         container races ahead of the ingress migration, or new code serves an
         un-migrated corpus.
 
-        The degrade is SCOPED TO READ-ONLY stores. A read_write store ALWAYS runs
-        the schema migration on open (executescript), so a missing table there is a
-        genuine fault — not a deploy-ordering race — and must RAISE rather than be
-        silently masked. Only the read app (``read_only=True``) can legitimately
+        The degrade is SCOPED TO READ-ONLY stores. A read_write store ALWAYS ensures
+        the schema on open (``LogDatabase(station=True)`` births the station DDL), so a
+        missing table there is a genuine fault — not a deploy-ordering race — and must
+        RAISE rather than be silently masked. Only the read app (``read_only=True``) can legitimately
         face an un-migrated/old corpus and degrade. ONLY the missing-table case
         degrades (and only read-only); any other OperationalError ("database is
         locked", I/O error, a SQL bug) is a real fault that masquerading as "no

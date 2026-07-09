@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set
@@ -380,7 +381,31 @@ class PublishError(RuntimeError):
 
 
 def canonical_instance(url: str) -> str:
-    return url.rstrip("/")
+    """Canonical identity for a publish/redeem target, so cosmetic URL variants collapse.
+
+    The instance identifier is used as the publish endpoint AND (via the ingress)
+    as the redeem-origin the collaborator's token-bound proof is signed over: the
+    station reconstructs the redeem challenge with its OWN configured origin run
+    through THIS normalizer, so it must match the collaborator's canonicalization
+    byte-for-byte or every redeem SIGNATURE_MISMATCHes. Canonicalize once —
+    lowercase scheme+host, drop default ports and a trailing slash — so one
+    instance is one identity. (Re-homed from skein_next/publish.py, station re-home
+    Stage 3 §3; this replaces the Phase-4 rstrip-only stub, which under-collapsed a
+    ``:443`` / uppercased origin.)
+    """
+    parts = urllib.parse.urlsplit(url.strip())
+    scheme = parts.scheme.lower()
+    host = (parts.hostname or "").lower()
+    # Re-bracket an IPv6 literal so the netloc reparses (hostname strips the [ ]).
+    if ":" in host:
+        host = f"[{host}]"
+    port = parts.port
+    if port is not None and not (
+        (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    ):
+        host = f"{host}:{port}"
+    path = parts.path.rstrip("/")
+    return urllib.parse.urlunsplit((scheme, host, path, "", ""))
 
 
 def post_batch(instance_url: str, batch: Dict[str, Any], timeout: float = 30.0) -> Dict[str, Any]:

@@ -173,10 +173,16 @@ def test_thread_dedup_on_hash(stores):
 
 def test_station_thread_dict_has_thread_id(stores):
     station, _, h = stores
-    row = station.get_thread(station.save_thread(from_id=h["finding"], to_id=h["site"],
-                                                 type="within", created_at=THREAD_CREATED))
+    th1 = station.save_thread(from_id=h["note"], to_id=h["note"], type="status",
+                              weaver="a", created_at="2026-03-01T00:00:00+00:00", content="wip")
+    row = station.get_thread(th1)
     assert row["thread_id"]  # audit column present, non-null
-    assert row["thread_id"]  # not part of the content hash (dedup unaffected — see above)
+    # thread_id is generated fresh per call but is NOT in the content hash: re-saving the
+    # same wire thread returns the same hash (so it dedups) and keeps the first thread_id.
+    th2 = station.save_thread(from_id=h["note"], to_id=h["note"], type="status",
+                              weaver="a", created_at="2026-03-01T00:00:00+00:00", content="wip")
+    assert th2 == th1
+    assert station.get_thread(th2)["thread_id"] == row["thread_id"]
 
 
 # ── strict-null narrowing (intentional divergence from skein_next) ───────────────
@@ -242,6 +248,72 @@ def test_read_only_open_does_no_ddl_and_reads():
         # read-only open on a nonexistent corpus must fail, not birth one
         with pytest.raises(Exception):
             StationStore(db_path=d / "absent.db", read_only=True)
+    finally:
+        shutil.rmtree(d)
+
+
+def test_read_only_open_with_special_char_in_path():
+    # A '#' or '?' in the path (ticket / versioned dir names) must not break the file: URI.
+    d = Path(tempfile.mkdtemp())
+    try:
+        dbp = d / "tick#1?v2" / "skein.db"
+        w = StationStore(db_path=dbp)
+        ch = w.create_folio(FOLIOS["issue"])
+        w.close()
+        ro = StationStore(db_path=dbp, read_only=True)
+        assert ro.get_folio(ch) is not None
+        ro.close()
+    finally:
+        shutil.rmtree(d)
+
+
+def test_rejects_workbench_db():
+    # A workbench (pre-swap) db at the station's default filename must be refused, not
+    # silently run with dedup broken.
+    d = Path(tempfile.mkdtemp())
+    try:
+        from skein.storage import LogDatabase
+        p = d / "skein.db"
+        LogDatabase(p)  # a workbench db (pre-swap threads, thread_id PK)
+        with pytest.raises(ValueError, match="post-swap threads"):
+            StationStore(db_path=p)
+    finally:
+        shutil.rmtree(d)
+
+
+def test_second_writer_while_first_open_does_not_crash():
+    # Two StationStore(write) on the same corpus (e.g. concurrent ingress workers): the
+    # second construction must NOT 'database is locked' on a journal-mode flip.
+    d = Path(tempfile.mkdtemp())
+    try:
+        p = d / "skein.db"
+        a = StationStore(db_path=p)
+        a.create_folio(FOLIOS["issue"])
+        b = StationStore(db_path=p)  # first still open
+        assert b.get_folio(a.create_folio(FOLIOS["finding"])) is not None
+        a.close()
+        b.close()
+    finally:
+        shutil.rmtree(d)
+
+
+def test_savepoint_requires_transaction():
+    # savepoint() outside transaction() would silently commit; it must fail loudly.
+    d = Path(tempfile.mkdtemp())
+    try:
+        s = StationStore(db_path=d / "skein.db")
+        with pytest.raises(RuntimeError, match="transaction"):
+            with s.savepoint():
+                pass
+        # inside a transaction it works, and rolls back only its own item
+        before = s.count_folios()
+        with pytest.raises(RuntimeError):
+            with s.transaction():
+                with s.savepoint():
+                    s.create_folio(FOLIOS["issue"])
+                    raise RuntimeError("boom")
+        assert s.count_folios() == before  # the item rolled back
+        s.close()
     finally:
         shutil.rmtree(d)
 

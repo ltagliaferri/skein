@@ -24,10 +24,17 @@ shared tables. Later stages re-point the ingress/read servers at it in place of
 ``NOT NULL`` on the structural canonical columns. The station therefore REQUIRES those
 fields non-null (folio: type/title/content/created_at/created_by; thread:
 from_id/to_id/type/created_at — weaver and content stay nullable) and raises
-``ValueError`` on a null one, which the ingress catches and reports as ``"invalid
-fields"`` (it never 500s). This is a deliberate, tested narrowing vs skein_next: safe
+``ValueError`` on a null one. This is a deliberate, tested narrowing vs skein_next: safe
 because the only in-scope producer (a workbench publisher) reads its own ``NOT NULL``
 columns onto the wire, so a conforming publish never carries the forbidden nulls.
+
+Exception surface: the null guard raises ``ValueError``; a NON-null but wrong-typed field
+(e.g. an int title, a non-datetime ``created_at``) raises canon's own ``CanonError`` /
+``TypeError`` from the hash step that runs first. This never breaks the "never 500s"
+posture because the re-homed ingress runs the total ``wire.*_reject_reason`` gate before
+this store AND wraps the write in ``except Exception -> "invalid fields"`` — it catches
+ANY exception, not only ``ValueError``. Callers must not narrow that catch to
+``ValueError`` alone.
 
 This module covers Stage 1b (folio/thread/alias accessors) and 1c (``latest_statuses`` +
 the genesis-anchored ``station_slugs`` derived-head resolver). Federation-table accessors
@@ -39,6 +46,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
+from urllib.parse import quote
 
 from .identity import compute_folio_hash, compute_thread_hash, normalize_created_at
 from .storage import LogDatabase
@@ -128,27 +136,45 @@ class StationStore:
             self.conn = self._connect_read_only(check_same_thread)
         else:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            # Birth/ensure the schema via the SINGLE DDL owner (LogDatabase, station
-            # role) so there is exactly one schema definition. LogDatabase opens a WAL
-            # connection; we then run our own rollback-journal connection below.
+            # Birth/ensure the schema via the SINGLE DDL owner (LogDatabase, station role)
+            # so there is exactly one schema definition. A station db is born
+            # rollback-journal (LogDatabase._init_connection), so this connection and the
+            # served corpus stay rollback-journal with no WAL↔rollback flip (which would
+            # 'database is locked' under concurrent construction).
             LogDatabase(self.db_path, station=True)
             self.conn = sqlite3.connect(str(self.db_path), check_same_thread=check_same_thread)
             self.conn.row_factory = sqlite3.Row
             self.conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
             # Enforced from the first write (the constituent_attribution FK); MUST be set
-            # outside any transaction, before DDL/writes.
+            # outside any transaction, before writes.
             self.conn.execute("PRAGMA foreign_keys=ON")
-            # A station corpus is served ``:ro`` (rollback-journal); WAL needs -wal/-shm
-            # sidecars a read-only mount can't create. The DDL owner opened WAL, so switch
-            # the file back to a rollback journal here. Idempotent (no-op if already so).
-            self.conn.execute("PRAGMA journal_mode=DELETE")
+        # Refuse a workbench (pre-swap) db: a station uses the SAME default filename
+        # (data_dir/skein.db) LogDatabase does, and CREATE TABLE IF NOT EXISTS is a no-op
+        # on an existing pre-swap threads table — where thread_id is still the PK, so
+        # save_thread's INSERT OR IGNORE on thread_hash never dedups and re-received wire
+        # threads silently duplicate. Fail loudly instead of corrupting the corpus.
+        self._assert_post_swap_threads()
         self._in_batch = False
         self._sp_counter = 0
+
+    def _assert_post_swap_threads(self) -> None:
+        """The threads table must be POST-swap (thread_hash PK) — the content-address
+        dedup save_thread relies on. A pre-swap (workbench) table has thread_id as the PK
+        and would silently defeat dedup."""
+        pk = [r["name"] for r in self.conn.execute("PRAGMA table_info(threads)") if r["pk"]]
+        if pk != ["thread_hash"]:
+            raise ValueError(
+                f"StationStore requires a post-swap threads table (thread_hash PK); "
+                f"{self.db_path} has PK {pk or 'none'} — is this a workbench db?"
+            )
 
     def _connect_read_only(self, check_same_thread: bool) -> sqlite3.Connection:
         """Open the corpus read-only, never writing it. Tries ``mode=ro`` (WAL-aware)
         then ``immutable=1`` (a read-only filesystem where SQLite can't create sidecars)."""
-        p = str(self.db_path)
+        # Percent-encode the path into the file: URI (keeping '/' as the separator): a raw
+        # path with '#' or '?' (ticket numbers, versioned dir names) otherwise starts a URI
+        # fragment/query and SQLite silently opens a truncated, wrong path.
+        p = quote(str(self.db_path), safe="/")
         last_err: Optional[Exception] = None
         for uri in (f"file:{p}?mode=ro", f"file:{p}?immutable=1"):
             conn: Optional[sqlite3.Connection] = None
@@ -211,7 +237,15 @@ class StationStore:
     def savepoint(self) -> Iterator[None]:
         """A nested SAVEPOINT for per-item isolation inside a batch (ported from
         skein_next). A block that raises rolls back only its writes, then re-raises — so
-        the ingress can reject one item and let its siblings commit. Re-entrant."""
+        the ingress can reject one item and let its siblings commit. Re-entrant.
+
+        MUST be nested inside :meth:`transaction`. Standalone, a write's own
+        ``_maybe_commit`` would COMMIT (releasing every open savepoint) inside the block,
+        so the rollback would then fail with 'no such savepoint' AND the write would be
+        permanently committed — the opposite of isolation. Guarded so misuse fails loudly
+        rather than silently committing a rejected item."""
+        if not self._in_batch:
+            raise RuntimeError("savepoint() must be used inside transaction()")
         self._sp_counter += 1
         name = f"sp_{self._sp_counter}"
         self.conn.execute(f"SAVEPOINT {name}")
@@ -532,9 +566,14 @@ class StationStore:
         versions the station holds. A ``supersedes`` edge is ``(from_id=new, to_id=old)``,
         so a version's successor is the ``from_id`` of a ``supersedes`` thread whose
         ``to_id`` is that version. A version with no HELD successor is a head (iff the
-        station holds it). Usually one head; a fork (two signed supersedes children) yields
-        two — resolution surfaces the fork, never a silent winner. Terminates on cycles via
-        the seen-set (a signed graph should be acyclic; the guard is defensive)."""
+        station holds it). Usually one head; a fork (two supersedes children) yields two —
+        resolution surfaces the fork, never a silent winner. Terminates on cycles via the
+        seen-set (a well-formed graph should be acyclic; the guard is defensive).
+
+        This resolver does NOT verify signatures — it reduces over whatever ``supersedes``
+        edges the station HOLDS. Signature/admission (only signed supersedes edges enter
+        the store) is the ingress/verify stage's responsibility, upstream of here; a
+        forged edge must be rejected at admission, not detected in resolution."""
         heads: List[str] = []
         seen: set = set()
         stack = [anchor_hash]

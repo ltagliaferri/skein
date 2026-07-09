@@ -368,9 +368,33 @@ class LogDatabase:
         self.station = station
         self._init_db()
 
+    @contextmanager
+    def _init_connection(self):
+        """The connection used to BIRTH the schema.
+
+        A workbench db is born WAL (identical to :meth:`_get_connection`). A STATION db is
+        born ROLLBACK-JOURNAL so it can be served ``:ro`` (WAL needs ``-wal``/``-shm``
+        sidecars a read-only mount can't create) AND so ``StationStore`` never has to flip
+        the journal mode afterwards — a WAL→rollback flip raises ``database is locked``
+        immediately when any other connection is open (``busy_timeout`` does not cover that
+        lock class), which would crash a second station opening the same corpus. A
+        ``busy_timeout`` here lets concurrent station births serialize on the idempotent
+        ``CREATE TABLE IF NOT EXISTS`` instead of failing instantly.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=10)
+        conn.row_factory = sqlite3.Row
+        if self.station:
+            conn.execute("PRAGMA busy_timeout=5000")
+        else:
+            conn.execute("PRAGMA journal_mode=WAL")
+        try:
+            yield conn
+        finally:
+            conn.close()
+
     def _init_db(self):
         """Initialize database schema."""
-        with self._get_connection() as conn:
+        with self._init_connection() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS logs (

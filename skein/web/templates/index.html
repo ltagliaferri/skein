@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{#
+  index.html — the catalog, rendered from the catalog collection envelope.
+  `env.body` is the recent-folios entry list; `env.asserted.sites` is the site
+  list with counts; `env.asserted.total_folios` is the corpus total.
+#}
+{% set asserted = env.asserted %}
+{% block title %}{{ station.name }}{% endblock %}
+{% block head_extra %}
+  <link rel="alternate" type="text/markdown" href="/.md">
+  <link rel="alternate" type="application/json" href="/.json">
+{% endblock %}
+{% block content %}
+<main id="main" class="skein-page">
+  <h1>{{ station.name }}</h1>
+  {% if station.tagline %}<p class="tagline">{{ station.tagline }}</p>{% endif %}
+  <p class="meta">{{ asserted.total_folios }} folios across {{ asserted.sites | length }} sites.</p>
+
+  <section class="index-section" aria-label="sites">
+    <h2 class="section-heading">Sites</h2>
+    <ul class="site-list">
+      {% for site in asserted.sites %}
+      <li>
+        <a href="{{ site.href }}">{{ site.slug }}</a>
+        <span class="meta">— <span class="count">{{ site.count }}</span> folios</span>
+      </li>
+      {% else %}
+      <li class="meta">No sites yet.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="index-section" aria-label="recent folios">
+    <h2 class="section-heading">Recent folios</h2>
+    <ul class="entry-list">
+      {% for e in env.body %}
+      <li class="entry">
+        <span class="type-tag">{{ e.type }}</span>
+        <a href="{{ e.href }}">{{ e.title | clean_title(e.address) }}</a>
+        <div class="meta cryptography">{{ e.address }}</div>
+      </li>
+      {% else %}
+      <li class="meta">No folios yet.</li>
+      {% endfor %}
+    </ul>
+  </section>
+</main>
+{% endblock %}

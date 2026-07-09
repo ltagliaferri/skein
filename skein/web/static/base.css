@@ -1,0 +1,161 @@
+/* base.css — the shared structural skeleton + the token surface.
+ *
+ * brief-20260603-s4gq (layer 3). This sheet ships with EVERY page; a theme
+ * (ulm.css / classic.css / a custom sheet) layers on top of it. It owns three
+ * things and nothing visual beyond them:
+ *
+ *   1. The token surface — the CSS custom properties on :root that the
+ *      stationfile `tokens` override (the no-CSS path) and that themes read.
+ *   2. The structural contract — the WIRE is the ordering guarantee, not CSS. The
+ *      templates emit content-first source order (the folio body before chrome)
+ *      and this sheet does not reorder it; `reading-flow: source-order` defends
+ *      that for focus/AT even if a theme grid-reorders the visual layout. CSS is
+ *      presentation, never the source order an agent or screen reader walks. The
+ *      stable class hooks below are the theming contract: a theme targets them and
+ *      we promise not to rename them.
+ *   3. A minimal reset so themes start from the same baseline.
+ *
+ * The stable hooks (do not rename — themes depend on these):
+ *   .station-header .station-name .station-nav .station-footer .station-logo
+ *   .tagline .breadcrumb .skip-link
+ *   .skein-page .skein-folio .folio-header .folio-body .folio-meta .prose
+ *   .type-tag .metadata .cryptography
+ *   .provenance (+ --verified/--invalid/--unverified/--unsigned) .verdict .disclaimer
+ *   .threads .threads-out .threads-in .threads-more .lineage .peer-address
+ *   .hatnote .for-agents .toc .section-heading .count
+ *   .entry-list .entry .snippet .site-list .site-filter .search-form
+ */
+
+/* The token palettes live in a cascade layer so the stationfile's inline
+ * `<style>:root { … }</style>` override (emitted UNLAYERED in base.html) always
+ * wins, honoring the contract "a token always beats the theme default" — even
+ * over the OS-dark rule below, whose `:root:not([data-theme])` selector would
+ * otherwise out-specify a plain inline `:root` (0,2,0 vs 0,1,0). Unlayered beats
+ * layered regardless of specificity, so the operator's accent survives OS-dark.
+ * Within the layer the relative specificity is unchanged, so the theme-selection
+ * logic (explicit data-theme wins; else OS preference; else light) still holds. */
+@layer skein-tokens {
+:root {
+  /* Grayscale + one accent set (green=verified, amber=wrapped, red=invalid).
+   * Color never does structural work — size and weight do. */
+  --fg: #111;
+  --bg: #fff;
+  --muted: #555;
+  --rule: #ccc;
+  --link: #0b3d91;
+  --accent: #0a7d3b;       /* verified — dark green */
+  --accent-warn: #9a6a00;  /* wrapped / unverified — amber */
+  --accent-bad: #a11; /* invalid signature — red */
+
+  --code-bg: #f6f6f6;      /* code block / pre fill */
+  --hairline: #eee;        /* list-row separators (lighter than --rule) */
+  --focus: var(--link);    /* keyboard focus ring (follows the link accent) */
+
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --maxw: 44rem;
+  --gap: 1rem;
+}
+
+/* The dark palette. Applied two ways (theming rev 3 O2): an explicit stationfile
+ * default_theme="dark" always wins (the [data-theme] selector); absent any
+ * operator override, the OS preference drives it and light is the fallback. The
+ * token group is duplicated because a media query and an attribute selector can't
+ * be folded into one rule. */
+[data-theme="dark"] {
+  --fg: #e8e8e8;
+  --bg: #121212;
+  --muted: #9a9a9a;
+  --rule: #333;
+  --link: #6ea8fe;
+  --accent: #4caf76;
+  --accent-warn: #d0a23a;
+  --accent-bad: #e26d6d;
+  --code-bg: #1c1c1c;
+  --hairline: #222;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* OS dark + the operator set no explicit theme. :not([data-theme]) so an
+   * explicit light/dark override always wins over the OS preference. */
+  :root:not([data-theme]) {
+    --fg: #e8e8e8;
+    --bg: #121212;
+    --muted: #9a9a9a;
+    --rule: #333;
+    --link: #6ea8fe;
+    --accent: #4caf76;
+    --accent-warn: #d0a23a;
+    --accent-bad: #e26d6d;
+    --code-bg: #1c1c1c;
+    --hairline: #222;
+  }
+}
+}  /* @layer skein-tokens */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font-body);
+  line-height: 1.5;
+}
+
+/* Cryptographic-artifact marker: hashes, signatures, addresses, profile strings.
+ * Monospace says "this is a cryptographic artifact," not the page vibe. */
+.cryptography, code, pre, .address {
+  font-family: var(--font-mono);
+}
+
+.cryptography, .address { word-break: break-all; }
+
+a { color: var(--link); }
+
+/* A visible, tokenized keyboard focus ring on every interactive element (the base
+ * a11y floor an operator inherits unless they actively strip it). */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Skip-link: first in source on every page, off-screen until focused, then it
+ * lands on the page's <main id="main">. */
+.skip-link {
+  position: absolute;
+  left: 0; top: -3rem;
+  background: var(--bg);
+  color: var(--link);
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--rule);
+  z-index: 10;
+}
+.skip-link:focus { top: 0; }
+
+/* The structural wrapper hooks exist on every page so themes can target them
+ * even before they carry theme-specific rules. `reading-flow: source-order` pins
+ * focus/AT order to the DOM even under a grid-reordering theme (a no-op where
+ * unsupported or where the container isn't a flex/grid). */
+.skein-page { display: block; reading-flow: source-order; }
+.skein-folio { display: block; }
+.folio-body { display: block; }
+
+/* Provenance state is conveyed by a modifier class, never color alone — the
+ * label text ("SIGNED — … (verified)", "SIGNATURE INVALID — …") carries the
+ * meaning; the accent is reinforcement. */
+.provenance--verified { --prov: var(--accent); }
+.provenance--invalid { --prov: var(--accent-bad); }
+.provenance--unverified { --prov: var(--accent-warn); }
+.provenance--unsigned { --prov: var(--muted); }
+
+/* A visually-hidden helper for screen-reader-only labels (the structured path
+ * stays first-class; this just lets a theme hide a redundant visible label
+ * without removing it from the accessibility tree). */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}

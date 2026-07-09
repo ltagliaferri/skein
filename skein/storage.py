@@ -150,10 +150,15 @@ def skein_home() -> Path:
     return Path(override) if override else Path.home() / ".skein"
 
 
-# A timestamped registry backup is exactly ``projects.json.bak-YYYYmmdd-HHMMSS``.
-# Only these are pruned; manually-named backups (``.bak-fix``, ``.bak-pre-gnomon``)
-# never match this pattern and are left untouched.
-_REGISTRY_BACKUP_RE = re.compile(r"\.bak-\d{8}-\d{6}$")
+# A timestamped registry backup is exactly
+# ``projects.json.bak-YYYYmmdd-HHMMSS-ffffff`` — microseconds included so two saves
+# within the SAME UTC second stamp DISTINCT backups. Without them a same-second
+# double-save collides on one name and shutil.copy2 silently overwrites the good
+# pre-image, defeating the backup. The %f field is zero-padded to a fixed six
+# digits, so the whole stamp still sorts lexically in chronological order for the
+# prune. Only these are pruned; manually-named backups (``.bak-fix``,
+# ``.bak-pre-gnomon``) never match this pattern and are left untouched.
+_REGISTRY_BACKUP_RE = re.compile(r"\.bak-\d{8}-\d{6}-\d{6}$")
 _REGISTRY_BACKUP_KEEP = 5
 
 
@@ -184,8 +189,8 @@ def save_project_registry(data: Dict[str, Any]) -> None:
     bound the damage:
 
       1. If the registry already exists, snapshot it to
-         ``projects.json.bak-<UTC YYYYmmdd-HHMMSS>`` in the same directory first,
-         then prune those timestamped snapshots to the newest
+         ``projects.json.bak-<UTC YYYYmmdd-HHMMSS-ffffff>`` in the same directory
+         first, then prune those timestamped snapshots to the newest
          ``_REGISTRY_BACKUP_KEEP``. Manually-named backups are spared.
       2. Write the new content to a UNIQUE temp file in the SAME directory (same
          filesystem, so the rename is atomic) and ``os.replace`` it onto
@@ -200,9 +205,12 @@ def save_project_registry(data: Dict[str, Any]) -> None:
     home.mkdir(parents=True, exist_ok=True)
     registry_file = home / "projects.json"
 
-    # (1) Snapshot the current file before touching it, then prune.
+    # (1) Snapshot the current file before touching it, then prune. Microseconds
+    # (%f) go into the stamp so a same-second double-save stages to two distinct
+    # backups instead of colliding — the zero-padded field keeps name order ==
+    # time order for the prune.
     if registry_file.exists():
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
         backup = registry_file.with_name(f"{registry_file.name}.bak-{stamp}")
         shutil.copy2(registry_file, backup)
         _prune_registry_backups(registry_file)

@@ -38,6 +38,10 @@ def pytest_configure(config):
     inherits it; it is set here, before any fixture runs, so every test — in
     process or subprocess — resolves the sandbox home.
     """
+    # Remember any pre-existing SKEIN_HOME so pytest_unconfigure can restore the
+    # user's value instead of unconditionally deleting it (a developer who exported
+    # SKEIN_HOME before running the suite keeps their setting afterward).
+    config._skein_prev_home = os.environ.get("SKEIN_HOME")
     test_home = Path(tempfile.mkdtemp(prefix="skein_home_test_"))
     os.environ["SKEIN_HOME"] = str(test_home)
     config._skein_test_home = test_home  # for pytest_unconfigure cleanup
@@ -60,10 +64,15 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    """Remove the throwaway SKEIN_HOME created in pytest_configure."""
+    """Remove the throwaway SKEIN_HOME created in pytest_configure and restore the
+    user's original SKEIN_HOME (or unset it if they had none)."""
     test_home = getattr(config, "_skein_test_home", None)
     if test_home is not None:
         shutil.rmtree(test_home, ignore_errors=True)
+    prev_home = getattr(config, "_skein_prev_home", None)
+    if prev_home is not None:
+        os.environ["SKEIN_HOME"] = prev_home
+    else:
         os.environ.pop("SKEIN_HOME", None)
 
 

@@ -117,6 +117,40 @@ def test_save_backs_up_previous_on_overwrite(monkeypatch, tmp_path):
     assert snap["projects"] == _registry("v1")["projects"]
 
 
+def test_save_same_second_double_save_distinct_backups(monkeypatch, tmp_path):
+    """Two saves within the SAME UTC second must snapshot to two DISTINCT backups,
+    not collide on one name (which would let shutil.copy2 overwrite the good
+    pre-image). Freeze the clock to one second with incrementing microseconds so the
+    only thing distinguishing the two stamps is the %f field."""
+    from datetime import datetime as _dt, timezone as _tz
+
+    monkeypatch.setenv("SKEIN_HOME", str(tmp_path))
+    save_project_registry(_registry("v1"))  # first write: creates the file, no backup
+
+    base = _dt(2026, 7, 9, 12, 0, 0, tzinfo=_tz.utc)
+    micros = iter([100000, 200000])  # same second, two different microsecond values
+
+    class _FrozenClock:
+        @staticmethod
+        def now(tz=None):
+            return base.replace(microsecond=next(micros))
+
+    monkeypatch.setattr(storage_mod, "datetime", _FrozenClock)
+
+    save_project_registry(_registry("v2"))  # snapshots v1 at ...120000-100000
+    save_project_registry(_registry("v3"))  # snapshots v2 at ...120000-200000
+
+    backups = _stamped_backups(tmp_path)
+    assert len(backups) == 2  # distinct names, neither overwrote the other
+    assert backups == [
+        "projects.json.bak-20260709-120000-100000",
+        "projects.json.bak-20260709-120000-200000",
+    ]
+    # The first backup still holds v1 — the second save did NOT destroy it.
+    v1_snap = json.loads((tmp_path / backups[0]).read_text())
+    assert v1_snap["projects"] == _registry("v1")["projects"]
+
+
 def test_save_atomic_never_empties_on_failed_replace(monkeypatch, tmp_path):
     """If os.replace fails mid-write, projects.json keeps the OLD complete content
     (never empty, never truncated) and no temp file is left behind — the
@@ -143,9 +177,10 @@ def test_save_prunes_to_newest_five_and_spares_named(monkeypatch, tmp_path):
     monkeypatch.setenv("SKEIN_HOME", str(tmp_path))
     (tmp_path / "projects.json").write_text(json.dumps(_registry("live")))
 
-    # Six timestamped backups with distinct PAST stamps (name sorts chronologically).
+    # Six timestamped backups with distinct PAST stamps (name sorts chronologically;
+    # microsecond field varies so all six are the current full format).
     for n in range(1, 7):
-        (tmp_path / f"projects.json.bak-20200101-0000{n:02d}").write_text("{}")
+        (tmp_path / f"projects.json.bak-20200101-000000-0000{n:02d}").write_text("{}")
     # Two manually-named backups that must survive.
     (tmp_path / "projects.json.bak-fix").write_text("keep me")
     (tmp_path / "projects.json.bak-pre-gnomon").write_text("keep me too")
@@ -156,9 +191,9 @@ def test_save_prunes_to_newest_five_and_spares_named(monkeypatch, tmp_path):
     remaining = _stamped_backups(tmp_path)
     assert len(remaining) == _REGISTRY_BACKUP_KEEP
     # The two oldest seeded stamps were pruned; a newer seeded stamp survives.
-    assert "projects.json.bak-20200101-000001" not in remaining
-    assert "projects.json.bak-20200101-000002" not in remaining
-    assert "projects.json.bak-20200101-000006" in remaining
+    assert "projects.json.bak-20200101-000000-000001" not in remaining
+    assert "projects.json.bak-20200101-000000-000002" not in remaining
+    assert "projects.json.bak-20200101-000000-000006" in remaining
     # Manually-named backups untouched.
     assert (tmp_path / "projects.json.bak-fix").read_text() == "keep me"
     assert (tmp_path / "projects.json.bak-pre-gnomon").read_text() == "keep me too"
@@ -169,17 +204,19 @@ def test_prune_helper_keeps_newest_five(tmp_path):
     non-timestamped spared."""
     reg_file = tmp_path / "projects.json"
     reg_file.write_text("{}")
-    for n in range(1, 8):  # 20260701.. 20260707, seven distinct stamps
-        (tmp_path / f"projects.json.bak-2026070{n}-120000").write_text(str(n))
+    # Seven distinct stamps within one second, differing only in microseconds — the
+    # fixed-width %f field keeps name order == time order.
+    for n in range(1, 8):
+        (tmp_path / f"projects.json.bak-20260701-120000-00000{n}").write_text(str(n))
     (tmp_path / "projects.json.bak-fix").write_text("manual")
 
     _prune_registry_backups(reg_file)
 
     remaining = _stamped_backups(tmp_path)
     assert len(remaining) == _REGISTRY_BACKUP_KEEP
-    assert "projects.json.bak-20260701-120000" not in remaining  # oldest pruned
-    assert "projects.json.bak-20260702-120000" not in remaining
-    assert "projects.json.bak-20260707-120000" in remaining  # newest kept
+    assert "projects.json.bak-20260701-120000-000001" not in remaining  # oldest pruned
+    assert "projects.json.bak-20260701-120000-000002" not in remaining
+    assert "projects.json.bak-20260701-120000-000007" in remaining  # newest kept
     assert (tmp_path / "projects.json.bak-fix").exists()  # manual spared
 
 

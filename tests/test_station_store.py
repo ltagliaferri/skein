@@ -313,6 +313,27 @@ def test_rejects_migrated_workbench_db():
         shutil.rmtree(d)
 
 
+def test_rejects_spoofed_station_slugs_marker():
+    # A db with a MALFORMED station_slugs table (wrong shape) must be refused BEFORE any
+    # DDL — the marker is checked by shape (slug + anchor_hash), not mere presence, so a
+    # corrupt/spoofed marker can't fool the guard into mutating the db.
+    d = Path(tempfile.mkdtemp())
+    try:
+        import sqlite3 as s
+        p = d / "skein.db"
+        conn = s.connect(p)
+        conn.execute("CREATE TABLE station_slugs (slug TEXT)")  # missing anchor_hash
+        conn.execute("CREATE TABLE junk (x TEXT)")
+        conn.commit()
+        conn.close()
+        before = _tables_of(p)
+        with pytest.raises(ValueError, match="non-station db"):
+            StationStore(db_path=p)
+        assert _tables_of(p) == before  # not mutated
+    finally:
+        shutil.rmtree(d)
+
+
 def test_station_logdatabase_connection_keeps_rollback_journal():
     # The journal-mode fix must hold on EVERY connection, not just schema birth: a
     # station-mode LogDatabase method (any _get_connection) must not flip the corpus to WAL.

@@ -127,13 +127,19 @@ def _existing_db_role(path) -> Optional[str]:
         tables = {
             r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
+        if not tables:
+            return None
+        if "station_slugs" not in tables:
+            return "other"
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(station_slugs)")}
     except sqlite3.Error:
         return None
     finally:
         conn.close()
-    if not tables:
-        return None
-    return "station" if "station_slugs" in tables else "other"
+    # A station_slugs table present but WITHOUT the genesis-anchored shape is a corrupt or
+    # spoofed marker (skein_next's flat slugs had slug+content_hash, not anchor_hash):
+    # classify non-station so birth REFUSES rather than mutating the db.
+    return "station" if {"slug", "anchor_hash"} <= cols else "other"
 
 
 class StationStore:
@@ -183,7 +189,8 @@ class StationStore:
             if _existing_db_role(self.db_path) == "other":
                 raise ValueError(
                     f"StationStore refuses an existing non-station db at {self.db_path} "
-                    f"(no station_slugs table — a workbench corpus?)"
+                    f"(no well-formed station_slugs table — a workbench corpus, or a "
+                    f"corrupt/incompletely-birthed one?)"
                 )
             # Birth/ensure the schema via the SINGLE DDL owner (LogDatabase, station role).
             # A station db is born rollback-journal (LogDatabase._get_connection is
@@ -216,10 +223,15 @@ class StationStore:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
-        if "station_slugs" not in tables:
+        cols = (
+            {r["name"] for r in self.conn.execute("PRAGMA table_info(station_slugs)")}
+            if "station_slugs" in tables
+            else set()
+        )
+        if not {"slug", "anchor_hash"} <= cols:
             raise ValueError(
-                f"{self.db_path} is not a station corpus (no station_slugs table — "
-                f"a workbench db?)"
+                f"{self.db_path} is not a station corpus (no well-formed station_slugs "
+                f"table — a workbench db?)"
             )
         pk = [r["name"] for r in self.conn.execute("PRAGMA table_info(threads)") if r["pk"]]
         if pk != ["thread_hash"]:
@@ -244,7 +256,9 @@ class StationStore:
         # fragment/query and SQLite silently opens a truncated, wrong path.
         p = quote(str(self.db_path), safe="/")
         last_err: Optional[Exception] = None
-        for uri in (f"file:{p}?mode=ro", f"file:{p}?immutable=1"):
+        # Both URIs carry mode=ro so neither can CREATE a file: bare immutable=1 defaults to
+        # read-write-create and would leave a 0-byte db if the path vanished mid-open.
+        for uri in (f"file:{p}?mode=ro", f"file:{p}?immutable=1&mode=ro"):
             conn: Optional[sqlite3.Connection] = None
             try:
                 conn = sqlite3.connect(uri, uri=True, check_same_thread=check_same_thread)

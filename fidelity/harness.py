@@ -60,7 +60,13 @@ FIXTURE_SOURCE = Path(
 LEGACY_PORT = int(os.environ.get("FIDELITY_PORT", "8042"))
 LEGACY_URL = f"http://127.0.0.1:{LEGACY_PORT}"
 FIX_ID = "fidelity-fixture"
-REGISTRY = Path.home() / ".skein" / "projects.json"
+
+# The registry lives at <SKEIN_HOME>/projects.json. Resolve the home fresh at each
+# use via skein_home() (never pin ~/.skein at import — that ignores SKEIN_HOME),
+# and route every write through skein.storage's atomic writer. A raw write_text of
+# the live registry is the exact incident this guards against (issue-20260709-zl71).
+sys.path.insert(0, str(REPO))
+from skein.storage import save_project_registry, skein_home  # noqa: E402
 
 
 # ── setup / teardown ────────────────────────────────────────────────────────
@@ -86,9 +92,12 @@ def build_fixture() -> None:
 
 
 def register_fixture() -> Optional[str]:
-    """Add the fixture to ~/.skein/projects.json. Returns the prior file text
-    (or None if absent) so the caller can restore it verbatim."""
-    prior = REGISTRY.read_text() if REGISTRY.exists() else None
+    """Add the fixture to <SKEIN_HOME>/projects.json. Returns the prior file text
+    (or None if absent) so the caller can restore it. The write goes through
+    save_project_registry (atomic temp + os.replace, rotating backups), never a
+    raw non-atomic write of the live registry."""
+    registry = skein_home() / "projects.json"
+    prior = registry.read_text() if registry.exists() else None
     reg = json.loads(prior) if prior else {"projects": {}}
     reg.setdefault("projects", {})[FIX_ID] = {
         "path": str(FIXTURE_PROJECT),
@@ -96,15 +105,17 @@ def register_fixture() -> Optional[str]:
         "name": "Fidelity Fixture",
         "registered_at": "2026-06-24T00:00:00",
     }
-    REGISTRY.write_text(json.dumps(reg, indent=2))
+    save_project_registry(reg)
     return prior
 
 
 def restore_registry(prior: Optional[str]) -> None:
+    """Undo register_fixture: drop the file if there was none before, else restore
+    the prior content atomically (same skein_home() resolution and safe writer)."""
     if prior is None:
-        REGISTRY.unlink(missing_ok=True)
+        (skein_home() / "projects.json").unlink(missing_ok=True)
     else:
-        REGISTRY.write_text(prior)
+        save_project_registry(json.loads(prior))
 
 
 def start_legacy_server() -> subprocess.Popen:

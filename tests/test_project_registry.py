@@ -62,7 +62,7 @@ def test_skein_home_read_fresh_each_call(monkeypatch, tmp_path):
     assert skein_home() == tmp_path
 
 
-def test_load_project_registry_reads_from_skein_home(monkeypatch, tmp_path):
+def test_load_reads_from_skein_home(monkeypatch, tmp_path):
     """load_project_registry() reads <SKEIN_HOME>/projects.json, not ~/.skein."""
     monkeypatch.setenv("SKEIN_HOME", str(tmp_path))
     (tmp_path / "projects.json").write_text(
@@ -73,7 +73,7 @@ def test_load_project_registry_reads_from_skein_home(monkeypatch, tmp_path):
     assert reg["proj-x"]["data_dir"] == "/tmp/x"
 
 
-def test_load_project_registry_missing_returns_empty(monkeypatch, tmp_path):
+def test_load_missing_returns_empty(monkeypatch, tmp_path):
     """No projects.json under SKEIN_HOME -> {} (never an error, never a silent
     fallback to the real ~/.skein)."""
     monkeypatch.setenv("SKEIN_HOME", str(tmp_path))
@@ -93,7 +93,7 @@ def test_save_writes_readable_registry(monkeypatch, tmp_path):
     assert set(load_project_registry()) == {"alpha"}
 
 
-def test_save_creates_home_and_no_backup_on_first_write(monkeypatch, tmp_path):
+def test_save_first_write_no_backup(monkeypatch, tmp_path):
     """First write (nothing to snapshot) creates the home dir + file and NO backup."""
     home = tmp_path / "fresh"
     monkeypatch.setenv("SKEIN_HOME", str(home))
@@ -117,7 +117,7 @@ def test_save_backs_up_previous_on_overwrite(monkeypatch, tmp_path):
     assert snap["projects"] == _registry("v1")["projects"]
 
 
-def test_save_same_second_double_save_distinct_backups(monkeypatch, tmp_path):
+def test_save_same_second_distinct_backups(monkeypatch, tmp_path):
     """Two saves within the SAME UTC second must snapshot to two DISTINCT backups,
     not collide on one name (which would let shutil.copy2 overwrite the good
     pre-image). Freeze the clock to one second with incrementing microseconds so the
@@ -151,7 +151,7 @@ def test_save_same_second_double_save_distinct_backups(monkeypatch, tmp_path):
     assert v1_snap["projects"] == _registry("v1")["projects"]
 
 
-def test_save_atomic_never_empties_on_failed_replace(monkeypatch, tmp_path):
+def test_save_atomic_never_empty_on_fail(monkeypatch, tmp_path):
     """If os.replace fails mid-write, projects.json keeps the OLD complete content
     (never empty, never truncated) and no temp file is left behind — the
     'either old or new, never empty' invariant."""
@@ -171,7 +171,7 @@ def test_save_atomic_never_empties_on_failed_replace(monkeypatch, tmp_path):
     assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
 
 
-def test_save_prunes_to_newest_five_and_spares_named(monkeypatch, tmp_path):
+def test_save_prunes_five_spares_named(monkeypatch, tmp_path):
     """save() prunes timestamped backups to the newest 5 and never touches
     manually-named backups (.bak-fix, .bak-pre-gnomon)."""
     monkeypatch.setenv("SKEIN_HOME", str(tmp_path))
@@ -223,7 +223,7 @@ def test_prune_helper_keeps_newest_five(tmp_path):
 # --- Fix A: proof that pytest_configure is isolated -----------------------
 
 
-def test_pytest_configure_isolated_from_real_home():
+def test_configure_isolated_from_real_home():
     """pytest_configure must have redirected SKEIN_HOME to a throwaway dir and
     seeded the registry THERE — never in the real ~/.skein. Proven via the env
     indirection: the resolver points at the sandbox, not real home, so configure

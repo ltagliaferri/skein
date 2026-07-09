@@ -50,17 +50,24 @@ def pytest_configure(config):
     test_project_dir = Path("/tmp/skein-test/.skein/data")
     test_project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Seed the registry in the sandbox home via the atomic writer.
-    save_project_registry(
-        {
-            "projects": {
-                "test-project": {
-                    "data_dir": str(test_project_dir),
-                    "name": "test-project",
+    # Seed the registry in the sandbox home via the atomic writer. Best-effort:
+    # skip if the write fails on a read-only filesystem (e.g. a shard worktree) or
+    # a full disk, so the suite still runs — unseeded — instead of aborting the
+    # whole session here at configure. (Original rationale, carried over from the
+    # pre-hardening conftest.)
+    try:
+        save_project_registry(
+            {
+                "projects": {
+                    "test-project": {
+                        "data_dir": str(test_project_dir),
+                        "name": "test-project",
+                    }
                 }
             }
-        }
-    )
+        )
+    except OSError:
+        pass
 
 
 def pytest_unconfigure(config):

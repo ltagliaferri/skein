@@ -104,10 +104,18 @@ def _search_score(row: Mapping[str, Any], terms: List[str]) -> int:
 _FOLIO_COLS = "content_hash, type, created_at, created_by, title, content"
 
 
-def _existing_threads_pk(path) -> Optional[List[str]]:
-    """The PRIMARY KEY column names of an EXISTING db's ``threads`` table, or ``None`` when
-    the file/db/table is absent or unreadable. Opens read-only and writes nothing, so a
-    path can be vetted BEFORE any schema is birthed onto it. Positional row access."""
+def _existing_db_role(path) -> Optional[str]:
+    """Classify an EXISTING db at ``path`` without writing it: ``"station"`` (has the
+    ``station_slugs`` table — the station-only marker), ``"other"`` (a db with tables but
+    NO ``station_slugs``, i.e. a workbench corpus — even one migrated to a ``thread_hash``
+    PK by ``threads_pk_swap``), or ``None`` (absent / empty / unreadable → birthing a
+    station here is safe). Opens read-only so a path is vetted BEFORE any DDL runs.
+
+    The discriminator is ``station_slugs``, not the ``threads`` PK shape: a workbench db
+    that has undergone the ``threads_pk_swap`` migration carries the SAME ``thread_hash``
+    PK a station does, so PK shape can't tell them apart — but only a station ever has
+    ``station_slugs``.
+    """
     if not Path(path).exists():
         return None
     uri = f"file:{quote(str(path), safe='/')}?mode=ro"
@@ -116,15 +124,16 @@ def _existing_threads_pk(path) -> Optional[List[str]]:
     except sqlite3.Error:
         return None
     try:
-        rows = list(conn.execute("PRAGMA table_info(threads)"))
+        tables = {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
     except sqlite3.Error:
         return None
     finally:
         conn.close()
-    if not rows:
+    if not tables:
         return None
-    # PRAGMA table_info columns: (cid, name, type, notnull, dflt_value, pk).
-    return [r[1] for r in rows if r[5]]
+    return "station" if "station_slugs" in tables else "other"
 
 
 class StationStore:
@@ -167,14 +176,14 @@ class StationStore:
             # Refuse an existing NON-station corpus BEFORE any DDL runs. A station uses the
             # SAME default filename (data_dir/skein.db) LogDatabase does; without this
             # pre-birth check, LogDatabase(station=True) below would bolt the station
-            # sidecar tables onto a workbench db irreversibly (and dedup would be broken on
-            # its pre-swap threads). Checking read-only, before birth, means a mismatched
-            # db is never altered.
-            existing_pk = _existing_threads_pk(self.db_path)
-            if existing_pk is not None and existing_pk != ["thread_hash"]:
+            # sidecar tables onto a workbench db irreversibly. Checking read-only, before
+            # birth, means a mismatched db is never altered. (A concurrent workbench
+            # creation of this path in the check→birth window is a TOCTOU deferred to the
+            # Stage-6 config toggle that binds role→data-dir; no Stage-1 caller races it.)
+            if _existing_db_role(self.db_path) == "other":
                 raise ValueError(
-                    f"StationStore refuses an existing non-station db "
-                    f"(threads PK {existing_pk or 'none'}) at {self.db_path}"
+                    f"StationStore refuses an existing non-station db at {self.db_path} "
+                    f"(no station_slugs table — a workbench corpus?)"
                 )
             # Birth/ensure the schema via the SINGLE DDL owner (LogDatabase, station role).
             # A station db is born rollback-journal (LogDatabase._get_connection is
@@ -187,31 +196,49 @@ class StationStore:
             # Enforced from the first write (the constituent_attribution FK); MUST be set
             # outside any transaction, before writes.
             self.conn.execute("PRAGMA foreign_keys=ON")
-        # Belt-and-suspenders (the read_only path does no pre-birth check): confirm the
-        # opened corpus is post-swap. Close the just-opened connection if we bail so a
-        # retry loop over a misconfigured path doesn't leak a handle per attempt.
+        # Confirm the opened corpus is a station (the read_only path does no pre-birth
+        # check). Close the just-opened connection if we bail so a retry loop over a
+        # misconfigured path doesn't leak a handle per attempt.
         try:
-            self._assert_post_swap_threads()
+            self._assert_station_corpus()
         except Exception:
             self.conn.close()
             raise
         self._in_batch = False
         self._sp_counter = 0
 
-    def _assert_post_swap_threads(self) -> None:
-        """The threads table must be POST-swap (thread_hash PK) — the content-address
-        dedup save_thread relies on. A pre-swap (workbench) table has thread_id as the PK
-        and would silently defeat dedup."""
+    def _assert_station_corpus(self) -> None:
+        """The opened corpus must be a station: it has the ``station_slugs`` marker table
+        (a workbench never does, migrated or not) AND a POST-swap ``threads`` table
+        (``thread_hash`` PK — the content-address dedup ``save_thread`` relies on)."""
+        tables = {
+            r["name"] for r in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "station_slugs" not in tables:
+            raise ValueError(
+                f"{self.db_path} is not a station corpus (no station_slugs table — "
+                f"a workbench db?)"
+            )
         pk = [r["name"] for r in self.conn.execute("PRAGMA table_info(threads)") if r["pk"]]
         if pk != ["thread_hash"]:
             raise ValueError(
-                f"StationStore requires a post-swap threads table (thread_hash PK); "
-                f"{self.db_path} has PK {pk or 'none'} — is this a workbench db?"
+                f"{self.db_path} threads is not post-swap (PK {pk or 'none'}, "
+                f"not thread_hash) — dedup would be broken"
             )
 
     def _connect_read_only(self, check_same_thread: bool) -> sqlite3.Connection:
         """Open the corpus read-only, never writing it. Tries ``mode=ro`` (WAL-aware)
         then ``immutable=1`` (a read-only filesystem where SQLite can't create sidecars)."""
+        # read_only requires an EXISTING corpus and must never create one. The immutable=1
+        # fallback URI carries no mode= param, so on a missing path SQLite would open it
+        # read-write-CREATE and leave a 0-byte skein.db behind — violating the no-write
+        # contract. Refuse a missing path up front instead.
+        if not self.db_path.exists():
+            raise sqlite3.OperationalError(
+                f"read-only station corpus does not exist: {self.db_path}"
+            )
         # Percent-encode the path into the file: URI (keeping '/' as the separator): a raw
         # path with '#' or '?' (ticket numbers, versioned dir names) otherwise starts a URI
         # fragment/query and SQLite silently opens a truncated, wrong path.

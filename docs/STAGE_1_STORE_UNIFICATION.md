@@ -49,9 +49,14 @@ layer + the station threads DDL.
    DDL), get_thread(by hash), get_threads.
 4. **Station slug accessors**: the `station_slugs` claim + genesis-anchored derived-head
    resolver; fold site slugs in as the degenerate case.
-5. **`latest_statuses` REUSES the working store's thread-derived control derivation**
-   (the contraction win — `get_latest_statuses` / `_latest_control_by_folio`), not a
-   parallel implementation.
+5. **`latest_statuses` is a refs-free, hash-keyed reduction over the one status-thread
+   graph (option (b), decided with Patrick 2026-07-09)** — skein_next's exact form
+   (`SELECT to_id, content ... type='status' ... ORDER BY created_at, thread_hash`,
+   last-write-wins), NOT the workbench's refs-slug-keyed `_latest_control_by_folio`. Both
+   roles derive from the SAME status-thread truth (the shared-derivation principle holds
+   at the graph level); they differ only in key space (folio hash vs refs slug), so a
+   forced shared reducer would need a keying shim and re-fell the just-contracted
+   workbench path for no gain. See the "Two couplings" section below.
 
 ## Scope — OUT (later stages)
 

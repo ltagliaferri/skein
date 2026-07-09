@@ -245,9 +245,11 @@ def test_read_only_open_does_no_ddl_and_reads():
         ro = StationStore(db_path=dbp, read_only=True)
         assert ro.get_folio(ch)["title"] == "Login bug"
         ro.close()
-        # read-only open on a nonexistent corpus must fail, not birth one
+        # read-only open on a nonexistent corpus must fail AND leave no file behind (the
+        # immutable=1 fallback URI would otherwise CREATE a 0-byte skein.db).
         with pytest.raises(Exception):
             StationStore(db_path=d / "absent.db", read_only=True)
+        assert not (d / "absent.db").exists()
     finally:
         shutil.rmtree(d)
 
@@ -289,6 +291,24 @@ def test_rejects_workbench_db_without_altering_it():
         with pytest.raises(ValueError, match="non-station db"):
             StationStore(db_path=p)
         assert _tables_of(p) == before  # NOT corrupted: no station_slugs/manifests/etc added
+    finally:
+        shutil.rmtree(d)
+
+
+def test_rejects_migrated_workbench_db():
+    # A workbench db migrated to a thread_hash PK (threads_pk_swap) has the SAME PK shape
+    # as a station but no station_slugs — the discriminator must still refuse it, unaltered.
+    d = Path(tempfile.mkdtemp())
+    try:
+        from skein.storage import LogDatabase
+        from skein.migrations import threads_pk_swap
+        p = d / "skein.db"
+        LogDatabase(p)
+        threads_pk_swap.migrate_db(p)
+        before = _tables_of(p)
+        with pytest.raises(ValueError, match="non-station db"):
+            StationStore(db_path=p)
+        assert _tables_of(p) == before
     finally:
         shutil.rmtree(d)
 

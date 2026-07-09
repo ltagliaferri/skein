@@ -46,7 +46,7 @@ STATIONFILE_NAME = "stationfile.json"
 SCHEMA_VERSION = 1
 
 DEFAULT_THEME = "ulm"
-# The themes shipped in skein_next/web/static/themes/. A `theme` naming one of
+# The themes shipped in skein/web/static/themes/. A `theme` naming one of
 # these is served from the package; anything else is treated as a custom-sheet
 # path relative to the data dir (level 2 of the theming ladder).
 SHIPPED_THEMES = frozenset({"ulm", "classic"})

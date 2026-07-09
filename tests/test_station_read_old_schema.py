@@ -198,6 +198,62 @@ def test_covered_folio_with_account_bindings_table_absent_degrades(tmp_path, mon
         assert env["asserted"]["verdict"] == "NOT VERIFIED — unbound signer"
 
 
+def test_covered_folio_with_verify_cache_table_absent_still_signs(tmp_path, monkeypatch):
+    """A covered + bound folio on a corpus MISSING ONLY ``verify_cache`` must still read
+    SIGNED: the read-path ``verify_cache_get`` degrades to a cache MISS and falls back to
+    an in-process verify, never a 500. The UNSIGNED cells above short-circuit at "no
+    covering manifest" before ``verify_cache_get`` is reached, so this is the SIGNED branch
+    that actually queries the cache table on the read path (companion to VC14's absent-table
+    case in tests/test_station_verify_cache.py, pinned here in the deploy-blocker file)."""
+    from skein import profile, sign as sign_mod, signing
+    from skein.canon import manifest_descriptor_canonical_bytes
+    from skein.identity import content_hash_for_bytes
+    from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
+
+    issuer, subject = "https://idp", "alice@example.com"
+
+    def _signer(cb):
+        preimage = profile.profiled_preimage(profile.CANON_PROFILE_MANIFEST_V1, cb)
+        bundle = signing.SignatureBundle(
+            identity_scheme="sigstore-public-v1", bundles=["x"],
+            canonical_bytes=preimage, canon_version=profile.CANON_PROFILE_MANIFEST_V1)
+        return sign_mod.SignedResult(bundle=bundle, issuer=issuer, subject=subject)
+
+    data_dir = tmp_path / ".skein-next"
+    with StationBuilder(data_dir) as st:
+        st.create_site("s", purpose="p", created_by="t")
+        h = st.post("finding", "s", "T", "body here", created_by="t")
+        ms = sign_mod.sign_manifest([h], _signer)
+        d = ms["descriptor"]
+        mh = content_hash_for_bytes(manifest_descriptor_canonical_bytes(d["root"], d["leaf_count"]))
+        with st.store.transaction():
+            st.store.add_manifest(d["root"], mh, json.dumps(d, sort_keys=True),
+                                  json.dumps(ms["leaf_list"]), ms["signature_bundle"],
+                                  issuer, subject, d["leaf_count"])
+            st.store.add_constituent_attribution(h, "folio", d["root"], issuer, subject)
+        st.store.add_binding(issuer, subject, role="author")
+
+    # Strip ONLY verify_cache — the step-3 signature-cache read must degrade to a miss
+    # and verify in-process, not raise "no such table".
+    surgeon = StationStore(data_dir)
+    surgeon.conn.execute("DROP TABLE verify_cache")
+    surgeon.conn.commit()
+    surgeon.close()
+
+    monkeypatch.setattr(
+        signing, "verify_multi",
+        lambda cb, b: MultiVerifyResult(
+            results=[VerifyResult(status=VerifyStatus.VERIFIED, issuer=issuer, subject=subject)],
+            overall=VerifyStatus.VERIFIED))
+    with StationStore(data_dir, read_only=True) as ro:
+        row = ro.get_folio(h)
+        verdict, identity = env_mod.folio_verdict(ro, h, row)
+        assert verdict.startswith("SIGNED"), verdict
+        assert identity is not None
+        env = env_mod.build_folio_envelope(ro, h, row=row)
+        assert env["asserted"]["verdict"].startswith("SIGNED")
+
+
 # --- the WRITE side: the missing-table tolerance must NOT bleed into a
 # read_write store. A read_write store ALWAYS runs the schema migration on open
 # (executescript), so a missing new-table there is a genuine schema fault — never

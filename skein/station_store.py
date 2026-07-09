@@ -104,8 +104,36 @@ def _search_score(row: Mapping[str, Any], terms: List[str]) -> int:
 _FOLIO_COLS = "content_hash, type, created_at, created_by, title, content"
 
 
+def _existing_threads_pk(path) -> Optional[List[str]]:
+    """The PRIMARY KEY column names of an EXISTING db's ``threads`` table, or ``None`` when
+    the file/db/table is absent or unreadable. Opens read-only and writes nothing, so a
+    path can be vetted BEFORE any schema is birthed onto it. Positional row access."""
+    if not Path(path).exists():
+        return None
+    uri = f"file:{quote(str(path), safe='/')}?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = list(conn.execute("PRAGMA table_info(threads)"))
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    if not rows:
+        return None
+    # PRAGMA table_info columns: (cid, name, type, notnull, dflt_value, pk).
+    return [r[1] for r in rows if r[5]]
+
+
 class StationStore:
-    """The skein_next store interface, refs-free, over the shared skein station tables."""
+    """The skein_next store interface, refs-free, over the shared skein station tables.
+
+    NOT safe for concurrent use of a SINGLE instance: ``_in_batch``/``_sp_counter`` and the
+    one connection are shared unlocked state, so ``check_same_thread=False`` is for handing
+    one instance to one request that uses it SERIALLY (the skein_next posture: one store per
+    request), never for concurrent calls on the same instance."""
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -136,11 +164,22 @@ class StationStore:
             self.conn = self._connect_read_only(check_same_thread)
         else:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            # Birth/ensure the schema via the SINGLE DDL owner (LogDatabase, station role)
-            # so there is exactly one schema definition. A station db is born
-            # rollback-journal (LogDatabase._init_connection), so this connection and the
-            # served corpus stay rollback-journal with no WAL↔rollback flip (which would
-            # 'database is locked' under concurrent construction).
+            # Refuse an existing NON-station corpus BEFORE any DDL runs. A station uses the
+            # SAME default filename (data_dir/skein.db) LogDatabase does; without this
+            # pre-birth check, LogDatabase(station=True) below would bolt the station
+            # sidecar tables onto a workbench db irreversibly (and dedup would be broken on
+            # its pre-swap threads). Checking read-only, before birth, means a mismatched
+            # db is never altered.
+            existing_pk = _existing_threads_pk(self.db_path)
+            if existing_pk is not None and existing_pk != ["thread_hash"]:
+                raise ValueError(
+                    f"StationStore refuses an existing non-station db "
+                    f"(threads PK {existing_pk or 'none'}) at {self.db_path}"
+                )
+            # Birth/ensure the schema via the SINGLE DDL owner (LogDatabase, station role).
+            # A station db is born rollback-journal (LogDatabase._get_connection is
+            # station-aware on EVERY connection), so this connection and the served corpus
+            # stay rollback-journal with no WAL↔rollback flip.
             LogDatabase(self.db_path, station=True)
             self.conn = sqlite3.connect(str(self.db_path), check_same_thread=check_same_thread)
             self.conn.row_factory = sqlite3.Row
@@ -148,12 +187,14 @@ class StationStore:
             # Enforced from the first write (the constituent_attribution FK); MUST be set
             # outside any transaction, before writes.
             self.conn.execute("PRAGMA foreign_keys=ON")
-        # Refuse a workbench (pre-swap) db: a station uses the SAME default filename
-        # (data_dir/skein.db) LogDatabase does, and CREATE TABLE IF NOT EXISTS is a no-op
-        # on an existing pre-swap threads table — where thread_id is still the PK, so
-        # save_thread's INSERT OR IGNORE on thread_hash never dedups and re-received wire
-        # threads silently duplicate. Fail loudly instead of corrupting the corpus.
-        self._assert_post_swap_threads()
+        # Belt-and-suspenders (the read_only path does no pre-birth check): confirm the
+        # opened corpus is post-swap. Close the just-opened connection if we bail so a
+        # retry loop over a misconfigured path doesn't leak a handle per attempt.
+        try:
+            self._assert_post_swap_threads()
+        except Exception:
+            self.conn.close()
+            raise
         self._in_batch = False
         self._sp_counter = 0
 

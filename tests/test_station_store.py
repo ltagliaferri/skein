@@ -267,16 +267,49 @@ def test_read_only_open_with_special_char_in_path():
         shutil.rmtree(d)
 
 
-def test_rejects_workbench_db():
-    # A workbench (pre-swap) db at the station's default filename must be refused, not
-    # silently run with dedup broken.
+def _tables_of(path):
+    import sqlite3 as s
+    conn = s.connect(path)
+    try:
+        return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()
+
+
+def test_rejects_workbench_db_without_altering_it():
+    # A workbench (pre-swap) db at the station's default filename must be refused BEFORE any
+    # station DDL runs — the refused db's schema must be untouched (no station tables bolted
+    # on), not just the construction failing after the damage.
     d = Path(tempfile.mkdtemp())
     try:
         from skein.storage import LogDatabase
         p = d / "skein.db"
         LogDatabase(p)  # a workbench db (pre-swap threads, thread_id PK)
-        with pytest.raises(ValueError, match="post-swap threads"):
+        before = _tables_of(p)
+        with pytest.raises(ValueError, match="non-station db"):
             StationStore(db_path=p)
+        assert _tables_of(p) == before  # NOT corrupted: no station_slugs/manifests/etc added
+    finally:
+        shutil.rmtree(d)
+
+
+def test_station_logdatabase_connection_keeps_rollback_journal():
+    # The journal-mode fix must hold on EVERY connection, not just schema birth: a
+    # station-mode LogDatabase method (any _get_connection) must not flip the corpus to WAL.
+    d = Path(tempfile.mkdtemp())
+    try:
+        import sqlite3 as s
+        from skein.storage import LogDatabase
+        p = d / "st" / "skein.db"
+        StationStore(db_path=p).close()
+        assert s.connect(p).execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        db = LogDatabase(p, station=True)
+        with db._get_connection() as c:
+            c.execute("SELECT 1 FROM versions LIMIT 1")
+        assert s.connect(p).execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        # regression guard: a workbench db still uses WAL
+        LogDatabase(d / "wb.db")
+        assert s.connect(d / "wb.db").execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     finally:
         shutil.rmtree(d)
 

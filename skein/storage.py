@@ -368,33 +368,9 @@ class LogDatabase:
         self.station = station
         self._init_db()
 
-    @contextmanager
-    def _init_connection(self):
-        """The connection used to BIRTH the schema.
-
-        A workbench db is born WAL (identical to :meth:`_get_connection`). A STATION db is
-        born ROLLBACK-JOURNAL so it can be served ``:ro`` (WAL needs ``-wal``/``-shm``
-        sidecars a read-only mount can't create) AND so ``StationStore`` never has to flip
-        the journal mode afterwards — a WAL→rollback flip raises ``database is locked``
-        immediately when any other connection is open (``busy_timeout`` does not cover that
-        lock class), which would crash a second station opening the same corpus. A
-        ``busy_timeout`` here lets concurrent station births serialize on the idempotent
-        ``CREATE TABLE IF NOT EXISTS`` instead of failing instantly.
-        """
-        conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        if self.station:
-            conn.execute("PRAGMA busy_timeout=5000")
-        else:
-            conn.execute("PRAGMA journal_mode=WAL")
-        try:
-            yield conn
-        finally:
-            conn.close()
-
     def _init_db(self):
         """Initialize database schema."""
-        with self._init_connection() as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS logs (
@@ -870,9 +846,22 @@ class LogDatabase:
 
     @contextmanager
     def _get_connection(self):
-        """Get database connection context manager."""
+        """Get database connection context manager.
+
+        Journal mode is role-dependent and applied on EVERY connection (not only at schema
+        birth): a workbench db is WAL (unchanged); a STATION db is rollback-journal so it
+        can be served ``:ro`` (WAL needs ``-wal``/``-shm`` sidecars a read-only mount can't
+        create). Gating every connection — not just ``_init_db``'s — is deliberate: if only
+        birth were rollback-journal, any later method call on a ``station=True`` instance
+        would flip the corpus back to WAL (the ``database is locked`` / broken-``:ro``-mount
+        class the split exists to avoid). A ``busy_timeout`` lets concurrent station writers
+        serialize instead of failing instantly on the write lock.
+        """
         conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.execute("PRAGMA journal_mode=WAL")
+        if self.station:
+            conn.execute("PRAGMA busy_timeout=5000")
+        else:
+            conn.execute("PRAGMA journal_mode=WAL")
         conn.row_factory = sqlite3.Row
         try:
             yield conn

@@ -27,6 +27,7 @@ except ImportError:
     generate_agent_name = None
 
 from skein.address_legacy import parse as parse_address
+from skein.storage import skein_home, save_project_registry
 
 
 def parse_post_site_id(site_id_arg: str) -> tuple:
@@ -217,8 +218,8 @@ ACTIVITY_BREADCRUMB = (
 
 
 def _load_projects_registry() -> Dict[str, Any]:
-    """Load registered projects from ~/.skein/projects.json. Returns {} if missing."""
-    projects_file = Path.home() / ".skein" / "projects.json"
+    """Load registered projects from <SKEIN_HOME>/projects.json. Returns {} if missing."""
+    projects_file = skein_home() / "projects.json"
     if not projects_file.exists():
         return {}
     try:
@@ -405,11 +406,10 @@ def init(project, name):
     with open(config_file, "w") as f:
         json.dump(project_config, f, indent=2)
 
-    # Register in global projects.json
-    global_dir = Path.home() / ".skein"
-    global_dir.mkdir(exist_ok=True)
-
-    projects_file = global_dir / "projects.json"
+    # Register in global projects.json. Read-merge-then-write: the atomic,
+    # backup-taking save_project_registry protects the write (a truncate-then-
+    # write here once clobbered the whole registry — issue-20260709-zl71).
+    projects_file = skein_home() / "projects.json"
     if projects_file.exists():
         with open(projects_file) as f:
             projects_data = json.load(f)
@@ -423,8 +423,7 @@ def init(project, name):
         "registered_at": datetime.now().isoformat(),
     }
 
-    with open(projects_file, "w") as f:
-        json.dump(projects_data, f, indent=2)
+    save_project_registry(projects_data)
 
     click.echo(f"✓ Initialized SKEIN project '{project}' in {project_root}")
     click.echo("✓ Created .skein/ directory")
@@ -497,8 +496,7 @@ def projects(verbose):
         skein projects
         skein projects -v
     """
-    global_dir = Path.home() / ".skein"
-    projects_file = global_dir / "projects.json"
+    projects_file = skein_home() / "projects.json"
 
     if not projects_file.exists():
         click.echo("No projects registered yet.")

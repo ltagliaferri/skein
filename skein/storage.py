@@ -7,6 +7,10 @@ Multi-project support via ~/.skein/projects.json registry.
 import sqlite3
 import json
 import logging
+import os
+import re
+import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
@@ -130,11 +134,136 @@ def _folio_from_head_row(row: "sqlite3.Row") -> Folio:
 
 
 # Project Registry
+
+
+def skein_home() -> Path:
+    """Resolve the SKEIN home directory — the ``~/.skein`` tree that holds the
+    project registry (``projects.json``).
+
+    Honors the ``SKEIN_HOME`` environment variable so the test suite (and any
+    sandboxed run) can redirect the whole tree without touching the real
+    ``~/.skein``; falls back to ``~/.skein``. Read fresh on every call so a
+    mid-process ``os.environ`` change — a server spawned as a subprocess that
+    inherits the var, or a test setting it — takes effect immediately.
+    """
+    override = os.environ.get("SKEIN_HOME")
+    return Path(override) if override else Path.home() / ".skein"
+
+
+# A timestamped registry backup is exactly
+# ``projects.json.bak-YYYYmmdd-HHMMSS-ffffff`` — microseconds included so two saves
+# within the SAME UTC second stamp DISTINCT backups. Without them a same-second
+# double-save collides on one name and shutil.copy2 silently overwrites the good
+# pre-image, defeating the backup. The %f field is zero-padded to a fixed six
+# digits, so the whole stamp still sorts lexically in chronological order for the
+# prune. Only these are pruned; manually-named backups (``.bak-fix``,
+# ``.bak-pre-gnomon``) never match this pattern and are left untouched.
+_REGISTRY_BACKUP_RE = re.compile(r"\.bak-\d{8}-\d{6}-\d{6}$")
+_REGISTRY_BACKUP_KEEP = 5
+
+
+def _prune_registry_backups(registry_file: Path) -> None:
+    """Keep only the newest ``_REGISTRY_BACKUP_KEEP`` timestamped backups beside
+    ``registry_file``. The fixed-width UTC stamp sorts lexically in chronological
+    order, so the tail of the sorted list is the oldest. Non-timestamped backups
+    do not match :data:`_REGISTRY_BACKUP_RE` and are never considered.
+    """
+    stamped = sorted(
+        p
+        for p in registry_file.parent.glob(f"{registry_file.name}.bak-*")
+        if _REGISTRY_BACKUP_RE.search(p.name)
+    )
+    for stale in stamped[:-_REGISTRY_BACKUP_KEEP]:
+        stale.unlink(missing_ok=True)
+
+
+def save_project_registry(data: Dict[str, Any]) -> None:
+    """Atomically persist the project registry to ``<SKEIN_HOME>/projects.json``.
+
+    The registry maps every project to its data dir, so a truncate-then-write
+    (the naive ``open(path, "w")``) is dangerous: a concurrent reader can catch
+    the file mid-write, and a writer that starts from an empty base destroys it
+    outright (issue-20260709-zl71 deregistered all 50 projects this way). This
+    makes a write safe two ways, deliberately WITHOUT file locking — last-write-
+    wins on a genuinely concurrent registration is accepted, and the backups
+    bound the damage:
+
+      1. If the registry already exists, snapshot it to
+         ``projects.json.bak-<UTC YYYYmmdd-HHMMSS-ffffff>`` in the same directory
+         first, then prune those timestamped snapshots to the newest
+         ``_REGISTRY_BACKUP_KEEP``. Manually-named backups are spared.
+      2. Write the new content to a UNIQUE temp file in the SAME directory (same
+         filesystem, so the rename is atomic) and ``os.replace`` it onto
+         ``projects.json``. A reader only ever sees the complete old file or the
+         complete new one — never a half-written truncation — and concurrent
+         writers stage to distinct temps, so their bytes can't interleave.
+
+    ``data`` is the full top-level object (``{"projects": {...}}``), matching what
+    :func:`load_project_registry` reads back.
+    """
+    home = skein_home()
+    home.mkdir(parents=True, exist_ok=True)
+    registry_file = home / "projects.json"
+
+    # (1) Snapshot the current file before touching it, then prune. Microseconds
+    # (%f) go into the stamp so a same-second double-save stages to two distinct
+    # backups instead of colliding — the zero-padded field keeps name order ==
+    # time order for the prune.
+    if registry_file.exists():
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        backup = registry_file.with_name(f"{registry_file.name}.bak-{stamp}")
+        shutil.copy2(registry_file, backup)
+        _prune_registry_backups(registry_file)
+
+    # (2) Stage to a unique temp in the same dir, then atomically replace.
+    fd, tmp_name = tempfile.mkstemp(dir=str(home), prefix=".projects.json.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp, registry_file)
+    except Exception:
+        tmp.unlink(missing_ok=True)  # never leave a stray temp on a failed write
+        raise
+
+
+def save_project_registry_text(text: str) -> None:
+    """Atomically write *raw* ``text`` to ``<SKEIN_HOME>/projects.json``, byte for
+    byte — no parse, no re-serialize, no reordering.
+
+    :func:`save_project_registry` takes a dict and re-encodes it, which is correct
+    for a genuine save but wrong for *restoring* a captured pre-image: reserializing
+    rewrites a hand-formatted, compact, or differently-ordered file even though its
+    meaning is unchanged, and ``json.loads`` chokes on an empty (0-byte) registry.
+    This preserves the exact bytes. An empty string writes a 0-byte file — a
+    byte-verbatim restore of a pre-existing empty registry — so a caller that means
+    "no file" must unlink instead of passing ``""``.
+
+    Same atomicity as :func:`save_project_registry` minus the backup rotation: stage
+    to a UNIQUE temp in the SAME directory (same filesystem, atomic rename) and
+    ``os.replace`` onto ``projects.json``, so a reader only ever sees the whole old
+    file or the whole new one. ``skein_home()`` is resolved fresh at call time.
+    """
+    home = skein_home()
+    home.mkdir(parents=True, exist_ok=True)
+    registry_file = home / "projects.json"
+    fd, tmp_name = tempfile.mkstemp(dir=str(home), prefix=".projects.json.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        os.replace(tmp, registry_file)
+    except Exception:
+        tmp.unlink(missing_ok=True)  # never leave a stray temp on a failed write
+        raise
+
+
 def load_project_registry() -> Dict[str, Dict[str, Any]]:
-    """Load project registry from ~/.skein/projects.json."""
-    registry_file = Path.home() / ".skein" / "projects.json"
+    """Load project registry from ``<SKEIN_HOME>/projects.json`` (default
+    ``~/.skein/projects.json``)."""
+    registry_file = skein_home() / "projects.json"
     if not registry_file.exists():
-        logger.warning("No ~/.skein/projects.json found, using default data dir")
+        logger.warning("No project registry at %s, using default data dir", registry_file)
         return {}
 
     try:

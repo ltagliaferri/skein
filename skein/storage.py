@@ -357,8 +357,15 @@ class StoreStationIndex:
 class LogDatabase:
     """SQLite database for log storage and querying."""
 
-    def __init__(self, db_path: Path = None):
+    def __init__(self, db_path: Path = None, station: bool = False):
+        # station=True selects the STATION role (Fork B, station re-home Stage 1):
+        # the SAME versions object store, but born with the post-swap threads DDL
+        # (content-addressed dedup from row zero) and the federation + station_slugs
+        # sidecar tables. A workbench db (station=False) is byte-identical to before
+        # — the base DDL and its behavior are untouched. Role is construction-time;
+        # a given instance is one or the other.
         self.db_path = db_path
+        self.station = station
         self._init_db()
 
     def _init_db(self):
@@ -477,21 +484,44 @@ class LogDatabase:
             """
             )
 
-            # Threads table
-            conn.execute(
+            # Threads table. A workbench db is born PRE-swap (thread_id PK, nullable
+            # non-unique thread_hash) — unchanged, migrated to the thread_hash PK by
+            # skein.migrations.threads_pk_swap on live dbs. A STATION db is born
+            # POST-swap (thread_hash PK) — the identical end-state that migration
+            # produces — so a byte-identical wire thread dedups (INSERT OR IGNORE on
+            # the hash) from row zero instead of inserting a duplicate. We do NOT bake
+            # the post-swap shape into the shared base DDL (station re-home Stage 1,
+            # threads-DDL decision (b)); it is the station branch only.
+            if self.station:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS threads (
+                        thread_hash TEXT PRIMARY KEY,
+                        thread_id   TEXT NOT NULL,
+                        from_id     TEXT NOT NULL,
+                        to_id       TEXT NOT NULL,
+                        type        TEXT NOT NULL,
+                        content     TEXT,
+                        weaver      TEXT,
+                        created_at  DATETIME NOT NULL
+                    )
                 """
-                CREATE TABLE IF NOT EXISTS threads (
-                    thread_id TEXT PRIMARY KEY,
-                    from_id TEXT NOT NULL,
-                    to_id TEXT NOT NULL,
-                    type TEXT NOT NULL,
-                    content TEXT,
-                    weaver TEXT,
-                    created_at DATETIME NOT NULL,
-                    thread_hash TEXT
                 )
-            """
-            )
+            else:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS threads (
+                        thread_id TEXT PRIMARY KEY,
+                        from_id TEXT NOT NULL,
+                        to_id TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        content TEXT,
+                        weaver TEXT,
+                        created_at DATETIME NOT NULL,
+                        thread_hash TEXT
+                    )
+                """
+                )
 
             # A1 (Phase 3a): thread_hash — the content address for every edge.
             # Nullable and NON-unique in 3a (the UNIQUE/PK swap is 3b). The CREATE
@@ -631,7 +661,182 @@ class LogDatabase:
                 END
             """)
 
+            if self.station:
+                self._init_station_schema(conn)
+
             conn.commit()
+
+    def _init_station_schema(self, conn):
+        """Create the station-only sidecar tables (station re-home Stage 1).
+
+        Ported from skein_next/store.py — the live station's schema, invariants
+        preserved verbatim. These exist ONLY on a station db; a workbench db never
+        sees them. Folios live in the shared ``versions`` table (refs-free on a
+        station); threads live in the shared post-swap ``threads`` table. This lays
+        the schema — the federation ACCESSORS ride with their servers in later stages;
+        the station folio/thread/slug accessors are Stage 1b/1c.
+        """
+        # station_slugs — genesis-anchored naming (brief-20260708-31bu). A claim is
+        # (slug, anchor_hash = the lineage GENESIS content hash, claimed_by signer,
+        # scope). Resolution DERIVES the head by walking supersedes forward from the
+        # anchor (1c) — never a stored mutable head, never refs (Risk-3). Replaces
+        # skein_next's flat `slugs` table; site slugs are the degenerate case.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS station_slugs (
+                slug        TEXT PRIMARY KEY,
+                anchor_hash TEXT NOT NULL,
+                claimed_by  TEXT,
+                scope       TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_station_slugs_anchor "
+            "ON station_slugs(anchor_hash)"
+        )
+
+        # aliases — legacy-id -> content_hash (server-live via resolve_alias).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS aliases (
+                legacy_id    TEXT PRIMARY KEY,
+                content_hash TEXT NOT NULL
+            )
+            """
+        )
+
+        # manifests — one row per (manifest, signer). The (root, issuer, subject)
+        # TRIPLE PK lets two bound signers each retain a proof over the identical
+        # constituent set (ST3); a bare-root PK would shadow the second.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS manifests (
+                root            TEXT,
+                manifest_hash   TEXT,
+                descriptor_json TEXT NOT NULL,
+                leaf_list_json  TEXT NOT NULL,
+                bundle_json     TEXT NOT NULL,
+                issuer          TEXT,
+                subject         TEXT,
+                leaf_count      INTEGER,
+                created_at      TEXT,
+                PRIMARY KEY (root, issuer, subject)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_manifests_hash ON manifests(manifest_hash)"
+        )
+
+        # constituent_attribution — one row per covered constituent (folio hash OR
+        # thread hash), pointing at its FIRST covering manifest (first-wins, Q3). The
+        # FK is the full proof triple (proof-signer == display-signer, ST6).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS constituent_attribution (
+                constituent_hash TEXT PRIMARY KEY,
+                kind             TEXT NOT NULL,
+                root             TEXT NOT NULL,
+                issuer           TEXT NOT NULL,
+                subject          TEXT NOT NULL,
+                created_at       TEXT,
+                FOREIGN KEY (root, issuer, subject)
+                    REFERENCES manifests(root, issuer, subject)
+            )
+            """
+        )
+
+        # account_bindings — (issuer, subject) authorized as operator|author;
+        # revoked_at NULL = active; created_at preserved across revoke/reactivate
+        # (B5). Single-active-operator is LOGIC-enforced, not a DB constraint (B47).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS account_bindings (
+                issuer            TEXT,
+                subject           TEXT,
+                role              TEXT,
+                vouched_by_issuer  TEXT,
+                vouched_by_subject TEXT,
+                created_at        TEXT,
+                revoked_at        TEXT,
+                PRIMARY KEY (issuer, subject)
+            )
+            """
+        )
+
+        # binding_events — append-only binding audit (INSERT-only).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS binding_events (
+                event_seq          INTEGER PRIMARY KEY,
+                issuer             TEXT,
+                subject            TEXT,
+                event              TEXT,
+                role               TEXT,
+                vouched_by_issuer  TEXT,
+                vouched_by_subject TEXT,
+                at                 TEXT
+            )
+            """
+        )
+
+        # invites — one-time tokens; token_hash = SHA-256 of a >=256-bit CSPRNG token
+        # (plaintext NEVER stored). Expiry enforced in SQL; redeem BURNS exactly once
+        # (INV-2); failed_attempts caps the expensive-verify flood (INV-5).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS invites (
+                token_hash            TEXT PRIMARY KEY,
+                role                  TEXT NOT NULL,
+                created_at            TEXT,
+                expires_at            TEXT NOT NULL,
+                used_at               TEXT,
+                revoked_at            TEXT,
+                vouched_by_issuer     TEXT,
+                vouched_by_subject    TEXT,
+                bound_issuer          TEXT,
+                bound_subject         TEXT,
+                redeemed_at           TEXT,
+                note                  TEXT,
+                failed_attempts       INTEGER NOT NULL DEFAULT 0,
+                attempts_window_start TEXT
+            )
+            """
+        )
+
+        # invite_events — append-only invite audit (mirrors binding_events).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS invite_events (
+                event_seq    INTEGER PRIMARY KEY,
+                token_hash   TEXT,
+                event        TEXT,
+                bound_issuer TEXT,
+                bound_subject TEXT,
+                at           TEXT,
+                detail       TEXT
+            )
+            """
+        )
+
+        # verify_cache — the expensive Sigstore SIGNATURE verdict ONLY, keyed
+        # (manifest_hash, bundle_hash). Membership + binding are recomputed live per
+        # read. Ingress is the sole writer; the read app opens ro. A recoverable
+        # status (TRUST_ROOT_STALE / OFFLINE_NO_TRUSTED_ROOT) is NEVER cached.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verify_cache (
+                manifest_hash TEXT,
+                bundle_hash   TEXT,
+                status        TEXT,
+                issuer        TEXT,
+                subject       TEXT,
+                verified_at   TEXT,
+                PRIMARY KEY (manifest_hash, bundle_hash)
+            )
+            """
+        )
 
     @contextmanager
     def _get_connection(self):

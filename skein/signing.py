@@ -1422,9 +1422,13 @@ def _coerce_signature_bundle(
 
     Pydantic ValidationError (missing required field, non-base64
     canonical_bytes) is the caller's signal to map BUNDLE_MALFORMED and is
-    handled by the callers. EmptySignatureBundle (bundles=[]) and
-    MultiSignerBundle propagate unwrapped — they are caller programming
-    errors, not domain failures, per finding-20260511-d3u6 §2.
+    handled by the callers. EmptySignatureBundle (bundles=[]) propagates
+    unwrapped out of verify() — a caller-programming error there, per
+    finding-20260511-d3u6 §2 — but verify_multi() also catches it and maps it
+    to BUNDLE_MALFORMED, since verify_multi() is a wire-facing entrypoint that
+    accepts a raw Mapping straight from untrusted input, where an empty
+    bundles list is hostile input, not a bug. MultiSignerBundle is raised by
+    verify() itself (not here) and always propagates unwrapped.
     """
     if isinstance(obj, SignatureBundle):
         return obj
@@ -1464,7 +1468,13 @@ def verify_multi(
 ) -> MultiVerifyResult:
     try:
         signature_bundle = _coerce_signature_bundle(signature_bundle)
-    except ValidationError:
+    except (ValidationError, EmptySignatureBundle):
+        # EmptySignatureBundle (bundles=[]) is a caller-programming-error signal
+        # for verify() (single-signer, per _coerce_signature_bundle's docstring),
+        # but verify_multi is a wire-facing entrypoint that also accepts a raw
+        # Mapping straight from untrusted input — an empty bundles list there is
+        # hostile input, not a bug, so it must fail closed the same as any other
+        # malformed bundle rather than raise.
         return MultiVerifyResult(
             results=[VerifyResult(status=VerifyStatus.BUNDLE_MALFORMED)],
             overall=VerifyStatus.BUNDLE_MALFORMED,

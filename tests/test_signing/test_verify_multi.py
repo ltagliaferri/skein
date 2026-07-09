@@ -478,7 +478,9 @@ def test_verify_multi_all_fail_same_status_overall_matches(
 
 
 # Enforces: SignatureBundle with empty bundles raises EmptySignatureBundle at
-# construction (clarification 2). So verify_multi never sees a length-0 array.
+# construction (clarification 2). Constructing the domain object directly still
+# raises — that path is a caller programming error. The WIRE path (a raw Mapping
+# straight to verify_multi) is the hardened case pinned below.
 def test_empty_bundles_raises_at_construction_not_in_verify_multi(
     canonical_bytes_simple,
 ):
@@ -489,6 +491,31 @@ def test_empty_bundles_raises_at_construction_not_in_verify_multi(
             canonical_bytes=canonical_bytes_simple,
             canon_version="knurl-1.0",
         )
+
+
+# Enforces (FAILURE-INJECTION, must FIRE — station re-home §4.2, findings
+# z9mj/meql finding-7): verify_multi is a wire-facing entrypoint that accepts a
+# raw Mapping straight from untrusted input. bundles=[] there makes
+# _coerce_signature_bundle's model_validate raise the custom EmptySignatureBundle
+# (an Exception, NOT a ValueError, so pydantic lets it propagate UNWRAPPED — the
+# plain `except ValidationError` misses it). Before the hardening this escaped
+# verify_multi and let an attacker pack empty/hostile bundles to raise instead of
+# fail closed. It must map to BUNDLE_MALFORMED, never raise. If this test passes
+# without raising it proves the EmptySignatureBundle arm of the except is live.
+def test_verify_multi_empty_bundle_mapping_is_bundle_malformed_not_raise():
+    result = signing.verify_multi(
+        b"x",
+        {
+            "identity_scheme": "sigstore-public-v1",
+            "bundles": [],
+            "canonical_bytes": b"x",
+            "canon_version": "skein.folio.canon/v1",
+        },
+    )
+    assert result.overall == signing.VerifyStatus.BUNDLE_MALFORMED
+    assert result.results == [
+        signing.VerifyResult(status=signing.VerifyStatus.BUNDLE_MALFORMED)
+    ]
 
 
 # ---------------------------------------------------------------------------

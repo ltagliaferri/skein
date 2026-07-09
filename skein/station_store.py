@@ -62,6 +62,27 @@ DB_FILENAME = "skein.db"
 BUSY_TIMEOUT_MS = 5000
 
 
+# bundle_hash_for is re-homed here (from skein_next/store.py) as the ONE shared
+# verify_cache-key helper both the ingress writer and the read reader import (VC11);
+# the re-homed ``envelope.folio_verdict`` reads it from this module. The function
+# itself (docstring + body) is ported byte-for-byte from skein_next below.
+def bundle_hash_for(bundle_json: str) -> str:
+    """The verify_cache bundle key: sha256 over a manifest's stored bundle_json.
+
+    ONE shared helper for the ingress WRITER and the read READER, so they compute
+    the IDENTICAL key over the same ``manifests.bundle_json`` bytes and can never
+    disagree (VC11).
+
+    ``bundle_json`` is NOT NULL in the schema, so ``None`` is unreachable today;
+    the explicit ``TypeError`` keeps a future caller from getting an opaque
+    ``AttributeError`` off ``None.encode`` at this sharp API edge."""
+    import hashlib
+
+    if bundle_json is None:
+        raise TypeError("bundle_hash_for requires a bundle_json string, got None")
+    return hashlib.sha256(bundle_json.encode("utf-8")).hexdigest()
+
+
 # ── search helpers (ported verbatim from skein_next/store.py — the station search is the
 # skein_next L1 substring rank, NOT the workbench FTS5 path) ─────────────────────────────
 

@@ -227,6 +227,37 @@ def save_project_registry(data: Dict[str, Any]) -> None:
         raise
 
 
+def save_project_registry_text(text: str) -> None:
+    """Atomically write *raw* ``text`` to ``<SKEIN_HOME>/projects.json``, byte for
+    byte — no parse, no re-serialize, no reordering.
+
+    :func:`save_project_registry` takes a dict and re-encodes it, which is correct
+    for a genuine save but wrong for *restoring* a captured pre-image: reserializing
+    rewrites a hand-formatted, compact, or differently-ordered file even though its
+    meaning is unchanged, and ``json.loads`` chokes on an empty (0-byte) registry.
+    This preserves the exact bytes. An empty string writes a 0-byte file — a
+    byte-verbatim restore of a pre-existing empty registry — so a caller that means
+    "no file" must unlink instead of passing ``""``.
+
+    Same atomicity as :func:`save_project_registry` minus the backup rotation: stage
+    to a UNIQUE temp in the SAME directory (same filesystem, atomic rename) and
+    ``os.replace`` onto ``projects.json``, so a reader only ever sees the whole old
+    file or the whole new one. ``skein_home()`` is resolved fresh at call time.
+    """
+    home = skein_home()
+    home.mkdir(parents=True, exist_ok=True)
+    registry_file = home / "projects.json"
+    fd, tmp_name = tempfile.mkstemp(dir=str(home), prefix=".projects.json.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        os.replace(tmp, registry_file)
+    except Exception:
+        tmp.unlink(missing_ok=True)  # never leave a stray temp on a failed write
+        raise
+
+
 def load_project_registry() -> Dict[str, Dict[str, Any]]:
     """Load project registry from ``<SKEIN_HOME>/projects.json`` (default
     ``~/.skein/projects.json``)."""

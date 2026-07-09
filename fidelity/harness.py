@@ -66,7 +66,11 @@ FIX_ID = "fidelity-fixture"
 # and route every write through skein.storage's atomic writer. A raw write_text of
 # the live registry is the exact incident this guards against (issue-20260709-zl71).
 sys.path.insert(0, str(REPO))
-from skein.storage import save_project_registry, skein_home  # noqa: E402
+from skein.storage import (  # noqa: E402
+    save_project_registry,
+    save_project_registry_text,
+    skein_home,
+)
 
 
 # ── setup / teardown ────────────────────────────────────────────────────────
@@ -110,12 +114,16 @@ def register_fixture() -> Optional[str]:
 
 
 def restore_registry(prior: Optional[str]) -> None:
-    """Undo register_fixture: drop the file if there was none before, else restore
-    the prior content atomically (same skein_home() resolution and safe writer)."""
+    """Undo register_fixture: with no prior file (None), drop it; otherwise write the
+    captured text back BYTE-FOR-BYTE. An empty pre-image ("" — a pre-existing 0-byte
+    registry) restores a 0-byte file, it does NOT unlink. The raw writer avoids two
+    bugs of the old save_project_registry(json.loads(prior)): json.loads("") crashes
+    on an empty registry (leaving the fixture entry stuck), and reserializing rewrites
+    a hand-formatted/compact/reordered file. skein_home() is resolved at use time."""
     if prior is None:
         (skein_home() / "projects.json").unlink(missing_ok=True)
     else:
-        save_project_registry(json.loads(prior))
+        save_project_registry_text(prior)
 
 
 def start_legacy_server() -> subprocess.Popen:

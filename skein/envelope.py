@@ -36,14 +36,14 @@ for unsigned folios. The two live signed docs carry their bundle and the
 station's display verdict; the strict, domain-separated verification path and
 re-signing under the profile are slice 2.
 
-Station re-home Stage 2 boundary: ``folio_verdict`` and ``build_folio_envelope``
-call federation store accessors — ``get_constituent_proof``, ``verify_cache_get``,
-``get_binding`` — that the Stage-1 ``StationStore`` does NOT yet expose (those
-accessors ride with the read server in Stage 3+). Both functions are re-homed as
-code here but are NOT wired or exercised in Stage 2; calling them against a bare
-StationStore raises ``AttributeError`` by design until the accessors land. The
-store-free surface (``validate_envelope``, ``folio_entry``, the collection/error
-builders) is live now.
+Station re-home: ``folio_verdict`` and ``build_folio_envelope`` call federation
+store accessors — ``get_constituent_proof``, ``verify_cache_get``, ``get_binding``
+— which Stage 3 added to ``StationStore`` (alongside the ingress that WRITES them).
+``folio_verdict`` is now wired and exercised end-to-end against a station corpus
+(the publish→ingest→read verdict round-trip in tests/test_station_e2e_publish.py);
+the read SERVER that mounts it over HTTP is Stage 4. The store-free surface
+(``validate_envelope``, ``folio_entry``, the collection/error builders) is live
+regardless of the store.
 """
 
 from __future__ import annotations

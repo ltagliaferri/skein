@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 from urllib.parse import quote
@@ -60,6 +61,48 @@ DB_FILENAME = "skein.db"
 # instantly). Ported from skein_next: lets concurrent ingress writers serialize under a
 # rollback-journal store instead of getting an instant 'database is locked'.
 BUSY_TIMEOUT_MS = 5000
+
+
+def _now_iso() -> str:
+    """A timezone-aware UTC isoformat stamp for first-insert timestamps."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _iso_micros(dt: datetime) -> str:
+    """A FIXED-WIDTH UTC isoformat stamp (always 6 fractional digits, +00:00).
+
+    Used for invite ``expires_at`` and the ``now`` it is compared against in the
+    redeem CAS. ``datetime.isoformat()`` omits the fraction when microsecond==0,
+    giving variable-width strings whose lexicographic order can disagree with
+    chronological order across the fraction/no-fraction boundary; pinning
+    ``timespec='microseconds'`` makes every stamp the same width so the SQL
+    ``expires_at > ?`` inequality is a correct string compare."""
+    return dt.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _now_micros() -> str:
+    """Fixed-width UTC now() — the redeem-CAS / expiry comparison clock."""
+    return _iso_micros(datetime.now(timezone.utc))
+
+
+def sqlite_error_is_lock(e: sqlite3.OperationalError) -> bool:
+    """Whether an OperationalError is write-lock contention (SQLITE_BUSY/LOCKED).
+
+    Discriminate on the numeric SQLite result code (the robust signal): mask the
+    EXTENDED ``sqlite_errorcode`` (Python >= 3.11; absent on a hand-built exception)
+    to the primary byte so lock-family extended codes count too, and fall back to
+    the (stable) message text only when there is no code at all. Used by the ingress
+    publish + redeem routes to degrade a transient lock to a retryable 503 while a
+    genuine (non-lock) fault still surfaces."""
+    code = getattr(e, "sqlite_errorcode", None)
+    primary = (code & 0xFF) if isinstance(code, int) else None
+    return primary in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
+        primary is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
+    )
+
+
+# verify_multi statuses meaning "could not check" — never cached, must re-verify.
+_RECOVERABLE_VERIFY_STATUSES = frozenset({"TRUST_ROOT_STALE", "OFFLINE_NO_TRUSTED_ROOT"})
 
 
 # bundle_hash_for is re-homed here (from skein_next/store.py) as the shared
@@ -786,3 +829,694 @@ class StationStore:
             for r in rows:
                 mapping.setdefault(r["folio"], r["slug"])
         return mapping
+
+    # --- manifests + constituent attribution (federation, Stage 3) ----------
+    #
+    # The signed-publish provenance sidecars: one ``manifests`` row per
+    # (root, issuer, subject) proof; one ``constituent_attribution`` row per covered
+    # folio/thread pointing at its FIRST covering manifest. Ported verbatim from
+    # skein_next/store.py — the live station's federation surface, invariants (ST1-ST10)
+    # preserved. The ingress is the sole writer; the read path (envelope.folio_verdict)
+    # reads through get_constituent_proof.
+
+    def add_manifest(
+        self,
+        root: str,
+        manifest_hash: str,
+        descriptor_json: str,
+        leaf_list_json: str,
+        bundle_json: str,
+        issuer: str,
+        subject: str,
+        leaf_count: int,
+    ) -> None:
+        """Record a manifest proof. INSERT OR IGNORE on the (root, issuer, subject)
+        triple, so the same signer re-publishing the same set is idempotent and
+        ``created_at`` is preserved (ST2/ST9); two distinct signers over one set
+        each retain their proof (ST3)."""
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO manifests
+                (root, manifest_hash, descriptor_json, leaf_list_json, bundle_json,
+                 issuer, subject, leaf_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                root,
+                manifest_hash,
+                descriptor_json,
+                leaf_list_json,
+                bundle_json,
+                issuer,
+                subject,
+                leaf_count,
+                _now_iso(),
+            ),
+        )
+        self._maybe_commit()
+
+    def get_manifest_proof(
+        self, root: str, issuer: str, subject: str
+    ) -> Optional[Dict[str, Any]]:
+        """The single manifest proof row for a (root, issuer, subject) triple."""
+        row = self.conn.execute(
+            "SELECT * FROM manifests WHERE root = ? AND issuer = ? AND subject = ?",
+            (root, issuer, subject),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_manifest_proofs_by_root(self, root: str) -> List[Dict[str, Any]]:
+        """The SET of proof rows for one constituent set (every signer of ``root``)."""
+        rows = self.conn.execute(
+            "SELECT * FROM manifests WHERE root = ? ORDER BY created_at, subject",
+            (root,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_manifest_by_hash(self, manifest_hash: str) -> Optional[Dict[str, Any]]:
+        """A manifest proof looked up by its content address (the indexed key)."""
+        row = self.conn.execute(
+            "SELECT * FROM manifests WHERE manifest_hash = ? LIMIT 1",
+            (manifest_hash,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def all_manifests(self) -> List[Dict[str, Any]]:
+        """Every manifest proof row — for the verify-cache backfill verb (VC9)."""
+        return [dict(r) for r in self.conn.execute("SELECT * FROM manifests").fetchall()]
+
+    def add_constituent_attribution(
+        self,
+        constituent_hash: str,
+        kind: str,
+        root: str,
+        issuer: str,
+        subject: str,
+    ) -> None:
+        """Attribute a covered constituent to its FIRST covering manifest.
+
+        INSERT OR IGNORE on the constituent hash (first-manifest-wins, Q3/ST4); a
+        later covering manifest persists as a proof row in ``manifests`` (ST3) but
+        does not re-point the constituent. With foreign_keys ON the manifest parent
+        must already exist (ST8) — the ingress writes the manifest row first in the
+        same savepoint."""
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO constituent_attribution
+                (constituent_hash, kind, root, issuer, subject, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (constituent_hash, kind, root, issuer, subject, _now_iso()),
+        )
+        self._maybe_commit()
+
+    def get_constituent_proof(self, constituent_hash: str) -> Optional[Dict[str, Any]]:
+        """Resolve a constituent to its covering manifest proof, or ``None``.
+
+        Joins constituent_attribution -> manifests on the proof triple. If the
+        manifest parent is ABSENT (a corrupted / mid-migration / FK-off dangling
+        state) the row still resolves to a ``proof_missing`` sentinel carrying the
+        denormalized (issuer, subject) — display-authoritative attribution degrades
+        gracefully, never a 500 (ST5).
+
+        A table-absent ``OperationalError`` (an OLD/partial-schema corpus predating
+        the manifest migration, opened read-only with no DDL) is treated as "no
+        covering manifest" -> ``None`` -> the folio reads UNSIGNED, which is the
+        correct verdict for an un-migrated/legacy folio. This is the SAME deploy-
+        ordering hazard verify_cache_get already tolerates (VC10 / Fix C): the read
+        container races ahead of the ingress migration, or new code serves an
+        un-migrated corpus.
+
+        The degrade is SCOPED TO READ-ONLY stores. A read_write store ALWAYS runs
+        the schema migration on open (executescript), so a missing table there is a
+        genuine fault — not a deploy-ordering race — and must RAISE rather than be
+        silently masked. Only the read app (``read_only=True``) can legitimately
+        face an un-migrated/old corpus and degrade. ONLY the missing-table case
+        degrades (and only read-only); any other OperationalError ("database is
+        locked", I/O error, a SQL bug) is a real fault that masquerading as "no
+        proof" would silently paper over, so it propagates in BOTH modes (the Fix-C
+        scope, exactly)."""
+        try:
+            attr = self.conn.execute(
+                "SELECT * FROM constituent_attribution WHERE constituent_hash = ?",
+                (constituent_hash,),
+            ).fetchone()
+            if attr is None:
+                return None
+            manifest = self.conn.execute(
+                "SELECT * FROM manifests WHERE root = ? AND issuer = ? AND subject = ?",
+                (attr["root"], attr["issuer"], attr["subject"]),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if self.read_only and "no such table" in str(exc).lower():
+                return None
+            raise
+        out: Dict[str, Any] = {
+            "constituent_hash": attr["constituent_hash"],
+            "kind": attr["kind"],
+            "root": attr["root"],
+            "issuer": attr["issuer"],
+            "subject": attr["subject"],
+            "created_at": attr["created_at"],
+        }
+        if manifest is None:
+            out["proof_missing"] = True
+            return out
+        out["proof_missing"] = False
+        out["manifest_hash"] = manifest["manifest_hash"]
+        out["descriptor_json"] = manifest["descriptor_json"]
+        out["leaf_list_json"] = manifest["leaf_list_json"]
+        out["bundle_json"] = manifest["bundle_json"]
+        out["leaf_count"] = manifest["leaf_count"]
+        return out
+
+    # --- account bindings + audit (the authorization sidecar) ----------------
+
+    def _binding_from_row(self, row) -> Any:
+        """Reconstruct an authorization.Binding from a row (imported lazily to
+        avoid a store<->authorization import cycle)."""
+        from . import authorization
+        return authorization.Binding(
+            issuer=row["issuer"],
+            subject=row["subject"],
+            role=row["role"],
+            vouched_by_issuer=row["vouched_by_issuer"],
+            vouched_by_subject=row["vouched_by_subject"],
+            created_at=row["created_at"],
+            revoked_at=row["revoked_at"],
+        )
+
+    def _log_binding_event(
+        self, issuer, subject, event, role, vouched_by_issuer, vouched_by_subject
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO binding_events
+                (issuer, subject, event, role, vouched_by_issuer, vouched_by_subject, at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (issuer, subject, event, role, vouched_by_issuer, vouched_by_subject, _now_iso()),
+        )
+
+    def get_binding(self, issuer: str, subject: str):
+        """The binding for a (issuer, subject) pair as a ``Binding``, or ``None``.
+
+        A table-absent ``OperationalError`` (an OLD/partial-schema corpus with no
+        account_bindings table, opened read-only with no DDL) is treated as "no
+        binding" -> ``None`` -> folio_verdict reads NOT VERIFIED ('unbound signer')
+        rather than 500ing. This is the read path's step-4 BINDING check against an
+        un-migrated/partially-migrated corpus — the same deploy-ordering hazard the
+        verify_cache and manifest reads tolerate.
+
+        The degrade is SCOPED TO READ-ONLY stores. ``get_binding`` is ALSO the
+        ingress authorization gate (ingress.py: the require_signed signer-binding
+        check), and that store is opened read_write — which ALWAYS runs the schema
+        migration on open. A missing account_bindings table there is therefore a
+        genuine schema fault, never a deploy-ordering race, and MUST RAISE so it
+        surfaces loud on the write path rather than being masked as an ordinary
+        'unbound signer' rejection. Only the read app (``read_only=True``) degrades.
+        ONLY the missing-table case degrades (and only read-only); any other
+        OperationalError propagates in BOTH modes (the Fix-C scope)."""
+        try:
+            row = self.conn.execute(
+                "SELECT * FROM account_bindings WHERE issuer = ? AND subject = ?",
+                (issuer, subject),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if self.read_only and "no such table" in str(exc).lower():
+                return None
+            raise
+        return self._binding_from_row(row) if row else None
+
+    def add_binding(
+        self,
+        issuer: str,
+        subject: str,
+        role: str = "author",
+        vouched_by_issuer: Optional[str] = None,
+        vouched_by_subject: Optional[str] = None,
+        event: Optional[str] = None,
+    ):
+        """Add (or reactivate) a binding; returns the resulting ``Binding``.
+
+        A fresh pair INSERTs with a 'created' event. A revoked pair REACTIVATES the
+        SAME row — revoked_at back to NULL, created_at PRESERVED (B5) — with a
+        'reactivated' event. An already-active pair is idempotent: one row,
+        created_at unchanged, NO event (B6). ``event`` overrides the audit verb
+        (e.g. 'rotated_in' during a rotation)."""
+        existing = self.conn.execute(
+            "SELECT * FROM account_bindings WHERE issuer = ? AND subject = ?",
+            (issuer, subject),
+        ).fetchone()
+        if existing is None:
+            self.conn.execute(
+                """
+                INSERT INTO account_bindings
+                    (issuer, subject, role, vouched_by_issuer, vouched_by_subject,
+                     created_at, revoked_at)
+                VALUES (?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (issuer, subject, role, vouched_by_issuer, vouched_by_subject, _now_iso()),
+            )
+            self._log_binding_event(
+                issuer, subject, event or "created", role,
+                vouched_by_issuer, vouched_by_subject,
+            )
+        elif existing["revoked_at"] is not None:
+            # reactivate the same row; created_at preserved (B5)
+            self.conn.execute(
+                """
+                UPDATE account_bindings
+                   SET revoked_at = NULL, role = ?,
+                       vouched_by_issuer = ?, vouched_by_subject = ?
+                 WHERE issuer = ? AND subject = ?
+                """,
+                (role, vouched_by_issuer, vouched_by_subject, issuer, subject),
+            )
+            self._log_binding_event(
+                issuer, subject, event or "reactivated", role,
+                vouched_by_issuer, vouched_by_subject,
+            )
+        # else: already active -> idempotent no-op, no event (B6)
+        self._maybe_commit()
+        return self.get_binding(issuer, subject)
+
+    def revoke_binding(self, issuer: str, subject: str, event: Optional[str] = None) -> bool:
+        """Revoke an ACTIVE binding (sets revoked_at; the row stays, B3). Returns
+        False if there is no active row to revoke (absent or already revoked, B4)
+        — no exception, no row created. ``event`` overrides the audit verb."""
+        cur = self.conn.execute(
+            """
+            UPDATE account_bindings SET revoked_at = ?
+             WHERE issuer = ? AND subject = ? AND revoked_at IS NULL
+            """,
+            (_now_iso(), issuer, subject),
+        )
+        if cur.rowcount == 0:
+            self._maybe_commit()
+            return False
+        existing = self.get_binding(issuer, subject)
+        self._log_binding_event(
+            issuer, subject, event or "revoked", existing.role,
+            existing.vouched_by_issuer, existing.vouched_by_subject,
+        )
+        self._maybe_commit()
+        return True
+
+    def promote_to_operator(self, issuer: str, subject: str):
+        """Promote an EXISTING author row to operator, preserving created_at (D19).
+
+        If the row is revoked it is reactivated and promoted (created_at preserved
+        by the same UPDATE). Logs a 'promoted' event.
+
+        Raises ``ValueError`` if no binding exists for the pair — the UPDATE would
+        match 0 rows and the subsequent ``get_binding`` would return ``None``,
+        so without this guard the next line ``AttributeError``s on ``None``. The
+        live caller (cli rotate-operator) guards with ``get_binding`` first; this
+        gives any future caller a meaningful error instead (D19)."""
+        cur = self.conn.execute(
+            """
+            UPDATE account_bindings SET role = 'operator', revoked_at = NULL
+             WHERE issuer = ? AND subject = ?
+            """,
+            (issuer, subject),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(
+                f"cannot promote: no binding for {issuer!r}/{subject!r}"
+            )
+        b = self.get_binding(issuer, subject)
+        self._log_binding_event(
+            issuer, subject, "promoted", "operator",
+            b.vouched_by_issuer, b.vouched_by_subject,
+        )
+        self._maybe_commit()
+        return b
+
+    def get_operator(self):
+        """The active operator, resolved DETERMINISTICALLY (ORDER BY created_at
+        LIMIT 1) — single-valued even under a corrupt two-operator state (B47).
+        ``None`` when no operator is active (B9)."""
+        row = self.conn.execute(
+            """
+            SELECT * FROM account_bindings
+             WHERE role = 'operator' AND revoked_at IS NULL
+             ORDER BY created_at, issuer, subject LIMIT 1
+            """
+        ).fetchone()
+        return self._binding_from_row(row) if row else None
+
+    def count_active_operators(self) -> int:
+        """Active-operator count — the startup invariant refuses boot on != 1 (D13/D20)."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM account_bindings WHERE role = 'operator' AND revoked_at IS NULL"
+        ).fetchone()[0]
+
+    def list_active_bindings(self) -> List[Any]:
+        """All active bindings as ``Binding`` objects, ordered by role then subject."""
+        rows = self.conn.execute(
+            """
+            SELECT * FROM account_bindings WHERE revoked_at IS NULL
+             ORDER BY role, issuer, subject
+            """
+        ).fetchall()
+        return [self._binding_from_row(r) for r in rows]
+
+    def list_bindings(self, include_revoked: bool = False) -> List[Any]:
+        """All bindings as ``Binding`` objects (revoked included iff asked), ordered."""
+        sql = "SELECT * FROM account_bindings"
+        if not include_revoked:
+            sql += " WHERE revoked_at IS NULL"
+        sql += " ORDER BY role, issuer, subject"
+        return [self._binding_from_row(r) for r in self.conn.execute(sql).fetchall()]
+
+    def get_binding_events(
+        self, issuer: Optional[str] = None, subject: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """The append-only binding audit trail, in insertion order (optionally filtered)."""
+        sql = "SELECT * FROM binding_events"
+        clauses = []
+        params: List[Any] = []
+        if issuer is not None:
+            clauses.append("issuer = ?")
+            params.append(issuer)
+        if subject is not None:
+            clauses.append("subject = ?")
+            params.append(subject)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY event_seq"
+        return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    # --- invites + audit (the onboarding sidecar) ----------------------------
+
+    def _log_invite_event(
+        self,
+        token_hash: str,
+        event: str,
+        bound_issuer: Optional[str] = None,
+        bound_subject: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO invite_events
+                (token_hash, event, bound_issuer, bound_subject, at, detail)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (token_hash, event, bound_issuer, bound_subject, _now_iso(), detail),
+        )
+
+    def mint_invite(
+        self,
+        token_hash: str,
+        role: str,
+        expires_at: datetime,
+        vouched_by_issuer: Optional[str] = None,
+        vouched_by_subject: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        """Record a freshly minted one-time invite (the operator side).
+
+        ``token_hash`` is the SHA-256 of the CSPRNG token (plaintext never stored).
+        ``expires_at`` is a ``datetime`` stored FIXED-WIDTH so the redeem CAS's SQL
+        inequality compares correctly. A plain ``INSERT`` (not OR IGNORE) so a
+        token_hash collision — astronomically unlikely for a >=256-bit token —
+        surfaces loudly rather than silently shadowing a prior invite. Logs a
+        'minted' event in the same transaction."""
+        self.conn.execute(
+            """
+            INSERT INTO invites
+                (token_hash, role, created_at, expires_at, vouched_by_issuer,
+                 vouched_by_subject, note, failed_attempts)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (
+                token_hash,
+                role,
+                _now_iso(),
+                _iso_micros(expires_at),
+                vouched_by_issuer,
+                vouched_by_subject,
+                note,
+            ),
+        )
+        self._log_invite_event(token_hash, "minted")
+        self._maybe_commit()
+
+    def get_invite_by_token_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
+        """The single invite row for a token hash, or ``None``. CHEAP — the
+        pre-crypto gate's lookup (INV-2 step a), run OUTSIDE any transaction."""
+        row = self.conn.execute(
+            "SELECT * FROM invites WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_invites(self, include_inactive: bool = True) -> List[Dict[str, Any]]:
+        """Every invite row, newest first (operator visibility, INV-4).
+
+        With ``include_inactive=False`` only OUTSTANDING invites (unredeemed,
+        unrevoked) are returned; otherwise used/revoked rows are included so a
+        hostile or completed redemption stays visible."""
+        sql = "SELECT * FROM invites"
+        if not include_inactive:
+            sql += " WHERE used_at IS NULL AND revoked_at IS NULL"
+        sql += " ORDER BY created_at DESC, token_hash"
+        return [dict(r) for r in self.conn.execute(sql).fetchall()]
+
+    def revoke_invite(self, token_hash: str) -> bool:
+        """Revoke an OUTSTANDING (unredeemed, unrevoked) invite. Returns False if
+        there is no such row (absent, already revoked, OR already redeemed) — no
+        exception, no row created.
+
+        Restricted to ``used_at IS NULL`` so a REDEEMED invite cannot be revoked: a
+        redemption produces an account binding, and the operator revokes that
+        binding via ``account revoke`` — revoking the spent invite would only hide
+        its operator-visible 'redeemed by <subject>' state (the display state
+        prioritizes revoked_at) and make a legitimate idempotent re-redeem fail
+        early. The CAS redeem path re-checks ``revoked_at IS NULL``, so revoking an
+        unused invite that a race is mid-redeeming is honored under the single-
+        writer lock: whichever write commits first wins."""
+        cur = self.conn.execute(
+            "UPDATE invites SET revoked_at = ? "
+            "WHERE token_hash = ? AND revoked_at IS NULL AND used_at IS NULL",
+            (_now_iso(), token_hash),
+        )
+        if cur.rowcount == 0:
+            self._maybe_commit()
+            return False
+        self._log_invite_event(token_hash, "revoked")
+        self._maybe_commit()
+        return True
+
+    def reserve_redeem_attempt(
+        self, token_hash: str, cap: int, window_seconds: int
+    ) -> bool:
+        """Atomically reserve one verify attempt against a token, or refuse (INV-5).
+
+        The per-token flood backstop, made CONCURRENCY-SAFE: a leaked valid-but-
+        unused token is not burned until a SUCCESSFUL redeem, so an attacker holding
+        it could otherwise drive unbounded expensive ``verify_multi`` calls. This
+        reserves a slot in a SHORT write transaction (BEGIN IMMEDIATE) BEFORE the
+        crypto runs, so concurrent attempts serialize and EXACTLY ``cap`` get
+        through per rolling ``window_seconds``; the rest are refused here, cheaply,
+        with no crypto. A check-then-increment (read the count, verify, then bump)
+        is racy — N concurrent requests all pass the pre-check and all run the
+        expensive verify before any increment lands; this conditional UPDATE closes
+        that hole. Returns True if a slot was reserved (proceed to crypto), False if
+        the cap is already met within the live window (reject as rate-limited).
+
+        Counts every attempt on the UNUSED-token path. The counter is consulted
+        ONLY here and in the advisory pre-check, both gated on ``not used`` — and the
+        token burns on the single success that follows a passing reserve, after
+        which the used-token idempotent path never reserves. So a verified success
+        needs no refund (the counter is never read again for this token), and a bound
+        author's idempotent retries are never cap-gated (INV-6). Best-effort False on
+        a vanished row."""
+        with self.transaction():
+            row = self.conn.execute(
+                "SELECT failed_attempts, attempts_window_start FROM invites WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+            if row is None:
+                return False
+            now = datetime.now(timezone.utc)
+            window_start = row["attempts_window_start"]
+            within_window = False
+            if window_start is not None:
+                try:
+                    started = datetime.fromisoformat(window_start)
+                    # A NAIVE stored stamp is assumed UTC (mirroring redeem._parse), so
+                    # the aware-vs-naive subtraction below can't raise TypeError and the
+                    # window is measured correctly rather than mis-windowed. The except
+                    # also catches TypeError as a belt-and-suspenders: no stored-stamp
+                    # shape can make this best-effort/total function raise — an
+                    # unparseable stamp falls back to a fresh window (within_window False).
+                    if started.tzinfo is None:
+                        started = started.replace(tzinfo=timezone.utc)
+                    within_window = (now - started).total_seconds() <= window_seconds
+                except (ValueError, TypeError):
+                    within_window = False
+            if within_window:
+                if (row["failed_attempts"] or 0) >= cap:
+                    return False  # cap met this window — refuse before crypto
+                self.conn.execute(
+                    "UPDATE invites SET failed_attempts = failed_attempts + 1 "
+                    "WHERE token_hash = ?",
+                    (token_hash,),
+                )
+            else:
+                # window rolled over (or first attempt) — reset to 1, restart window
+                self.conn.execute(
+                    "UPDATE invites SET failed_attempts = 1, attempts_window_start = ? "
+                    "WHERE token_hash = ?",
+                    (now.isoformat(), token_hash),
+                )
+            return True
+
+    def log_redeem_failure(self, token_hash: str, reason: Optional[str] = None) -> None:
+        """Append a 'redeem_failed' audit event (operator forensics). The attempt
+        COUNTER is owned by :meth:`reserve_redeem_attempt` (reserved pre-crypto);
+        this is audit only. Best-effort — the row may have been redeemed/revoked by
+        a concurrent winner between the reserve and here."""
+        self._log_invite_event(token_hash, "redeem_failed", detail=reason)
+        self._maybe_commit()
+
+    def redeem_invite_cas(
+        self, token_hash: str, issuer: str, subject: str
+    ) -> str:
+        """The exactly-once burn + bind, in ONE short write transaction (INV-2/3).
+
+        Crypto (verify_multi) MUST already have run OUTSIDE this transaction — this
+        holds the single-writer lock (BEGIN IMMEDIATE) only for the cheap, bounded
+        burn-and-bind, never across the multi-second Sigstore round-trip. Returns a
+        status string:
+
+        - ``'redeemed'``         — the token was burned (CAS UPDATE matched exactly
+          one row) and ``(issuer, subject)`` bound fresh as the invite's role.
+        - ``'revoked_identity'`` — the identity currently holds a REVOKED binding;
+          NOTHING is burned or bound (INV-3: a self-service redeem must never
+          un-revoke an identity the operator deliberately revoked).
+        - ``'invalid_role'``     — the invite's role is not ``'author'``. A
+          self-service redeem must NEVER be the path that creates a second
+          active operator (the single-active-operator invariant, A7/D13); an
+          operator is installed ONLY via the local ``init-operator`` /
+          ``rotate-operator`` CLI path. NOTHING is burned or bound. The
+          supported mint path already restricts ``--role`` to ``author``, but
+          this is the actual bind point, so it is the backstop that must
+          refuse regardless of how a non-author-role invite row came to exist
+          (direct store use, migration, or future caller drift).
+        - ``'race_lost'``        — the conditional UPDATE matched 0 rows: a
+          concurrent redeem won, or the token became used/revoked/expired between
+          the cheap check and here. Nothing is bound; the caller re-reads for the
+          idempotent-success case (INV-6).
+
+        The revoked-binding guard, the CAS, and the bind all run under the same
+        BEGIN IMMEDIATE lock, so no concurrent revoke can interleave."""
+        with self.transaction():
+            inv = self.conn.execute(
+                "SELECT role, vouched_by_issuer, vouched_by_subject FROM invites "
+                "WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+            if inv is None:
+                return "race_lost"  # vanished between cheap check and here
+            if inv["role"] != "author":
+                return "invalid_role"
+            # INV-3 — refuse to bind an identity that currently holds a REVOKED
+            # binding (add_binding would reactivate it, B5). Guard BEFORE the burn so
+            # nothing is consumed when we refuse.
+            existing = self.conn.execute(
+                "SELECT revoked_at FROM account_bindings WHERE issuer = ? AND subject = ?",
+                (issuer, subject),
+            ).fetchone()
+            if existing is not None and existing["revoked_at"] is not None:
+                return "revoked_identity"
+            now = _now_micros()
+            cur = self.conn.execute(
+                """
+                UPDATE invites
+                   SET used_at = ?, bound_issuer = ?, bound_subject = ?, redeemed_at = ?
+                 WHERE token_hash = ?
+                   AND used_at IS NULL
+                   AND revoked_at IS NULL
+                   AND expires_at > ?
+                """,
+                (now, issuer, subject, now, token_hash, now),
+            )
+            if cur.rowcount != 1:
+                return "race_lost"
+            # add_binding here cannot trip B5 reactivation: a revoked existing
+            # binding was rejected above, so existing is None (fresh INSERT) or
+            # active (idempotent no-op). Bind under the invite's role, vouched by
+            # whoever minted the invite (the operator).
+            self.add_binding(
+                issuer,
+                subject,
+                role=inv["role"],
+                vouched_by_issuer=inv["vouched_by_issuer"],
+                vouched_by_subject=inv["vouched_by_subject"],
+                event="redeemed",
+            )
+            self._log_invite_event(token_hash, "redeemed", issuer, subject)
+            return "redeemed"
+
+    def get_invite_events(self, token_hash: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The append-only invite audit trail, in insertion order (optionally filtered)."""
+        sql = "SELECT * FROM invite_events"
+        params: List[Any] = []
+        if token_hash is not None:
+            sql += " WHERE token_hash = ?"
+            params.append(token_hash)
+        sql += " ORDER BY event_seq"
+        return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    # --- verify_cache (the manifest SIGNATURE verdict cache, step 3 only) -----
+
+    def verify_cache_get(
+        self, manifest_hash: str, bundle_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        """A cached manifest signature verdict, or ``None`` on a miss.
+
+        A table-absent ``OperationalError`` (an old store predating the migration,
+        opened read-only with no DDL) is treated as a cache MISS — the real
+        deploy-ordering hazard where the read container races ahead of the ingress
+        migration (VC10). The read path degrades to in-process verify, never 500s.
+
+        ONLY the missing-table case is a miss. Any other OperationalError
+        ("database is locked", disk I/O error, a malformed SQL bug) is a real
+        fault that masquerading as a cache miss would silently paper over — those
+        propagate (VC10 intends exactly the table-absent hazard, nothing wider)."""
+        try:
+            row = self.conn.execute(
+                "SELECT * FROM verify_cache WHERE manifest_hash = ? AND bundle_hash = ?",
+                (manifest_hash, bundle_hash),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
+        return dict(row) if row else None
+
+    def verify_cache_put(
+        self,
+        manifest_hash: str,
+        bundle_hash: str,
+        status: str,
+        issuer: Optional[str] = None,
+        subject: Optional[str] = None,
+    ) -> None:
+        """Cache a STABLE manifest signature verdict. A recoverable status
+        (TRUST_ROOT_STALE / OFFLINE_NO_TRUSTED_ROOT) writes NO row (VC3/VC4) — it
+        must always re-verify."""
+        if status in _RECOVERABLE_VERIFY_STATUSES:
+            return
+        self.conn.execute(
+            """
+            INSERT OR REPLACE INTO verify_cache
+                (manifest_hash, bundle_hash, status, issuer, subject, verified_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (manifest_hash, bundle_hash, status, issuer, subject, _now_iso()),
+        )
+        self._maybe_commit()

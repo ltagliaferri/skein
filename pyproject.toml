@@ -146,6 +146,12 @@ extend-exclude = ["docs"]
 # test_manifest.py) carries the same l / r left/right merkle notation — same
 # rationale as the skein_next exemption above.
 "tests/test_station_manifest.py" = ["E741"]
+# The re-homed station ingress/authorization tests + their shared publish helper bind
+# I (issuer) straight from the crypto/OIDC notation the skein_next originals use — same
+# rationale as the skein_next exemption above.
+"tests/station_publish_helpers.py" = ["E741"]
+"tests/test_station_authorization.py" = ["E741"]
+"tests/test_station_ingress_boot.py" = ["E741"]
 
 [tool.mypy]
 python_version = "3.10"

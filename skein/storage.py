@@ -508,19 +508,25 @@ class LogDatabase:
                 """
                 )
             else:
+                # The workbench pre-swap DDL, byte-for-byte master's text. SQLite stores
+                # the CREATE statement verbatim in sqlite_master.sql (internal indentation
+                # preserved), so this string's content is dedented independently of the
+                # enclosing if/else to keep a workbench-born threads table's stored DDL
+                # identical to one born on master — the locked byte-identity invariant
+                # (test_workbench_threads_ddl_byte_identical_to_master).
                 conn.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS threads (
-                        thread_id TEXT PRIMARY KEY,
-                        from_id TEXT NOT NULL,
-                        to_id TEXT NOT NULL,
-                        type TEXT NOT NULL,
-                        content TEXT,
-                        weaver TEXT,
-                        created_at DATETIME NOT NULL,
-                        thread_hash TEXT
-                    )
-                """
+                CREATE TABLE IF NOT EXISTS threads (
+                    thread_id TEXT PRIMARY KEY,
+                    from_id TEXT NOT NULL,
+                    to_id TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    content TEXT,
+                    weaver TEXT,
+                    created_at DATETIME NOT NULL,
+                    thread_hash TEXT
+                )
+            """
                 )
 
             # A1 (Phase 3a): thread_hash — the content address for every edge.

@@ -131,3 +131,39 @@ def test_default_is_workbench(tmp_dir):
     db = LogDatabase(p)
     assert db.station is False
     assert "station_slugs" not in _tables(p)
+
+
+# The exact threads DDL text a workbench db born on master (a38425f) stores in
+# sqlite_master.sql. SQLite records the CREATE statement verbatim (normalizing away
+# IF NOT EXISTS + leading whitespace, preserving internal indentation), so this is the
+# byte-identity golden the station re-home must not disturb.
+_MASTER_THREADS_SQL = (
+    "CREATE TABLE threads (\n"
+    "                    thread_id TEXT PRIMARY KEY,\n"
+    "                    from_id TEXT NOT NULL,\n"
+    "                    to_id TEXT NOT NULL,\n"
+    "                    type TEXT NOT NULL,\n"
+    "                    content TEXT,\n"
+    "                    weaver TEXT,\n"
+    "                    created_at DATETIME NOT NULL,\n"
+    "                    thread_hash TEXT\n"
+    "                )"
+)
+
+
+def test_workbench_threads_ddl_byte_identical_to_master(tmp_dir):
+    """A workbench db's STORED threads DDL text is byte-identical to master's. The
+    station re-home wraps the threads DDL in an if/else; this pins that the workbench
+    (station=False) branch still stores the exact bytes master did — the byte-identity
+    invariant docs/STAGE_1_STORE_UNIFICATION.md locks (a whitespace-only drift here is a
+    regression to catch, even though it is functionally inert)."""
+    p = tmp_dir / "workbench.db"
+    LogDatabase(p)
+    conn = sqlite3.connect(p)
+    try:
+        sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'threads'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert sql == _MASTER_THREADS_SQL

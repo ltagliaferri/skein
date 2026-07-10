@@ -244,25 +244,41 @@ def test_pin_check_full_prefix_and_mismatch():
     assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)
 
 
-def test_pin_check_ref_with_fragment_is_unpinnable_byte_faithful():
-    # A slug/ref address carrying a verifier fragment (`slug#sha256::<full>`) is
-    # reported UNPINNABLE — the re-home's Ref branch routes it to the fallback
-    # before the fragment is consulted. This is BYTE-FAITHFUL to skein_next, whose
-    # parser raised AddressError on the slug form -> the identical unpinnable
-    # fallback (same reason string), verified against skein_next.mesh.client for
-    # the matching, NON-matching, and explicit-`ref::` fragment forms.
-    #
-    # Honoring the fragment on a ref/alias address — so a substitution served under
-    # `slug#<expected-hash>` is caught as an INVALID address-mismatch rather than
-    # silently reported "the station's word" — is a deliberate post-cutover
-    # mesh-client hardening candidate (carried, not a re-home change). When that
-    # pass lands it will flip these assertions on purpose.
+def test_pin_check_ref_with_fragment_honors_the_fragment():
+    # A slug/ref address carrying a `#sha256::<full>` verifier fragment IS pinnable:
+    # the fragment is a full digest the caller supplied as the expected identity, so
+    # the pin runs against it. A matching fragment pins full; a NON-matching fragment
+    # (a station serving substituted content under `slug#<expected>`) is caught as an
+    # address mismatch rather than reported as "the station's word". This hardens past
+    # skein_next (which raised AddressError on the whole ref form and discarded the
+    # fragment) — a deliberate off-fidelity-path mesh-client fix; the pin only ever
+    # strengthens, never turns a mismatch into a match.
     from skein.mesh.client import _pin_check
 
     actual = "sha256::" + "ab" * 32
-    assert _pin_check("myslug#sha256::" + "ab" * 32, actual)[:2] == (None, None)  # matching fragment
-    assert _pin_check("myslug#sha256::" + "cd" * 32, actual)[:2] == (None, None)  # substitution, NOT flagged
-    assert _pin_check("ref::someslug#sha256::" + "ab" * 32, actual)[:2] == (None, None)
+    # slug + MATCHING fragment -> pins full
+    assert _pin_check("myslug#sha256::" + "ab" * 32, actual)[:2] == (True, "full")
+    assert _pin_check("ref::someslug#sha256::" + "ab" * 32, actual)[:2] == (True, "full")
+    # slug + NON-matching fragment (a substitution) -> caught as address mismatch
+    matched, kind, reason = _pin_check("myslug#sha256::" + "cd" * 32, actual)
+    assert matched is False and kind is None and "address mismatch" in reason
+    # a BARE ref/slug with no fragment still has no digest to pin against -> unpinnable
+    assert _pin_check("myslug", actual)[:2] == (None, None)
+    assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)
+
+
+def test_is_remote_classifies_loopback_ip_vs_lookalike_hostname():
+    # Only a genuine loopback IP literal is local; a hostname whose first label is
+    # "127" is a registrable REMOTE domain, not 127.0.0.0/8. Misclassifying it as
+    # local would suppress the remote-unsigned safety warning.
+    from skein.mesh.client import _is_remote
+
+    assert _is_remote("http://127.0.0.1:9001") is False       # loopback IP
+    assert _is_remote("http://127.5.5.5:9001") is False       # whole 127.0.0.0/8 is loopback
+    assert _is_remote("http://localhost:9001") is False       # known loopback name
+    assert _is_remote("http://[::1]:9001") is False           # IPv6 loopback
+    assert _is_remote("http://127.evil.example:9001") is True  # a real domain, NOT a 127.* IP
+    assert _is_remote("http://notes.example.org") is True     # ordinary remote host
 
 
 def _signed_envelope_of_a(station, a):
@@ -331,3 +347,18 @@ def test_cli_fetch_json(wired):
     assert result.exit_code == EXIT_OK
     # Click 8.3 combines streams in .output; the JSON envelope is on stdout.
     assert '"kind": "folio"' in result.output
+
+
+def test_cli_fetch_json_quiet_suppresses_body(wired):
+    from click.testing import CliRunner
+
+    from skein.mesh.cli import cli
+
+    # --quiet ("only the verdict; no body") must suppress the stdout body even under
+    # --json — a script relying on --quiet producing no body would otherwise still
+    # receive the whole envelope on stdout.
+    runner = CliRunner()
+    result = runner.invoke(cli, ["fetch", wired["a"], "--from", LOCAL, "--json", "--quiet"])
+    assert result.exit_code == EXIT_OK
+    assert '"kind"' not in result.output  # no JSON body on stdout
+    assert "UNSIGNED" in result.stderr    # the verdict still goes to stderr

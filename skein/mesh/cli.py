@@ -61,10 +61,16 @@ def fetch_cmd(address, instance, require_signed, as_json, quiet, timeout):
         click.echo(result.warning, err=True)
     click.echo(verdict_line(result), err=True)
 
-    if as_json:
-        click.echo(json.dumps(result.envelope, ensure_ascii=False, indent=2))
-    elif not quiet and result.markdown:
-        click.echo(result.markdown)
+    # --quiet suppresses the stdout BODY entirely (the documented contract: "only the
+    # verdict"). The stderr verdict + any safety warning above always print — they are the
+    # signal, not a body. Guarding BOTH branches on `not quiet` is the fix: without it
+    # `mesh fetch --json --quiet` still dumped the envelope to stdout, breaking a script
+    # that relies on --quiet producing no body.
+    if not quiet:
+        if as_json:
+            click.echo(json.dumps(result.envelope, ensure_ascii=False, indent=2))
+        elif result.markdown:
+            click.echo(result.markdown)
 
     sys.exit(result.exit_code)
 

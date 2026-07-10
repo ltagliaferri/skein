@@ -723,10 +723,16 @@ class StationStore:
         A resolved folio edge stores a ``sha256::`` content hash; anything left — a
         non-null endpoint that is neither a content hash nor a known alias — is a
         dangling or cross-project reference holding its legacy id, which resolves lazily
-        if/when the target imports and registers an alias. Byte-faithful to skein_next
-        (touches only ``threads``/``aliases``); the station's ``threads`` declares
-        from_id/to_id NOT NULL, so the IS-NOT-NULL clause's NULL branch is a defensive
-        carry that cannot arise here. A Stage-7a migration fidelity query."""
+        if/when the target imports and registers an alias. Touches only ``threads``/
+        ``aliases``; the station's ``threads`` declares from_id/to_id NOT NULL, so the
+        endpoint IS-NOT-NULL clause's NULL branch cannot arise here. A Stage-7a migration
+        fidelity query.
+
+        Hardened beyond skein_next's byte-identical query: the ``aliases`` subquery
+        excludes a NULL ``legacy_id`` (``legacy_id`` is a TEXT PK, which SQLite lets be
+        NULL). Without the guard a single NULL alias key makes ``endpoint NOT IN
+        (SELECT legacy_id …)`` evaluate to NULL/false for EVERY row under SQL three-valued
+        logic, silently returning ``[]`` and defeating the migration guard."""
         rows = self.conn.execute(
             """
             SELECT DISTINCT endpoint FROM (
@@ -736,7 +742,7 @@ class StationStore:
             )
             WHERE endpoint IS NOT NULL
               AND endpoint NOT LIKE 'sha256::%'
-              AND endpoint NOT IN (SELECT legacy_id FROM aliases)
+              AND endpoint NOT IN (SELECT legacy_id FROM aliases WHERE legacy_id IS NOT NULL)
             ORDER BY endpoint
             """
         ).fetchall()

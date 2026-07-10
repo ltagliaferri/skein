@@ -9,6 +9,7 @@ word; this is the consumer re-deriving it, which is the whole point.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -62,8 +63,16 @@ def _is_remote(instance: str) -> bool:
     host = (urlparse(instance).hostname or "").lower()
     if host in _LOOPBACK_HOSTS:
         return False
-    # The whole 127.0.0.0/8 range is loopback, not just 127.0.0.1.
-    return not host.startswith("127.")
+    # Only a genuine loopback IP LITERAL is local. The whole 127.0.0.0/8 range counts
+    # (not just 127.0.0.1), as does IPv6 ::1 — ``ip_address().is_loopback`` covers both.
+    # A hostname whose first label is "127" (e.g. "127.evil.example") is NOT an IP; it is
+    # a registrable REMOTE domain, so a bare ``startswith("127.")`` would misclassify it
+    # as local and suppress the remote-unsigned warning. A non-IP host that is not a
+    # known loopback name is remote.
+    try:
+        return not ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return True
 
 
 def _pin_check(
@@ -96,15 +105,21 @@ def _pin_check(
         parsed = addr.parse(requested_address)
     except addr.AddressError:
         return None, None, _unpinnable
-    # The hardened ``skein.address`` grammar this re-home retargets onto (§3) adds a
-    # bare-slug REF production (``<slug>``, ``ref::<slug>``, ``<name>::ref::<slug>``, …)
-    # that ``skein_next.address`` raised ``AddressError`` on. A ``Ref`` carries no digest
-    # to pin against, so route every Ref form to the unpinnable fallback exactly as
-    # skein_next did — before any ``.algo``/``.is_full`` touch (mirrors resolve.py's Ref
-    # branch, byte-faithful to the station's alias/legacy-id behavior).
-    if isinstance(parsed.folio, addr.Ref):
-        return None, None, _unpinnable
+    # The hardened ``skein.address`` grammar (§3) adds a bare-slug REF production
+    # (``<slug>``, ``ref::<slug>``, ``<name>::ref::<slug>``, …) that ``skein_next.address``
+    # raised ``AddressError`` on. Pin against the verifier FRAGMENT when the address carries
+    # one, else the folio. A bare Ref (a slug with no fragment) has no digest to pin
+    # against, so it routes to the unpinnable fallback exactly as skein_next's AddressError
+    # path did — and never touches ``.algo``/``.is_full`` on a ``Ref``. But when a Ref
+    # address DOES carry a ``#sha256::<full>`` verifier fragment, ``pin`` is that Hash:
+    # honor it, so a substitution served under ``slug#<expected-hash>`` is caught as an
+    # address mismatch rather than silently reported as "the station's word". (This
+    # hardens beyond skein_next, which raised AddressError on the whole ref form and so
+    # discarded the fragment — a deliberate mesh-client fix, off the station's fidelity
+    # path; the pin only ever STRENGTHENS, never turns a mismatch into a match.)
     pin = parsed.fragment if parsed.fragment is not None else parsed.folio
+    if isinstance(pin, addr.Ref):
+        return None, None, _unpinnable
     algo, _sep, digest = actual_hash.partition("::")
     if pin.algo != algo:
         return False, None, f"address mismatch: requested {pin.algo}, served {algo}"

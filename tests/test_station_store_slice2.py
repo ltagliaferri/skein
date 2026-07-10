@@ -133,6 +133,18 @@ def test_unresolved_endpoints_lists_only_unresolved_legacy_ids(store):
     assert got == {"brief-20260101-dang", "otherproj:brief-20260101-xprj"}
 
 
+def test_unresolved_endpoints_survives_null_alias_key(store):
+    # legacy_id is a nullable TEXT PK, so a NULL alias key can exist. Without guarding
+    # the subquery, one NULL makes `endpoint NOT IN (SELECT legacy_id ...)` evaluate to
+    # NULL/false for EVERY row (SQL three-valued logic) and the query silently returns
+    # [] — the migration guard would go quiet. Hardened past skein_next's raw query.
+    folio_hash = store.create_folio(FOLIO)
+    store.save_thread(from_id=folio_hash, to_id="brief-20260101-dang", type="mention", created_at=TS)
+    store.conn.execute("INSERT INTO aliases (legacy_id, content_hash) VALUES (NULL, ?)", (folio_hash,))
+    store.conn.commit()
+    assert store.unresolved_endpoints() == ["brief-20260101-dang"]
+
+
 def test_unresolved_endpoint_resolves_once_alias_exists(store):
     folio_hash = store.create_folio(FOLIO)
     store.save_thread(from_id=folio_hash, to_id="brief-20260101-late", type="mention", created_at=TS)

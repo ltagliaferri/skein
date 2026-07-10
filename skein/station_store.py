@@ -576,6 +576,9 @@ class StationStore:
     def count_folios(self) -> int:
         return self.conn.execute("SELECT COUNT(*) AS n FROM versions").fetchone()["n"]
 
+    def count_threads(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) AS n FROM threads").fetchone()["n"]
+
     def latest_statuses(self, folio_hashes: List[str]) -> Dict[str, str]:
         """Map each given folio hash to its latest status-thread content (1c control).
 
@@ -694,11 +697,56 @@ class StationStore:
 
     # --- aliases (flat legacy-id -> content_hash) ---------------------------
 
+    def set_alias(self, legacy_id: str, content_hash: str) -> None:
+        """Map a legacy id to a content hash (upsert; last write wins). The write twin of
+        ``resolve_alias`` — the Stage-7a corpus migration populates ``aliases`` through it,
+        and a migrated corpus's legacy-id thread endpoints resolve through the read path."""
+        self.conn.execute(
+            """
+            INSERT INTO aliases (legacy_id, content_hash)
+            VALUES (?, ?)
+            ON CONFLICT(legacy_id) DO UPDATE SET content_hash = excluded.content_hash
+            """,
+            (legacy_id, content_hash),
+        )
+        self._maybe_commit()
+
     def resolve_alias(self, legacy_id: str) -> Optional[str]:
         row = self.conn.execute(
             "SELECT content_hash FROM aliases WHERE legacy_id = ?", (legacy_id,)
         ).fetchone()
         return row["content_hash"] if row else None
+
+    def unresolved_endpoints(self) -> List[str]:
+        """Thread endpoints that are legacy ids still awaiting an alias.
+
+        A resolved folio edge stores a ``sha256::`` content hash; anything left — a
+        non-null endpoint that is neither a content hash nor a known alias — is a
+        dangling or cross-project reference holding its legacy id, which resolves lazily
+        if/when the target imports and registers an alias. Touches only ``threads``/
+        ``aliases``; the station's ``threads`` declares from_id/to_id NOT NULL, so the
+        endpoint IS-NOT-NULL clause's NULL branch cannot arise here. A Stage-7a migration
+        fidelity query.
+
+        Hardened beyond skein_next's byte-identical query: the ``aliases`` subquery
+        excludes a NULL ``legacy_id`` (``legacy_id`` is a TEXT PK, which SQLite lets be
+        NULL). Without the guard a single NULL alias key makes ``endpoint NOT IN
+        (SELECT legacy_id …)`` evaluate to NULL/false for EVERY row under SQL three-valued
+        logic, silently returning ``[]`` and defeating the migration guard."""
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT endpoint FROM (
+                SELECT from_id AS endpoint FROM threads
+                UNION
+                SELECT to_id   AS endpoint FROM threads
+            )
+            WHERE endpoint IS NOT NULL
+              AND endpoint NOT LIKE 'sha256::%'
+              AND endpoint NOT IN (SELECT legacy_id FROM aliases WHERE legacy_id IS NOT NULL)
+            ORDER BY endpoint
+            """
+        ).fetchall()
+        return [r["endpoint"] for r in rows]
 
     # --- slugs / naming (1c — genesis-anchored, derived head) ---------------
     #

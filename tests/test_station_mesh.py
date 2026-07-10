@@ -244,6 +244,27 @@ def test_pin_check_full_prefix_and_mismatch():
     assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)
 
 
+def test_pin_check_ref_with_fragment_is_unpinnable_byte_faithful():
+    # A slug/ref address carrying a verifier fragment (`slug#sha256::<full>`) is
+    # reported UNPINNABLE — the re-home's Ref branch routes it to the fallback
+    # before the fragment is consulted. This is BYTE-FAITHFUL to skein_next, whose
+    # parser raised AddressError on the slug form -> the identical unpinnable
+    # fallback (same reason string), verified against skein_next.mesh.client for
+    # the matching, NON-matching, and explicit-`ref::` fragment forms.
+    #
+    # Honoring the fragment on a ref/alias address — so a substitution served under
+    # `slug#<expected-hash>` is caught as an INVALID address-mismatch rather than
+    # silently reported "the station's word" — is a deliberate post-cutover
+    # mesh-client hardening candidate (carried, not a re-home change). When that
+    # pass lands it will flip these assertions on purpose.
+    from skein.mesh.client import _pin_check
+
+    actual = "sha256::" + "ab" * 32
+    assert _pin_check("myslug#sha256::" + "ab" * 32, actual)[:2] == (None, None)  # matching fragment
+    assert _pin_check("myslug#sha256::" + "cd" * 32, actual)[:2] == (None, None)  # substitution, NOT flagged
+    assert _pin_check("ref::someslug#sha256::" + "ab" * 32, actual)[:2] == (None, None)
+
+
 def _signed_envelope_of_a(station, a):
     env = _envelope(station, a)
     env["proof"]["signature_bundle"] = {"b": 1}  # pretend the real folio is signed

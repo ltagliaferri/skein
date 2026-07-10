@@ -1,0 +1,169 @@
+/* ulm.css — the opinionated default theme.
+ *
+ * Wikipedia information density × Dieter Rams / Vitsoe (Ulm School / Braun
+ * "Gute Form") utilitarian functionalism (brief-20260522-0gjz):
+ * high-contrast black-on-white, type-driven, restrained, generous whitespace,
+ * monospace only as a cryptographic-artifact marker, grayscale + one accent
+ * (green=verified, amber=wrapped, red=invalid). Color does not do structural
+ * work; size and weight do.
+ *
+ * Forbidden (per 0gjz): rounded corners > 2px, card shadows, gradient buttons,
+ * friendly emoji, "Welcome to SKEIN!" copy, Notion/Material/Apple-SaaS feel.
+ *
+ * This sheet layers on base.css — it reads the tokens and targets the stable
+ * hooks; it never touches the markup or the structured path.
+ */
+
+body {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+/* --- header / nav --------------------------------------------------------- */
+
+.station-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem 1.25rem;
+  padding-bottom: 0.6rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid var(--fg);
+}
+.station-header .station-name {
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+.station-header .station-name a { color: var(--fg); text-decoration: none; }
+.station-header .tagline { color: var(--muted); font-size: 0.9rem; }
+.station-nav { margin-left: auto; display: flex; align-items: baseline; gap: 1rem; font-size: 0.9rem; }
+.station-nav form { display: flex; gap: 0.35rem; }
+.station-nav input[type="search"] {
+  font: inherit;
+  border: 1px solid var(--rule);
+  padding: 0.2rem 0.4rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+.station-nav button {
+  font: inherit;
+  border: 1px solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+  padding: 0.2rem 0.7rem;
+  cursor: pointer;
+}
+
+.breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
+.breadcrumb a { color: var(--muted); }
+
+/* --- folio ---------------------------------------------------------------- */
+
+.type-tag {
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+h1 { font-size: 1.7rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0.2rem 0 0.6rem; }
+
+.metadata {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 1.25rem;
+}
+.metadata .cryptography { font-size: 0.92em; }
+
+/* The provenance card: one native <details>, bordered, accent on the left edge by
+ * state. The <summary> is the verdict line (the disclosure toggle); the crypto
+ * detail unfolds below. Restrained — a 1px rule, no shadow, no radius. */
+.provenance {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--prov, var(--muted));
+  padding: 0.6rem 0.85rem;
+  margin: 0 0 1.75rem;
+  font-size: 0.88rem;
+}
+.provenance > summary { cursor: pointer; }
+.provenance .verdict { font-weight: 600; color: var(--prov, var(--fg)); }
+.provenance .disclaimer { color: var(--muted); font-style: italic; }
+.provenance dl { margin: 0.5rem 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.6rem; }
+.provenance dt { color: var(--muted); }
+.provenance dd { margin: 0; }
+
+/* Fork hatnote: a quiet "a newer version exists" note above the folio body. */
+.hatnote { font-size: 0.85rem; color: var(--muted); font-style: italic; border-bottom: 1px solid var(--rule); padding-bottom: 0.4rem; margin: 0 0 1rem; }
+
+/* Folio header: the content's type tag + title (distinct from the station chrome). */
+.folio-header { margin: 0 0 0.4rem; }
+
+/* Content-first: the body comes before chrome in the DOM. Generous measure. */
+.folio-body { margin: 0 0 2rem; }
+.folio-body h1, .folio-body h2, .folio-body h3 { letter-spacing: -0.01em; }
+.folio-body h2 { font-size: 1.25rem; border-bottom: 1px solid var(--rule); padding-bottom: 0.2rem; margin-top: 1.8rem; }
+.folio-body pre {
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  padding: 0.7rem 0.85rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+.folio-body code { font-size: 0.9em; }
+.folio-body blockquote {
+  margin: 1rem 0;
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--rule);
+  color: var(--muted);
+}
+
+/* --- threads (cross-references) + lineage --------------------------------- */
+
+.threads, .lineage { margin: 1.5rem 0 0; }
+.threads h2, .lineage h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--rule); padding-bottom: 0.2rem; }
+.threads ul, .lineage ul { list-style: none; padding: 0; margin: 0.4rem 0 1.25rem; }
+.threads li, .lineage li { padding: 0.2rem 0; border-bottom: 1px solid var(--hairline); }
+.threads .edge-type, .lineage .edge-type { font-family: var(--font-mono); font-size: 0.78em; color: var(--muted); }
+.threads .peer-address, .lineage .peer-address { font-size: 0.78em; color: var(--muted); }
+/* Inline "Show all N" overflow for a dense group (display cap 8; the wire is uncapped). */
+.threads-more > summary { cursor: pointer; font-size: 0.8rem; color: var(--link); padding: 0.2rem 0; }
+.threads-more ul { margin-top: 0.2rem; }
+
+/* --- collections (index / site / search) --------------------------------- */
+
+.toc, .index-section { margin: 1rem 0; }
+.entry-list, .site-list { list-style: none; padding: 0; margin: 0.5rem 0 1.5rem; }
+.entry-list li, .site-list li { padding: 0.35rem 0; border-bottom: 1px solid var(--hairline); }
+.entry .meta, .site-list .meta { font-size: 0.8rem; color: var(--muted); }
+.entry .snippet { font-size: 0.85rem; color: var(--muted); margin: 0.15rem 0; }
+.site-list .count { font-variant-numeric: tabular-nums; }
+
+.section-heading { font-size: 1.1rem; border-bottom: 2px solid var(--fg); padding-bottom: 0.2rem; margin: 1.75rem 0 0.5rem; }
+
+/* --- footer --------------------------------------------------------------- */
+
+.station-footer { margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); font-size: 0.8rem; color: var(--muted); }
+
+/* --- forms / search ------------------------------------------------------- */
+
+.search-form { display: flex; gap: 0.5rem; margin: 1rem 0 1.5rem; }
+.search-form input[type="search"] { flex: 1; font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--rule); background: var(--bg); color: var(--fg); }
+.search-form button { font: inherit; border: 1px solid var(--fg); background: var(--bg); color: var(--fg); padding: 0.4rem 1rem; cursor: pointer; }
+
+/* --- "For your agent" box ------------------------------------------------- */
+/* A handoff widget. Action-first, restrained; the link/address/command are the
+ * cryptographic-mono artifacts. The box ships open (no-JS readers get the body);
+ * JS collapses it to a real <details> disclosure on a narrow viewport. */
+.for-agents { border: 1px solid var(--rule); border-left: 3px solid var(--muted); padding: 0.6rem 0.85rem; margin: 0 0 1.75rem; font-size: 0.88rem; }
+.for-agents .for-agents-title { font-weight: 600; }
+.for-agents summary { cursor: pointer; }
+.for-agents p { margin: 0.45rem 0 0; }
+.for-agents .for-agents-label { color: var(--muted); margin-top: 0.7rem; }
+.for-agents .cryptography { font-size: 0.85em; display: block; margin-top: 0.15rem; }
+.for-agents .for-agents-link { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.6rem; }
+.for-agents .for-agents-link a { flex: 1; min-width: 0; }
+.for-agents .copy-link { font: inherit; font-size: 0.85em; border: 1px solid var(--fg); background: var(--bg); color: var(--fg); padding: 0.15rem 0.6rem; cursor: pointer; }
+.for-agents .for-agents-prov { margin-top: 0.7rem; color: var(--muted); }

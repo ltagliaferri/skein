@@ -164,6 +164,31 @@ def _search_score(row: Mapping[str, Any], terms: List[str]) -> int:
     return score
 
 
+def make_snippet(content: Optional[str], terms: List[str], width: int = 180) -> Optional[str]:
+    """A short excerpt of ``content`` around the first matched term (legibility).
+
+    Untrusted display text — it goes inside the agent-markdown fence and is HTML-
+    escaped in the web view, never trusted. Returns ``None`` for empty content.
+
+    Re-homed byte-identical from ``skein_next.store.make_snippet`` (station Stage 4):
+    the read surface builds search snippets with it, and it is a pure function with no
+    store coupling.
+    """
+    if not content:
+        return None
+    flat = " ".join(content.split())  # collapse whitespace for a clean one-liner
+    low = flat.lower()
+    positions = [low.find(t.lower()) for t in terms]
+    hits = [p for p in positions if p >= 0]
+    if not hits:
+        head = flat[:width]
+        return head + ("…" if len(flat) > width else "")
+    start = max(0, min(hits) - width // 3)
+    end = min(len(flat), start + width)
+    snippet = flat[start:end]
+    return ("…" if start > 0 else "") + snippet + ("…" if end < len(flat) else "")
+
+
 # The six folio columns the station reads out of ``versions`` — the exact skein_next
 # folio-dict contract (same names as skein_next ``folios``). Selected explicitly so the
 # dict is those six keys regardless of any future ``versions`` column.

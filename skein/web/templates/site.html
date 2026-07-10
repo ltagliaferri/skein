@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{#
+  site.html — one site's folios, from the site collection envelope. `env.body` is
+  the entry list (already type-filtered by the route); `available_types` and
+  `current_type` are HTML-only filter chrome derived from the store.
+#}
+{% set slug = env.asserted.slug %}
+{% block title %}{{ slug }} — {{ station.name }}{% endblock %}
+{% block head_extra %}
+  <link rel="alternate" type="text/markdown" href="/site/{{ slug }}.md{% if current_type %}?type={{ current_type | urlencode }}{% endif %}">
+  <link rel="alternate" type="application/json" href="/site/{{ slug }}.json{% if current_type %}?type={{ current_type | urlencode }}{% endif %}">
+{% endblock %}
+{% block content %}
+<main id="main" class="skein-page">
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">{{ station.name }}</a> / {{ slug }}
+  </nav>
+  <h1>{{ slug }}</h1>
+
+  <nav class="site-filter meta" aria-label="filter by type">
+    Filter:
+    <a href="/site/{{ slug }}">all</a>
+    {% for t in available_types %}
+    · <a href="/site/{{ slug }}?type={{ t }}">{{ t }}</a>
+    {% endfor %}
+  </nav>
+
+  <ul class="entry-list">
+    {% for e in env.body %}
+    <li class="entry">
+      <span class="type-tag">{{ e.type }}</span>
+      <a href="{{ e.href }}">{{ e.title | clean_title(e.address) }}</a>
+      <div class="meta cryptography">{{ e.address }}</div>
+    </li>
+    {% else %}
+    <li class="meta">No folios{% if current_type %} of type {{ current_type }}{% endif %}.</li>
+    {% endfor %}
+  </ul>
+</main>
+{% endblock %}

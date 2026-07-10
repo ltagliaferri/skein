@@ -244,27 +244,45 @@ def test_pin_check_full_prefix_and_mismatch():
     assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)
 
 
-def test_pin_check_ref_with_fragment_honors_the_fragment():
-    # A slug/ref address carrying a `#sha256::<full>` verifier fragment IS pinnable:
-    # the fragment is a full digest the caller supplied as the expected identity, so
-    # the pin runs against it. A matching fragment pins full; a NON-matching fragment
-    # (a station serving substituted content under `slug#<expected>`) is caught as an
-    # address mismatch rather than reported as "the station's word". This hardens past
-    # skein_next (which raised AddressError on the whole ref form and discarded the
-    # fragment) — a deliberate off-fidelity-path mesh-client fix; the pin only ever
-    # strengthens, never turns a mismatch into a match.
+def test_pin_check_ref_fragment_is_advisory_not_a_pin():
+    # A verifier fragment on a REF target (`slug#sha256::<full>`) is a FRESHNESS NOTE,
+    # not a pin: per ADDRESSING_GRAMMAR.md ("The freshness suffix") it warns, it does not
+    # verify or reject. _pin_check therefore reports a ref address unpinnable ("the
+    # station's word") whether or not it carries a fragment — never a hard match/mismatch
+    # off the fragment. (Enforcement mode is set by the LEFT-HAND production: ref -> warn,
+    # hash -> reject.)
     from skein.mesh.client import _pin_check
 
     actual = "sha256::" + "ab" * 32
-    # slug + MATCHING fragment -> pins full
-    assert _pin_check("myslug#sha256::" + "ab" * 32, actual)[:2] == (True, "full")
-    assert _pin_check("ref::someslug#sha256::" + "ab" * 32, actual)[:2] == (True, "full")
-    # slug + NON-matching fragment (a substitution) -> caught as address mismatch
-    matched, kind, reason = _pin_check("myslug#sha256::" + "cd" * 32, actual)
-    assert matched is False and kind is None and "address mismatch" in reason
-    # a BARE ref/slug with no fragment still has no digest to pin against -> unpinnable
-    assert _pin_check("myslug", actual)[:2] == (None, None)
-    assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)
+    assert _pin_check("myslug", actual)[:2] == (None, None)                       # bare slug
+    assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)        # legacy id
+    assert _pin_check("myslug#sha256::" + "ab" * 32, actual)[:2] == (None, None)  # ref + matching fragment
+    assert _pin_check("myslug#sha256::" + "cd" * 32, actual)[:2] == (None, None)  # ref + drifted fragment
+    assert _pin_check("ref::someslug#sha256::" + "ab" * 32, actual)[:2] == (None, None)
+
+
+def test_pin_check_hash_target_fragment_enforces_both_folio_and_fragment():
+    # On a HASH target the fragment is a VERIFIER (reject on mismatch): the served content
+    # must match the folio digest AND the fragment. Enforcing only ONE (the pre-existing
+    # `pin = fragment or folio` behavior, byte-inherited from skein_next) lets a
+    # self-contradictory `sha256::A#sha256::B` (A != B) turn a mismatch into a match.
+    from skein.mesh.client import _pin_check
+
+    A, B = "ab" * 32, "cd" * 32
+    actualA = "sha256::" + A
+    # matching folio + matching fragment -> full identity
+    assert _pin_check(f"sha256::{A}#sha256::{A}", actualA)[:2] == (True, "full")
+    # folio matches but fragment does not -> reject
+    m, k, r = _pin_check(f"sha256::{A}#sha256::{B}", actualA)
+    assert m is False and k is None and "address mismatch" in r
+    # THE substitution: address folio A + fragment B, station serves content B — the
+    # folio-digest check catches it (the old code pinned only the fragment and said match)
+    m, k, r = _pin_check(f"sha256::{A}#sha256::{B}", "sha256::" + B)
+    assert m is False and k is None and "address mismatch" in r
+    # short folio + full fragment must be consistent
+    assert _pin_check(f"mysite::sha256::abababab#sha256::{A}", actualA)[:2] == (True, "full")
+    m, k, r = _pin_check(f"mysite::sha256::cdcdcdcd#sha256::{A}", actualA)
+    assert m is False and k is None and "address mismatch" in r
 
 
 def test_is_remote_classifies_loopback_ip_vs_lookalike_hostname():

@@ -105,32 +105,38 @@ def _pin_check(
         parsed = addr.parse(requested_address)
     except addr.AddressError:
         return None, None, _unpinnable
-    # The hardened ``skein.address`` grammar (§3) adds a bare-slug REF production
-    # (``<slug>``, ``ref::<slug>``, ``<name>::ref::<slug>``, …) that ``skein_next.address``
-    # raised ``AddressError`` on. Pin against the verifier FRAGMENT when the address carries
-    # one, else the folio. A bare Ref (a slug with no fragment) has no digest to pin
-    # against, so it routes to the unpinnable fallback exactly as skein_next's AddressError
-    # path did — and never touches ``.algo``/``.is_full`` on a ``Ref``. But when a Ref
-    # address DOES carry a ``#sha256::<full>`` verifier fragment, ``pin`` is that Hash:
-    # honor it, so a substitution served under ``slug#<expected-hash>`` is caught as an
-    # address mismatch rather than silently reported as "the station's word". (This
-    # hardens beyond skein_next, which raised AddressError on the whole ref form and so
-    # discarded the fragment — a deliberate mesh-client fix, off the station's fidelity
-    # path; the pin only ever STRENGTHENS, never turns a mismatch into a match.)
-    pin = parsed.fragment if parsed.fragment is not None else parsed.folio
-    if isinstance(pin, addr.Ref):
+    folio = parsed.folio
+    # A Ref target (bare slug, ``ref::<slug>``, ``<name>::ref::<slug>``, …) has no
+    # locally-checkable digest, and a ``#sha256::…`` fragment on a Ref is a FRESHNESS NOTE
+    # — it warns, it does not verify or reject (ADDRESSING_GRAMMAR.md "The freshness
+    # suffix"). So a Ref address is never a hard local pin: report it unpinnable (the
+    # name->hash mapping is the station's word), and never touch ``.algo``/``.is_full`` on
+    # a ``Ref``. (The hardened ``skein.address`` §3 grammar parses these bare-slug REF
+    # forms that ``skein_next.address`` raised ``AddressError`` on; both routes land here
+    # identically.)
+    if isinstance(folio, addr.Ref):
         return None, None, _unpinnable
+    # A hash target: the served content must match the folio digest AND, when the address
+    # carries a ``#sha256::<full>`` verifier fragment, that digest too — on a hash target a
+    # fragment ADDS a constraint, it never REPLACES the folio's (spec: "the resolved
+    # object's content hash must equal it", reject on mismatch). Enforce EVERY digest-
+    # bearing part; a full match anywhere is full identity, a folio-only short match is the
+    # weaker prefix bind.
     algo, _sep, digest = actual_hash.partition("::")
-    if pin.algo != algo:
-        return False, None, f"address mismatch: requested {pin.algo}, served {algo}"
-    if pin.is_full:
-        if pin.digest != digest:
-            return False, None, "address mismatch: served content does not hash to the requested address"
-        return True, "full", None
-    # A short digest pins by prefix: the full hash must extend it.
-    if not digest.startswith(pin.digest):
-        return False, None, "address mismatch: served hash does not extend the requested short hash"
-    return True, "prefix", None
+    parts = [folio]
+    if parsed.fragment is not None:
+        parts.append(parsed.fragment)
+    kind = "prefix"
+    for part in parts:
+        if part.algo != algo:
+            return False, None, f"address mismatch: requested {part.algo}, served {algo}"
+        if part.is_full:
+            if part.digest != digest:
+                return False, None, "address mismatch: served content does not hash to the requested address"
+            kind = "full"
+        elif not digest.startswith(part.digest):
+            return False, None, "address mismatch: served hash does not extend the requested short hash"
+    return True, kind, None
 
 
 def resolve(instance: str, address: str, *, timeout: float = 10.0) -> Tuple[Optional[dict], Optional[str]]:

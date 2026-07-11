@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from skein.stationfile import StationfileError
 from skein.web.app import (
     ENV_DATA_DIR,
-    ENV_PROJECT,
+    ENV_NAME,
     create_app,
     verdict_state,
 )
@@ -54,9 +54,9 @@ def _write_stationfile(data_dir, obj):
 def _make_client(data_dir, monkeypatch, *, stationfile=None, env_project=None):
     monkeypatch.setenv(ENV_DATA_DIR, str(data_dir))
     if env_project is None:
-        monkeypatch.delenv(ENV_PROJECT, raising=False)
+        monkeypatch.delenv(ENV_NAME, raising=False)
     else:
-        monkeypatch.setenv(ENV_PROJECT, env_project)
+        monkeypatch.setenv(ENV_NAME, env_project)
     if stationfile is not None:
         _write_stationfile(data_dir, stationfile)
     return TestClient(create_app())
@@ -73,7 +73,7 @@ def client(seeded, monkeypatch):
 def test_unnamed_station_refuses_to_start(seeded, monkeypatch):
     # No stationfile and no SKEIN_NEXT_PROJECT bootstrap -> create_app fails loud.
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
-    monkeypatch.delenv(ENV_PROJECT, raising=False)
+    monkeypatch.delenv(ENV_NAME, raising=False)
     with pytest.raises(StationfileError):
         create_app()
 

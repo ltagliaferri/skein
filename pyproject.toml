@@ -60,7 +60,7 @@ dev = [
 [project.scripts]
 skein = "client.cli:main"
 interskein = "skein_next.cli:main"
-mesh = "skein_next.mesh.cli:main"
+mesh = "skein.mesh.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/spiritengine/skein"

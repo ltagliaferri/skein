@@ -23,7 +23,7 @@ from skein.mesh.client import (
     search_display,
 )
 from skein.station import Station  # noqa: F401  (kept for parity; corpus seeded via builder)
-from skein.web.app import ENV_DATA_DIR, ENV_PROJECT, create_app
+from skein.web.app import ENV_DATA_DIR, ENV_NAME, create_app
 
 from tests.station_read_helpers import StationBuilder
 
@@ -44,7 +44,7 @@ def seeded(tmp_path):
 @pytest.fixture
 def wired(seeded, monkeypatch):
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
-    monkeypatch.setenv(ENV_PROJECT, "Field Notes")
+    monkeypatch.setenv(ENV_NAME, "Field Notes")
     station = TestClient(create_app())
 
     def fake_get(url, params=None, headers=None, timeout=None):

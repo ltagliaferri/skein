@@ -76,7 +76,14 @@ def _iso_micros(dt: datetime) -> str:
     giving variable-width strings whose lexicographic order can disagree with
     chronological order across the fraction/no-fraction boundary; pinning
     ``timespec='microseconds'`` makes every stamp the same width so the SQL
-    ``expires_at > ?`` inequality is a correct string compare."""
+    ``expires_at > ?`` inequality is a correct string compare.
+
+    A NAIVE datetime is taken AS UTC (finding-20260709-p4n5 #2): bare
+    ``astimezone`` would reinterpret it as system-LOCAL time first, silently
+    shifting an invite expiry by the host's UTC offset — the same naive->UTC
+    rule ``reserve_redeem_attempt``'s window parse already applies."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc).isoformat(timespec="microseconds")
 
 

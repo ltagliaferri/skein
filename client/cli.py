@@ -7992,6 +7992,15 @@ def publish(ctx, refs, instance_url, folio_hashes, thread_hashes, token, login,
         click.echo("dry-run — nothing signed or sent")
 
 
+# Station re-home Stage 6: the public-station group (launchers + operator ops),
+# attached the same way skein_next attached its shard/roster groups. The group is
+# direct-store / server-launching by design (see skein/station_cli.py docstring),
+# unlike the rest of this CLI, which is a thin client over the 8001 API.
+from skein.station_cli import station as _station_group  # noqa: E402
+
+cli.add_command(_station_group)
+
+
 def main():
     """Entry point for the skein CLI (called by pip-installed command)."""
     cli()

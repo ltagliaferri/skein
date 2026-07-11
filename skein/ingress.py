@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -47,6 +46,7 @@ from . import sign as _sign
 from . import redeem as _redeem
 from .authorization import default_bindings
 from .identity import content_hash_for_bytes
+from .station_env import StationEnvError, station_env
 from .station_store import bundle_hash_for, sqlite_error_is_lock
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,9 @@ def _constituent_manifest_reject_reason(m_reason: str) -> str:
     return f"manifest signature {m_reason}"
 
 DEFAULT_PORT = 9101  # read web app is 9001; ingress is a distinct write surface
-ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
+# Env reads resolve through station_env (Stage 6): the SKEIN_STATION_* canonical
+# name, with the retired SKEIN_NEXT_* key as a warned fallback alias until Stage 8.
+ENV_DATA_DIR = "SKEIN_STATION_DATA_DIR"
 
 # The station's canonical origin — a SIGNED field of the redeem challenge (INV-1).
 # The collaborator signs over this exact string; the station reconstructs the
@@ -78,7 +80,7 @@ ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
 # fails closed. Set it in the deploy env (e.g. https://interskein.com). If unset,
 # the redeem route refuses to operate (it cannot verify a token-bound proof without
 # an authoritative origin) — /publish is unaffected.
-ENV_ORIGIN = "SKEIN_NEXT_ORIGIN"
+ENV_ORIGIN = "SKEIN_STATION_ORIGIN"
 
 # Body cap for the redeem route — SMALLER than the publish cap: a redeem body is a
 # single {token, proof} object (a token string + one Sigstore bundle), never a
@@ -102,7 +104,7 @@ MAX_BATCH_BYTES = 1024 * 1024
 
 
 def _get_data_dir() -> Any:
-    return os.environ.get(ENV_DATA_DIR)
+    return station_env("DATA_DIR")
 
 
 class BatchShapeError(ValueError):
@@ -387,14 +389,14 @@ def backfill_verify_cache(station: Station, verifier: "_sign.Verifier" = None) -
     return count
 
 
-ENV_REQUIRE_SIGNED = "SKEIN_NEXT_REQUIRE_SIGNED"
+ENV_REQUIRE_SIGNED = "SKEIN_STATION_REQUIRE_SIGNED"
 
 _REQUIRE_SIGNED_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled", "y"})
 _REQUIRE_SIGNED_FALSY = frozenset({"0", "false", "no", "off", ""})
 
 
 class RequireSignedConfigError(RuntimeError):
-    """SKEIN_NEXT_REQUIRE_SIGNED is set to a value that is neither a recognized
+    """SKEIN_STATION_REQUIRE_SIGNED is set to a value that is neither a recognized
     truthy nor falsy spelling. A security toggle must fail LOUD on a typo, never
     silently pick the open posture."""
 
@@ -413,7 +415,7 @@ def _require_signed() -> bool:
     alternative lets a plausible-looking misconfiguration boot the public
     ingress wide open with only a log line nobody reads.
     """
-    value = os.environ.get(ENV_REQUIRE_SIGNED, "").strip().lower()
+    value = (station_env("REQUIRE_SIGNED") or "").strip().lower()
     if value in _REQUIRE_SIGNED_TRUTHY:
         return True
     if value in _REQUIRE_SIGNED_FALSY:
@@ -464,14 +466,23 @@ def create_app() -> FastAPI:
     # on its --to value (publish.canonical_instance: lowercase scheme+host, drop
     # default ports and trailing slash) so the station reconstructs the EXACT string
     # the collaborator signed over. Without this a trailing slash / uppercase scheme
-    # / explicit :443 in SKEIN_NEXT_ORIGIN would diverge from the client's
+    # / explicit :443 in SKEIN_STATION_ORIGIN would diverge from the client's
     # canonicalized origin and SIGNATURE_MISMATCH every redeem (fail-closed, but an
     # availability footgun). If unset, the redeem route refuses to operate; /publish
     # is unaffected.
     from .publish import canonical_instance as _canonical_instance
 
-    _raw_origin = os.environ.get(ENV_ORIGIN)
-    redeem_origin = _canonical_instance(_raw_origin) if _raw_origin else None
+    _raw_origin = station_env("ORIGIN")
+    # Totality (finding-20260709-p4n5 #1): a mistyped origin (bad port, unclosed
+    # IPv6 bracket) must be a clean config refusal at startup, not a raw
+    # ValueError traceback out of urllib.
+    try:
+        redeem_origin = _canonical_instance(_raw_origin) if _raw_origin else None
+    except ValueError as e:
+        raise StationEnvError(
+            f"{ENV_ORIGIN}={_raw_origin!r} is not a valid origin URL ({e}); "
+            "expected e.g. https://ingress.interskein.com"
+        ) from e
     if redeem_origin:
         logger.info("ingress redeem origin: %s", redeem_origin)
     else:

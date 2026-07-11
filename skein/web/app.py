@@ -29,7 +29,6 @@ per-request store (and SQLite connection).
 from __future__ import annotations
 
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Iterator, Optional
@@ -44,6 +43,7 @@ from markdown_it import MarkdownIt
 from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
+from ..station_env import station_env
 from ..stationfile import StationConfig, StationfileError, load_station_config
 from ..station_store import StationStore, make_snippet
 
@@ -65,12 +65,14 @@ MAX_BATCH_BYTES = 256 * 1024
 # Max search results returned in one query; the envelope flags `truncated` when
 # the cap is hit so a consumer knows more may exist.
 SEARCH_LIMIT = 100
-ENV_DATA_DIR = "SKEIN_NEXT_DATA_DIR"
-ENV_PROJECT = "SKEIN_NEXT_PROJECT"  # the stationfile-name bootstrap env
+# Env reads resolve through station_env (Stage 6): the SKEIN_STATION_* canonical
+# name, with the retired SKEIN_NEXT_* key as a warned fallback alias until Stage 8.
+ENV_DATA_DIR = "SKEIN_STATION_DATA_DIR"
+ENV_NAME = "SKEIN_STATION_NAME"  # the stationfile-name bootstrap env
 
 # The instance's own web:: authority, when published behind a domain. Unset in
 # Phase 1 (bare-hash addresses).
-ENV_AUTHORITY = "SKEIN_NEXT_AUTHORITY"
+ENV_AUTHORITY = "SKEIN_STATION_AUTHORITY"
 
 # The station's public origin (``https://host``), used ONLY to build the absolute
 # ``.md`` fetch URLs the agent-markdown opener and references advertise. It is a
@@ -80,7 +82,7 @@ ENV_AUTHORITY = "SKEIN_NEXT_AUTHORITY"
 # renderer falls back to the request origin (convenient in dev), then to a
 # host-relative path. Set it in production (the instance is behind nginx, which by
 # default would otherwise leak the internal 127.0.0.1:9001 origin).
-ENV_BASE_URL = "SKEIN_NEXT_BASE_URL"
+ENV_BASE_URL = "SKEIN_STATION_BASE_URL"
 
 _MARKDOWN_MEDIA = "text/markdown; charset=utf-8"
 
@@ -150,22 +152,22 @@ def render_markdown(content: str) -> str:
 
 
 def get_data_dir() -> Optional[str]:
-    return os.environ.get(ENV_DATA_DIR)
+    return station_env("DATA_DIR")
 
 
 def get_authority() -> Optional[str]:
-    return os.environ.get(ENV_AUTHORITY)
+    return station_env("AUTHORITY")
 
 
 def public_base_url(request: Request) -> str:
     """The station's public origin for building absolute ``.md`` fetch URLs.
 
-    Prefers the configured ``SKEIN_NEXT_BASE_URL`` (deterministic, injection-proof
+    Prefers the configured ``SKEIN_STATION_BASE_URL`` (deterministic, injection-proof
     — see ENV_BASE_URL); falls back to the request origin in dev. Always returned
     without a trailing slash; ``""`` only if neither is available, which the
     renderer treats as "emit a host-relative path".
     """
-    configured = os.environ.get(ENV_BASE_URL)
+    configured = station_env("BASE_URL")
     if configured:
         from urllib.parse import urlsplit
 
@@ -191,7 +193,7 @@ def load_config() -> StationConfig:
     requirement. ``create_app`` calls this once at startup, so a misconfigured
     station refuses to start (caught in ``run_server`` for a clean message).
     """
-    return load_station_config(get_data_dir(), env_name=os.environ.get(ENV_PROJECT))
+    return load_station_config(get_data_dir(), env_name=station_env("NAME"))
 
 
 def build_token_css(config: StationConfig) -> str:

@@ -1,40 +1,41 @@
-# interskein web instance — the content-hash station read surface (port 9001).
+# interskein public station — read surface (:9001) + ingress write surface
+# (:9101, fronted public via nginx). Station re-home Stage 7b: both launch
+# points run the `skein station` build (was the `skein_next` `interskein`
+# entrypoint) with SKEIN_STATION_* env keys.
 #
-#   INTERSKEIN_CORPUS=/path/to/project/.skein-next docker compose up -d --build
+#   INTERSKEIN_CORPUS=/path/to/.skein-station docker compose up -d
 #
-# INTERSKEIN_CORPUS points at a project's .skein-next store; it is mounted
-# read-only (v0 is read-only — the container never writes the corpus). The
-# reverse proxy terminates TLS for darkive.org / interskein.com and forwards
-# to 9001.
+# INTERSKEIN_CORPUS points at the served station data dir. The read service
+# mounts it :ro; the ingress mounts the SAME dir read-write and runs
+# require_signed=ON. Both run the pinned image built locally and shipped via
+# `docker save | ssh | docker load` (the droplet checkout is not rebuilt).
+# The ingress stays bound to 127.0.0.1; nginx (ingress.interskein.com) is the
+# only public listener.
 services:
   interskein:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: interskein:latest
+    image: interskein:station-20260711
     container_name: interskein
+    # Read surface: uses the image's default CMD (`skein station … serve`).
     ports:
       # Bind localhost only — nginx fronts this and terminates TLS. Docker
       # bypasses UFW via iptables, so a bare "9001:9001" would expose the
       # instance publicly regardless of the firewall.
       - "127.0.0.1:9001:9001"
     environment:
-      - SKEIN_NEXT_DATA_DIR=/data
+      - SKEIN_STATION_DATA_DIR=/data
       # The station name (page <title>/h1) bootstrap. A station MUST be named:
-      # with no stationfile (.skein-next/stationfile.json) and this var unset, the
-      # station refuses to start (slice 3 retired the old derive-from-parent
-      # fallback). Once a stationfile with a "name" exists it wins over this var,
-      # so a rename rides the light deploy path; this stays a harmless fallback.
-      - SKEIN_NEXT_PROJECT=interskein
-      # Public origin for the absolute .md fetch URLs the agent-markdown opener and
-      # the "For your agent" box advertise. Set explicitly because nginx fronts the
-      # instance on 127.0.0.1:9001 and the request origin would otherwise leak the
-      # internal host; a configured value is also immune to Host-header injection.
-      # interskein.com is the canonical name (the corpus is content-addressed, so
-      # the link resolves from darkive.org too).
-      - SKEIN_NEXT_BASE_URL=https://interskein.com
+      # with no stationfile (.skein-station/stationfile.json) and this var unset,
+      # create_app refuses to start. Once a stationfile with a "name" exists it
+      # wins over this var, so a rename rides the light deploy path.
+      - SKEIN_STATION_NAME=interskein
+      # Public origin for the absolute .md fetch URLs the agent-markdown opener
+      # and the "For your agent" box advertise. Set explicitly because nginx
+      # fronts the instance on 127.0.0.1:9001 and the request origin would
+      # otherwise leak the internal host; a configured value is also immune to
+      # Host-header injection. interskein.com is the canonical name.
+      - SKEIN_STATION_BASE_URL=https://interskein.com
     volumes:
-      - "${INTERSKEIN_CORPUS:?set INTERSKEIN_CORPUS to a project's .skein-next dir}:/data:ro"
+      - "${INTERSKEIN_CORPUS:?set INTERSKEIN_CORPUS to a .skein-station dir}:/data:ro"
     restart: unless-stopped
     # No curl in the slim image; probe with the venv's python.
     healthcheck:
@@ -43,3 +44,26 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # Public mesh write surface (fronted by nginx as https://ingress.interskein.com).
+  # Loopback-bound; require_signed=ON: a publish is admitted only under a manifest
+  # signed by the bound operator/author, and boot refuses unless exactly one active
+  # operator exists (run `skein station account init-operator` first). Shares the
+  # served corpus read-WRITE so accepted publishes appear on the read surface.
+  # SKEIN_STATION_ORIGIN is the canonical signed-origin for the /invite/redeem
+  # token-binding (must equal the public host serving redeem == the collaborator's
+  # --to).
+  ingress:
+    image: interskein:station-20260711
+    container_name: interskein-ingress
+    command: ["skein", "station", "--data-dir", "/data", "ingress", "--host", "0.0.0.0", "--port", "9101"]
+    ports:
+      - "127.0.0.1:9101:9101"
+    environment:
+      - SKEIN_STATION_DATA_DIR=/data
+      - SKEIN_STATION_NAME=interskein
+      - SKEIN_STATION_REQUIRE_SIGNED=1
+      - SKEIN_STATION_ORIGIN=https://ingress.interskein.com
+    volumes:
+      - "${INTERSKEIN_CORPUS:?set INTERSKEIN_CORPUS to a .skein-station dir}:/data"
+    restart: unless-stopped

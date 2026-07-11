@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from skein import envelope as env_mod
 from skein.station_store import StationStore
-from skein.web.app import ENV_DATA_DIR, ENV_PROJECT, create_app
+from skein.web.app import ENV_DATA_DIR, ENV_NAME, create_app
 
 from tests.station_read_helpers import StationBuilder
 
@@ -93,7 +93,7 @@ def test_old_schema_corpus_served_over_http_no_500(tmp_path, monkeypatch):
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "stationfile.json").write_text(json.dumps({"name": "Legacy"}), encoding="utf-8")
     monkeypatch.setenv(ENV_DATA_DIR, str(data_dir))
-    monkeypatch.delenv(ENV_PROJECT, raising=False)
+    monkeypatch.delenv(ENV_NAME, raising=False)
     client = TestClient(create_app())
 
     r = client.get(f"/folio/{h}.json")

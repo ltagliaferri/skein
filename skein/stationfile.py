@@ -10,7 +10,7 @@ alongside the corpus, so a config or theme change rides the LIGHT deploy path
 Validation posture is **ease, not enforcement** (§ "Validation posture"):
 
 - ``name`` is the ONLY hard requirement. No name from anywhere — no stationfile,
-  empty ``name``, and no ``SKEIN_NEXT_PROJECT`` bootstrap env — is a hard error
+  empty ``name``, and no ``SKEIN_STATION_NAME`` bootstrap env — is a hard error
   (:class:`StationfileError`); the station refuses to start rather than silently
   inherit a blank or invented label. Naming a station is basic, not a11y-policing.
 - Everything else degrades and logs a warning: a bad ``theme`` path falls back to
@@ -19,7 +19,7 @@ Validation posture is **ease, not enforcement** (§ "Validation posture"):
 - ``schema_version`` drives forward migration. A version we don't know how to read
   is a loud error, never a silent misread.
 
-**Name precedence.** ``stationfile.name`` wins; the ``SKEIN_NEXT_PROJECT`` env var
+**Name precedence.** ``stationfile.name`` wins; the ``SKEIN_STATION_NAME`` env var
 is a bootstrap that supplies the name *until a stationfile exists*, then steps
 aside. This deviates from a literal reading of the spec's "defaults < file < env"
 line in favor of its "env sets name until a stationfile exists" line: the
@@ -150,7 +150,7 @@ def _resolve_name(file_name: Any, env_name: Optional[str], path: Optional[Path])
     where = f" at {path}" if path is not None else ""
     raise StationfileError(
         "station has no name: set 'name' in the stationfile"
-        f"{where} or the SKEIN_NEXT_PROJECT env var. A station must be named "
+        f"{where} or the SKEIN_STATION_NAME env var. A station must be named "
         "(it is basic identity, not accessibility policing)."
     )
 
@@ -244,7 +244,7 @@ def load_station_config(
 
     ``data_dir`` is the ``.skein-next`` dir (where ``store.db`` lives); the
     stationfile is read from ``data_dir/stationfile.json``. ``env_name`` is the
-    ``SKEIN_NEXT_PROJECT`` bootstrap value (the caller reads the env).
+    ``SKEIN_STATION_NAME`` bootstrap value (the caller reads the env).
 
     Raises :class:`StationfileError` for the hard failures (no resolvable name,
     malformed JSON, unreadable future schema). Soft problems (bad theme path,

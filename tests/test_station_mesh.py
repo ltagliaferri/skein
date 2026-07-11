@@ -32,7 +32,7 @@ from skein.mesh.client import (
     verify_envelope,
 )
 from skein.station import Station
-from skein.web.app import ENV_DATA_DIR, ENV_PROJECT, create_app
+from skein.web.app import ENV_DATA_DIR, ENV_NAME, create_app
 
 from tests.station_read_helpers import StationBuilder
 
@@ -54,7 +54,7 @@ def seeded(tmp_path):
 def wired(seeded, monkeypatch):
     """Point mesh_client.requests.get at a TestClient of the station."""
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
-    monkeypatch.setenv(ENV_PROJECT, "interskein")
+    monkeypatch.setenv(ENV_NAME, "interskein")
     station = TestClient(create_app())
 
     def fake_get(url, timeout=None):

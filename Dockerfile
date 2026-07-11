@@ -31,7 +31,7 @@ FROM python:3.12-slim AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    SKEIN_NEXT_DATA_DIR=/data
+    SKEIN_STATION_DATA_DIR=/data
 
 COPY --from=builder /opt/venv /opt/venv
 
@@ -41,10 +41,12 @@ USER interskein
 
 EXPOSE 9001
 
-# The station data dir is a read-only volume mount at /data (a project's
-# .skein-next). v0 is read-only, so the container never writes the corpus.
+# The station data dir is a read-only volume mount at /data (a station's
+# .skein-station). The read surface never writes the corpus.
 VOLUME ["/data"]
 
 # Binds plainly on 9001; the reverse proxy terminates TLS for darkive.org /
-# interskein.com and forwards here.
-CMD ["interskein", "--data-dir", "/data", "serve", "--host", "0.0.0.0", "--port", "9001"]
+# interskein.com and forwards here. Station re-home Stage 7b: the read launch
+# point is now `skein station serve` (was `interskein … serve`); the ingress
+# compose service overrides this with `skein station ingress`.
+CMD ["skein", "station", "--data-dir", "/data", "serve", "--host", "0.0.0.0", "--port", "9001"]

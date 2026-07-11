@@ -65,8 +65,7 @@ MAX_BATCH_BYTES = 256 * 1024
 # Max search results returned in one query; the envelope flags `truncated` when
 # the cap is hit so a consumer knows more may exist.
 SEARCH_LIMIT = 100
-# Env reads resolve through station_env (Stage 6): the SKEIN_STATION_* canonical
-# name, with the retired SKEIN_NEXT_* key as a warned fallback alias until Stage 8.
+# Env reads resolve through station_env: the SKEIN_STATION_* canonical name.
 ENV_DATA_DIR = "SKEIN_STATION_DATA_DIR"
 ENV_NAME = "SKEIN_STATION_NAME"  # the stationfile-name bootstrap env
 
@@ -388,15 +387,6 @@ def verdict_state(verdict: Optional[str]) -> str:
 
 def create_app() -> FastAPI:
     config = load_config()  # fail-loud on an unnamed station, at startup
-    # Resolve the remaining station keys ONCE at boot (fell r1 opus finding 2):
-    # AUTHORITY and BASE_URL are otherwise read only per-request, so a new/legacy
-    # key conflict (StationEnvError) would boot a healthy-looking read server that
-    # then 500s every content page — exactly during the cutover window when both
-    # key families coexist. Every station key both servers read now resolves at
-    # startup (the ingress boot-resolves DATA_DIR/REQUIRE_SIGNED/ORIGIN the same
-    # way): a half-configured box never half-serves.
-    get_authority()
-    station_env("BASE_URL")
     token_css = build_token_css(config)
     data_theme = config.tokens.get("default_theme")
 

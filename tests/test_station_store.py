@@ -1,10 +1,18 @@
-"""Stage 1b — station folio/thread/alias accessors, differential-shadowed vs skein_next.
+"""Station folio/thread/alias accessors, pinned against the frozen skein_next oracle.
 
-Each accessor on ``StationStore`` (over the shared ``versions``/post-swap ``threads``
-tables) must return the SAME shape/ordering as ``SkeinNextStore`` on the identical
-corpus. We build the corpus in BOTH stores and assert equal results, so a drift in the
-port fails loudly. Content hashes agree because skein.identity == skein_next.identity, so
-the same fields address to the same hash in both stores.
+Originally a differential shadow (Stage 1b): each accessor on ``StationStore`` was
+asserted equal to ``SkeinNextStore`` over an identical corpus. skein_next has since
+been deleted (station re-home Stage 8); the values it produced are frozen here as
+literals — captured from a live ``SkeinNextStore`` over this exact corpus while it
+still existed — so every accessor is still pinned to the SAME shape/ordering/content
+skein_next returned. Coverage/behavior is unchanged; only the live oracle is gone.
+
+The ``content_hash`` values are the store's own content-addressed digests (surfaced
+at runtime through the shared name→hash map); the frozen ``thread_hash`` literals are
+likewise content-addressed and matched skein_next byte-for-byte because both stores
+share ``skein.identity``. Each accessor return was captured to equal
+``dict(FOLIOS[name], content_hash=...)`` for folios (no normalization on round-trip),
+so the frozen expectations below are expressed through that shape.
 
 Also pins the strict-null narrowing (station requires non-null structural canonical
 fields — see skein/station_store.py) and thread content-address dedup on the post-swap DDL.
@@ -16,7 +24,6 @@ from pathlib import Path
 import pytest
 
 from skein.station_store import StationStore
-from skein_next.store import SkeinNextStore
 
 
 # ── corpus ──────────────────────────────────────────────────────────────────────
@@ -64,20 +71,17 @@ def _build(store, hashes):
 
 
 @pytest.fixture
-def stores():
-    """A (StationStore, SkeinNextStore) pair over the identical corpus, plus the shared
-    name→hash map (identical in both)."""
+def store():
+    """A ``StationStore`` over the corpus, plus the shared name→content_hash map. The
+    frozen skein_next oracle below is expressed through this ``h``, so the digests stay
+    the store's own runtime values while the literals pin shape/ordering/content."""
     d = Path(tempfile.mkdtemp())
     try:
         station = StationStore(db_path=d / "station" / "skein.db")
-        nxt = SkeinNextStore(d / "next")
-        h_station, h_next = {}, {}
-        _build(station, h_station)
-        _build(nxt, h_next)
-        assert h_station == h_next, "content hashes diverged between stores"
-        yield station, nxt, h_station
+        h = {}
+        _build(station, h)
+        yield station, h
         station.close()
-        nxt.close()
     finally:
         shutil.rmtree(d)
 
@@ -92,77 +96,139 @@ def _proj(thread_dict):
     return {k: thread_dict.get(k) for k in _THREAD_WIRE_KEYS}
 
 
+# ── frozen skein_next oracle ─────────────────────────────────────────────────────
+# Captured from a live SkeinNextStore over the corpus above, before skein_next was
+# deleted. A folio accessor returns exactly the input fields plus the content_hash.
+
+def _folio(h, name):
+    """The folio dict every folio accessor returns for ``name`` (fields + content_hash)."""
+    return dict(FOLIOS[name], content_hash=h[name])
+
+
+# Content-addressed thread hashes (deterministic; matched skein_next byte-for-byte).
+TH_NOTE_SITE = "sha256::0d264b73583109d9dc89342e7c39c92e21ba98fba96aa6700d356a649f0dcaf1"
+TH_CROSS_SITE = "sha256::420f07b22825f2702059c96d1de59ef61d3ebba0308d4e8fdc3341019d6a9446"
+TH_FINDING_SITE = "sha256::84f832e6685909043264001669ce0b42ed05e2c34404fd6120f557cbb2ebcf91"
+TH_ISSUE_SITE = "sha256::abe1b96cda5d98fdeeceb5dae5a4395b957f16660a2dbece4ae85e26190316b0"
+TH_CROSS_SITE2 = "sha256::d05603f891654561285272d2f0701185227816edad869975d8edcc66918fe28c"
+TH_STATUS_OPEN = "sha256::7bc2a55f20363fa3c736ffd85d1297c499d9e69e924af77779196637f30eafc3"
+TH_STATUS_CLOSED = "sha256::fe0d77ee054203319ef0bc47a15738de614599c72a4da6134ee4f28a6082ada7"
+
+
+def _thread(thash, frm, to, ttype, weaver, created_at, content):
+    return {"thread_hash": thash, "from_id": frm, "to_id": to, "type": ttype,
+            "weaver": weaver, "created_at": created_at, "content": content}
+
+
+def _within_threads(h):
+    """The five membership edges, projected, keyed by from→to for readable ordering."""
+    return {
+        "note_site": _thread(TH_NOTE_SITE, h["note"], h["site"], "within", None, THREAD_CREATED, None),
+        "cross_site": _thread(TH_CROSS_SITE, h["cross"], h["site"], "within", None, THREAD_CREATED, None),
+        "finding_site": _thread(TH_FINDING_SITE, h["finding"], h["site"], "within", None, THREAD_CREATED, None),
+        "issue_site": _thread(TH_ISSUE_SITE, h["issue"], h["site"], "within", None, THREAD_CREATED, None),
+        "cross_site2": _thread(TH_CROSS_SITE2, h["cross"], h["site2"], "within", None, THREAD_CREATED, None),
+    }
+
+
+def _status_threads(h):
+    """The two status edges on issue (older 'open', newer 'closed'), projected."""
+    return {
+        "open": _thread(TH_STATUS_OPEN, h["issue"], h["issue"], "status", "agent-2",
+                        "2026-02-02T00:00:00+00:00", "open"),
+        "closed": _thread(TH_STATUS_CLOSED, h["issue"], h["issue"], "status", "agent-2",
+                          "2026-02-03T00:00:00+00:00", "closed"),
+    }
+
+
 # ── folio accessors (dict equality) ─────────────────────────────────────────────
 
-def test_get_folio_matches(stores):
-    station, nxt, h = stores
+def test_get_folio_matches(store):
+    station, h = store
     for name, ch in h.items():
-        assert station.get_folio(ch) == nxt.get_folio(ch), name
+        assert station.get_folio(ch) == _folio(h, name), name
     # missing → None (never {})
     assert station.get_folio("sha256::deadbeef") is None
-    assert nxt.get_folio("sha256::deadbeef") is None
 
 
-def test_list_folios_matches(stores):
-    station, nxt, _ = stores
-    assert station.list_folios() == nxt.list_folios()
-    assert station.list_folios(limit=2) == nxt.list_folios(limit=2)
-    assert station.list_folios(limit=2, offset=2) == nxt.list_folios(limit=2, offset=2)
+def test_list_folios_matches(store):
+    station, h = store
+    order = ["site", "issue", "finding", "note", "site2", "cross"]
+    assert station.list_folios() == [_folio(h, n) for n in order]
+    assert station.list_folios(limit=2) == [_folio(h, n) for n in order[:2]]
+    assert station.list_folios(limit=2, offset=2) == [_folio(h, n) for n in order[2:4]]
 
 
-@pytest.mark.parametrize("q", ["login", "login bug", "50%", "a_b", "LOGIN", "nomatch", "", "login faster"])
-def test_search_folios_matches(stores, q):
-    station, nxt, _ = stores
-    assert station.search_folios(q) == nxt.search_folios(q)
-    assert station.search_folios(q, limit=1) == nxt.search_folios(q, limit=1)
+@pytest.mark.parametrize("q, names", [
+    ("login", ["finding", "issue", "note"]),
+    ("login bug", ["issue"]),
+    ("50%", ["issue"]),
+    ("a_b", ["finding"]),
+    ("LOGIN", ["finding", "issue", "note"]),
+    ("nomatch", []),
+    ("", []),
+    ("login faster", ["note"]),
+])
+def test_search_folios_matches(store, q, names):
+    station, h = store
+    assert station.search_folios(q) == [_folio(h, n) for n in names]
+    # limit=1 → the first result (or empty)
+    assert station.search_folios(q, limit=1) == [_folio(h, n) for n in names[:1]]
 
 
-def test_find_by_prefix_matches(stores):
-    station, nxt, h = stores
+def test_find_by_prefix_matches(store):
+    station, h = store
     # a real folio's own hash prefix, plus the framed algo prefix
     pfx = h["issue"][: len("sha256::") + 6]
-    assert station.find_by_prefix(pfx) == nxt.find_by_prefix(pfx)
-    assert station.find_by_prefix("sha256::") == nxt.find_by_prefix("sha256::")
-    assert station.find_by_prefix("sha256::", limit=2) == nxt.find_by_prefix("sha256::", limit=2)
+    assert station.find_by_prefix(pfx) == [h["issue"]]
+    order = ["finding", "issue", "site", "site2", "note", "cross"]
+    assert station.find_by_prefix("sha256::") == [h[n] for n in order]
+    assert station.find_by_prefix("sha256::", limit=2) == [h[n] for n in order[:2]]
 
 
-def test_folios_in_site_matches(stores):
-    station, nxt, h = stores
-    assert station.folios_in_site(h["site"]) == nxt.folios_in_site(h["site"])
-    assert station.folios_in_site(h["site2"]) == nxt.folios_in_site(h["site2"])
+def test_folios_in_site_matches(store):
+    station, h = store
+    assert station.folios_in_site(h["site"]) == [_folio(h, n) for n in ("issue", "finding", "note", "cross")]
+    assert station.folios_in_site(h["site2"]) == [_folio(h, "cross")]
     # type filter + limit params (present but rarely driven)
-    assert station.folios_in_site(h["site"], type="issue") == nxt.folios_in_site(h["site"], type="issue")
-    assert station.folios_in_site(h["site"], limit=2) == nxt.folios_in_site(h["site"], limit=2)
+    assert station.folios_in_site(h["site"], type="issue") == [_folio(h, n) for n in ("issue", "cross")]
+    assert station.folios_in_site(h["site"], limit=2) == [_folio(h, n) for n in ("issue", "finding")]
 
 
-def test_count_folios_matches(stores):
-    station, nxt, _ = stores
-    assert station.count_folios() == nxt.count_folios() == len(FOLIOS)
+def test_count_folios_matches(store):
+    station, _ = store
+    assert station.count_folios() == len(FOLIOS)
 
 
 # ── thread accessors (7-key projection; station carries an extra thread_id) ──────
 
-def test_get_thread_matches(stores):
-    station, nxt, h = stores
+def test_get_thread_matches(store):
+    station, h = store
     th = station.save_thread(from_id=h["note"], to_id=h["site"], type="within",
                              created_at=THREAD_CREATED)  # already exists → same hash
-    assert _proj(station.get_thread(th)) == _proj(nxt.get_thread(th))
+    assert _proj(station.get_thread(th)) == _within_threads(h)["note_site"]
     assert station.get_thread("sha256::missing") is None
 
 
-def test_get_threads_matches(stores):
-    station, nxt, h = stores
+def test_get_threads_matches(store):
+    station, h = store
     def proj_list(rows):
         return [_proj(r) for r in rows]
-    assert proj_list(station.get_threads(to_id=h["site"])) == proj_list(nxt.get_threads(to_id=h["site"]))
-    assert proj_list(station.get_threads(type="within")) == proj_list(nxt.get_threads(type="within"))
-    assert proj_list(station.get_threads(type="status")) == proj_list(nxt.get_threads(type="status"))
-    assert proj_list(station.get_threads(from_id=h["cross"])) == proj_list(nxt.get_threads(from_id=h["cross"]))
-    assert proj_list(station.get_threads()) == proj_list(nxt.get_threads())
+    w = _within_threads(h)
+    st = _status_threads(h)
+    assert proj_list(station.get_threads(to_id=h["site"])) == [
+        w["note_site"], w["cross_site"], w["finding_site"], w["issue_site"]]
+    assert proj_list(station.get_threads(type="within")) == [
+        w["note_site"], w["cross_site"], w["finding_site"], w["issue_site"], w["cross_site2"]]
+    assert proj_list(station.get_threads(type="status")) == [st["open"], st["closed"]]
+    assert proj_list(station.get_threads(from_id=h["cross"])) == [w["cross_site"], w["cross_site2"]]
+    assert proj_list(station.get_threads()) == [
+        w["note_site"], w["cross_site"], w["finding_site"], w["issue_site"], w["cross_site2"],
+        st["open"], st["closed"]]
 
 
-def test_thread_dedup_on_hash(stores):
-    station, nxt, h = stores
+def test_thread_dedup_on_hash(store):
+    station, h = store
     before = len(station.get_threads())
     # re-saving byte-identical wire thread → same hash, no new row
     again = station.save_thread(from_id=h["issue"], to_id=h["site"], type="within",
@@ -171,8 +237,8 @@ def test_thread_dedup_on_hash(stores):
     assert len(station.get_threads()) == before
 
 
-def test_station_thread_dict_has_thread_id(stores):
-    station, _, h = stores
+def test_station_thread_dict_has_thread_id(store):
+    station, h = store
     th1 = station.save_thread(from_id=h["note"], to_id=h["note"], type="status",
                               weaver="a", created_at="2026-03-01T00:00:00+00:00", content="wip")
     row = station.get_thread(th1)
@@ -222,15 +288,14 @@ def test_save_thread_rejects_null_structural_field():
 
 # ── aliases ──────────────────────────────────────────────────────────────────────
 
-def test_resolve_alias_matches(stores):
-    station, nxt, h = stores
+def test_resolve_alias_matches(store):
+    station, h = store
     # aliases are populated out-of-band (station has no set_alias); insert directly.
     station.conn.execute("INSERT INTO aliases (legacy_id, content_hash) VALUES (?, ?)",
                          ("issue-20260101-aaaa", h["issue"]))
     station.conn.commit()
-    nxt.set_alias("issue-20260101-aaaa", h["issue"])
-    assert station.resolve_alias("issue-20260101-aaaa") == nxt.resolve_alias("issue-20260101-aaaa")
-    assert station.resolve_alias("nope") is None and nxt.resolve_alias("nope") is None
+    assert station.resolve_alias("issue-20260101-aaaa") == h["issue"]
+    assert station.resolve_alias("nope") is None
 
 
 # ── read-only open ─────────────────────────────────────────────────────────────
@@ -392,66 +457,62 @@ def test_savepoint_requires_transaction():
         shutil.rmtree(d)
 
 
-# ── 1c: latest_statuses (control) ────────────────────────────────────────────────
+# ── latest_statuses (control) ────────────────────────────────────────────────────
 
-def test_latest_statuses_matches(stores):
-    station, nxt, h = stores
+def test_latest_statuses_matches(store):
+    station, h = store
     ids = [h["issue"], h["finding"], h["note"]]
-    # issue has two status edges (open→closed); newest wins in both stores
-    assert station.latest_statuses(ids) == nxt.latest_statuses(ids)
+    # issue has two status edges (open→closed); newest wins
+    assert station.latest_statuses(ids) == {h["issue"]: "closed"}
     assert station.latest_statuses(ids).get(h["issue"]) == "closed"
 
 
-def test_latest_statuses_empty_and_never_open(stores):
-    station, nxt, h = stores
-    assert station.latest_statuses([]) == {} == nxt.latest_statuses([])
+def test_latest_statuses_empty_and_never_open(store):
+    station, h = store
+    assert station.latest_statuses([]) == {}
     # a folio with no status thread is ABSENT, never defaulted to 'open'
     got = station.latest_statuses([h["finding"]])
     assert h["finding"] not in got
-    assert got == nxt.latest_statuses([h["finding"]])
+    assert got == {}
 
 
-# ── 1c: slugs (degenerate site case is skein_next-equivalent) ────────────────────
+# ── slugs (degenerate site case is skein_next-equivalent) ────────────────────────
 
 def _set_site_slugs(store, h):
     store.set_slug("alpha", h["site"])
     store.set_slug("beta", h["site2"])
 
 
-def test_set_resolve_list_slugs_matches(stores):
-    station, nxt, h = stores
+def test_set_resolve_list_slugs_matches(store):
+    station, h = store
     _set_site_slugs(station, h)
-    _set_site_slugs(nxt, h)
-    assert station.resolve_slug("alpha") == nxt.resolve_slug("alpha") == h["site"]
-    assert station.resolve_slug("beta") == nxt.resolve_slug("beta") == h["site2"]
-    assert station.resolve_slug("absent") is None and nxt.resolve_slug("absent") is None
-    assert station.list_slugs() == nxt.list_slugs()
+    assert station.resolve_slug("alpha") == h["site"]
+    assert station.resolve_slug("beta") == h["site2"]
+    assert station.resolve_slug("absent") is None
+    assert station.list_slugs() == [("alpha", h["site"]), ("beta", h["site2"])]
     # last-write-wins re-bind
     station.set_slug("alpha", h["site2"])
-    nxt.set_slug("alpha", h["site2"])
-    assert station.resolve_slug("alpha") == nxt.resolve_slug("alpha") == h["site2"]
+    assert station.resolve_slug("alpha") == h["site2"]
 
 
-def test_folio_site_slug_matches(stores):
-    station, nxt, h = stores
+def test_folio_site_slug_matches(store):
+    station, h = store
     _set_site_slugs(station, h)
-    _set_site_slugs(nxt, h)
     for name in ("issue", "finding", "note", "cross"):
-        assert station.folio_site_slug(h[name]) == nxt.folio_site_slug(h[name]), name
+        assert station.folio_site_slug(h[name]) == "alpha", name
     # cross is in both sites → alphabetically-first slug ('alpha')
     assert station.folio_site_slug(h["cross"]) == "alpha"
 
 
-def test_folio_site_slugs_matches(stores):
-    station, nxt, h = stores
+def test_folio_site_slugs_matches(store):
+    station, h = store
     _set_site_slugs(station, h)
-    _set_site_slugs(nxt, h)
-    assert station.folio_site_slugs() == nxt.folio_site_slugs()
+    assert station.folio_site_slugs() == {h[n]: "alpha" for n in ("issue", "finding", "note", "cross")}
     subset = [h["issue"], h["cross"]]
-    assert station.folio_site_slugs(subset) == nxt.folio_site_slugs(subset)
+    assert station.folio_site_slugs(subset) == {h["issue"]: "alpha", h["cross"]: "alpha"}
 
 
-# ── 1c: derived-head resolution (station-only — skein_next's flat slugs can't do this) ──
+# ── derived-head resolution (station-only — skein_next's flat slugs can't do this) ──
 
 def _lineage_station():
     d = Path(tempfile.mkdtemp())

@@ -43,7 +43,7 @@ from markdown_it import MarkdownIt
 from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
-from ..station_env import station_env
+from ..station_env import StationEnvError, station_env
 from ..stationfile import StationConfig, StationfileError, load_station_config
 from ..station_store import StationStore, make_snippet
 
@@ -805,9 +805,11 @@ def create_app() -> FastAPI:
 def run_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> None:
     try:
         app = create_app()
-    except StationfileError as e:
+    except (StationfileError, StationEnvError) as e:
         # A misconfigured station refuses to start with a clean operator message,
-        # not a traceback. Name it (the one hard requirement) and try again.
+        # not a traceback — the unnamed-station case, and (Stage 6) a conflicting
+        # new/legacy env key. The CLI launcher catches these too; this covers the
+        # direct ``python -m`` path.
         logger.error("station will not start: %s", e)
         raise SystemExit(2) from e
     logger.info("Starting new-skein web UI on http://%s:%s", host, port)

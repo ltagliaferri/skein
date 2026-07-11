@@ -226,3 +226,8 @@ def test_web_conflicting_display_keys_refuse_at_boot(tmp_path, monkeypatch):
     monkeypatch.setenv("SKEIN_NEXT_AUTHORITY", "other.example")
     with pytest.raises(se.StationEnvError):
         web_app.create_app()
+    # and the direct run_server path exits CLEAN (SystemExit 2), never a raw
+    # traceback — the choke point's stated contract on the python -m path.
+    with pytest.raises(SystemExit) as exc:
+        web_app.run_server()
+    assert exc.value.code == 2

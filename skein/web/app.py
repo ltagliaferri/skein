@@ -388,6 +388,14 @@ def verdict_state(verdict: Optional[str]) -> str:
 
 def create_app() -> FastAPI:
     config = load_config()  # fail-loud on an unnamed station, at startup
+    # Resolve the remaining station keys ONCE at boot (fell r1 opus finding 2):
+    # AUTHORITY and BASE_URL are otherwise read only per-request, so a new/legacy
+    # key conflict (StationEnvError) would boot a healthy-looking read server that
+    # then 500s every content page — exactly during the cutover window when both
+    # key families coexist. Refusing at startup matches the ingress's treatment
+    # of DATA_DIR/REQUIRE_SIGNED/ORIGIN: a half-configured box never half-serves.
+    get_authority()
+    station_env("BASE_URL")
     token_css = build_token_css(config)
     data_theme = config.tokens.get("default_theme")
 

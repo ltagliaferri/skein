@@ -34,6 +34,10 @@ import click
 
 from .station_env import ENV_DATA_DIR, StationEnvError, station_env
 
+# The bare-default corpus location. A DELIBERATE rename from skein_next's
+# ``./.skein-next`` default — the fifth named delta of the Stage-6 re-home,
+# approved with the env-key rename (Patrick, 2026-07-10): both live containers
+# always set the data-dir env explicitly, so this only affects bare local use.
 DEFAULT_DATA_DIR = ".skein-station"
 
 

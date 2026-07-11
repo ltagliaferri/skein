@@ -203,3 +203,26 @@ def test_web_legacy_keys_still_read(tmp_path, monkeypatch):
     monkeypatch.setenv("SKEIN_NEXT_AUTHORITY", "interskein.com")
     with pytest.warns(FutureWarning):
         assert web_app.get_authority() == "interskein.com"
+
+
+def test_web_conflicting_display_keys_refuse_at_boot(tmp_path, monkeypatch):
+    """AUTHORITY/BASE_URL are read per-request, so without a boot check a
+    new/legacy conflict would boot a healthy-looking read server that 500s
+    every content page. create_app must refuse at startup instead (fell r1)."""
+    from skein.station import Station
+    from skein.web import app as web_app
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("SKEIN_STATION_DATA_DIR", str(tmp_path / "d"))
+    monkeypatch.setenv("SKEIN_STATION_NAME", "conflicted")
+    Station(tmp_path / "d").close()  # a bootable (empty) corpus
+    monkeypatch.setenv("SKEIN_STATION_BASE_URL", "https://interskein.com")
+    monkeypatch.setenv("SKEIN_NEXT_BASE_URL", "https://www.interskein.com")
+    with pytest.raises(se.StationEnvError):
+        web_app.create_app()
+    # same refusal for the AUTHORITY pair
+    monkeypatch.delenv("SKEIN_NEXT_BASE_URL")
+    monkeypatch.setenv("SKEIN_STATION_AUTHORITY", "interskein.com")
+    monkeypatch.setenv("SKEIN_NEXT_AUTHORITY", "other.example")
+    with pytest.raises(se.StationEnvError):
+        web_app.create_app()

@@ -52,6 +52,12 @@ class StationEnvError(RuntimeError):
     malformed origin URL). Never a raw traceback, never a silent default."""
 
 
+def legacy_key(suffix: str) -> str:
+    """The retired alias's full name for a station key (error-message use only —
+    keeps every legacy spelling inside this module for the Stage-8 grep)."""
+    return LEGACY_PREFIX + _LEGACY_ALIASES[suffix]
+
+
 def station_env(suffix: str) -> Optional[str]:
     """Resolve one station env value by its ``SKEIN_STATION_<suffix>`` name.
 

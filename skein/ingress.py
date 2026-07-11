@@ -46,7 +46,7 @@ from . import sign as _sign
 from . import redeem as _redeem
 from .authorization import default_bindings
 from .identity import content_hash_for_bytes
-from .station_env import StationEnvError, station_env
+from .station_env import StationEnvError, legacy_key, station_env
 from .station_store import bundle_hash_for, sqlite_error_is_lock
 
 logger = logging.getLogger(__name__)
@@ -434,12 +434,17 @@ class OperatorInvariantError(RuntimeError):
 
 def create_app() -> FastAPI:
     require_signed = _require_signed()
+    # Resolve the data dir ONCE at boot in EITHER posture (deep_code_audit, fell
+    # r4): a conflicting new/legacy SKEIN_*_DATA_DIR pair must refuse startup
+    # here, not surface as a StationEnvError 500 on the first request — under
+    # require_signed=0 the only pre-fix read was per-request.
+    boot_data_dir = _get_data_dir()
     # STARTUP INVARIANT (the ingress only — the read app is EXEMPT, D17): under
     # require_signed the active operator count must be EXACTLY 1. Count 0 or >1
     # refuses boot. The operator is read from the account_bindings sidecar, the
     # single source of truth (D16), never a stationfile field.
     if require_signed:
-        station = Station(_get_data_dir(), check_same_thread=False)
+        station = Station(boot_data_dir, check_same_thread=False)
         try:
             n_ops = station.store.count_active_operators()
         finally:
@@ -479,8 +484,12 @@ def create_app() -> FastAPI:
     try:
         redeem_origin = _canonical_instance(_raw_origin) if _raw_origin else None
     except ValueError as e:
+        # Name the legacy alias too: on a mid-transition box the operator may
+        # have set only the old key, and a message naming a key they never set
+        # misdirects the debugging (deep_code_audit, fell r4).
         raise StationEnvError(
-            f"{ENV_ORIGIN}={_raw_origin!r} is not a valid origin URL ({e}); "
+            f"{ENV_ORIGIN} (or its legacy alias {legacy_key('ORIGIN')}) is set to "
+            f"{_raw_origin!r}, which is not a valid origin URL ({e}); "
             "expected e.g. https://ingress.interskein.com"
         ) from e
     if redeem_origin:

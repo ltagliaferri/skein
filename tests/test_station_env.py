@@ -226,8 +226,82 @@ def test_web_conflicting_display_keys_refuse_at_boot(tmp_path, monkeypatch):
     monkeypatch.setenv("SKEIN_NEXT_AUTHORITY", "other.example")
     with pytest.raises(se.StationEnvError):
         web_app.create_app()
-    # and the direct run_server path exits CLEAN (SystemExit 2), never a raw
-    # traceback — the choke point's stated contract on the python -m path.
+    # the python -m entry wraps it into a CLEAN SystemExit 2, never a raw
+    # traceback (run_server itself re-raises: presentation belongs to entries).
+    from skein.web.__main__ import main as web_main
+
     with pytest.raises(SystemExit) as exc:
-        web_app.run_server()
+        web_main()
     assert exc.value.code == 2
+
+
+def test_serve_verb_conflicting_keys_click_error(tmp_path, monkeypatch):
+    """Through the `skein station serve` launcher the same conflict is a clean
+    ClickException (exit 1, message in output) — run_server re-raises
+    StationEnvError instead of pre-converting it, so the launcher's handler is
+    live, not dead code (deep_code_audit r4)."""
+    from click.testing import CliRunner
+
+    from client.cli import cli
+    from skein.station import Station
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("SKEIN_STATION_NAME", "conflicted")
+    Station(tmp_path / "d").close()
+    monkeypatch.setenv("SKEIN_STATION_BASE_URL", "https://interskein.com")
+    monkeypatch.setenv("SKEIN_NEXT_BASE_URL", "https://www.interskein.com")
+    r = CliRunner().invoke(cli, ["station", "--data-dir", str(tmp_path / "d"), "serve"])
+    assert r.exit_code == 1
+    assert "SKEIN_STATION_BASE_URL" in r.output and "SKEIN_NEXT_BASE_URL" in r.output
+
+
+def test_ingress_open_posture_conflict_refuses_boot(tmp_path, monkeypatch):
+    """With require_signed UNSET (open posture) a conflicting DATA_DIR pair must
+    still refuse at create_app — pre-fix the only read was per-request, so the
+    ingress booted healthy and 500'd the first publish (deep_code_audit r4)."""
+    from skein import ingress
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("SKEIN_STATION_DATA_DIR", str(tmp_path / "a"))
+    monkeypatch.setenv("SKEIN_NEXT_DATA_DIR", str(tmp_path / "b"))
+    with pytest.raises(se.StationEnvError):
+        ingress.create_app()
+
+
+def test_malformed_legacy_only_origin_names_the_alias(tmp_path, monkeypatch):
+    """When only the legacy key is set to a bad value, the refusal message must
+    name the alias too — an error naming only a key the operator never set
+    misdirects mid-transition debugging (deep_code_audit r4)."""
+    from skein import ingress
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("SKEIN_STATION_DATA_DIR", str(tmp_path / ".skein-station"))
+    monkeypatch.setenv("SKEIN_NEXT_ORIGIN", "https://h:notaport")
+    with pytest.warns(FutureWarning):
+        with pytest.raises(se.StationEnvError) as exc:
+            ingress.create_app()
+    assert "SKEIN_NEXT_ORIGIN" in str(exc.value)
+
+
+def test_post_redeem_malformed_2xx_body_is_publish_error(monkeypatch):
+    """A station answering 200 with a non-JSON body must surface as the typed
+    PublishError the redeem CLI catches, never a raw JSONDecodeError."""
+    import urllib.request
+
+    from skein.publish import PublishError, post_redeem
+
+    class _FakeResp:
+        status = 200
+
+        def read(self):
+            return b"<html>not json</html>"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _FakeResp())
+    with pytest.raises(PublishError, match="invalid response"):
+        post_redeem("https://station.example", "tok", {"p": 1})

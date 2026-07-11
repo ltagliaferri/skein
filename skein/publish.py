@@ -442,11 +442,16 @@ def post_redeem(
     Unlike :func:`post_batch`, a non-2xx is NOT raised: the redeem route returns a
     typed JSON reason on a logical rejection (used/expired/revoked token, bad
     proof), and the CLI needs to surface that reason, so a 4xx/409/429 status comes
-    back with its parsed body. Only a genuine TRANSPORT failure raises
-    :class:`PublishError`. Timeout is generous — the station verifies a Sigstore
-    bundle (Fulcio chain + Rekor inclusion) before answering. (Re-homed from
+    back with its parsed body. Only a genuine transport/protocol failure raises
+    :class:`PublishError` — including a malformed URL, a connection dropped
+    mid-body, and a 2xx response whose body is not JSON (fell r4 totality: the
+    redeem CLI catches exactly PublishError, so nothing here may leak a raw
+    traceback). Timeout is generous — the station verifies a Sigstore bundle
+    (Fulcio chain + Rekor inclusion) before answering. (Re-homed from
     skein_next/publish.py, station re-home Stage 6 — the collaborator redeem
     client's transport half.)"""
+    import http.client
+
     from .sign import REDEEM_ROUTE
 
     try:
@@ -462,13 +467,24 @@ def post_redeem(
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")
+        try:
+            detail = e.read().decode("utf-8", "replace")
+        except (OSError, http.client.HTTPException) as read_err:
+            # The rejection's status line arrived but the connection dropped
+            # mid-body (IncompleteRead / reset): a transport failure, typed.
+            raise PublishError(
+                f"connection lost reading the rejection body from {endpoint}: {read_err}"
+            ) from read_err
         try:
             return e.code, json.loads(detail)
         except ValueError:
             return e.code, {"error": detail}
     except urllib.error.URLError as e:
         raise PublishError(f"could not reach instance at {endpoint}: {e.reason}") from e
+    except ValueError as e:
+        # A malformed url out of urlopen, or a 2xx body that is not valid JSON
+        # (json.JSONDecodeError is a ValueError) — typed, never a traceback.
+        raise PublishError(f"invalid response or url for {endpoint}: {e}") from e
 
 
 # --- the all-up orchestrator (the ONLY way the route should build a publish) --

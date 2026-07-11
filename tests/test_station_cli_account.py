@@ -188,6 +188,23 @@ def test_rotate_operator_onto_self_is_refused_no_audit_mutation(tmp_path):  # ha
         assert [e["event"] for e in st.store.get_binding_events(ISS, S)] == ["created"]
 
 
+def test_rotate_operator_checks_revoke_result(tmp_path, monkeypatch):
+    """If the old operator's revoke matches nothing (a concurrent rotation won
+    the write lock first), the rotation must REFUSE — proceeding would install a
+    second active operator, the exact invariant the ingress boot check enforces
+    (deep_code_audit r4). Pinned by forcing revoke_binding to report no-op."""
+    _run(tmp_path, "account", "init-operator", "--issuer", ISS, "--subject", S)
+    from skein.station_store import StationStore
+
+    monkeypatch.setattr(StationStore, "revoke_binding", lambda *a, **k: False)
+    r = _run(tmp_path, "account", "rotate-operator", "--new-issuer", ISS2, "--new-subject", S2)
+    assert r.exit_code != 0 and "raced" in r.output
+    with _open(tmp_path) as st:
+        assert st.store.count_active_operators() == 1
+        op = st.store.get_operator()
+        assert (op.issuer, op.subject) == (ISS, S)  # nothing installed
+
+
 # --- D12: list --------------------------------------------------------------
 
 

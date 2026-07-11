@@ -43,7 +43,7 @@ from markdown_it import MarkdownIt
 from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
-from ..station_env import StationEnvError, station_env
+from ..station_env import station_env
 from ..stationfile import StationConfig, StationfileError, load_station_config
 from ..station_store import StationStore, make_snippet
 
@@ -392,8 +392,9 @@ def create_app() -> FastAPI:
     # AUTHORITY and BASE_URL are otherwise read only per-request, so a new/legacy
     # key conflict (StationEnvError) would boot a healthy-looking read server that
     # then 500s every content page — exactly during the cutover window when both
-    # key families coexist. Refusing at startup matches the ingress's treatment
-    # of DATA_DIR/REQUIRE_SIGNED/ORIGIN: a half-configured box never half-serves.
+    # key families coexist. Every station key both servers read now resolves at
+    # startup (the ingress boot-resolves DATA_DIR/REQUIRE_SIGNED/ORIGIN the same
+    # way): a half-configured box never half-serves.
     get_authority()
     station_env("BASE_URL")
     token_css = build_token_css(config)
@@ -805,11 +806,13 @@ def create_app() -> FastAPI:
 def run_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> None:
     try:
         app = create_app()
-    except (StationfileError, StationEnvError) as e:
+    except StationfileError as e:
         # A misconfigured station refuses to start with a clean operator message,
-        # not a traceback — the unnamed-station case, and (Stage 6) a conflicting
-        # new/legacy env key. The CLI launcher catches these too; this covers the
-        # direct ``python -m`` path.
+        # not a traceback. Name it (the one hard requirement) and try again.
+        # StationEnvError deliberately propagates: presentation belongs to the
+        # entry points (the ``skein station serve`` launcher's ClickException,
+        # ``python -m skein.web``'s __main__ wrapper) — catching it here made the
+        # launcher's handler dead code (deep_code_audit, fell r4).
         logger.error("station will not start: %s", e)
         raise SystemExit(2) from e
     logger.info("Starting new-skein web UI on http://%s:%s", host, port)

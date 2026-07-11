@@ -124,6 +124,20 @@ def test_revoke_unknown_errors(tmp_path):
     assert r.exit_code != 0 and "no active invite" in r.output
 
 
+def test_revoke_empty_hash_prefix_refused(tmp_path):
+    """`--hash ""` startswith-matches every row; with exactly one outstanding
+    invite it would resolve 'unambiguously' and silently revoke it — a failed
+    shell interpolation must be an error, not a revocation (deep_code_audit r4)."""
+    import json
+
+    _init_op(tmp_path)
+    th = json.loads(_run(tmp_path, "invite", "mint", "--json").output)["token_hash"]
+    r = _run(tmp_path, "invite", "revoke", "--hash", "")
+    assert r.exit_code != 0 and "empty invite hash prefix" in r.output
+    with _open(tmp_path) as st:
+        assert st.store.get_invite_by_token_hash(th)["revoked_at"] is None  # untouched
+
+
 def test_whoami_prints_identity(tmp_path, monkeypatch):
     from skein import sign as sign_mod
 

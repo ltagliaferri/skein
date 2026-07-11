@@ -32,7 +32,7 @@ from typing import Any, Dict, Optional
 
 import click
 
-from .station_env import ENV_DATA_DIR, StationEnvError, station_env
+from .station_env import ENV_DATA_DIR, StationEnvError, legacy_key, station_env
 
 # The bare-default corpus location. A DELIBERATE rename from skein_next's
 # ``./.skein-next`` default — the fifth named delta of the Stage-6 re-home,
@@ -59,6 +59,18 @@ def _open_station(ctx: click.Context):
     from .station import Station  # lazy: keep sqlite/store off --help paths
 
     return Station(_data_dir(ctx))
+
+
+def _export_data_dir(ctx: click.Context) -> None:
+    """Hand the RESOLVED data dir to the server process env, unambiguously.
+
+    ``_data_dir`` already applied the precedence (--data-dir wins, else env,
+    else default) — so after writing the canonical key, drop the legacy alias:
+    a stale ``SKEIN_NEXT_DATA_DIR`` left in the shell would otherwise conflict
+    with the value the operator just resolved and refuse a boot their explicit
+    ``--data-dir`` had made unambiguous (deep_code_audit, fell r4)."""
+    os.environ[ENV_DATA_DIR] = _data_dir(ctx)
+    os.environ.pop(legacy_key("DATA_DIR"), None)
 
 
 @click.group()
@@ -95,7 +107,7 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
     The web app reads the station data dir via --data-dir or
     $SKEIN_STATION_DATA_DIR. FastAPI/uvicorn are imported only when this runs.
     """
-    os.environ[ENV_DATA_DIR] = _data_dir(ctx)
+    _export_data_dir(ctx)
     from .web.app import run_server  # lazy: keep the heavy web deps off other verbs
 
     try:
@@ -117,7 +129,7 @@ def ingress(ctx: click.Context, host: str, port: int) -> None:
     $SKEIN_STATION_REQUIRE_SIGNED=1 boot refuses unless exactly one active
     operator exists (run ``skein station account init-operator`` first).
     """
-    os.environ[ENV_DATA_DIR] = _data_dir(ctx)
+    _export_data_dir(ctx)
     from . import ingress as _ingress  # lazy: keep web deps off the other verbs
 
     try:
@@ -221,16 +233,26 @@ def account_revoke(ctx: click.Context, issuer: str, subject: str) -> None:
 def account_rotate_operator(ctx: click.Context, new_issuer: str, new_subject: str) -> None:
     """Hand off the operator role atomically (revoke old + install new in one tx)."""
     with _open_station(ctx) as st:
-        old = st.store.get_operator()
-        if old is None:
-            raise click.ClickException("no operator to rotate; run init-operator")
-        if (new_issuer, new_subject) == (old.issuer, old.subject):
-            raise click.ClickException(
-                "refusing to rotate the operator onto itself "
-                f"({new_issuer}/{new_subject} is already the active operator)"
-            )
+        # Read the current operator INSIDE the write transaction (deep_code_audit,
+        # fell r4): two rotations racing on the same corpus both read the same
+        # pre-lock operator, and the loser's unchecked revoke (0 rows) would let
+        # it install a SECOND active operator — the exact invariant the ingress
+        # boot check exists to enforce. Inside the lock the read is current, and
+        # a False revoke means the operator changed underneath us: refuse.
         with st.store.transaction():
-            st.store.revoke_binding(old.issuer, old.subject, event="rotated_out")
+            old = st.store.get_operator()
+            if old is None:
+                raise click.ClickException("no operator to rotate; run init-operator")
+            if (new_issuer, new_subject) == (old.issuer, old.subject):
+                raise click.ClickException(
+                    "refusing to rotate the operator onto itself "
+                    f"({new_issuer}/{new_subject} is already the active operator)"
+                )
+            if not st.store.revoke_binding(old.issuer, old.subject, event="rotated_out"):
+                raise click.ClickException(
+                    "rotation raced: the active operator changed underneath this "
+                    "command; check 'skein station account list' and re-run"
+                )
             if st.store.get_binding(new_issuer, new_subject) is not None:
                 st.store.promote_to_operator(new_issuer, new_subject)  # preserves created_at
             else:
@@ -307,6 +329,12 @@ def _invite_line(row: Dict[str, Any], state: str) -> str:
 
 def _resolve_invite_hash(st, prefix: str) -> str:
     """Resolve a token-hash prefix to exactly one invite's full hash, or error."""
+    # An empty prefix startswith-matches EVERY row — with exactly one invite in
+    # the corpus, a script's failed variable interpolation (--hash "") would
+    # silently revoke it (deep_code_audit, fell r4). Reject it like any other
+    # non-matching input.
+    if not (prefix or "").strip():
+        raise click.ClickException("empty invite hash prefix")
     matches = [
         r["token_hash"]
         for r in st.store.list_invites(include_inactive=True)

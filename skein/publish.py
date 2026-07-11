@@ -485,6 +485,15 @@ def post_redeem(
         # A malformed url out of urlopen, or a 2xx body that is not valid JSON
         # (json.JSONDecodeError is a ValueError) — typed, never a traceback.
         raise PublishError(f"invalid response or url for {endpoint}: {e}") from e
+    except (OSError, http.client.HTTPException) as e:
+        # The SUCCESS body's twin of the rejection-read guard above (fell r4,
+        # opus): a 2xx whose body drops mid-read (IncompleteRead / reset) is not
+        # HTTPError, URLError, or ValueError — without this clause it leaks.
+        # Ordering is safe: HTTPError/URLError are OSError subclasses but their
+        # clauses precede this one.
+        raise PublishError(
+            f"connection lost reading the response from {endpoint}: {e}"
+        ) from e
 
 
 # --- the all-up orchestrator (the ONLY way the route should build a publish) --

@@ -305,3 +305,43 @@ def test_post_redeem_malformed_2xx_body_is_publish_error(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _FakeResp())
     with pytest.raises(PublishError, match="invalid response"):
         post_redeem("https://station.example", "tok", {"p": 1})
+
+
+def test_post_redeem_2xx_body_drop_is_publish_error(monkeypatch):
+    """A 2xx whose body drops mid-read (IncompleteRead / reset) must be the
+    typed PublishError — the success path's twin of the rejection-read guard
+    (fell r4: the guard was asymmetric)."""
+    import http.client
+    import urllib.request
+
+    from skein.publish import PublishError, post_redeem
+
+    class _DropResp:
+        status = 200
+
+        def read(self):
+            raise http.client.IncompleteRead(b"")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _DropResp())
+    with pytest.raises(PublishError, match="connection lost"):
+        post_redeem("https://station.example", "tok", {"p": 1})
+
+
+def test_ingress_module_entry_exits_clean_on_conflict(tmp_path, monkeypatch):
+    """`python -m skein.ingress` on a conflicting env exits with a clean
+    SystemExit 2, never a raw traceback (fell r4, codex) — the direct-entry twin
+    of the launcher's ClickException, same shape as skein.web.__main__."""
+    from skein import ingress
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("SKEIN_STATION_DATA_DIR", str(tmp_path / "a"))
+    monkeypatch.setenv("SKEIN_NEXT_DATA_DIR", str(tmp_path / "b"))
+    with pytest.raises(SystemExit) as exc:
+        ingress.main()
+    assert exc.value.code == 2

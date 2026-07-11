@@ -688,5 +688,18 @@ def run_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> None:
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+def main() -> None:
+    """``python -m skein.ingress`` — the direct-entry twin of the ``skein
+    station ingress`` launcher's ClickException (fell r4, codex): a misconfigured
+    env exits with a clean one-line message, never a raw traceback."""
+    import sys
+
+    try:
+        run_server()
+    except (StationEnvError, RequireSignedConfigError, OperatorInvariantError) as e:
+        print(f"ingress will not start: {e}", file=sys.stderr)
+        raise SystemExit(2) from e
+
+
 if __name__ == "__main__":
-    run_server()
+    main()

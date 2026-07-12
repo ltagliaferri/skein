@@ -154,6 +154,13 @@ ThreadType = Literal[
     "reply",
     "tag",
     "status",
+    # Post-facto torch (brief-20260712-qzzp): folio -> agent_id, minted by
+    # `skein adopt`. to_id is an agent id, never a folio, so the threads_pk_swap
+    # classifier's orphan-endpoint check already puts it in class C (non-
+    # structural, non-federating, never re-anchored) without needing any of the
+    # CONTROL_THREAD_TYPES/CLASS_B/VERSION_ANCHORED_TYPES wiring in
+    # skein/migrations/threads_pk_swap.py.
+    "adoption",
     # Phase 2 edit-as-commit edges. Endpoints are content HASHES, not slugs —
     # the first hash-keyed edges in the table. Endpoint-resolution surfaces
     # (orphan detection) must exclude these two types or they report every edit

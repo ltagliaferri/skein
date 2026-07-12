@@ -81,7 +81,10 @@ def _build_pre_migration_corpus(path) -> dict:
     return {"folios": folios, "threads": threads, "bindings": bindings}
 
 
-def test_open_read_write_materializes_invite_tables_without_disturbing_rows(tmp_path):
+def test_rw_open_materializes_invite_tables(tmp_path):
+    """Opening the store read_write (as the ingress does) creates the invite tables
+    empty, leaves every pre-existing row byte-identical, and yields a schema
+    identical to a brand-new corpus."""
     d = tmp_path / "corpus" / ".skein-next"
     snap = _build_pre_migration_corpus(d)
 
@@ -133,7 +136,7 @@ def test_migration_is_idempotent(tmp_path):
     assert schema1 == schema2
 
 
-def test_read_only_open_unaffected_by_absent_invite_tables(tmp_path):
+def test_ro_open_ok_without_invite_tables(tmp_path):
     """The read app mounts the corpus read_only (no DDL). On a PRE-migration corpus
     (no invite tables) a read must still work — the read path never queries them."""
     d = tmp_path / "corpus" / ".skein-next"
@@ -157,7 +160,7 @@ def test_read_only_open_unaffected_by_absent_invite_tables(tmp_path):
         ro.close()
 
 
-def test_rollback_publish_byte_identical_with_or_without_invite_tables(tmp_path):
+def test_rollback_publish_pre_post_identical(tmp_path):
     """require_signed=OFF rollback posture: a publish admits on integrity alone and
     its result is identical whether the invite tables exist (post-migration) or not
     (pre-migration). The invite tables are write-surface state publish never reads."""

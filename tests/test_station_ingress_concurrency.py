@@ -32,7 +32,9 @@ def _make_folios(n):
     ]
 
 
-def test_concurrent_writers_all_commit_none_mislabeled(tmp_path):
+def test_concurrent_writers_all_commit(tmp_path):
+    """30 threaded writers each ingest one folio: every one commits and none is
+    mislabeled a reject."""
     n = 30
     folios = _make_folios(n)
     inst = tmp_path / "inst" / ".skein-next"
@@ -69,7 +71,7 @@ def test_concurrent_writers_all_commit_none_mislabeled(tmp_path):
     assert persisted == n
 
 
-def test_failed_begin_immediate_does_not_wedge_store(tmp_path):
+def test_failed_begin_immediate_not_wedged(tmp_path):
     # If BEGIN IMMEDIATE times out (another connection holds the write lock longer
     # than busy_timeout), transaction() raises but must leave the store CLEAN —
     # _in_batch must NOT stay True (which would skip later commits and falsely trip

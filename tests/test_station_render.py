@@ -67,7 +67,7 @@ def test_fresh_nonce_is_16_hex():
 # --- bare-frame injection (a malicious remote envelope rendered by mesh fetch) ---
 
 
-def test_folio_address_and_links_are_flattened():
+def test_folio_address_and_links_flattened():
     # When mesh fetch renders an UNTRUSTED remote envelope, the station controls
     # address/links. A newline in any of them must not forge a second control line
     # (e.g. a fake "Provenance: SIGNED"). Every bare-frame value is flattened.
@@ -84,7 +84,7 @@ def test_folio_address_and_links_are_flattened():
     assert sum(1 for ln in text.splitlines() if ln.startswith("Provenance:")) == 1
 
 
-def test_collection_entry_address_href_flattened():
+def test_collection_entry_fields_flattened():
     env = {
         "schema": env_mod.SCHEMA, "address": "/", "kind": "catalog", "stability": "derived",
         "as_of": "2026-01-01T00:00:00+00:00", "proof": None, "asserted": {},
@@ -123,7 +123,7 @@ def test_fresh_nonce_avoids_collision(monkeypatch):
 # --- folio markdown ---------------------------------------------------------
 
 
-def test_folio_markdown_opens_with_cold_agent_opener():
+def test_folio_md_cold_agent_opener():
     text, _ = render_mod.render_folio_markdown(_folio_env(), base_url="https://x.test")
     lines = text.splitlines()
     assert lines[0] == (
@@ -136,7 +136,7 @@ def test_folio_markdown_opens_with_cold_agent_opener():
     )
 
 
-def test_folio_markdown_fences_content_and_bares_frame():
+def test_folio_md_fences_content_bares_frame():
     text, nonce = render_mod.render_folio_markdown(_folio_env())
     assert re.fullmatch(r"[0-9a-f]{16}", nonce)
     # control frame bare (after the opener, not inside the fence)
@@ -152,7 +152,7 @@ def test_folio_markdown_fences_content_and_bares_frame():
     assert "Address:" not in fenced  # the control frame is outside the fence
 
 
-def test_folio_markdown_references_are_fetchable_md_urls():
+def test_folio_md_references_fetchable_urls():
     # base_url present -> absolute .md URLs; bare address alongside.
     text, _ = render_mod.render_folio_markdown(_folio_env(), base_url="https://x.test")
     assert "Site:        proj   sha256::" + "c" * 64 in text
@@ -164,13 +164,13 @@ def test_folio_markdown_references_are_fetchable_md_urls():
     assert "Raw source:" not in text  # raw body-only is gone (decision A)
 
 
-def test_folio_markdown_references_relative_without_base_url():
+def test_folio_md_refs_relative_no_base_url():
     text, _ = render_mod.render_folio_markdown(_folio_env())
     assert "/folio/sha256::" + "b" * 64 + ".md" in text  # host-relative fallback
     assert "https://" not in text
 
 
-def test_fragment_bearing_address_md_url_is_fetchable():
+def test_fragment_address_md_url_fetchable():
     # A scoped/fragment address must survive as a real fetch target: the '#' is
     # percent-encoded in the URL path (so the .md suffix + verifier aren't dropped
     # client-side), while the bare address alongside stays human-readable.
@@ -184,7 +184,7 @@ def test_fragment_bearing_address_md_url_is_fetchable():
     assert "(" + frag + ")" in text  # the bare address is shown unencoded
 
 
-def test_folio_markdown_renders_lineage_and_hatnote():
+def test_folio_md_lineage_and_hatnote():
     env = _folio_env()
     parent = {"type": "supersedes", "title": "Old", "address": "sha256::" + "d" * 64,
               "href": "/folio/sha256::" + "d" * 64}
@@ -203,7 +203,7 @@ def test_folio_markdown_renders_lineage_and_hatnote():
     assert 'sibling (forks)  "Fork"' in text
 
 
-def test_folio_markdown_feeds_lineage_title_to_nonce(monkeypatch):
+def test_lineage_title_feeds_nonce(monkeypatch):
     # A lineage peer title is unsigned/forgeable; it must be in the nonce collision
     # set. Force the first nonce candidate to collide with a planted lineage title:
     # if the title were NOT fed to fresh_nonce, the candidate wouldn't collide and
@@ -222,7 +222,7 @@ def test_folio_markdown_feeds_lineage_title_to_nonce(monkeypatch):
     assert nonce == "beef" * 4  # the colliding candidate was rejected
 
 
-def test_folio_markdown_feeds_superseded_by_title_to_nonce(monkeypatch):
+def test_superseded_by_title_feeds_nonce(monkeypatch):
     # Same guard for the hatnote's superseded_by title.
     env = _folio_env(content="body")
     planted = "feed" * 4
@@ -244,7 +244,7 @@ def test_folio_markdown_nonce_dodges_content():
     assert nonce != "a" * 16
 
 
-def test_forged_status_cannot_inject_a_control_line():
+def test_forged_status_cannot_inject_line():
     # A status thread is unsigned and forgeable; its content is rendered bare in
     # the control frame. A newline-bearing value must not become a second line
     # that forges a provenance verdict (S1).
@@ -266,7 +266,7 @@ def test_peer_title_newline_is_flattened():
     assert len([ln for ln in text.splitlines() if ln.startswith("Provenance:")]) == 1
 
 
-def test_forged_thread_peer_address_cannot_inject_a_control_line():
+def test_forged_peer_address_cannot_inject():
     # A peer not held locally exposes its raw thread endpoint as address/href, and
     # a forged cross-ref thread can carry a newline there (fell-r2). It must not
     # become a second control line.
@@ -284,7 +284,7 @@ def test_forged_thread_peer_address_cannot_inject_a_control_line():
     )
 
 
-def test_oneline_flattens_unicode_line_separators():
+def test_oneline_flattens_unicode_breaks():
     # str.splitlines() (and Unicode-aware renderers) treat NEL/LS/PS as line
     # breaks; a bare-ASCII-only filter would leave that injection vector open.
     for sep in ("\x85", "\u2028", "\u2029", "\n", "\x0b", "\x0c"):
@@ -331,7 +331,7 @@ def test_collection_markdown_lists_entries():
     assert f"===={nonce}==" in text
 
 
-def test_collection_title_newline_is_flattened():
+def test_collection_title_newline_flattened():
     # The caller-supplied title carries a site slug (stored verbatim, may hold a
     # newline). It must not split into a forged control line.
     env = env_mod.build_collection_envelope("site", "/site/x", [])
@@ -349,14 +349,14 @@ def test_error_markdown_has_no_fence():
     assert "====" not in text  # nothing untrusted, so no fence
 
 
-def test_error_markdown_opener_names_the_host():
+def test_error_markdown_opener_names_host():
     env = env_mod.build_error_envelope("not_found", "sha256::" + "0" * 64)
     text = render_mod.render_error_markdown(env, base_url="https://x.test")
     assert text.startswith("> SKEIN error: requested address was not resolved by x.test.")
     assert "mesh fetch <address>" in text
 
 
-def test_collection_opener_distinguishes_site_from_search():
+def test_collection_opener_site_vs_search():
     site = env_mod.build_collection_envelope("site", "/site/proj", [])
     text, _ = render_mod.render_collection_markdown(site, title="Site", base_url="https://x.test")
     assert text.startswith("> SKEIN collection: https://x.test/site/proj — generated site listing")

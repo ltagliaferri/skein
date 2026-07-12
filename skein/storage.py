@@ -642,7 +642,7 @@ class LogDatabase:
                 # preserved), so this string's content is dedented independently of the
                 # enclosing if/else to keep a workbench-born threads table's stored DDL
                 # identical to one born on master — the locked byte-identity invariant
-                # (test_workbench_threads_ddl_byte_identical_to_master).
+                # (test_workbench_threads_ddl_byte_equal).
                 conn.execute(
                     """
                 CREATE TABLE IF NOT EXISTS threads (

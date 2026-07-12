@@ -95,7 +95,7 @@ def station(tmp_path):
 # --- INV-1: verify_wire_redeem totality + token-binding ---------------------
 
 
-def test_verify_redeem_happy_binds_discovered_identity():
+def test_verify_redeem_happy_binds_identity():
     token = "tok-xyz"
     p = _proof(token)
     ok, reason, ident = sign_mod.verify_wire_redeem(
@@ -113,7 +113,8 @@ def test_verify_redeem_malformed_proof_total(bad):
     assert ok is False and ident is None and reason == "proof malformed"
 
 
-def test_verify_redeem_oversized_nonce_is_malformed():
+def test_verify_redeem_oversized_nonce():
+    """An oversized nonce is rejected 'proof malformed' by the length guard."""
     token = "tok-xyz"
     p = _proof(token, nonce="n" * (sign_mod.MAX_REDEEM_NONCE_LEN + 1))
     ok, reason, _ = sign_mod.verify_wire_redeem(
@@ -122,7 +123,8 @@ def test_verify_redeem_oversized_nonce_is_malformed():
     assert ok is False and reason == "proof malformed"
 
 
-def test_verify_redeem_harvested_folio_bundle_is_wrong_kind():
+def test_verify_redeem_harvested_wrong_kind():
+    """A harvested FOLIO-profile bundle presented as a redeem proof is 'wrong kind'."""
     token = "tok-xyz"
     signer = _redeem_signer(canon_profile=profile.CANON_PROFILE_V1)
     proof, _, _ = sign_mod.sign_redeem_proof(token, ORIGIN, signer)
@@ -132,7 +134,7 @@ def test_verify_redeem_harvested_folio_bundle_is_wrong_kind():
     assert ok is False and reason == "wrong kind"
 
 
-def test_verify_redeem_wrong_token_is_signature_mismatch():
+def test_verify_redeem_wrong_token_mismatch():
     p = _proof("token-A")
     ok, reason, ident = sign_mod.verify_wire_redeem(
         p, hash_token("token-B"), ORIGIN, sign_mod.REDEEM_ROUTE, _binding_verifier()
@@ -140,7 +142,7 @@ def test_verify_redeem_wrong_token_is_signature_mismatch():
     assert ok is False and ident is None and reason == "SIGNATURE_MISMATCH"
 
 
-def test_verify_redeem_wrong_origin_is_signature_mismatch():
+def test_verify_redeem_wrong_origin_mismatch():
     token = "tok-xyz"
     p = _proof(token, origin="https://evil.example.com")
     ok, reason, _ = sign_mod.verify_wire_redeem(
@@ -149,7 +151,7 @@ def test_verify_redeem_wrong_origin_is_signature_mismatch():
     assert ok is False and reason == "SIGNATURE_MISMATCH"
 
 
-def test_verify_redeem_wrong_route_is_signature_mismatch():
+def test_verify_redeem_wrong_route_mismatch():
     token = "tok-xyz"
     proof, _, _ = sign_mod.sign_redeem_proof(token, ORIGIN, _redeem_signer(), route="/other/route")
     ok, reason, _ = sign_mod.verify_wire_redeem(
@@ -158,7 +160,9 @@ def test_verify_redeem_wrong_route_is_signature_mismatch():
     assert ok is False and reason == "SIGNATURE_MISMATCH"
 
 
-def test_verify_redeem_multi_signer_bundle_rejected_before_crypto():
+def test_verify_redeem_multi_signer_rejected():
+    """A multi-signer bundle is 'proof malformed' and the verifier never runs -- the
+    reject fires before any crypto."""
     token = "tok-xyz"
     p = _proof(token)
     bundle = signing.SignatureBundle.model_validate_json(p["signature_bundle"])
@@ -191,7 +195,8 @@ def test_cas_burns_exactly_once(station):
     assert station.store.get_binding(ISSUER, SUBJECT).revoked_at is None
 
 
-def test_cas_refuses_revoked_identity_and_does_not_burn(station):
+def test_cas_refuses_revoked_no_burn(station):
+    """A revoked identity is refused (revoked_identity) and the invite is not burned."""
     token, th = _mint(station)
     station.store.add_binding(ISSUER, SUBJECT, role="author")
     station.store.revoke_binding(ISSUER, SUBJECT)
@@ -213,7 +218,9 @@ def test_revoke_invite_then_cas_race_lost(station):
     assert station.store.redeem_invite_cas(th, ISSUER, SUBJECT) == "race_lost"
 
 
-def test_cas_refuses_operator_role_invite_and_does_not_burn(station):  # finding-6(a)
+def test_cas_refuses_operator_invite_no_burn(station):  # finding-6(a)
+    """An operator-role invite is refused (invalid_role) without burning; no binding
+    is created and the operator count stays 1."""
     station.store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
     token, th = _mint(station, role="operator")
     assert station.store.redeem_invite_cas(th, ISSUER, SUBJECT) == "invalid_role"
@@ -297,7 +304,9 @@ def test_redeem_unknown_token_cheap(station, monkeypatch):
         "\ud800\udc00",  # high+low surrogate pair as separate (unpaired) codepoints
     ],
 )
-def test_redeem_surrogate_token_unknown_cheap(station, monkeypatch, bad_token):
+def test_redeem_surrogate_token_unknown(station, monkeypatch, bad_token):
+    """An unencodable surrogate-bearing token is UNKNOWN with zero crypto calls and
+    no token-hash lookup."""
     calls = _crypto_calls(monkeypatch)
 
     def _boom(*a, **k):
@@ -326,7 +335,8 @@ def test_redeem_expired_cheap(station, monkeypatch):
     assert calls["n"] == 0
 
 
-def test_redeem_operator_role_invite_refused_cheap_no_second_operator(station, monkeypatch):  # finding-6(a)
+def test_redeem_operator_invite_refused(station, monkeypatch):  # finding-6(a)
+    """Refused INVALID_ROLE with zero crypto calls; no second operator is installed."""
     station.store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
     token, th = _mint(station, role="operator")
     calls = _crypto_calls(monkeypatch)
@@ -337,7 +347,7 @@ def test_redeem_operator_role_invite_refused_cheap_no_second_operator(station, m
     assert station.store.get_binding(ISSUER, SUBJECT) is None
 
 
-def test_redeem_bad_proof_increments_and_caps(station):
+def test_redeem_bad_proof_hits_attempt_cap(station):
     token, th = _mint(station)
     bad = {"nonce": "n", "issued_at": "t", "signature_bundle": "not-json"}
     for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP):
@@ -347,7 +357,7 @@ def test_redeem_bad_proof_increments_and_caps(station):
     assert r.status == redeem_mod.RedeemStatus.RATE_LIMITED
 
 
-def test_attempt_reservation_is_atomic_under_concurrency(tmp_path):
+def test_reserve_attempt_atomic_under_race(tmp_path):
     import concurrent.futures as cf
 
     inst = tmp_path / "inst" / ".skein-next"
@@ -374,7 +384,9 @@ def test_attempt_reservation_is_atomic_under_concurrency(tmp_path):
         check.close()
 
 
-def test_reserve_attempt_naive_window_start_does_not_raise(station):
+def test_reserve_attempt_naive_window_start(station):
+    """A naive (tzinfo-less) attempts_window_start must not raise: in-window it still
+    refuses, and a stale window resets the counter."""
     token, th = _mint(station)
     cap = redeem_mod.REDEEM_ATTEMPT_CAP
     naive_now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
@@ -407,7 +419,7 @@ def test_redeem_idempotent_same_identity(station):
     assert (r2.issuer, r2.subject) == (ISSUER, SUBJECT)
 
 
-def test_idempotent_retries_do_not_exhaust_cap(station):
+def test_idempotent_retries_never_capped(station):
     token, th = _mint(station)
     assert _do(station, token).ok  # fresh redeem (burns)
     for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP * 3):
@@ -415,7 +427,7 @@ def test_idempotent_retries_do_not_exhaust_cap(station):
         assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
 
 
-def test_bad_attempts_then_success_then_idempotent_retry(station):
+def test_bad_attempts_then_success_and_retry(station):
     token, th = _mint(station)
     bad = {"nonce": "n", "issued_at": "t", "signature_bundle": "not-json"}
     for _ in range(redeem_mod.REDEEM_ATTEMPT_CAP - 1):
@@ -425,7 +437,7 @@ def test_bad_attempts_then_success_then_idempotent_retry(station):
     assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
 
 
-def test_burned_token_flood_cannot_block_bound_author_retry(station):
+def test_flood_after_burn_cannot_block_retry(station):
     token, th = _mint(station)
     assert _do(station, token).ok  # fresh redeem (burns)
     after_burn = station.store.get_invite_by_token_hash(th)["failed_attempts"]
@@ -438,7 +450,7 @@ def test_burned_token_flood_cannot_block_bound_author_retry(station):
     assert r.ok and r.status == redeem_mod.RedeemStatus.OK_ALREADY
 
 
-def test_redeem_already_redeemed_by_other_identity(station):
+def test_second_identity_already_redeemed(station):
     token, th = _mint(station)
     assert _do(station, token).ok
     other = redeem_mod.redeem(
@@ -448,7 +460,7 @@ def test_redeem_already_redeemed_by_other_identity(station):
     assert not other.ok and other.status == redeem_mod.RedeemStatus.ALREADY_REDEEMED
 
 
-def test_redeem_revoked_identity_cannot_self_readmit(station):
+def test_revoked_identity_no_self_readmit(station):
     token, th = _mint(station)
     station.store.add_binding(ISSUER, SUBJECT, role="author")
     station.store.revoke_binding(ISSUER, SUBJECT)
@@ -457,7 +469,7 @@ def test_redeem_revoked_identity_cannot_self_readmit(station):
     assert station.store.get_invite_by_token_hash(th)["used_at"] is None
 
 
-def test_redeem_works_under_require_signed_off(station):
+def test_redeem_ok_with_require_signed_off(station):
     token, th = _mint(station)
     r = _do(station, token)
     assert r.ok
@@ -506,7 +518,7 @@ def test_e2e_real_signing_redeem_binds(station, real_provider, monkeypatch):
     assert b is not None and b.role == "author"
 
 
-def test_e2e_real_harvested_manifest_bundle_cannot_redeem(station, real_provider, monkeypatch):
+def test_e2e_harvested_manifest_no_redeem(station, real_provider, monkeypatch):
     _test_factory.install_sign_monkeypatch(monkeypatch, provider=real_provider)
     _test_factory.install_verify_monkeypatch(monkeypatch)
     token, th = _mint(station)
@@ -519,7 +531,7 @@ def test_e2e_real_harvested_manifest_bundle_cannot_redeem(station, real_provider
     assert station.store.get_invite_by_token_hash(th)["used_at"] is None
 
 
-def test_e2e_real_wrong_token_signature_mismatch(station, real_provider, monkeypatch):
+def test_e2e_wrong_token_proof_rejected(station, real_provider, monkeypatch):
     _test_factory.install_sign_monkeypatch(monkeypatch, provider=real_provider)
     _test_factory.install_verify_monkeypatch(monkeypatch)
     token_a, _ = _mint(station, token="tok-AAAA" + "a" * 36)

@@ -59,7 +59,7 @@ def test_add_manifest_idempotent_same_signer(store):  # ST2
     assert again["bundle_json"] == "bundleA"  # not overwritten
 
 
-def test_two_signers_same_set_each_retain_proof(store):  # ST3 (B50 property)
+def test_two_signers_same_set_keep_proofs(store):  # ST3 (B50 property)
     _add_manifest(store, subject="alice", bundle="aliceB")
     _add_manifest(store, subject="bob", bundle="bobB")  # SAME root, different signer
     rows = store.get_manifest_proofs_by_root(ROOT_A)
@@ -83,7 +83,9 @@ def test_add_attribution_first_manifest_wins(store):  # ST4 (Q3)
     assert proof["kind"] == "folio"
 
 
-def test_get_constituent_proof_missing_parent_returns_sentinel(store):  # ST5
+def test_missing_parent_returns_sentinel(store):  # ST5
+    """get_constituent_proof on a dangling attribution (manifest parent gone) returns
+    a proof_missing sentinel; the denormalized identity stays display-authoritative."""
     # Construct a dangling attribution row with FK temporarily off, then read it.
     store.conn.execute("PRAGMA foreign_keys=OFF")
     h = "sha256::" + "e" * 64
@@ -96,7 +98,7 @@ def test_get_constituent_proof_missing_parent_returns_sentinel(store):  # ST5
     assert proof["issuer"] == ISS and proof["subject"] == "ghost"
 
 
-def test_attribution_fk_binds_proof_signer_to_display_signer(store):  # ST6
+def test_attribution_fk_binds_proof_signer(store):  # ST6
     _add_manifest(store, subject="alice", bundle="aliceB")
     _add_manifest(store, subject="bob", bundle="bobB")
     h = "sha256::" + "7" * 64
@@ -106,11 +108,11 @@ def test_attribution_fk_binds_proof_signer_to_display_signer(store):  # ST6
     assert proof["bundle_json"] == "aliceB"  # resolves to Alice's, never Bob's
 
 
-def test_pragma_foreign_keys_on_at_connection_open(store):  # ST7
+def test_foreign_keys_pragma_on_at_open(store):  # ST7
     assert store.conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 
 
-def test_write_order_manifest_before_attribution_same_savepoint(store):  # ST8
+def test_manifest_written_before_attribution(store):  # ST8
     import sqlite3
 
     # With foreign_keys ON, an attribution whose manifest parent was NOT written
@@ -132,7 +134,7 @@ def test_created_at_immutable_both_tables(store):  # ST9
     assert store.get_constituent_proof(h)["created_at"] == a_first
 
 
-def test_get_manifest_proofs_by_root_returns_set(store):  # ST10
+def test_get_proofs_by_root_returns_all(store):  # ST10
     _add_manifest(store, subject="alice")
     _add_manifest(store, subject="bob")
     rows = store.get_manifest_proofs_by_root(ROOT_A)

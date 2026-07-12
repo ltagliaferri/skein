@@ -115,7 +115,7 @@ def test_google_cert_accepted_through_ingest(instance, google_provider, monkeypa
     assert len(ack["accepted"]) >= 1
 
 
-def test_broker_cert_rejected_when_only_google_bound(instance, google_provider, monkeypatch):
+def test_broker_cert_rejected_google_bound(instance, google_provider, monkeypatch):
     """Bind under accounts.google.com but produce a cert with the broker issuer
     (https://oauth2.sigstore.dev/auth). Ingest must REJECT with "unbound signer".
 

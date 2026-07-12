@@ -39,7 +39,7 @@ def _wire_env(tmp_path, monkeypatch, value):
     return tmp_path / ".skein-next"
 
 
-def test_create_app_require_signed_without_operator_refuses(tmp_path, monkeypatch):  # D13
+def test_require_signed_no_operator_refuses(tmp_path, monkeypatch):  # D13
     d = _wire_env(tmp_path, monkeypatch, "1")
     Station(d).close()  # empty corpus, no operator
     with pytest.raises(ingress.OperatorInvariantError) as exc:
@@ -47,7 +47,7 @@ def test_create_app_require_signed_without_operator_refuses(tmp_path, monkeypatc
     assert "account init-operator" in str(exc.value)
 
 
-def test_create_app_require_signed_with_operator_starts(tmp_path, monkeypatch):  # D14
+def test_require_signed_with_operator_starts(tmp_path, monkeypatch):  # D14
     d = _wire_env(tmp_path, monkeypatch, "1")
     _seed_operator(d)
     assert ingress.create_app() is not None
@@ -59,7 +59,7 @@ def test_require_signed_off_no_operator_ok(tmp_path, monkeypatch):  # D15
     assert ingress.create_app() is not None
 
 
-def test_operator_identity_sourced_from_sidecar(tmp_path, monkeypatch):  # D16
+def test_operator_identity_from_sidecar(tmp_path, monkeypatch):  # D16
     d = _wire_env(tmp_path, monkeypatch, "1")
     _seed_operator(d)
     assert ingress.create_app() is not None
@@ -70,7 +70,7 @@ def test_operator_identity_sourced_from_sidecar(tmp_path, monkeypatch):  # D16
         st.close()
 
 
-def test_create_app_require_signed_multiple_operators_refuses(tmp_path, monkeypatch):  # D20
+def test_require_signed_2_operators_refused(tmp_path, monkeypatch):  # D20
     d = _wire_env(tmp_path, monkeypatch, "1")
     st = Station(d)
     try:
@@ -83,7 +83,7 @@ def test_create_app_require_signed_multiple_operators_refuses(tmp_path, monkeypa
     assert "single-active-operator" in str(exc.value) or "active operators" in str(exc.value)
 
 
-def test_ingress_startup_logs_operator_status(tmp_path, monkeypatch, caplog):  # D18
+def test_startup_logs_operator_status(tmp_path, monkeypatch, caplog):  # D18
     d = _wire_env(tmp_path, monkeypatch, "1")
     _seed_operator(d)
     with caplog.at_level(logging.INFO, logger="skein.ingress"):
@@ -91,7 +91,7 @@ def test_ingress_startup_logs_operator_status(tmp_path, monkeypatch, caplog):  #
     assert any("operator" in rec.message for rec in caplog.records)
 
 
-def test_create_app_require_signed_on_spelling_still_enforces(tmp_path, monkeypatch):  # finding-8
+def test_require_signed_on_spelling_enforces(tmp_path, monkeypatch):  # finding-8
     """A wider truthy spelling (e.g. 'on') must drive the SAME startup invariant as
     '1' — no operator present must still refuse boot, not silently run open."""
     d = _wire_env(tmp_path, monkeypatch, "on")
@@ -102,7 +102,7 @@ def test_create_app_require_signed_on_spelling_still_enforces(tmp_path, monkeypa
     assert ingress.create_app() is not None  # with an operator present, boots fine
 
 
-def test_create_app_require_signed_garbage_value_refuses_boot(tmp_path, monkeypatch):  # finding-8
+def test_require_signed_garbage_refuses_boot(tmp_path, monkeypatch):  # finding-8
     """An unrecognized SKEIN_NEXT_REQUIRE_SIGNED value must refuse to boot at all — never
     silently fall back to require_signed=False and accept unsigned content wide open."""
     _wire_env(tmp_path, monkeypatch, "onn")

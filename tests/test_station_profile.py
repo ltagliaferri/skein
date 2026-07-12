@@ -22,7 +22,7 @@ def test_unknown_profile_is_a_hard_failure():
         profile.get_profile("knurl-1.0")  # the old dead canon_version default
 
 
-def test_preimage_is_profile_then_nul_then_canonical_bytes():
+def test_preimage_profile_nul_canonical():
     cb = b'{"a":1}'
     pre = profile.profiled_preimage(profile.CANON_PROFILE_V1, cb)
     assert pre == profile.CANON_PROFILE_V1.encode("utf-8") + b"\x00" + cb
@@ -33,7 +33,7 @@ def test_preimage_rejects_an_unknown_profile():
         profile.profiled_preimage("made.up/v9", b"{}")
 
 
-def test_preimage_domain_separates_distinct_profiles():
+def test_preimage_domain_separates_profiles():
     # The whole point: the same canonical bytes under a different profile produce
     # different signed bytes, so a signature can't be replayed across domains.
     cb = b'{"x":1}'

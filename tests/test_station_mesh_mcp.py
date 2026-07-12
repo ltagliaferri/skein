@@ -81,7 +81,7 @@ def test_describe_display(wired):
     assert "SKEIN station" in text and "Operations:" in text
 
 
-def test_display_unreachable_returns_error_line(seeded, monkeypatch):
+def test_display_unreachable_error_line(seeded, monkeypatch):
     import requests
 
     def boom(url, params=None, headers=None, timeout=None):

@@ -86,14 +86,14 @@ def test_can_write_revoked_binding_false():  # A3
     assert can_write(Principal(I, S), fb) is False
 
 
-def test_can_write_keys_on_issuer_subject_pair():  # A4
+def test_can_write_keys_issuer_subject_pair():  # A4
     fb = FakeBindings()
     fb.add_binding(I, S, "author", I, S)
     assert can_write(Principal("https://other.idp", S), fb) is False
     assert can_write(Principal(I, "bob@example.com"), fb) is False
 
 
-def test_can_write_has_no_created_by_parameter():  # A5
+def test_can_write_lacks_created_by_param():  # A5
     import inspect
 
     params = list(inspect.signature(can_write).parameters)
@@ -101,7 +101,7 @@ def test_can_write_has_no_created_by_parameter():  # A5
     assert params[:2] == ["actor", "bindings"]
 
 
-def test_bootstrap_operator_creates_self_vouched_row():  # A6
+def test_bootstrap_creates_self_vouched_row():  # A6
     fb = FakeBindings()
     b = bootstrap_operator(fb, Principal(I, S))
     assert b.role == "operator"
@@ -110,7 +110,7 @@ def test_bootstrap_operator_creates_self_vouched_row():  # A6
     assert can_write(Principal(I, S), fb) is True
 
 
-def test_bootstrap_operator_refuses_second_active_operator():  # A7
+def test_bootstrap_refuses_second_operator():  # A7
     fb = FakeBindings()
     bootstrap_operator(fb, Principal(I, S))
     with pytest.raises(OperatorAlreadyBootstrapped):
@@ -119,7 +119,7 @@ def test_bootstrap_operator_refuses_second_active_operator():  # A7
         bootstrap_operator(fb, Principal(I, S))
 
 
-def test_bootstrap_operator_allowed_after_operator_revoked():  # A8
+def test_bootstrap_allowed_after_revoke():  # A8
     fb = FakeBindings()
     bootstrap_operator(fb, Principal(I, S))
     fb._revoke(I, S)
@@ -127,7 +127,7 @@ def test_bootstrap_operator_allowed_after_operator_revoked():  # A8
     assert b.role == "operator" and b.revoked_at is None
 
 
-def test_principal_built_from_cert_identity_dict():  # A9
+def test_principal_from_cert_identity_dict():  # A9
     identity = {"issuer": I, "subject": S}
     p = Principal(issuer=identity["issuer"], subject=identity["subject"])
     assert p.issuer == I and p.subject == S
@@ -171,7 +171,8 @@ def test_revoke_nonexistent_returns_false(store):  # B4
     assert store.revoke_binding(*A2P) is False  # already revoked
 
 
-def test_readd_after_revoke_reactivates_preserving_created_at(store):  # B5
+def test_readd_after_revoke_keeps_created_at(store):  # B5
+    """Re-adding a revoked binding reactivates it and preserves the original created_at."""
     store.add_binding(*A2P, role="author")
     t0 = store.get_binding(*A2P).created_at
     store.revoke_binding(*A2P)
@@ -193,7 +194,7 @@ def test_bindings_keyed_on_pair(store):  # B7
     assert store.get_binding("https://idpB", "sub") is None
 
 
-def test_role_operator_vs_author_distinguishable(store):  # B8
+def test_operator_vs_author_roles_distinct(store):  # B8
     store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
     store.add_binding(*A2P, role="author")
     assert store.get_operator().subject == OP[1]
@@ -205,7 +206,7 @@ def test_get_operator_none_when_revoked(store):  # B9
     assert store.get_operator() is None
 
 
-def test_get_operator_single_valued_and_deterministic(store):  # B47
+def test_get_operator_single_deterministic(store):  # B47
     store.add_binding("https://idpA", "first", role="operator")  # created first
     store.add_binding("https://idpB", "second", role="operator")
     op = store.get_operator()
@@ -213,7 +214,7 @@ def test_get_operator_single_valued_and_deterministic(store):  # B47
     assert store.count_active_operators() == 2
 
 
-def test_bootstrap_operator_concurrent_race_yields_exactly_one_operator(tmp_path):  # finding-6(b)
+def test_bootstrap_race_yields_one_operator(tmp_path):  # finding-6(b)
     import concurrent.futures as cf
 
     data_dir = tmp_path / ".skein-next"
@@ -289,7 +290,7 @@ def test_rotate_logs_paired_events(store):  # B_E5
     assert "rotated_out" in events and "rotated_in" in events
 
 
-def test_rotate_onto_existing_author_logs_promoted(store):  # B_E6
+def test_rotate_onto_author_logs_promoted(store):  # B_E6
     store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
     store.add_binding(*A2P, role="author")
     t0 = store.get_binding(*A2P).created_at

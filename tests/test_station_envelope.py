@@ -17,7 +17,7 @@ from skein import envelope as env_mod
 from skein import profile
 
 
-def test_canon_profile_is_sourced_from_the_profile_registry():
+def test_canon_profile_from_registry():
     # envelope's advertised proof.profile must be the ONE registry string, not a
     # third hardcoded copy — so revising profile.CANON_PROFILE_V1 flows through.
     assert env_mod.CANON_PROFILE == profile.CANON_PROFILE_V1 == "skein.folio.canon/v1"
@@ -43,7 +43,7 @@ def test_validate_stable_needs_proof():
         env_mod.validate_envelope({"kind": "folio", "stability": "stable", "proof": None})
 
 
-def test_validate_derived_needs_as_of_and_no_proof():
+def test_derived_needs_as_of_and_no_proof():
     with pytest.raises(ValueError):
         env_mod.validate_envelope({"kind": "search", "stability": "derived", "proof": {"x": 1}})
     with pytest.raises(ValueError):
@@ -88,7 +88,7 @@ def test_error_envelope():
     assert env["suggestion"]
 
 
-def test_error_envelope_without_origin_omits_link():
+def test_error_envelope_omits_origin_link():
     env = env_mod.build_error_envelope("not_found", "sha256::" + "0" * 64)
     assert "origin" not in env["links"]
     assert env["body"] == {"found": False, "error": "not_found"}

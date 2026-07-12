@@ -146,7 +146,7 @@ def test_folio_html_from_wire(client, seeded):
     assert "Brief B" in r.text            # threads_out peer title
 
 
-def test_folio_html_cache_control_is_no_cache(client, seeded):
+def test_folio_html_cache_control_no_cache(client, seeded):
     # Every machine surface revalidates (JSON no-cache + ETag, markdown no-store,
     # bundle no-cache + ETag); the HTML trust page must too, or a revoked "SIGNED
     # … (verified)" verdict can keep rendering via browser bfcache / a shared
@@ -155,7 +155,7 @@ def test_folio_html_cache_control_is_no_cache(client, seeded):
     assert r.headers["cache-control"] == "no-cache"
 
 
-def test_folio_byline_is_a_claim_not_verified_authorship(client, seeded):
+def test_byline_is_claim_not_authorship(client, seeded):
     # gate §6.1: created_by is self-asserted, never verified authorship. The metadata
     # byline must label it a claim, not present it as a bare "author: alice". (a is
     # unsigned, so no authenticated signer is named.)
@@ -216,7 +216,7 @@ def _cover_folio(data_dir, content_hash, *, subject="alice@example.com",
     store.close()
 
 
-def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
+def test_agents_box_shows_signer_when_signed(seeded, monkeypatch):
     from skein import signing
 
     client = _make_client(seeded["data_dir"], monkeypatch, stationfile={"name": "X"})
@@ -238,7 +238,7 @@ def test_folio_for_agents_box_shows_signer_when_signed(seeded, monkeypatch):
     assert "the authenticated actor is the signer: alice@example.com" in r
 
 
-def test_folio_byline_names_signer_even_when_subject_is_empty(seeded, monkeypatch):
+def test_byline_signed_with_empty_subject(seeded, monkeypatch):
     # FIX B regression: a VERIFIED-signed folio whose signer subject is falsy must NOT read
     # like an unsigned folio. The byline still states there is an authenticated signer, just
     # without a name — distinct from the unsigned case (which names no signer at all). An
@@ -261,7 +261,7 @@ def test_folio_byline_names_signer_even_when_subject_is_empty(seeded, monkeypatc
     assert "the authenticated actor is the signer:" not in r   # ...but no subject is named
 
 
-def test_folio_for_agents_box_does_not_call_bad_signature_unsigned(seeded, monkeypatch):
+def test_bad_signature_not_called_unsigned(seeded, monkeypatch):
     # A folio whose covering manifest's signature is INVALID must NOT read "Unsigned
     # — operator-vouched" in the handoff box; it has a signature, just not a verified
     # one. Understating that in the agent-handoff affordance is the wrong default.
@@ -281,7 +281,7 @@ def test_folio_for_agents_box_does_not_call_bad_signature_unsigned(seeded, monke
     assert "Unsigned — operator-vouched." not in r
 
 
-def test_folio_identity_mismatch_fails_closed_not_signed_stored(seeded, monkeypatch):
+def test_identity_mismatch_fails_closed(seeded, monkeypatch):
     # The stored attribution row (proof.issuer/subject) is a denormalized copy
     # written at ingest time; it can drift from what the manifest's own signature
     # actually verifies to (corpus corruption / a non-ingress writer). The read
@@ -307,7 +307,7 @@ def test_folio_identity_mismatch_fails_closed_not_signed_stored(seeded, monkeypa
     assert "provenance--unverified" in r
 
 
-def test_folio_for_agents_box_proof_missing_is_not_unsigned(seeded, monkeypatch):
+def test_proof_missing_not_called_unsigned(seeded, monkeypatch):
     # A dangling attribution row (the manifest parent is gone — corrupted / mid-
     # migration corpus, ST5) reads "NOT VERIFIED — proof missing". Like a true
     # UNSIGNED folio it has signer=None and no signature_bundle, but it is NOT
@@ -329,7 +329,7 @@ def test_folio_for_agents_box_proof_missing_is_not_unsigned(seeded, monkeypatch)
     assert "provenance--unverified" in r
 
 
-def test_folio_for_agents_box_integrity_fail_is_not_unsigned(seeded, monkeypatch):
+def test_integrity_fail_not_called_unsigned(seeded, monkeypatch):
     # A tampered body (the stored content no longer hashes to its content_hash key)
     # reads "NOT VERIFIED — integrity" even with no covering manifest at all — same
     # signer=None / no-bundle shape as UNSIGNED, but the handoff line must still not
@@ -368,14 +368,14 @@ def test_skip_link_and_main_landmark(client, seeded):
         assert 'id="main"' in r
 
 
-def test_folio_head_advertises_wire_alternates(client, seeded):
+def test_head_advertises_wire_alternates(client, seeded):
     r = client.get(f"/folio/{seeded['a']}").text
     head = r[: r.index("</head>")]
     assert f'rel="alternate" type="text/markdown" href="/folio/{seeded["a"]}.md"' in head
     assert f'rel="alternate" type="application/json" href="/folio/{seeded["a"]}.json"' in head
 
 
-def test_token_palettes_layered_so_operator_override_wins(seeded, monkeypatch):
+def test_token_palettes_operator_wins(seeded, monkeypatch):
     # The OS-dark rule (:root:not([data-theme])) out-specifies a plain inline
     # :root, so without @layer an operator's accent would revert under OS dark.
     # base.css layers its token palettes; the inline override stays unlayered and
@@ -394,7 +394,7 @@ def test_token_palettes_layered_so_operator_override_wins(seeded, monkeypatch):
     assert "@layer" not in page
 
 
-def test_station_logo_renders_when_configured(seeded, monkeypatch):
+def test_station_logo_renders_if_configured(seeded, monkeypatch):
     client = _make_client(
         seeded["data_dir"], monkeypatch,
         stationfile={"name": "X", "logo": "/static/logo.svg"},
@@ -546,7 +546,7 @@ def test_default_theme_token_sets_data_theme(seeded, monkeypatch):
     assert 'data-theme="dark"' in client.get("/").text
 
 
-def test_style_breakout_token_never_reaches_page(seeded, monkeypatch):
+def test_breakout_token_never_reaches_page(seeded, monkeypatch):
     # End-to-end: a token value carrying </style> is dropped at load, so the
     # served page's <style> block can never be escaped by station config.
     client = _make_client(
@@ -627,7 +627,7 @@ def test_verdict_state_mapping():
     assert verdict_state(None) == "unsigned"
 
 
-def test_concurrent_requests_isolated_connections(client):
+def test_concurrent_requests_isolated_conns(client):
     import concurrent.futures
 
     def hit(_):

@@ -75,7 +75,7 @@ def _bad_verifier(canonical_bytes, bundle):
 # --- SG1/SG2: manifest signer surface ---------------------------------------
 
 
-def test_sign_manifest_single_bundle_one_ceremony():  # SG1
+def test_sign_manifest_one_ceremony():  # SG1
     calls = []
 
     def counting_signer(cb):
@@ -95,7 +95,7 @@ def test_sign_manifest_single_bundle_one_ceremony():  # SG1
     )
 
 
-def test_signer_return_shape_carries_identity():  # SG2
+def test_signer_return_carries_identity():  # SG2
     ms = sign_mod.sign_manifest([A], _manifest_signer)
     assert ms["issuer"] == "https://idp" and ms["subject"] == "alice"
     # a bare-SignatureBundle signer (no issuer/subject) must FAIL
@@ -106,21 +106,21 @@ def test_signer_return_shape_carries_identity():  # SG2
 # --- VM1-VM12: verify_wire_manifest -----------------------------------------
 
 
-def test_sign_then_verify_wire_manifest_round_trip():  # VM1
+def test_sign_verify_manifest_round_trip():  # VM1
     ms = sign_mod.sign_manifest([A, B], _manifest_signer)
     verified, reason, identity = sign_mod.verify_wire_manifest(ms, _binding_verifier)
     assert verified is True and reason == "verified"
     assert identity == {"issuer": "https://idp", "subject": "alice"}
 
 
-def test_verify_wire_manifest_absent_is_not_error():  # VM2
+def test_verify_manifest_absent_not_error():  # VM2
     ms = sign_mod.sign_manifest([A, B], _manifest_signer)
     del ms["signature_bundle"]  # well-shaped descriptor, no bundle
     verified, reason, identity = sign_mod.verify_wire_manifest(ms, _binding_verifier)
     assert (verified, reason, identity) == (False, "no manifest", None)
 
 
-def test_verify_wire_manifest_tampered_descriptor_fails():  # VM3
+def test_verify_manifest_tampered_descriptor():  # VM3
     ms = sign_mod.sign_manifest([A, B], _manifest_signer)
     # Substitute a DIFFERENT but self-consistent body, keeping the old bundle.
     other = sign_mod.build_manifest([C])
@@ -130,13 +130,13 @@ def test_verify_wire_manifest_tampered_descriptor_fails():  # VM3
     assert verified is False and reason == "SIGNATURE_MISMATCH" and identity is None
 
 
-def test_verify_wire_manifest_bad_signature_rejected():  # VM4
+def test_verify_manifest_bad_signature():  # VM4
     ms = sign_mod.sign_manifest([A, B], _manifest_signer)
     verified, reason, identity = sign_mod.verify_wire_manifest(ms, _bad_verifier)
     assert (verified, reason, identity) == (False, "SIGNATURE_MISMATCH", None)
 
 
-def test_verify_wire_manifest_unknown_profile():  # VM5 / P5
+def test_verify_manifest_unknown_profile():  # VM5 / P5
     ms = sign_mod.sign_manifest([A, B], _manifest_signer)
     bundle = signing.SignatureBundle.model_validate_json(ms["signature_bundle"])
     bogus = bundle.model_copy(update={"canon_version": "skein.bogus/v9"})
@@ -155,12 +155,12 @@ def test_verify_wire_manifest_wrong_kind():  # P6 (at verify seam)
 
 
 @pytest.mark.parametrize("bad", ["x", ["x"], 7, True, None])
-def test_verify_wire_manifest_hostile_shape_totality(bad):  # VM6
+def test_verify_manifest_hostile_shape_total(bad):  # VM6
     verified, reason, identity = sign_mod.verify_wire_manifest(bad, _binding_verifier)
     assert (verified, reason, identity) == (False, "manifest malformed", None)
 
 
-def test_verify_wire_manifest_hostile_descriptor_and_leaflist():  # VM6 (sub-shapes)
+def test_verify_manifest_hostile_subshapes():  # VM6 (sub-shapes)
     base = sign_mod.sign_manifest([A, B], _manifest_signer)
     for mutate in (
         lambda m: m.update(descriptor="x"),                      # descriptor not dict
@@ -176,7 +176,7 @@ def test_verify_wire_manifest_hostile_descriptor_and_leaflist():  # VM6 (sub-sha
         assert verified is False and reason == "manifest malformed", mutate
 
 
-def test_verify_wire_manifest_oversized_leaf_list_rejects_cleanly():  # VM7
+def test_verify_manifest_oversized_leaf_list():  # VM7
     ms = sign_mod.sign_manifest([A, B], _manifest_signer)
     # leaf_list longer than the declared leaf_count -> bounded reject before merkle
     ms["leaf_list"] = ms["leaf_list"] + [_addr(b"extra%d" % i) for i in range(100)]
@@ -184,7 +184,7 @@ def test_verify_wire_manifest_oversized_leaf_list_rejects_cleanly():  # VM7
     assert verified is False and reason == "manifest malformed"
 
 
-def test_verify_wire_manifest_leaf_count_over_max_rejects_before_merkle():  # VM7
+def test_verify_manifest_leaf_count_over_max():  # VM7
     # A hostile descriptor declaring leaf_count beyond the absolute cap is rejected
     # 'manifest malformed' by the length-bound (VM7), BEFORE any decode / merkle
     # recompute — so a public attacker cannot force unbounded work with a huge
@@ -201,7 +201,7 @@ def test_verify_wire_manifest_leaf_count_over_max_rejects_before_merkle():  # VM
     assert sign_mod.MAX_LEAVES == 2048
 
 
-def test_verify_wire_manifest_non_string_leaf_within_bounds_still_rejects():  # VM7 reorder
+def test_verify_manifest_non_string_leaf():  # VM7 reorder
     # The size bound now runs BEFORE the per-element type scan. A leaf_list that is
     # within the size bound but carries a non-string element must STILL reject
     # 'manifest malformed' — i.e. reordering the guards did not drop the type check.
@@ -214,7 +214,7 @@ def test_verify_wire_manifest_non_string_leaf_within_bounds_still_rejects():  # 
     assert (verified, reason, identity) == (False, "manifest malformed", None)
 
 
-def test_verify_wire_manifest_multi_signer_bundle_rejected_before_crypto():
+def test_verify_manifest_multi_signer_reject():
     # A v0 manifest has exactly one signer (sign_manifest builds bundles=[single]).
     # A bundle carrying 2+ copies must be rejected 'manifest malformed' BEFORE the
     # verifier ever runs — otherwise an attacker packs up to 256 harvested-bundle
@@ -241,7 +241,7 @@ def test_membership_by_root_recompute():  # VM8
     assert canon.manifest_membership(ms["leaf_list"], ms["root"], C) is False
 
 
-def test_root_does_not_match_leaflist_is_manifest_malformed():  # VM9
+def test_root_leaflist_mismatch_malformed():  # VM9
     ms = sign_mod.sign_manifest([A, B], _manifest_signer)
     ms["leaf_list"] = [A, C]  # leaf_list no longer recomputes to descriptor.root
     verified, reason, _ = sign_mod.verify_wire_manifest(ms, _binding_verifier)
@@ -268,7 +268,7 @@ def test_no_inclusion_proof_path_in_v0():  # VM10
 # --- P7: verify_wire_folio kind pin -----------------------------------------
 
 
-def test_folio_bundle_with_manifest_profile_rejected():  # P7
+def test_manifest_profile_on_folio_rejected():  # P7
     from skein.identity import compute_folio_hash
 
     fields = {"type": "finding", "title": "T", "content": "b",

@@ -69,7 +69,7 @@ def test_transaction_idempotent_inside_batch(store):
     assert store.count_folios() == 1
 
 
-def test_writes_outside_transaction_still_commit(store):
+def test_writes_outside_transaction_commit(store):
     store.create_folio(FOLIO)
     # a fresh connection to the same file sees it -> it was committed
     other = StationStore(db_path=store.db_path)
@@ -118,7 +118,7 @@ def test_list_slugs(store):
 # --- unresolved endpoints ---------------------------------------------------
 
 
-def test_unresolved_endpoints_lists_only_unresolved_legacy_ids(store):
+def test_unresolved_endpoints_only_dangling(store):
     folio_hash = store.create_folio(FOLIO)
     other_hash = store.create_folio({**FOLIO, "title": "other"})
     # a resolved folio edge: both endpoints are real hashes -> not unresolved
@@ -133,7 +133,7 @@ def test_unresolved_endpoints_lists_only_unresolved_legacy_ids(store):
     assert got == {"brief-20260101-dang", "otherproj:brief-20260101-xprj"}
 
 
-def test_unresolved_endpoints_survives_null_alias_key(store):
+def test_unresolved_endpoints_null_alias_ok(store):
     # legacy_id is a nullable TEXT PK, so a NULL alias key can exist. Without guarding
     # the subquery, one NULL makes `endpoint NOT IN (SELECT legacy_id ...)` evaluate to
     # NULL/false for EVERY row (SQL three-valued logic) and the query silently returns
@@ -145,7 +145,7 @@ def test_unresolved_endpoints_survives_null_alias_key(store):
     assert store.unresolved_endpoints() == ["brief-20260101-dang"]
 
 
-def test_unresolved_endpoint_resolves_once_alias_exists(store):
+def test_endpoint_resolves_once_alias_set(store):
     folio_hash = store.create_folio(FOLIO)
     store.save_thread(from_id=folio_hash, to_id="brief-20260101-late", type="mention", created_at=TS)
     assert "brief-20260101-late" in store.unresolved_endpoints()

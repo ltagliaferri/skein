@@ -60,7 +60,7 @@ def test_mint_prints_token_and_records_hash(tmp_path):
         assert rows[0]["used_at"] is None
 
 
-def test_mint_json_token_hashes_to_stored_row(tmp_path):
+def test_mint_json_token_hash_matches_row(tmp_path):
     import json
 
     _init_op(tmp_path)
@@ -83,7 +83,7 @@ def test_mint_without_operator_errors(tmp_path):
     assert r.exit_code != 0 and "operator" in r.output
 
 
-def test_mint_origin_defaults_from_station_env(tmp_path, monkeypatch):
+def test_mint_origin_defaults_from_env(tmp_path, monkeypatch):
     monkeypatch.setenv("SKEIN_STATION_ORIGIN", "https://interskein.com")
     _init_op(tmp_path)
     r = _run(tmp_path, "invite", "mint")
@@ -160,7 +160,7 @@ def test_redeem_invite_requires_login(tmp_path):
 # --- the p4n5 #2 carry: naive expires_at must mean UTC ------------------------
 
 
-def test_mint_invite_naive_expires_at_is_utc_not_local(tmp_path, monkeypatch):
+def test_mint_naive_expires_at_stored_utc(tmp_path, monkeypatch):
     """A naive datetime handed to mint_invite is stored AS UTC. Without the
     guard, ``_iso_micros`` reinterprets it as system-LOCAL time before
     converting, silently shifting the expiry by the host's UTC offset. Pin the

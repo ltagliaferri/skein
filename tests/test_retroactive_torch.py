@@ -4,7 +4,12 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from client.cli import MAX_RETROACTIVE_FOLIOS, cli
+from client.cli import (
+    MAX_CEREMONY_FOLIO_TITLES,
+    MAX_RETROACTIVE_FOLIOS,
+    _show_folio_inventory,
+    cli,
+)
 
 
 def _invoke(args, request, **patches):
@@ -63,7 +68,13 @@ def test_retroactive_torch_assigns_name_and_runs_normal_suggestions():
 
     assert result.exit_code == 0, result.output
     assert "Name: copper-owl-0712" in result.output
-    assert "Before completing retirement, consider:" in result.output
+    assert "Session recovered: this work began without ignition." in result.output
+    assert "no folios attributed yet" in result.output
+    assert "consider what should survive this session" in result.output
+    assert "skein post brief SITE" in result.output
+    assert '--title "Continue the work"' in result.output
+    assert '--title "Handoff: continue the work"' in result.output
+    assert "brief-RELEVANT brief-HANDOFF reference" in result.output
     assert "skein --agent copper-owl-0712 complete FOLIO_ID..." in result.output
     assert f"up to {MAX_RETROACTIVE_FOLIOS} folios" in result.output
 
@@ -74,24 +85,104 @@ def test_retroactive_torch_assigns_name_and_runs_normal_suggestions():
     assert "retroactive_torch_at" in registrations[0][3]["json"]["metadata"]
 
 
+def test_normal_torch_shows_counts_titles_and_closed_ignition_brief():
+    agent_id = "ember-badger-0712"
+    calls = []
+    folios = [
+        {
+            "folio_id": "finding-20260712-abcd",
+            "type": "finding",
+            "title": "Retroactive torch belongs inside retirement",
+            "created_by": agent_id,
+        },
+        {
+            "folio_id": "brief-20260712-efgh",
+            "type": "brief",
+            "title": "Continue improving the ceremony",
+            "created_by": agent_id,
+        },
+    ]
+
+    def request(method, endpoint, _base_url, request_agent, **kwargs):
+        assert request_agent == agent_id
+        calls.append((method, endpoint, kwargs))
+        if method == "GET" and endpoint == f"/roster/{agent_id}":
+            return {
+                "name": agent_id,
+                "metadata": {"ignited_from": "brief-20260712-start"},
+            }
+        if method == "GET" and endpoint == "/folios/brief-20260712-start":
+            return {
+                "folio_id": "brief-20260712-start",
+                "type": "brief",
+                "title": "Implement the retirement ceremony",
+                "status": "closed",
+            }
+        if method == "GET" and endpoint == "/folios":
+            return folios
+        if method == "GET" and endpoint == "/threads":
+            return []
+        if method == "PATCH" and endpoint == f"/roster/{agent_id}":
+            return {"success": True}
+        raise AssertionError((method, endpoint, kwargs))
+
+    result = _invoke(["--agent", agent_id, "torch"], request)
+
+    assert result.exit_code == 0, result.output
+    assert "Implement the retirement ceremony [closed] brief-20260712-start" in result.output
+    assert "findings: 1" in result.output
+    assert "briefs: 1" in result.output
+    assert "Work from this session:" in result.output
+    assert "Retroactive torch belongs inside retirement finding-20260712-abcd" in result.output
+    assert "Continue improving the ceremony brief-20260712-efgh" in result.output
+    assert any(
+        method == "PATCH"
+        and endpoint == f"/roster/{agent_id}"
+        and kwargs["json"] == {"status": "retiring"}
+        for method, endpoint, kwargs in calls
+    )
+    assert not any(method == "POST" and endpoint == "/roster/register" for method, endpoint, _ in calls)
+
+
+def test_ceremony_title_inventory_is_capped(capsys):
+    folios = [
+        {
+            "folio_id": f"finding-20260712-{index:04d}",
+            "type": "finding",
+            "title": f"Finding number {index}",
+        }
+        for index in range(MAX_CEREMONY_FOLIO_TITLES + 1)
+    ]
+
+    _show_folio_inventory("Work from this session:", folios)
+    output = capsys.readouterr().out
+
+    assert output.count("Finding number ") == MAX_CEREMONY_FOLIO_TITLES
+    assert "Finding number 20" not in output
+    assert "...and 1 more" in output
+
+
 def test_complete_attributes_any_folio_type_and_latest_record_is_effective():
     agent_id = "copper-owl-0712"
     folios = {
         "finding-20260712-one1": {
             "folio_id": "finding-20260712-one1",
             "type": "finding",
+            "title": "Preserve the folio digest",
             "created_by": "unknown",
             "site_id": "skein-dev",
         },
         "mantle-20260712-two2": {
             "folio_id": "mantle-20260712-two2",
             "type": "mantle",
+            "title": "Retirement guide",
             "created_by": "another-agent",
             "site_id": "skein-dev",
         },
         "brief-20260712-three3": {
             "folio_id": "brief-20260712-three3",
             "type": "brief",
+            "title": "Continue the ceremony work",
             "created_by": agent_id,
             "site_id": "skein-dev",
         },
@@ -153,6 +244,8 @@ def test_complete_attributes_any_folio_type_and_latest_record_is_effective():
 
     assert result.exit_code == 0, result.output
     assert f"Attributed 2 folio(s) to {agent_id}" in result.output
+    assert "Preserve the folio digest finding-20260712-one1" in result.output
+    assert "Retirement guide mantle-20260712-two2" in result.output
     assert "findings: 1" in result.output
     assert "mantles: 1" in result.output
     assert "briefs:" not in result.output
@@ -164,6 +257,48 @@ def test_complete_attributes_any_folio_type_and_latest_record_is_effective():
     assert all(thread["type"] == "attribution" for thread in threads[-2:])
     assert roster_patches[-1]["status"] == "retired"
     assert roster_patches[-1]["metadata"]["work_summary"]["mantles"] == 1
+
+
+def test_complete_repeats_ignition_state_counts_and_titled_inventory():
+    agent_id = "ember-badger-0712"
+    session_folio = {
+        "folio_id": "finding-20260712-work",
+        "type": "finding",
+        "title": "Ceremony titles restore the session story",
+        "created_by": agent_id,
+        "site_id": "skein-dev",
+    }
+
+    def request(method, endpoint, _base_url, request_agent, **kwargs):
+        assert request_agent == agent_id
+        if method == "GET" and endpoint == f"/roster/{agent_id}":
+            return {
+                "name": agent_id,
+                "metadata": {"ignited_from": "brief-20260712-start"},
+            }
+        if method == "GET" and endpoint == "/folios/brief-20260712-start":
+            return {
+                "folio_id": "brief-20260712-start",
+                "type": "brief",
+                "title": "Improve the torch ceremony",
+                "status": "open",
+            }
+        if method == "GET" and endpoint == "/folios":
+            return [session_folio]
+        if method == "GET" and endpoint == "/threads":
+            return []
+        if method == "PATCH" and endpoint == f"/roster/{agent_id}":
+            return {"success": True}
+        raise AssertionError((method, endpoint, kwargs))
+
+    result = _invoke(["--agent", agent_id, "complete"], request)
+
+    assert result.exit_code == 0, result.output
+    assert "Improve the torch ceremony [open] brief-20260712-start" in result.output
+    assert "Final Work Summary:" in result.output
+    assert "findings: 1" in result.output
+    assert "Left in SKEIN:" in result.output
+    assert "Ceremony titles restore the session story finding-20260712-work" in result.output
 
 
 def test_complete_rejects_more_than_25_folios_before_fetch_or_write():

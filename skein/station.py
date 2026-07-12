@@ -21,6 +21,19 @@ from typing import Optional, Union
 from .station_store import StationStore
 
 
+class StationBootError(RuntimeError):
+    """The station corpus is unusable at server boot — garbage bytes at the db
+    path, the db path a directory, the data dir itself a file, a non-station
+    corpus at the path, or (read surface only) nothing there to serve. Both
+    servers' ``create_app`` classify the raw ``sqlite3.Error``/``OSError``/
+    ``ValueError`` into this at their ONE boot-time open, so the entry points
+    (``skein station serve``/``ingress``, ``python -m skein.web``/``skein.ingress``)
+    present a clean one-line refusal + exit 2, never a traceback — the same
+    clean-exit treatment ``StationEnvError``/``OperatorInvariantError`` get.
+    Deliberately NOT raised for a missing db on the ingress: its read_write open
+    legitimately CREATES the corpus (brief-20260712-t1tf #4)."""
+
+
 class Station:
     """A content-hash station corpus handle. Context-manageable.
 

@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
@@ -40,14 +41,14 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
-from .station import Station
+from .station import Station, StationBootError
 from . import canon, wire
 from . import sign as _sign
 from . import redeem as _redeem
 from .authorization import default_bindings
 from .identity import content_hash_for_bytes
 from .station_env import StationEnvError, station_env
-from .station_store import bundle_hash_for, sqlite_error_is_lock
+from .station_store import DB_FILENAME, bundle_hash_for, sqlite_error_is_lock
 
 logger = logging.getLogger(__name__)
 
@@ -438,16 +439,42 @@ def create_app() -> FastAPI:
     # here, not surface as a StationEnvError 500 on the first request — under
     # require_signed=0 the only pre-fix read was per-request.
     boot_data_dir = _get_data_dir()
+    # BOOT I/O TOTALITY (brief-20260712-t1tf #4): open the corpus ONCE here, in
+    # EITHER posture, so an unusable db refuses startup as a clean typed error —
+    # never the raw sqlite3 traceback the require_signed operator count used to
+    # leak, and never (under OFF) a 500 on the first publish. A MISSING db is NOT
+    # a fault on this write surface: the read_write open legitimately births it,
+    # exactly as the first request's per-request open always has. The fault class
+    # is corrupt/unopenable — garbage bytes at the db path, the db path a
+    # directory, the data dir itself a file (OSError from mkdir), or a
+    # non-station corpus at the path (StationStore's ValueError refusals).
+    if not boot_data_dir:
+        raise StationBootError(
+            f"no station data dir is configured ({ENV_DATA_DIR} is unset); "
+            "the ingress has no corpus to open"
+        )
+    boot_db_path = Path(boot_data_dir) / DB_FILENAME
+    try:
+        station = Station(boot_data_dir, check_same_thread=False)
+    except (sqlite3.Error, OSError, ValueError) as e:
+        raise StationBootError(
+            f"station corpus at {boot_db_path} is unopenable: {e}"
+        ) from e
     # STARTUP INVARIANT (the ingress only — the read app is EXEMPT, D17): under
     # require_signed the active operator count must be EXACTLY 1. Count 0 or >1
     # refuses boot. The operator is read from the account_bindings sidecar, the
     # single source of truth (D16), never a stationfile field.
+    try:
+        n_ops = station.store.count_active_operators() if require_signed else None
+    except sqlite3.Error as e:
+        # The open resolved but the first real read didn't (e.g. an I/O error,
+        # or a truncation whose fault only surfaces on page reads).
+        raise StationBootError(
+            f"station corpus at {boot_db_path} is unreadable: {e}"
+        ) from e
+    finally:
+        station.close()
     if require_signed:
-        station = Station(boot_data_dir, check_same_thread=False)
-        try:
-            n_ops = station.store.count_active_operators()
-        finally:
-            station.close()
         if n_ops != 1:
             if n_ops == 0:
                 raise OperatorInvariantError(
@@ -686,12 +713,15 @@ def run_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> None:
 def main() -> None:
     """``python -m skein.ingress`` — the direct-entry twin of the ``skein
     station ingress`` launcher's ClickException (fell r4, codex): a misconfigured
-    env exits with a clean one-line message, never a raw traceback."""
+    env — or an unusable corpus db (StationBootError) — exits with a clean
+    one-line message, never a raw traceback."""
     import sys
 
     try:
         run_server()
-    except (StationEnvError, RequireSignedConfigError, OperatorInvariantError) as e:
+    except (
+        StationEnvError, RequireSignedConfigError, OperatorInvariantError, StationBootError,
+    ) as e:
         print(f"ingress will not start: {e}", file=sys.stderr)
         raise SystemExit(2) from e
 

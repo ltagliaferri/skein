@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -43,9 +44,10 @@ from markdown_it import MarkdownIt
 from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
+from ..station import StationBootError
 from ..station_env import station_env
 from ..stationfile import StationConfig, StationfileError, load_station_config
-from ..station_store import StationStore, make_snippet
+from ..station_store import DB_FILENAME, StationStore, make_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +389,31 @@ def verdict_state(verdict: Optional[str]) -> str:
 
 def create_app() -> FastAPI:
     config = load_config()  # fail-loud on an unnamed station, at startup
+    # BOOT READINESS PROBE (brief-20260712-t1tf #4): open the corpus once, do one
+    # trivial read, close. The stores are otherwise PER-REQUEST (get_store), so
+    # without this a missing/corrupt db boots "fine" and then 500s on every
+    # request — the operator's first signal is a raw sqlite3 traceback in the
+    # request log instead of a refusal at startup. On this READ-ONLY surface a
+    # missing db IS a fault (nothing to serve, and the ro open must never
+    # create); so is a garbage file, a directory at the db path, or a
+    # non-station corpus (StationStore's ValueError refusals). All become the
+    # one typed StationBootError the entry points present as a clean exit 2.
+    data_dir = get_data_dir()
+    if not data_dir:
+        raise StationBootError(
+            f"no station data dir is configured ({ENV_DATA_DIR} is unset); "
+            "the read surface has nothing to serve"
+        )
+    try:
+        probe = StationStore(data_dir, read_only=True)
+        try:
+            probe.list_folios(limit=1)  # one real corpus read, not just an open
+        finally:
+            probe.close()
+    except (sqlite3.Error, OSError, ValueError) as e:
+        raise StationBootError(
+            f"station corpus at {Path(data_dir) / DB_FILENAME} is not servable: {e}"
+        ) from e
     token_css = build_token_css(config)
     data_theme = config.tokens.get("default_theme")
 
@@ -799,10 +826,11 @@ def run_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> None:
     except StationfileError as e:
         # A misconfigured station refuses to start with a clean operator message,
         # not a traceback. Name it (the one hard requirement) and try again.
-        # StationEnvError deliberately propagates: presentation belongs to the
-        # entry points (the ``skein station serve`` launcher's ClickException,
-        # ``python -m skein.web``'s __main__ wrapper) — catching it here made the
-        # launcher's handler dead code (deep_code_audit, fell r4).
+        # StationEnvError and StationBootError deliberately propagate:
+        # presentation belongs to the entry points (the ``skein station serve``
+        # launcher's ClickException, ``python -m skein.web``'s __main__ wrapper)
+        # — catching them here made the launcher's handler dead code
+        # (deep_code_audit, fell r4).
         logger.error("station will not start: %s", e)
         raise SystemExit(2) from e
     logger.info("Starting new-skein web UI on http://%s:%s", host, port)

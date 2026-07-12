@@ -103,11 +103,12 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
     $SKEIN_STATION_DATA_DIR. FastAPI/uvicorn are imported only when this runs.
     """
     _export_data_dir(ctx)
+    from .station import StationBootError  # lazy: keeps sqlite/store off --help paths
     from .web.app import run_server  # lazy: keep the heavy web deps off other verbs
 
     try:
         run_server(host=host, port=port)
-    except StationEnvError as e:
+    except (StationEnvError, StationBootError) as e:
         raise click.ClickException(str(e))
 
 
@@ -126,10 +127,16 @@ def ingress(ctx: click.Context, host: str, port: int) -> None:
     """
     _export_data_dir(ctx)
     from . import ingress as _ingress  # lazy: keep web deps off the other verbs
+    from .station import StationBootError
 
     try:
         _ingress.run_server(host=host, port=port)
-    except (StationEnvError, _ingress.RequireSignedConfigError, _ingress.OperatorInvariantError) as e:
+    except (
+        StationEnvError,
+        _ingress.RequireSignedConfigError,
+        _ingress.OperatorInvariantError,
+        StationBootError,
+    ) as e:
         raise click.ClickException(str(e))
 
 

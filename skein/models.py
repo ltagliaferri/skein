@@ -154,6 +154,11 @@ ThreadType = Literal[
     "reply",
     "tag",
     "status",
+    # Retroactive torch (brief-20260712-qzzp): folio -> agent_id. to_id is an
+    # agent id, never a folio, so the threads_pk_swap classifier's orphan-endpoint
+    # check puts it in class C (non-structural, non-federating, never re-anchored)
+    # without CONTROL_THREAD_TYPES/CLASS_B/VERSION_ANCHORED_TYPES wiring.
+    "attribution",
     # Phase 2 edit-as-commit edges. Endpoints are content HASHES, not slugs —
     # the first hash-keyed edges in the table. Endpoint-resolution surfaces
     # (orphan detection) must exclude these two types or they report every edit

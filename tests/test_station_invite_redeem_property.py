@@ -140,7 +140,7 @@ _hostile = st.recursive(
 
 @settings(max_examples=400, suppress_health_check=[HealthCheck.too_slow])
 @given(proof=_hostile)
-def test_verify_redeem_total_over_arbitrary_proof(proof):
+def test_verify_redeem_total_any_proof(proof):
     """Any value at all as the proof: never raises, always a documented outcome."""
     out = sign_mod.verify_wire_redeem(
         proof, hash_token("tok-fuzz"), ORIGIN, sign_mod.REDEEM_ROUTE, _binding_verifier()
@@ -156,7 +156,7 @@ def test_verify_redeem_total_over_arbitrary_proof(proof):
     issued_at=st.one_of(_hostile, st.text(max_size=100)),
     bundle=st.one_of(_hostile, st.text(max_size=200)),
 )
-def test_verify_redeem_total_over_field_mutations(nonce, issued_at, bundle):
+def test_verify_redeem_total_field_mutations(nonce, issued_at, bundle):
     """A dict-shaped proof with each field independently hostile stays total.
 
     This drives the per-field guards (type, length, parse) and the canon path that
@@ -175,7 +175,7 @@ def test_verify_redeem_total_over_field_mutations(nonce, issued_at, bundle):
     nonce=st.text(max_size=300),
     issued_at=st.text(max_size=80),
 )
-def test_verify_redeem_valid_bundle_mutated_envelope(nonce, issued_at):
+def test_verify_redeem_mutated_envelope(nonce, issued_at):
     """A REAL redeem bundle, but with the wire nonce/issued_at swapped for arbitrary
     strings. The bundle was signed over the ORIGINAL envelope, so any mutation must
     fail closed (SIGNATURE_MISMATCH) — never raise, never spuriously verify."""

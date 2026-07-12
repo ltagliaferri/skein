@@ -81,12 +81,12 @@ class _FakeRequest:
         self.base_url = base_url
 
 
-def test_public_base_url_prefers_valid_config(monkeypatch):
+def test_base_url_prefers_valid_config(monkeypatch):
     monkeypatch.setenv(ENV_BASE_URL, "https://interskein.com/")
     assert public_base_url(_FakeRequest("http://127.0.0.1:9001/")) == "https://interskein.com"
 
 
-def test_public_base_url_rejects_schemeless_config(monkeypatch):
+def test_base_url_rejects_schemeless(monkeypatch):
     # A scheme-less value would yield a non-absolute URL; ignore it and fall back.
     monkeypatch.setenv(ENV_BASE_URL, "interskein.com")
     assert public_base_url(_FakeRequest("http://127.0.0.1:9001/")) == "http://127.0.0.1:9001"
@@ -124,7 +124,7 @@ def test_json_folio_conditional_304(client, seeded):
     assert r2.status_code == 200
 
 
-def test_json_folio_etag_tracks_asserted_not_just_hash(seeded, monkeypatch):
+def test_folio_etag_tracks_asserted_block(seeded, monkeypatch):
     """A status change flips the envelope ETag while the content hash is unchanged
     — proving the asserted block is not pinned by an immutable cache (B1)."""
     monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
@@ -347,7 +347,7 @@ def test_batch_resolve_empty_is_empty_array(client):
     assert r.status_code == 200 and r.json() == []
 
 
-def test_batch_resolve_over_cap_rejected_whole(client, seeded):
+def test_batch_resolve_over_cap_rejected(client, seeded):
     from skein.web.app import BATCH_CAP
 
     r = client.post("/resolve", json=[seeded["a"]] * (BATCH_CAP + 1))
@@ -363,7 +363,7 @@ def test_batch_resolve_at_cap_ok(client, seeded):
     assert r.status_code == 200 and len(r.json()) == BATCH_CAP
 
 
-def test_batch_resolve_oversized_body_rejected_before_parse(client):
+def test_batch_resolve_oversized_body_413(client):
     from skein.web.app import MAX_BATCH_BYTES
 
     # A body over the byte cap is rejected 413 (the DoS guard fires before the
@@ -434,11 +434,11 @@ def test_vary_accept_on_negotiated_responses(client, seeded):
     assert client.get("/.well-known/skein.json").headers.get("vary") == "Accept"
 
 
-def test_describe_advertises_html_source_order(client):
+def test_describe_has_html_source_order(client):
     assert client.get("/.well-known/skein.json").json()["html_source_order"] == "content-first"
 
 
-def test_base_css_drives_dark_mode_by_preference(client):
+def test_base_css_dark_mode_by_preference(client):
     # Dark mode is preference-driven with a light fallback; the explicit-theme
     # selector must not catch the no-override case (so OS preference can win).
     css = client.get("/static/base.css").text
@@ -464,7 +464,7 @@ def test_bundle_error_omits_vary(client):
     assert "vary" not in r.headers
 
 
-def test_site_alternate_preserves_type_filter(client):
+def test_site_alternate_keeps_type_filter(client):
     head = client.get("/site/proj?type=brief").text
     head = head[: head.index("</head>")]
     assert 'href="/site/proj.md?type=brief"' in head
@@ -486,7 +486,7 @@ def test_well_known_json(client):
     assert doc["totals"]["folios"] >= 1
 
 
-def test_well_known_negotiates_json_by_default(client):
+def test_well_known_defaults_to_json(client):
     # A browser with no explicit preference gets JSON (metadata, not a page).
     r = client.get("/.well-known/skein", headers={"User-Agent": "Mozilla/5.0"})
     assert r.json()["skein"] == "station/v1"
@@ -525,7 +525,7 @@ def test_negotiate_honors_accept_qvalues(accept, expected):
     assert negotiate(None, accept, None) == expected
 
 
-def test_negotiate_q0_only_falls_through_to_user_agent():
+def test_negotiate_q0_falls_through_to_ua():
     # A type explicitly refused (q=0) is not selected; with no other acceptable
     # supported type the negotiation falls to the UA branch — curl -> markdown, no
     # UA -> HTML — exactly as an Accept naming none of the three would.
@@ -533,7 +533,7 @@ def test_negotiate_q0_only_falls_through_to_user_agent():
     assert negotiate(None, "application/json;q=0", None) == "html"
 
 
-def test_catalog_returns_newest_30_pushed_to_sql(tmp_path, monkeypatch):
+def test_catalog_newest_30_via_sql_limit(tmp_path, monkeypatch):
     # 35 findings (+ the older site folio = 36 total); the catalog renders only the
     # newest 30 by created_at, read via recent_folios (SQL ORDER BY ... LIMIT), and
     # count_folios still reports the full total.
@@ -564,12 +564,12 @@ def test_site_envelope_address_is_urlencoded(client):
     assert env["address"] == "/site/proj?type=a%20b%26c"
 
 
-def test_search_envelope_address_is_urlencoded(client):
+def test_search_envelope_address_urlencoded(client):
     env = client.get("/search.json", params={"q": "a b&c"}).json()
     assert env["address"] == "/search?q=a%20b%26c"
 
 
-def test_search_truncated_is_honest_at_the_boundary(tmp_path, monkeypatch):
+def test_search_truncated_honest_at_boundary(tmp_path, monkeypatch):
     # 3 matching folios; vary the cap. The fix: exactly CAP matches with nothing cut
     # is NOT truncated (the old `>= SEARCH_LIMIT` flagged that boundary falsely).
     data_dir = tmp_path / ".skein-next"
@@ -593,7 +593,7 @@ def test_search_truncated_is_honest_at_the_boundary(tmp_path, monkeypatch):
     assert result() == (3, False)  # under the cap
 
 
-def test_search_truncated_serves_cap_entries_and_never_leaks_the_probe(tmp_path, monkeypatch):
+def test_search_serves_cap_never_leaks_probe(tmp_path, monkeypatch):
     # The overflow probe returns SEARCH_LIMIT+1 rows to detect truncation, but the served
     # body must stay exactly SEARCH_LIMIT and must NOT include that extra probe row
     # (finding-20260710-lx37 fix #4). Four body-only "needle" matches, distinct created_at
@@ -628,7 +628,7 @@ def test_search_truncated_serves_cap_entries_and_never_leaks_the_probe(tmp_path,
     assert len(e["body"]) == 4
 
 
-def test_conditional_if_none_match_list_star_and_weak(client, seeded):
+def test_if_none_match_list_star_weak(client, seeded):
     first = client.get(f"/folio/{seeded['a']}.json")
     etag = first.headers["etag"]  # strong quoted sha256: "<hex>"
 

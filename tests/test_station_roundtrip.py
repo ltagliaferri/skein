@@ -142,7 +142,7 @@ def test_full_local_roundtrip(tmp_path, monkeypatch):
     assert content_hash in found.text
 
 
-def test_roundtrip_unbound_signer_is_rejected(tmp_path, monkeypatch):
+def test_roundtrip_unbound_signer_rejected(tmp_path, monkeypatch):
     """The same loop with NO author binding: the station must refuse the publish
     (the round-trip's authorization half — accepting only bound signers is what
     require_signed means)."""

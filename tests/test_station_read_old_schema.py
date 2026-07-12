@@ -79,13 +79,13 @@ def _assert_serves_unsigned(data_dir, h):
 # --- the deploy scenario: ALL new tables absent (the OLD corpus) -------------
 
 
-def test_old_schema_corpus_serves_unsigned_no_500(tmp_path):
+def test_old_schema_serves_unsigned_no_500(tmp_path):
     data_dir = tmp_path / ".skein-next"
     h = _seed_then_strip(data_dir, _NEW_TABLES)
     _assert_serves_unsigned(data_dir, h)
 
 
-def test_old_schema_corpus_served_over_http_no_500(tmp_path, monkeypatch):
+def test_old_schema_over_http_no_500(tmp_path, monkeypatch):
     """End-to-end: the read web app serves a folio from an OLD-schema corpus with a
     200, not a 500 — the literal deploy smoke that flagged this."""
     data_dir = tmp_path / ".skein-next"
@@ -121,7 +121,7 @@ def test_old_schema_corpus_served_over_http_no_500(tmp_path, monkeypatch):
     ],
     ids=["verify_cache", "constituent_attribution", "manifests", "manifest-pair"],
 )
-def test_partial_schema_corpus_serves_unsigned_no_500(tmp_path, drop):
+def test_partial_schema_unsigned_no_500(tmp_path, drop):
     data_dir = tmp_path / ".skein-next"
     h = _seed_then_strip(data_dir, drop)
     _assert_serves_unsigned(data_dir, h)
@@ -135,7 +135,9 @@ def test_partial_schema_corpus_serves_unsigned_no_500(tmp_path, drop):
 # account_bindings must degrade to NOT VERIFIED ('unbound signer'), never 500.
 
 
-def test_covered_folio_with_account_bindings_table_absent_degrades(tmp_path, monkeypatch):
+def test_covered_no_bindings_table_degrades(tmp_path, monkeypatch):
+    """A covered folio on a corpus missing ONLY account_bindings degrades to
+    'NOT VERIFIED -- unbound signer' on the read path, never a raise/500."""
     from skein import signing
     from skein.signing import MultiVerifyResult, VerifyResult, VerifyStatus
 
@@ -198,7 +200,7 @@ def test_covered_folio_with_account_bindings_table_absent_degrades(tmp_path, mon
         assert env["asserted"]["verdict"] == "NOT VERIFIED — unbound signer"
 
 
-def test_covered_folio_with_verify_cache_table_absent_still_signs(tmp_path, monkeypatch):
+def test_covered_no_verify_cache_still_signs(tmp_path, monkeypatch):
     """A covered + bound folio on a corpus MISSING ONLY ``verify_cache`` must still read
     SIGNED: the read-path ``verify_cache_get`` degrades to a cache MISS and falls back to
     an in-process verify, never a 500. The UNSIGNED cells above short-circuit at "no
@@ -278,7 +280,7 @@ def _open_rw_then_drop(data_dir, table):
     return store
 
 
-def test_read_write_store_account_bindings_absent_raises(tmp_path):
+def test_rw_store_no_bindings_table_raises(tmp_path):
     """A read_write store whose account_bindings table is gone must RAISE on
     get_binding — a missing table on the write store is a real schema fault."""
     store = _open_rw_then_drop(tmp_path / ".skein-next", "account_bindings")
@@ -290,7 +292,7 @@ def test_read_write_store_account_bindings_absent_raises(tmp_path):
         store.close()
 
 
-def test_read_write_store_constituent_attribution_absent_raises(tmp_path):
+def test_rw_store_no_attribution_raises(tmp_path):
     """Same scoping for get_constituent_proof: a read_write store with the
     attribution table dropped must RAISE, not return None."""
     store = _open_rw_then_drop(tmp_path / ".skein-next", "constituent_attribution")
@@ -302,7 +304,7 @@ def test_read_write_store_constituent_attribution_absent_raises(tmp_path):
         store.close()
 
 
-def test_read_only_store_account_bindings_absent_degrades(tmp_path):
+def test_ro_store_absent_tables_degrade(tmp_path):
     """The contrast pin: the IDENTICAL on-disk corpus, opened read_only, degrades
     to None instead of raising — read app, un-migrated corpus, the tolerated case.
     Dropping account_bindings (only) leaves constituent_attribution present, so
@@ -317,7 +319,7 @@ def test_read_only_store_account_bindings_absent_degrades(tmp_path):
         assert ro.get_constituent_proof("blake3:" + "0" * 64) is None
 
 
-def test_normal_migrated_corpus_unaffected_both_modes(tmp_path):
+def test_migrated_corpus_ok_both_modes(tmp_path):
     """The fix must not touch a NORMAL migrated corpus: a present binding resolves
     on a read_write store AND on a read_only store, with no raise either way."""
     issuer, subject = "https://idp", "alice@example.com"

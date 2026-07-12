@@ -28,7 +28,7 @@ def _addr(datum: bytes) -> str:
 # --- MK1-MK8: Merkle tree ---------------------------------------------------
 
 
-def test_leaf_datum_is_raw_32_bytes_not_ascii():  # MK1
+def test_leaf_datum_raw_32_bytes_not_ascii():  # MK1
     d = _digest(b"alice")
     addr = _addr(d)
     out = canon.address_to_leaf_datum(addr)
@@ -39,7 +39,7 @@ def test_leaf_datum_is_raw_32_bytes_not_ascii():  # MK1
     assert canon.merkle_root([out]) != canon.merkle_leaf_hash(addr.encode())
 
 
-def test_malformed_address_rejected_before_tree():  # MK2
+def test_bad_address_rejected_before_tree():  # MK2
     for bad in (
         "md5::" + "0" * 32,            # wrong algo prefix
         "sha256::" + "0" * 63,         # wrong length
@@ -62,7 +62,7 @@ def test_leaf_vs_node_domain_separation():  # MK3
     assert canon.merkle_leaf_hash(l + r) != canon.merkle_node_hash(l, r)
 
 
-def test_leaves_sorted_ascending_then_deduped():  # MK4
+def test_leaves_sorted_and_deduped():  # MK4
     a, b, c = _digest(b"a"), _digest(b"b"), _digest(b"c")
     root1 = canon.merkle_root([a, b, c])
     root2 = canon.merkle_root([c, a, b])               # different input order
@@ -70,7 +70,7 @@ def test_leaves_sorted_ascending_then_deduped():  # MK4
     assert root1 == root2 == root3
 
 
-def test_odd_node_rfc6962_no_bitcoin_duplication():  # MK5
+def test_odd_node_rfc6962_not_bitcoin():  # MK5
     leaves = sorted([_digest(b"0"), _digest(b"1"), _digest(b"2")])
     l0, l1, l2 = (canon.merkle_leaf_hash(x) for x in leaves)
     # k = largest power of two strictly < 3 = 2: node(node(l0,l1), l2)
@@ -125,7 +125,9 @@ def test_manifest_preimage_domain_separated():  # P2
     assert m != f
 
 
-def test_descriptor_canonical_bytes_deterministic_and_hash_stable():  # P3
+def test_descriptor_bytes_deterministic():  # P3
+    """Canonical descriptor bytes are deterministic, so the descriptor's content hash
+    is stable."""
     root = "sha256::" + "a" * 64
     b1 = canon.manifest_descriptor_canonical_bytes(root, 3)
     b2 = canon.manifest_descriptor_canonical_bytes(root, 3)

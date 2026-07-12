@@ -82,7 +82,7 @@ def test_unsigned_envelope_integrity_ok(wired, monkeypatch):
     assert state == "unsigned" and code == EXIT_OK
 
 
-def test_unsigned_envelope_tampered_body_is_invalid(wired):
+def test_unsigned_tampered_body_invalid(wired):
     station = TestClient(create_app())
     env = _envelope(station, wired["a"])
     env["body"]["content"] = "tampered — not the bytes that hash to the address"
@@ -128,7 +128,7 @@ def test_signed_invalid_maps_to_invalid(monkeypatch):
     assert state == "invalid" and code == EXIT_SIGNATURE_INVALID
 
 
-def test_signed_unverifiable_maps_to_unverified(monkeypatch):
+def test_signed_unverifiable_is_unverified(monkeypatch):
     env = {"kind": "folio", "body": {"type": "f", "title": "t", "content": "c",
                                      "created_at": "2026-01-01T00:00:00Z", "created_by": "a"},
            "proof": {"signature_bundle": {"b": 1}}}
@@ -148,7 +148,7 @@ def test_fetch_unsigned_local_ok_quiet(wired):
     assert "body A here" in r.markdown
 
 
-def test_fetch_unsigned_require_signed_nonzero(wired):
+def test_fetch_unsigned_require_signed_exit(wired):
     r = fetch(LOCAL, wired["a"], require_signed=True)
     assert r.state == "unsigned" and r.exit_code == EXIT_REQUIRE_SIGNED
 
@@ -185,7 +185,7 @@ def test_full_hash_address_pins(wired):
     assert r.state == "unsigned" and r.pinned is True
 
 
-def test_substituted_content_is_address_mismatch(wired, monkeypatch):
+def test_substitution_is_address_mismatch(wired, monkeypatch):
     # A station that serves a self-consistent envelope for content X in answer to
     # a request for a DIFFERENT address must be caught — content addressing's one
     # invariant, enforced on the side that does not trust the station.
@@ -209,7 +209,7 @@ def test_legacy_id_address_is_unpinned(wired, seeded):
     assert r.pin_kind is None
 
 
-def test_signed_substitution_via_omitted_content_hash_caught(wired, monkeypatch):
+def test_substitution_no_content_hash_caught(wired, monkeypatch):
     # fell-r2 BLOCKER: a signed envelope may legally OMIT proof.content_hash (canon
     # hashes only the body). A station serving a validly-signed body B with no
     # content_hash, in answer to a request for full hash A, must be caught as an
@@ -244,7 +244,7 @@ def test_pin_check_full_prefix_and_mismatch():
     assert _pin_check("finding-20260101-leg1", actual)[:2] == (None, None)
 
 
-def test_pin_check_ref_fragment_is_advisory_not_a_pin():
+def test_pin_check_ref_fragment_advisory():
     # A verifier fragment on a REF target (`slug#sha256::<full>`) is a FRESHNESS NOTE,
     # not a pin: per ADDRESSING_GRAMMAR.md ("The freshness suffix") it warns, it does not
     # verify or reject. _pin_check therefore reports a ref address unpinnable ("the
@@ -261,7 +261,7 @@ def test_pin_check_ref_fragment_is_advisory_not_a_pin():
     assert _pin_check("ref::someslug#sha256::" + "ab" * 32, actual)[:2] == (None, None)
 
 
-def test_pin_check_hash_target_fragment_enforces_both_folio_and_fragment():
+def test_pin_check_hash_enforces_both_pins():
     # On a HASH target the fragment is a VERIFIER (reject on mismatch): the served content
     # must match the folio digest AND the fragment. Enforcing only ONE (the pre-existing
     # `pin = fragment or folio` behavior, byte-inherited from skein_next) lets a
@@ -291,7 +291,7 @@ def test_pin_check_hash_target_fragment_enforces_both_folio_and_fragment():
 def _serve_a_for_any_address(wired, monkeypatch):
     """Pin resolution to a's real self-consistent envelope, whatever address is asked.
 
-    The suite's standard shim (cf. test_substituted_content_is_address_mismatch) —
+    The suite's standard shim (cf. test_substitution_is_address_mismatch) —
     needed here because a ref+fragment address cannot resolve end-to-end against
     today's station (resolve_to_hash routes a Ref to the alias table keyed on the
     RAW string, fragment included, so the lookup misses). The client-side contract
@@ -302,7 +302,8 @@ def _serve_a_for_any_address(wired, monkeypatch):
     monkeypatch.setattr(mesh_client, "resolve", lambda inst, addr, timeout=10.0: (env, None))
 
 
-def test_fetch_ref_fragment_drift_warns_exit_unchanged(wired, monkeypatch):
+def test_fetch_ref_drift_warns_not_rejects(wired, monkeypatch):
+    """A drifted freshness fragment on a REF warns; state and exit code unchanged."""
     # ADDRESSING_GRAMMAR.md "The freshness suffix": on a REF address the fragment
     # is a freshness NOTE — resolution returns the current head and WARNS when the
     # head has moved off the noted digest; it never rejects. State, exit code, and
@@ -325,7 +326,7 @@ def test_fetch_ref_fragment_match_is_quiet(wired, monkeypatch):
     assert r.warning is None
 
 
-def test_fetch_ref_without_fragment_no_warning(wired, seeded):
+def test_fetch_ref_no_fragment_no_warning(wired, seeded):
     # A ref with no freshness note has nothing to drift from (end-to-end via the
     # alias table, the one ref form the station resolves today).
     with Station(seeded["data_dir"]) as st:
@@ -335,7 +336,7 @@ def test_fetch_ref_without_fragment_no_warning(wired, seeded):
     assert r.warning is None
 
 
-def test_fetch_hash_address_fragment_still_rejects(wired, monkeypatch):
+def test_fetch_hash_fragment_still_rejects(wired, monkeypatch):
     # The SAME fragment bytes after a HASH target stay a VERIFIER (reject on
     # mismatch) — enforcement mode is set by the left-hand production, and the
     # ref-side warn must not soften it.
@@ -346,7 +347,7 @@ def test_fetch_hash_address_fragment_still_rejects(wired, monkeypatch):
     assert r.warning is None  # the reject path, never the warn path
 
 
-def test_fetch_ref_drift_composes_with_remote_unsigned(wired, monkeypatch):
+def test_ref_drift_composes_remote_unsigned(wired, monkeypatch):
     # Both warnings can apply to one fetch (a drifted ref served unsigned by a
     # remote): newline-joined, neither clobbered, remote-unsigned first (the
     # pre-existing line keeps its position for anything scraping stderr).
@@ -375,7 +376,7 @@ def test_ref_drift_warning_helper_scope():
     assert w and "MOVED" in w and ("cd" * 32) in w and actual in w
 
 
-def test_cli_fetch_ref_drift_warning_reaches_stderr(wired, monkeypatch):
+def test_cli_ref_drift_warning_on_stderr(wired, monkeypatch):
     from click.testing import CliRunner
 
     from skein.mesh.cli import cli
@@ -390,7 +391,7 @@ def test_cli_fetch_ref_drift_warning_reaches_stderr(wired, monkeypatch):
     assert "UNSIGNED" in result.stderr  # the verdict line still follows
 
 
-def test_is_remote_classifies_loopback_ip_vs_lookalike_hostname():
+def test_is_remote_loopback_vs_lookalike():
     # Only a genuine loopback IP literal is local; a hostname whose first label is
     # "127" is a registrable REMOTE domain, not 127.0.0.0/8. Misclassifying it as
     # local would suppress the remote-unsigned safety warning.
@@ -472,7 +473,7 @@ def test_cli_fetch_json(wired):
     assert '"kind": "folio"' in result.output
 
 
-def test_cli_fetch_json_quiet_suppresses_body(wired):
+def test_cli_fetch_json_quiet_no_body(wired):
     from click.testing import CliRunner
 
     from skein.mesh.cli import cli

@@ -91,7 +91,7 @@ def _capturing_ok():
     return v, seen
 
 
-def test_verify_wire_folio_unsigned_is_not_an_error():
+def test_verify_folio_unsigned_not_error():
     # A wire folio carrying no signature_bundle is 'unsigned' — not an error.
     # skein_next's version seeded a Station and read a folio back through the store;
     # store-free here, since verify_wire_folio takes a plain wire dict — the same
@@ -104,7 +104,7 @@ def test_verify_wire_folio_unsigned_is_not_an_error():
 # --- strict verification path (ujwx §4) -------------------------------------
 
 
-def test_strict_hash_mismatch_short_circuits_before_crypto():
+def test_strict_hash_mismatch_skips_crypto():
     # A tampered body (same claimed content_hash) is rejected at step 1; the
     # verifier is never consulted.
     wf = _signed_wf()
@@ -115,7 +115,7 @@ def test_strict_hash_mismatch_short_circuits_before_crypto():
     assert "bytes" not in seen  # crypto never ran
 
 
-def test_strict_unknown_profile_is_a_hard_fail_before_crypto():
+def test_strict_unknown_profile_hard_fail():
     # An old raw-v0 bundle (canon_version="knurl-1.0") is not in the registry.
     fields = _FIELDS
     ch = compute_folio_hash(fields)
@@ -132,7 +132,7 @@ def test_strict_unknown_profile_is_a_hard_fail_before_crypto():
     assert "bytes" not in seen  # never downgraded to verify the raw signature
 
 
-def test_strict_verifies_over_the_domain_separated_preimage():
+def test_strict_verifies_profiled_preimage():
     wf = _signed_wf()
     v, seen = _capturing_ok()
     verified, reason, identity = sign_mod.verify_wire_folio(wf, v)
@@ -145,7 +145,7 @@ def test_strict_verifies_over_the_domain_separated_preimage():
 
 
 @pytest.mark.parametrize("bad", [None, [], 7, "str", True])
-def test_verify_wire_folio_hostile_shape_is_typed_reject_not_raise(bad):
+def test_verify_folio_hostile_shape_rejects(bad):
     # A non-mapping wire_folio (incl. None) must not hit wire_folio.get() and
     # raise AttributeError — it's a typed reject, matching every other
     # verify_wire_* totality guard.
@@ -153,7 +153,7 @@ def test_verify_wire_folio_hostile_shape_is_typed_reject_not_raise(bad):
     assert (verified, reason, identity) == (False, "invalid fields", None)
 
 
-def test_verify_wire_folio_bad_field_type_is_typed_reject_before_crypto():
+def test_verify_folio_bad_field_type_reject():
     # title=True is signed-looking (carries a parseable signature_bundle) but
     # canon.folio_canonical_bytes raises CanonError on a non-str/non-None
     # scalar field. That must surface as a typed reject, not an unhandled raise,
@@ -173,7 +173,7 @@ def test_verify_wire_folio_bad_field_type_is_typed_reject_before_crypto():
     assert "bytes" not in seen  # crypto never ran
 
 
-def test_verify_wire_folio_unparseable_created_at_is_typed_reject_before_crypto():
+def test_verify_folio_bad_created_at_reject():
     # An unparseable created_at raises ValueError inside canon; must also be a
     # typed reject rather than an unhandled raise.
     bundle = _fake_signer(b"irrelevant-never-reached")
@@ -191,7 +191,7 @@ def test_verify_wire_folio_unparseable_created_at_is_typed_reject_before_crypto(
     assert "bytes" not in seen  # crypto never ran
 
 
-def test_verify_wire_folio_multi_signer_bundle_rejected_before_crypto():
+def test_verify_folio_multi_signer_reject():
     # parity with the manifest/redeem single-signer guard (fell finding 1, sibling
     # entrypoint): a v0 folio bundle is single-signer and only results[0] is read, so a
     # multi-blob bundle must be rejected BEFORE the verifier — else a hostile station
@@ -228,7 +228,7 @@ def _redeem_signer(canonical_bytes):
     return sign_mod.SignedResult(bundle=bundle, issuer="https://idp", subject="alice")
 
 
-def test_verify_wire_redeem_multi_signer_bundle_rejected_before_crypto():
+def test_verify_redeem_multi_signer_reject():
     # The third single-signer guard (verify_wire_redeem, sign.py:447). A multi-blob
     # redeem proof must be rejected 'proof malformed' BEFORE the verifier runs — same
     # Sigstore-amplification class as the manifest/folio guards, on the redeem seam.

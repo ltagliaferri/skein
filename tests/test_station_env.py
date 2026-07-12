@@ -50,7 +50,7 @@ def test_neither_set_returns_none(monkeypatch, recwarn):
     assert se.station_env("DATA_DIR") is None
 
 
-def test_unknown_suffix_is_a_programming_error():
+def test_unknown_suffix_raises_key_error():
     with pytest.raises(KeyError):
         se.station_env("NO_SUCH_KEY")
 
@@ -58,7 +58,7 @@ def test_unknown_suffix_is_a_programming_error():
 # --- require_signed drives the boot gate --------------------------------------
 
 
-def test_require_signed_new_key_garbage_refuses_boot(tmp_path, monkeypatch):
+def test_require_signed_garbage_config_error(tmp_path, monkeypatch):
     from skein import ingress
 
     _clear(monkeypatch)
@@ -68,7 +68,7 @@ def test_require_signed_new_key_garbage_refuses_boot(tmp_path, monkeypatch):
         ingress.create_app()
 
 
-def test_require_signed_new_key_enforces_operator_invariant(tmp_path, monkeypatch):
+def test_require_signed_operator_invariant(tmp_path, monkeypatch):
     from skein import ingress
 
     _clear(monkeypatch)
@@ -81,7 +81,7 @@ def test_require_signed_new_key_enforces_operator_invariant(tmp_path, monkeypatc
 # --- origin totality (p4n5 #1 carry) ------------------------------------------
 
 
-def test_malformed_origin_is_a_clean_config_error(tmp_path, monkeypatch):
+def test_malformed_origin_clean_config_error(tmp_path, monkeypatch):
     from skein import ingress
 
     _clear(monkeypatch)
@@ -93,7 +93,7 @@ def test_malformed_origin_is_a_clean_config_error(tmp_path, monkeypatch):
     assert "SKEIN_STATION_ORIGIN" in msg and "notaport" in msg
 
 
-def test_malformed_ipv6_origin_is_a_clean_config_error(tmp_path, monkeypatch):
+def test_malformed_ipv6_origin_clean_error(tmp_path, monkeypatch):
     from skein import ingress
 
     _clear(monkeypatch)
@@ -112,7 +112,7 @@ def test_valid_noncanonical_origin_boots(tmp_path, monkeypatch):
     assert ingress.create_app() is not None
 
 
-def test_post_batch_malformed_url_raises_publish_error():
+def test_post_batch_bad_url_publish_error():
     from skein.publish import PublishError, post_batch
 
     with pytest.raises(PublishError, match="notaport"):
@@ -138,7 +138,7 @@ def test_web_reads_new_keys(tmp_path, monkeypatch):
 # --- clean-exit presentation (fell r4) ----------------------------------------
 
 
-def test_ingress_module_entry_exits_clean_on_config_error(tmp_path, monkeypatch):
+def test_ingress_main_config_error_exits_2(tmp_path, monkeypatch):
     """`python -m skein.ingress` on a misconfigured env exits with a clean
     SystemExit 2, never a raw traceback (fell r4, codex) — the direct-entry twin
     of the launcher's ClickException. A malformed origin is the live trigger
@@ -153,7 +153,7 @@ def test_ingress_module_entry_exits_clean_on_config_error(tmp_path, monkeypatch)
     assert exc.value.code == 2
 
 
-def test_post_redeem_malformed_2xx_body_is_publish_error(monkeypatch):
+def test_redeem_2xx_nonjson_publish_error(monkeypatch):
     """A station answering 200 with a non-JSON body must surface as the typed
     PublishError the redeem CLI catches, never a raw JSONDecodeError."""
     import urllib.request
@@ -177,7 +177,7 @@ def test_post_redeem_malformed_2xx_body_is_publish_error(monkeypatch):
         post_redeem("https://station.example", "tok", {"p": 1})
 
 
-def test_post_redeem_2xx_body_drop_is_publish_error(monkeypatch):
+def test_redeem_2xx_body_drop_publish_error(monkeypatch):
     """A 2xx whose body drops mid-read (IncompleteRead / reset) must be the
     typed PublishError — the success path's twin of the rejection-read guard
     (fell r4: the guard was asymmetric)."""

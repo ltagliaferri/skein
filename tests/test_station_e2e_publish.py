@@ -127,7 +127,9 @@ def test_e2e_revoked_signer_rejected(instance):  # E4
     assert all(r["reason"] == "revoked binding" for r in ack["rejected"])
 
 
-def test_e2e_membership_accepted_no_manifest_rejected(instance, tmp_path):  # E5
+def test_e2e_membership_vs_no_manifest(instance, tmp_path):  # E5
+    """A bound author's manifest-covered batch is accepted with per-constituent proofs;
+    the same constituents delivered with NO manifest are rejected 'no manifest'."""
     instance.store.add_binding(I, ALICE, role="author")
     batch = _signed_batch()
     ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
@@ -168,7 +170,7 @@ def test_e2e_read_cache_hit_after_ingest(instance, monkeypatch):  # E6
 # --- station-posture read visibility (the E11 analogue) ---------------------
 
 
-def test_concurrent_ingest_then_read_sees_committed_write(tmp_path):  # E11 (rollback-journal)
+def test_read_after_ingest_sees_commit(tmp_path):  # E11 (rollback-journal)
     inst = Station(tmp_path / ".skein-next")
     f = h.folio("finding", "T", "b", "2026-01-01T00:00:00+00:00")
     ingest(inst, {"protocol": wire.PROTOCOL, "folios": [wire.folio_to_wire(f)],

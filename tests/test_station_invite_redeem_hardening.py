@@ -76,7 +76,7 @@ def _proof(token, subject=SUBJECT):
 # --- (1) redeem route degrades a held write lock to 503 ----------------------
 
 
-def test_redeem_route_real_write_lock_returns_503(tmp_path, monkeypatch):
+def test_redeem_real_write_lock_returns_503(tmp_path, monkeypatch):
     """A genuinely-held write lock makes the redeem path's BEGIN IMMEDIATE time out
     and raise the driver SQLITE_BUSY OperationalError; the route must map it to a
     retryable 503, NOT an uncaught 500. Mirrors the /publish real-lock test."""

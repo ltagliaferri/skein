@@ -50,13 +50,13 @@ def _intact_thread_wire():
 # --- serialization shape ----------------------------------------------------
 
 
-def test_folio_to_wire_is_content_hash_plus_canon_fields():
+def test_folio_wire_hash_plus_canon_fields():
     wf = _intact_folio_wire()
     assert set(wf.keys()) == {"content_hash", *wire.FOLIO_WIRE_FIELDS}
     assert wf["type"] == "finding" and wf["title"] == "T"
 
 
-def test_thread_to_wire_is_thread_hash_plus_canon_fields():
+def test_thread_wire_hash_plus_canon_fields():
     tw = _intact_thread_wire()
     assert set(tw.keys()) == {"thread_hash", *wire.THREAD_WIRE_FIELDS}
 
@@ -75,7 +75,7 @@ def test_build_batch_shape():
     assert batch["site_slugs"] == {site: "specs"}
 
 
-def test_build_batch_defaults_empty_site_slugs():
+def test_build_batch_defaults_site_slugs():
     assert wire.build_batch([], []) == {
         "protocol": wire.PROTOCOL,
         "folios": [],
@@ -100,7 +100,7 @@ def test_folio_hash_mismatch_is_reported():
     assert wire.folio_hash_ok(wf) is False
 
 
-def test_folio_unhashable_body_is_invalid_fields_not_raise():
+def test_folio_unhashable_is_invalid_fields():
     # A hostile body that trips canon (non-str title) must be a TYPED reject, never
     # an exception out of the ingress boundary (totality).
     wf = {**_FIELDS, "title": True, "content_hash": "sha256::" + "0" * 64}
@@ -108,7 +108,7 @@ def test_folio_unhashable_body_is_invalid_fields_not_raise():
     assert wire.folio_hash_ok(wf) is False
 
 
-def test_folio_unparseable_created_at_is_invalid_fields():
+def test_folio_bad_created_at_invalid_fields():
     wf = {**_FIELDS, "created_at": "not-a-date", "content_hash": "sha256::" + "0" * 64}
     assert wire.folio_reject_reason(wf) == "invalid fields"
 
@@ -126,7 +126,7 @@ def test_thread_hash_mismatch_is_reported():
     assert wire.thread_hash_ok(tw) is False
 
 
-def test_thread_unhashable_edge_is_invalid_fields_not_raise():
+def test_thread_unhashable_is_invalid_fields():
     tw = {
         "thread_hash": "sha256::" + "0" * 64,
         "from_id": "sha256::" + "a" * 64,

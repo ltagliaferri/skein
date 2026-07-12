@@ -151,7 +151,7 @@ _MASTER_THREADS_SQL = (
 )
 
 
-def test_workbench_threads_ddl_byte_identical_to_master(tmp_dir):
+def test_workbench_threads_ddl_byte_equal(tmp_dir):
     """A workbench db's STORED threads DDL text is byte-identical to master's. The
     station re-home wraps the threads DDL in an if/else; this pins that the workbench
     (station=False) branch still stores the exact bytes master did — the byte-identity

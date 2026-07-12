@@ -43,7 +43,7 @@ def _small_unsigned_batch():
     return wire.build_batch(folios, threads, slugs)
 
 
-def test_oversized_body_rejected_413_before_parse(app_client):
+def test_oversized_body_413_before_parse(app_client):
     payload = b'{"protocol":"' + b"x" * (MAX_BATCH_BYTES + 1) + b'"}'
     r = app_client.post(
         "/publish/v0/folios", content=payload,
@@ -53,7 +53,7 @@ def test_oversized_body_rejected_413_before_parse(app_client):
     assert "too large" in r.json()["error"]
 
 
-def test_body_at_cap_is_not_rejected_for_size(app_client):
+def test_body_at_cap_not_rejected_for_size(app_client):
     payload = b"y" * MAX_BATCH_BYTES  # not valid JSON -> 400, never 413
     r = app_client.post(
         "/publish/v0/folios", content=payload,
@@ -71,7 +71,7 @@ def test_non_json_body_rejected_400(app_client):
     assert "not valid JSON" in r.json()["error"]
 
 
-def test_deeply_nested_json_rejected_400_not_500(app_client):
+def test_deep_nested_json_400_not_500(app_client):
     depth = 200_000
     payload = (b"[" * depth) + (b"]" * depth)
     assert len(payload) < MAX_BATCH_BYTES  # the byte cap does NOT catch this
@@ -98,7 +98,7 @@ def test_wrong_protocol_rejected_400(app_client):
     assert "unknown protocol" in r.json()["error"]
 
 
-def test_valid_unsigned_publish_lands_through_async_route(app_client):
+def test_unsigned_publish_lands_async_route(app_client):
     batch = _small_unsigned_batch()
     r = app_client.post("/publish/v0/folios", json=batch)
     assert r.status_code == 200
@@ -108,7 +108,7 @@ def test_valid_unsigned_publish_lands_through_async_route(app_client):
     assert ack["rejected"] == []
 
 
-def test_write_lock_contention_returns_503_not_500(app_client, monkeypatch):
+def test_write_lock_contention_503_not_500(app_client, monkeypatch):
     import sqlite3
     import skein.ingress as ing
 
@@ -125,7 +125,7 @@ def test_write_lock_contention_returns_503_not_500(app_client, monkeypatch):
     assert "busy" in r.json()["error"]
 
 
-def test_real_write_lock_contention_returns_503(app_client, data_dir, monkeypatch):
+def test_real_write_lock_returns_503(app_client, data_dir, monkeypatch):
     # End-to-end: a genuinely held write lock makes the route's BEGIN IMMEDIATE
     # time out and raise a DRIVER OperationalError (sqlite_errorcode = SQLITE_BUSY),
     # exercising the numeric-code discrimination path. Shrink busy_timeout so the
@@ -146,7 +146,7 @@ def test_real_write_lock_contention_returns_503(app_client, data_dir, monkeypatc
         holder.close()
 
 
-def test_genuine_operationalerror_is_not_masked_as_503(app_client, monkeypatch):
+def test_non_busy_operational_error_raises(app_client, monkeypatch):
     import sqlite3
     import skein.ingress as ing
 
@@ -161,7 +161,7 @@ def test_genuine_operationalerror_is_not_masked_as_503(app_client, monkeypatch):
         )
 
 
-async def test_client_disconnect_midbody_is_handled_quietly(data_dir):
+async def test_client_disconnect_midbody_handled(data_dir):
     # A client that drops mid-body raises starlette ClientDisconnect inside the
     # body-read loop. The route must catch it and return cleanly (no propagating
     # exception, no ASGI traceback). Driven directly against the endpoint with an

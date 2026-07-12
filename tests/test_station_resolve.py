@@ -41,13 +41,13 @@ def test_full_bare_hash_passes_through():
     assert resolve_to_hash(f"sha256::{FULL_A}", FakeStore()) == f"sha256::{FULL_A}"
 
 
-def test_full_hash_does_not_require_existence():
+def test_full_hash_needs_no_existence():
     # resolve is pure address math: a well-formed full hash resolves to itself
     # without touching the store (existence is the caller's get_folio gate).
     assert resolve_to_hash(f"sha256::{FULL_A}", FakeStore()) == f"sha256::{FULL_A}"
 
 
-def test_alias_address_resolves_digest_locally():
+def test_alias_address_resolves_locally():
     addr = f"interskein::sha256::{FULL_A}"
     assert resolve_to_hash(addr, FakeStore()) == f"sha256::{FULL_A}"
 
@@ -78,7 +78,9 @@ def test_web_short_hash_unsupported():
     assert e.value.code == "short_hash_unsupported_remote"
 
 
-def test_web_foreign_authority_is_not_found_with_origin():
+def test_web_foreign_authority_not_found():
+    """A web:: address under a foreign authority raises not_found carrying the
+    original address as origin."""
     addr = f"web::other.example::sha256::{FULL_A}"
     with pytest.raises(ResolveError) as e:
         resolve_to_hash(addr, FakeStore(), local_authority="interskein.com")
@@ -93,7 +95,7 @@ def test_web_own_authority_resolves_locally():
     )
 
 
-def test_web_authority_resolves_when_no_local_authority_configured():
+def test_web_resolves_with_no_authority_set():
     # Phase 1 with no authority set: a web:: address still resolves by its digest.
     addr = f"web::interskein.com::sha256::{FULL_A}"
     assert resolve_to_hash(addr, FakeStore()) == f"sha256::{FULL_A}"
@@ -151,7 +153,7 @@ def test_station_index_strips_algo_prefix(tmp_path):
         store.close()
 
 
-def test_short_hash_resolves_through_real_store(tmp_path):
+def test_short_hash_resolves_via_real_store(tmp_path):
     store = StationStore(tmp_path / ".skein-next")
     try:
         h = store.create_folio(

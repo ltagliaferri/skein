@@ -55,17 +55,17 @@ def test_verify_cache_miss_then_hit(store):  # VC1
     assert row["status"] == "VERIFIED" and row["subject"] == ALICE
 
 
-def test_verify_cache_keyed_on_manifest_and_bundle_hash(store):  # VC2
+def test_verify_cache_keyed_on_both_hashes(store):  # VC2
     store.verify_cache_put(MH, "bh1", "VERIFIED")
     assert store.verify_cache_get(MH, "bh2") is None
 
 
-def test_verify_cache_never_caches_trust_root_stale(store):  # VC3
+def test_verify_cache_skips_trust_root_stale(store):  # VC3
     store.verify_cache_put(MH, BH, "TRUST_ROOT_STALE")
     assert store.verify_cache_get(MH, BH) is None
 
 
-def test_verify_cache_never_caches_offline_no_trusted_root(store):  # VC4
+def test_verify_cache_skips_offline_no_root(store):  # VC4
     store.verify_cache_put(MH, BH, "OFFLINE_NO_TRUSTED_ROOT")
     assert store.verify_cache_get(MH, BH) is None
 
@@ -82,7 +82,7 @@ def test_verify_cache_caches_stable_statuses(store, status):  # VC5
 # --- VC6/VC11: the ingress is the writer; one shared bundle_hash helper -------
 
 
-def test_ingress_populates_manifest_verdict_at_ingest(tmp_path):  # VC6
+def test_ingest_populates_manifest_verdict(tmp_path):  # VC6
     instance = Station(tmp_path / "instance" / ".skein-next")
     instance.store.add_binding(I, ALICE, role="author")
     folios, threads, slugs = h.specs_set()
@@ -109,7 +109,7 @@ def test_bundle_hash_one_shared_helper():  # VC11
 # --- VC10: table-absent degrades to a cache miss -----------------------------
 
 
-def test_read_verdict_on_missing_verify_cache_table_degrades(tmp_path):  # VC10
+def test_verdict_missing_cache_table_is_miss(tmp_path):  # VC10
     s = StationStore(tmp_path / ".skein-next")
     s.conn.execute("DROP TABLE verify_cache")
     s.conn.commit()
@@ -117,7 +117,7 @@ def test_read_verdict_on_missing_verify_cache_table_degrades(tmp_path):  # VC10
     s.close()
 
 
-def test_verify_cache_get_propagates_non_table_operational_error(store):  # harden C
+def test_cache_get_propagates_real_faults(store):  # harden C
     """Only the missing-table OperationalError is a cache miss; a real fault
     ("database is locked", I/O error, SQL bug) must PROPAGATE, not be masked as a
     miss that silently degrades every read to in-process verify (VC10 scope)."""
@@ -175,7 +175,7 @@ def _seed_folio(base):
     return st, fh
 
 
-def test_read_verdict_on_cache_miss_does_not_write(tmp_path, monkeypatch):  # VC7
+def test_verdict_cache_miss_does_not_write(tmp_path, monkeypatch):  # VC7
     st, fh = _seed_folio(tmp_path)
     _cover(st.store, fh, cache_status=None, bind=True)  # cold cache
     st.close()
@@ -195,7 +195,7 @@ def test_read_verdict_on_cache_miss_does_not_write(tmp_path, monkeypatch):  # VC
     check.close()
 
 
-def test_read_verdict_on_cache_hit_skips_sigstore(tmp_path):  # VC8
+def test_verdict_cache_hit_skips_sigstore(tmp_path):  # VC8
     st, fh = _seed_folio(tmp_path)
     _cover(st.store, fh, cache_status="VERIFIED", bind=True)  # warm
     calls = []
@@ -210,7 +210,7 @@ def test_read_verdict_on_cache_hit_skips_sigstore(tmp_path):  # VC8
     st.close()
 
 
-def test_correctness_holds_with_cold_or_absent_cache(tmp_path, monkeypatch):  # VC14
+def test_correct_with_cold_or_absent_cache(tmp_path, monkeypatch):  # VC14
     monkeypatch.setattr(
         signing, "verify_multi",
         lambda cb, b: MultiVerifyResult(
@@ -239,7 +239,7 @@ def test_correctness_holds_with_cold_or_absent_cache(tmp_path, monkeypatch):  # 
 
 
 @pytest.mark.parametrize("warm", [True, False], ids=["warm-cache", "cold-cache"])
-def test_tampered_folio_body_reads_not_verified_integrity(tmp_path, monkeypatch, warm):
+def test_tampered_body_reads_integrity_fail(tmp_path, monkeypatch, warm):
     # An honest signed verdict path so the ONLY thing that changes is the tamper.
     monkeypatch.setattr(
         signing, "verify_multi",

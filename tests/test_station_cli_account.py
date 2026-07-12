@@ -74,12 +74,12 @@ def test_account_add_happy(tmp_path):  # D4
         assert "created" in [e["event"] for e in st.store.get_binding_events(ISS2, S2)]
 
 
-def test_account_add_requires_existing_operator(tmp_path):  # D5
+def test_account_add_requires_operator(tmp_path):  # D5
     r = _run(tmp_path, "account", "add", "--issuer", ISS2, "--subject", S2)
     assert r.exit_code != 0 and "no operator" in r.output
 
 
-def test_account_add_on_active_operator_echoes_stored_role(tmp_path):
+def test_account_add_echoes_stored_role(tmp_path):
     """`account add --role author` on the ACTIVE OPERATOR's own identity hits
     add_binding's already-active idempotent no-op: the binding correctly STAYS
     operator. The CLI must echo the STORED role ("operator"), not the requested
@@ -113,7 +113,7 @@ def test_account_revoke_nonexistent_errors(tmp_path):  # D7
     assert r.exit_code != 0 and "no active binding for https://x/ghost" in r.output
 
 
-def test_account_revoke_active_operator_refused(tmp_path):  # D8
+def test_revoke_active_operator_refused(tmp_path):  # D8
     _run(tmp_path, "account", "init-operator", "--issuer", ISS, "--subject", S)
     r = _run(tmp_path, "account", "revoke", "--issuer", ISS, "--subject", S)
     assert r.exit_code != 0 and "refusing to revoke the active operator" in r.output
@@ -137,7 +137,7 @@ def test_rotate_operator_atomic(tmp_path):  # D9
         assert can_write(Principal(ISS2, S2), st.store) is True
 
 
-def test_rotate_operator_requires_existing_operator(tmp_path):  # D10
+def test_rotate_requires_existing_operator(tmp_path):  # D10
     r = _run(tmp_path, "account", "rotate-operator", "--new-issuer", ISS2, "--new-subject", S2)
     assert r.exit_code != 0 and "no operator to rotate" in r.output
 
@@ -161,7 +161,7 @@ def test_rotate_operator_is_all_or_nothing(tmp_path, monkeypatch):  # D11
         assert (op.issuer, op.subject) == (ISS, S)  # old operator still active (rollback)
 
 
-def test_rotate_operator_onto_existing_active_author_promotes(tmp_path):  # D19
+def test_rotate_onto_active_author_promotes(tmp_path):  # D19
     _run(tmp_path, "account", "init-operator", "--issuer", ISS, "--subject", S)
     _run(tmp_path, "account", "add", "--issuer", ISS2, "--subject", S2)
     with _open(tmp_path) as st:
@@ -175,7 +175,7 @@ def test_rotate_operator_onto_existing_active_author_promotes(tmp_path):  # D19
         assert "promoted" in [e["event"] for e in st.store.get_binding_events(ISS2, S2)]
 
 
-def test_rotate_operator_onto_self_is_refused_no_audit_mutation(tmp_path):  # harden D
+def test_rotate_onto_self_refused_no_audit(tmp_path):  # harden D
     """Rotating onto the CURRENT operator must refuse before any mutation, not
     revoke-then-re-promote the same identity (which churns the audit trail with a
     spurious rotated_out + promoted)."""
@@ -188,7 +188,7 @@ def test_rotate_operator_onto_self_is_refused_no_audit_mutation(tmp_path):  # ha
         assert [e["event"] for e in st.store.get_binding_events(ISS, S)] == ["created"]
 
 
-def test_rotate_operator_checks_revoke_result(tmp_path, monkeypatch):
+def test_rotate_checks_revoke_result(tmp_path, monkeypatch):
     """If the old operator's revoke matches nothing (a concurrent rotation won
     the write lock first), the rotation must REFUSE — proceeding would install a
     second active operator, the exact invariant the ingress boot check enforces
@@ -226,7 +226,7 @@ def test_account_list_plain_text(tmp_path):  # D12
 # --- D17: read-app exemption from the operator boot invariant ----------------
 
 
-def test_read_app_starts_without_operator_under_require_signed(tmp_path, monkeypatch):  # D17
+def test_read_app_starts_without_operator(tmp_path, monkeypatch):  # D17
     # The READ web app serves regardless of operator-count; the startup refusal is
     # the INGRESS's alone. It does NOT suppress folio_verdict's live binding step.
     from skein.web import app as web_app

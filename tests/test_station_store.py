@@ -189,7 +189,7 @@ def test_search_folios_matches(store, q, names):
     assert station.search_folios(q, limit=1) == [_folio(h, n) for n in names[:1]]
 
 
-def test_search_folios_overflow_probe_does_not_widen_window(tmp_path):
+def test_search_probe_does_not_widen_window(tmp_path):
     """>window matches: the overflow probe serves the SAME top-N as the served-limit
     window, NEVER a widened one (finding-20260710-lx37 fix #4).
 
@@ -235,7 +235,7 @@ def test_search_folios_overflow_probe_does_not_widen_window(tmp_path):
         station.close()
 
 
-def test_search_folios_overflow_probe_signals_without_widening(store):
+def test_search_probe_contract_in_the_small(store):
     """The overflow_probe contract in the small: at exactly the served ``limit`` there is
     no extra row (no false overflow); one match past ``limit`` yields exactly one extra
     ranked row whose head is the plain served set — the probe row is the excluded tail."""
@@ -327,7 +327,7 @@ def test_station_thread_dict_has_thread_id(store):
 
 # ── strict-null narrowing (intentional divergence from skein_next) ───────────────
 
-def test_create_folio_rejects_null_structural_field():
+def test_create_folio_rejects_null_field():
     d = Path(tempfile.mkdtemp())
     try:
         station = StationStore(db_path=d / "skein.db")
@@ -344,7 +344,7 @@ def test_create_folio_rejects_null_structural_field():
         shutil.rmtree(d)
 
 
-def test_save_thread_rejects_null_structural_field():
+def test_save_thread_rejects_null_field():
     d = Path(tempfile.mkdtemp())
     try:
         station = StationStore(db_path=d / "skein.db")
@@ -374,7 +374,7 @@ def test_resolve_alias_matches(store):
 
 # ── read-only open ─────────────────────────────────────────────────────────────
 
-def test_read_only_open_does_no_ddl_and_reads():
+def test_read_only_open_no_ddl_and_reads():
     d = Path(tempfile.mkdtemp())
     try:
         dbp = d / "skein.db"
@@ -393,7 +393,7 @@ def test_read_only_open_does_no_ddl_and_reads():
         shutil.rmtree(d)
 
 
-def test_read_only_open_with_special_char_in_path():
+def test_read_only_open_special_char_path():
     # A '#' or '?' in the path (ticket / versioned dir names) must not break the file: URI.
     d = Path(tempfile.mkdtemp())
     try:
@@ -417,7 +417,7 @@ def _tables_of(path):
         conn.close()
 
 
-def test_rejects_workbench_db_without_altering_it():
+def test_rejects_workbench_db_unaltered():
     # A workbench (pre-swap) db at the station's default filename must be refused BEFORE any
     # station DDL runs — the refused db's schema must be untouched (no station tables bolted
     # on), not just the construction failing after the damage.
@@ -452,7 +452,7 @@ def test_rejects_migrated_workbench_db():
         shutil.rmtree(d)
 
 
-def test_rejects_spoofed_station_slugs_marker():
+def test_rejects_spoofed_station_slugs():
     # A db with a MALFORMED station_slugs table (wrong shape) must be refused BEFORE any
     # DDL — the marker is checked by shape (slug + anchor_hash), not mere presence, so a
     # corrupt/spoofed marker can't fool the guard into mutating the db.
@@ -473,7 +473,7 @@ def test_rejects_spoofed_station_slugs_marker():
         shutil.rmtree(d)
 
 
-def test_station_logdatabase_connection_keeps_rollback_journal():
+def test_logdatabase_keeps_rollback_journal():
     # The journal-mode fix must hold on EVERY connection, not just schema birth: a
     # station-mode LogDatabase method (any _get_connection) must not flip the corpus to WAL.
     d = Path(tempfile.mkdtemp())
@@ -494,7 +494,7 @@ def test_station_logdatabase_connection_keeps_rollback_journal():
         shutil.rmtree(d)
 
 
-def test_second_writer_while_first_open_does_not_crash():
+def test_second_writer_with_first_open_ok():
     # Two StationStore(write) on the same corpus (e.g. concurrent ingress workers): the
     # second construction must NOT 'database is locked' on a journal-mode flip.
     d = Path(tempfile.mkdtemp())
@@ -541,7 +541,7 @@ def test_latest_statuses_matches(store):
     assert station.latest_statuses(ids).get(h["issue"]) == "closed"
 
 
-def test_latest_statuses_empty_and_never_open(store):
+def test_latest_statuses_empty_never_open(store):
     station, h = store
     assert station.latest_statuses([]) == {}
     # a folio with no status thread is ABSENT, never defaulted to 'open'

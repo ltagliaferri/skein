@@ -41,7 +41,7 @@ def test_name_from_stationfile(data_dir):
     assert cfg.tokens == {}
 
 
-def test_name_from_env_bootstrap_when_no_stationfile(data_dir):
+def test_name_from_env_when_no_stationfile(data_dir):
     # No stationfile at all: the env bootstrap supplies the name.
     cfg = load_station_config(data_dir, env_name="interskein")
     assert cfg.name == "interskein"
@@ -62,7 +62,7 @@ def test_no_name_anywhere_is_hard_error(data_dir):
         load_station_config(data_dir)
 
 
-def test_empty_name_in_stationfile_falls_to_env(data_dir):
+def test_empty_name_falls_back_to_env(data_dir):
     _write(data_dir, {"name": "   "})
     cfg = load_station_config(data_dir, env_name="interskein")
     assert cfg.name == "interskein"
@@ -101,7 +101,7 @@ def test_future_schema_version_is_hard_error(data_dir):
         load_station_config(data_dir)
 
 
-def test_non_int_schema_version_is_hard_error(data_dir):
+def test_non_int_schema_version_hard_error(data_dir):
     _write(data_dir, {"name": "X", "schema_version": "1"})
     with pytest.raises(StationfileError):
         load_station_config(data_dir)
@@ -120,7 +120,7 @@ def test_unknown_theme_degrades_to_default(data_dir):
     assert load_station_config(data_dir).theme == DEFAULT_THEME
 
 
-def test_custom_theme_path_accepted_when_file_present(data_dir):
+def test_theme_path_accepted_when_present(data_dir):
     data_dir.mkdir(parents=True, exist_ok=True)
     themes = data_dir / "themes"
     themes.mkdir()
@@ -129,12 +129,12 @@ def test_custom_theme_path_accepted_when_file_present(data_dir):
     assert load_station_config(data_dir).theme == "themes/mine.css"
 
 
-def test_custom_theme_path_missing_degrades_to_default(data_dir):
+def test_theme_path_missing_uses_default(data_dir):
     _write(data_dir, {"name": "X", "theme": "themes/absent.css"})
     assert load_station_config(data_dir).theme == DEFAULT_THEME
 
 
-def test_custom_theme_path_traversal_rejected(data_dir):
+def test_theme_path_traversal_rejected(data_dir):
     # A path escaping the data dir must not resolve, even if a file exists there.
     _write(data_dir, {"name": "X", "theme": "../../etc/passwd"})
     assert load_station_config(data_dir).theme == DEFAULT_THEME
@@ -164,7 +164,7 @@ def test_non_string_token_dropped(data_dir):
     assert load_station_config(data_dir).tokens == {}
 
 
-def test_token_with_css_breakout_chars_dropped(data_dir):
+def test_css_breakout_token_dropped(data_dir):
     # A token value goes into a <style> block; one that could escape its
     # declaration or the element is dropped (use a custom sheet for real CSS).
     _write(data_dir, {"name": "X", "tokens": {

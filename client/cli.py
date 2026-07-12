@@ -4545,16 +4545,13 @@ def _get_latest_attributions(base_url: str, agent_id: str) -> Dict[str, str]:
     ``created_by`` itself cannot be rewritten because it is part of the folio's
     content digest.
     """
-    try:
-        threads = make_request(
-            "GET",
-            "/threads",
-            base_url,
-            agent_id,
-            params={"type": "attribution"},
-        )
-    except Exception:
-        return {}
+    threads = make_request(
+        "GET",
+        "/threads",
+        base_url,
+        agent_id,
+        params={"type": "attribution"},
+    )
 
     latest: Dict[str, tuple] = {}
     for thread in threads:
@@ -4609,7 +4606,12 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[str]:
             f"Could not attribute {len(failures)} folio(s):\n{details}"
         )
 
-    current = _get_latest_attributions(base_url, agent_id)
+    try:
+        current = _get_latest_attributions(base_url, agent_id)
+    except Exception as e:
+        raise click.ClickException(
+            f"Could not load existing folio attributions: {e}"
+        )
     attributed = []
     for folio_id in unique_ids:
         if current.get(folio_id) == agent_id:

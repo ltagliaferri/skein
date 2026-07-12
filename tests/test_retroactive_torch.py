@@ -187,6 +187,64 @@ def test_complete_rejects_more_than_25_folios_before_fetch_or_write():
     ]
 
 
+def test_complete_validates_entire_batch_before_attribution_writes():
+    calls = []
+    agent_id = "copper-owl-0712"
+
+    def request(method, endpoint, _base_url, request_agent, **kwargs):
+        calls.append((method, endpoint, request_agent, kwargs))
+        if method == "GET" and endpoint == f"/roster/{agent_id}":
+            return {"name": agent_id}
+        if method == "GET" and endpoint == "/folios/finding-20260712-good":
+            return {
+                "folio_id": "finding-20260712-good",
+                "type": "finding",
+                "created_by": "unknown",
+            }
+        if method == "GET" and endpoint == "/folios/brief-20260712-missing":
+            raise RuntimeError("404 folio not found")
+        raise AssertionError((method, endpoint, kwargs))
+
+    result = _invoke(
+        [
+            "--agent",
+            agent_id,
+            "complete",
+            "finding-20260712-good",
+            "brief-20260712-missing",
+        ],
+        request,
+    )
+
+    assert result.exit_code != 0
+    assert "Could not attribute 1 folio(s)" in result.output
+    assert "brief-20260712-missing" in result.output
+    assert not any(method in ("POST", "PATCH") for method, *_ in calls)
+
+
+def test_complete_stops_when_existing_attributions_cannot_be_loaded():
+    calls = []
+    agent_id = "copper-owl-0712"
+    folio_id = "finding-20260712-good"
+
+    def request(method, endpoint, _base_url, request_agent, **kwargs):
+        calls.append((method, endpoint, request_agent, kwargs))
+        if method == "GET" and endpoint == f"/roster/{agent_id}":
+            return {"name": agent_id}
+        if method == "GET" and endpoint == f"/folios/{folio_id}":
+            return {"folio_id": folio_id, "type": "finding", "created_by": "unknown"}
+        if method == "GET" and endpoint == "/threads":
+            raise RuntimeError("attribution lookup unavailable")
+        raise AssertionError((method, endpoint, kwargs))
+
+    result = _invoke(["--agent", agent_id, "complete", folio_id], request)
+
+    assert result.exit_code != 0
+    assert "Could not load existing folio attributions" in result.output
+    assert "attribution lookup unavailable" in result.output
+    assert not any(method in ("POST", "PATCH") for method, *_ in calls)
+
+
 def test_attribution_thread_round_trips_through_api(tmp_path):
     from fastapi.testclient import TestClient
 

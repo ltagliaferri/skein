@@ -500,6 +500,26 @@ class StationStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def recent_folios(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """The newest ``limit`` folios, created_at DESCending, content_hash ascending
+        as the stable tiebreak — the catalog's newest-N, pushed to SQL so the index
+        reads only what it renders instead of scanning the whole corpus in Python.
+
+        ``COALESCE(created_at, '')`` folds a NULL created_at into the empty string so
+        a missing timestamp sorts LAST under DESC, reproducing the prior Python key
+        ``r.get("created_at") or ""`` with ``reverse=True`` (whose stable tiebreak was
+        content_hash ascending, from ``list_folios``' ``ORDER BY created_at, content_hash``).
+        """
+        rows = self.conn.execute(
+            f"""
+            SELECT {_FOLIO_COLS} FROM versions
+            ORDER BY COALESCE(created_at, '') DESC, content_hash ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def search_folios(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Folios matching ``query``, AND-of-terms, ranked title-over-body (skein_next L1).
 

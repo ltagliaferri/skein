@@ -159,6 +159,18 @@ def test_list_folios_matches(store):
     assert station.list_folios(limit=2, offset=2) == [_folio(h, n) for n in order[2:4]]
 
 
+def test_recent_folios_newest_first(store):
+    station, h = store
+    # created_at DESCending; the finding/note tie at 2026-01-03 keeps the
+    # content_hash-ASCending tiebreak list_folios uses (finding before note), so
+    # this is NOT a blind reverse of the ascending list — it is the catalog's
+    # newest-N, computed in SQL (ORDER BY ... LIMIT) instead of a full Python scan.
+    order = ["cross", "site2", "finding", "note", "issue", "site"]
+    assert station.recent_folios() == [_folio(h, n) for n in order]
+    assert station.recent_folios(limit=3) == [_folio(h, n) for n in order[:3]]
+    assert station.recent_folios(limit=1) == [_folio(h, "cross")]
+
+
 @pytest.mark.parametrize("q, names", [
     ("login", ["finding", "issue", "note"]),
     ("login bug", ["issue"]),

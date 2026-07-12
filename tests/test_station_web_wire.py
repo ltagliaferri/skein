@@ -496,3 +496,112 @@ def test_well_known_md(client):
     r = client.get("/.well-known/skein.md")
     assert r.status_code == 200
     assert "SKEIN station" in r.text and "Operations:" in r.text
+
+
+# --- post-cutover read-surface hardening (finding-20260710-lx37) -------------
+
+
+@pytest.mark.parametrize(
+    "accept,expected",
+    [
+        # The old fixed-priority substring scan returned json here; RFC 9110 says
+        # the higher-q type wins, so text/html (q=1) beats application/json (q=0.1).
+        ("text/html, application/json;q=0.1", "html"),
+        ("application/json;q=0.1, text/markdown;q=0.9", "markdown"),
+        # q=0 marks a type unacceptable -> skipped, the other acceptable type wins.
+        ("application/json;q=0, text/html", "html"),
+        # equal q keeps the json > markdown > html tie-break.
+        ("application/json, text/html", "json"),
+        ("text/markdown, text/html", "markdown"),
+        ("text/html;q=0.5, text/markdown;q=0.5, application/json;q=0.5", "json"),
+        # a malformed q degrades to 1 (never raises), so the type stays acceptable.
+        ("application/json;q=bogus", "json"),
+        ("application/json;q=", "json"),
+        # media type + q parameter are case-insensitive; whitespace is tolerated.
+        ("Application/JSON ; Q=0.2 , TEXT/HTML", "html"),
+    ],
+)
+def test_negotiate_honors_accept_qvalues(accept, expected):
+    assert negotiate(None, accept, None) == expected
+
+
+def test_negotiate_q0_only_falls_through_to_user_agent():
+    # A type explicitly refused (q=0) is not selected; with no other acceptable
+    # supported type the negotiation falls to the UA branch — curl -> markdown, no
+    # UA -> HTML — exactly as an Accept naming none of the three would.
+    assert negotiate(None, "application/json;q=0", "curl/8.0") == "markdown"
+    assert negotiate(None, "application/json;q=0", None) == "html"
+
+
+def test_catalog_returns_newest_30_pushed_to_sql(tmp_path, monkeypatch):
+    # 35 findings (+ the older site folio = 36 total); the catalog renders only the
+    # newest 30 by created_at, read via recent_folios (SQL ORDER BY ... LIMIT), and
+    # count_folios still reports the full total.
+    data_dir = tmp_path / ".skein-next"
+    with StationBuilder(data_dir) as st:
+        st.create_site("proj", purpose="p", created_at="2026-01-01T00:00:00Z")
+        hashes = []
+        for i in range(35):
+            ts = f"2026-02-01T00:{i:02d}:00Z"  # minutes 00..34: valid and monotonic
+            hashes.append(
+                st.post(type="finding", site="proj", title=f"F{i:02d}", content="x", created_at=ts)
+            )
+    monkeypatch.setenv(ENV_DATA_DIR, str(data_dir))
+    monkeypatch.setenv(ENV_NAME, "interskein")
+    env = TestClient(create_app()).get("/.json").json()
+    body = env["body"]
+    assert len(body) == 30  # capped, not the whole 36-folio corpus
+    assert env["asserted"]["total_folios"] == 36  # total still counts everything
+    # newest-first: the last-created folio leads; the 5 oldest findings + the site are cut.
+    assert [e["address"] for e in body] == list(reversed(hashes))[:30]
+
+
+def test_site_envelope_address_is_urlencoded(client):
+    # The envelope address percent-encodes the type value the way the HTML alternate
+    # link does (Jinja urlencode == quote(safe="/")): a space and '&' are escaped so
+    # the address is a valid URL, not raw ``?type=a b&c``.
+    env = client.get("/site/proj.json", params={"type": "a b&c"}).json()
+    assert env["address"] == "/site/proj?type=a%20b%26c"
+
+
+def test_search_envelope_address_is_urlencoded(client):
+    env = client.get("/search.json", params={"q": "a b&c"}).json()
+    assert env["address"] == "/search?q=a%20b%26c"
+
+
+def test_search_truncated_is_honest_at_the_boundary(tmp_path, monkeypatch):
+    # 3 matching folios; vary the cap. The fix: exactly CAP matches with nothing cut
+    # is NOT truncated (the old `>= SEARCH_LIMIT` flagged that boundary falsely).
+    data_dir = tmp_path / ".skein-next"
+    with StationBuilder(data_dir) as st:
+        st.create_site("proj", created_at="2026-01-01T00:00:00Z")
+        for i in range(3):
+            st.post(type="finding", site="proj", title=f"hit {i}", content="needle",
+                    created_at=f"2026-02-01T00:0{i}:00Z")
+    monkeypatch.setenv(ENV_DATA_DIR, str(data_dir))
+    monkeypatch.setenv(ENV_NAME, "interskein")
+
+    def result():
+        env = TestClient(create_app()).get("/search.json", params={"q": "needle"}).json()
+        return env["asserted"]["count"], env["asserted"]["truncated"]
+
+    monkeypatch.setattr("skein.web.app.SEARCH_LIMIT", 2)
+    assert result() == (2, True)   # 3 matches, cap 2 -> a row was cut -> truncated
+    monkeypatch.setattr("skein.web.app.SEARCH_LIMIT", 3)
+    assert result() == (3, False)  # exactly CAP matches, nothing cut -> honest False
+    monkeypatch.setattr("skein.web.app.SEARCH_LIMIT", 4)
+    assert result() == (3, False)  # under the cap
+
+
+def test_conditional_if_none_match_list_star_and_weak(client, seeded):
+    first = client.get(f"/folio/{seeded['a']}.json")
+    etag = first.headers["etag"]  # strong quoted sha256: "<hex>"
+
+    def status_for(inm):
+        return client.get(f"/folio/{seeded['a']}.json", headers={"If-None-Match": inm}).status_code
+
+    assert status_for(etag) == 304                      # exact match (regression guard)
+    assert status_for(f'"nomatch", {etag}') == 304      # comma list, one member matches
+    assert status_for("W/" + etag) == 304               # weak spelling of the same tag
+    assert status_for("*") == 304                       # '*' matches any representation
+    assert status_for('"aaa", "bbb"') == 200            # a list with no matching member

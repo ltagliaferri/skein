@@ -19,6 +19,7 @@ fields — see skein/station_store.py) and thread content-address dedup on the p
 """
 import shutil
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,18 @@ def test_list_folios_matches(store):
     assert station.list_folios(limit=2, offset=2) == [_folio(h, n) for n in order[2:4]]
 
 
+def test_recent_folios_newest_first(store):
+    station, h = store
+    # created_at DESCending; the finding/note tie at 2026-01-03 keeps the
+    # content_hash-ASCending tiebreak list_folios uses (finding before note), so
+    # this is NOT a blind reverse of the ascending list — it is the catalog's
+    # newest-N, computed in SQL (ORDER BY ... LIMIT) instead of a full Python scan.
+    order = ["cross", "site2", "finding", "note", "issue", "site"]
+    assert station.recent_folios() == [_folio(h, n) for n in order]
+    assert station.recent_folios(limit=3) == [_folio(h, n) for n in order[:3]]
+    assert station.recent_folios(limit=1) == [_folio(h, "cross")]
+
+
 @pytest.mark.parametrize("q, names", [
     ("login", ["finding", "issue", "note"]),
     ("login bug", ["issue"]),
@@ -174,6 +187,67 @@ def test_search_folios_matches(store, q, names):
     assert station.search_folios(q) == [_folio(h, n) for n in names]
     # limit=1 → the first result (or empty)
     assert station.search_folios(q, limit=1) == [_folio(h, n) for n in names[:1]]
+
+
+def test_search_folios_overflow_probe_does_not_widen_window(tmp_path):
+    """>window matches: the overflow probe serves the SAME top-N as the served-limit
+    window, NEVER a widened one (finding-20260710-lx37 fix #4).
+
+    Candidate window = ``max(limit*5, 200)`` → 500 rows for limit=100. Corpus: 500 recent
+    body-only matches (score 1) fill that window; 5 OLDER title matches (score 3) sit at
+    recency-rank 501-505 — inside a widened (limit=101 → 505-row) window but OUTSIDE the
+    served (500-row) one. Probing at limit+1 would pull those 5 higher-scored rows in and
+    displace 5 recent body rows from the served top-100. ``overflow_probe`` keeps the
+    window at the served limit and only returns one extra ranked row, so the served set
+    stays byte-identical to the narrow-window algorithm.
+    """
+    station = StationStore(db_path=tmp_path / "station" / "skein.db")
+    try:
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        with station.transaction():
+            # 5 OLDER title matches (score 3): recency-rank 501-505 in a widened window.
+            for j in range(5):
+                station.create_folio({
+                    "type": "finding", "title": f"needle title {j}", "content": f"filler {j}",
+                    "created_at": base + timedelta(seconds=j), "created_by": "a",
+                })
+            # 500 NEWER body-only matches (score 1): they alone fill the served window.
+            for i in range(500):
+                station.create_folio({
+                    "type": "finding", "title": f"body {i}", "content": f"needle in body {i}",
+                    "created_at": base + timedelta(seconds=1000 + i), "created_by": "a",
+                })
+
+        served = station.search_folios("needle", limit=100)                      # narrow window
+        probed = station.search_folios("needle", limit=100, overflow_probe=True)
+        widened = station.search_folios("needle", limit=101)                     # widened window
+
+        # The probe returns exactly one extra row (overflow signalled), and its served
+        # slice is byte-identical (dict-for-dict, not just hashes) to the narrow window.
+        assert len(probed) == 101
+        assert probed[:100] == served
+        # Every served row is a body-only match — no older title row leaked into the top.
+        assert all("needle" not in r["title"].lower() for r in served)
+        # The widened window WOULD serve a different top-100 (5 title rows displace 5 body
+        # rows): proof this invariance is load-bearing, and the fix does NOT serve it.
+        assert [r["content_hash"] for r in widened[:100]] != [r["content_hash"] for r in served]
+    finally:
+        station.close()
+
+
+def test_search_folios_overflow_probe_signals_without_widening(store):
+    """The overflow_probe contract in the small: at exactly the served ``limit`` there is
+    no extra row (no false overflow); one match past ``limit`` yields exactly one extra
+    ranked row whose head is the plain served set — the probe row is the excluded tail."""
+    station, _ = store  # 3 "login" matches: finding, issue, note (ranked order)
+    served_2 = station.search_folios("login", limit=2)
+    probe_2 = station.search_folios("login", limit=2, overflow_probe=True)
+    assert len(probe_2) == 3          # 3 matches > limit 2 → one extra row present
+    assert probe_2[:2] == served_2    # served head is byte-identical to the plain limit
+    served_3 = station.search_folios("login", limit=3)
+    probe_3 = station.search_folios("login", limit=3, overflow_probe=True)
+    assert len(probe_3) == 3          # exactly 3 matches at limit 3 → no extra row
+    assert probe_3 == served_3
 
 
 def test_find_by_prefix_matches(store):

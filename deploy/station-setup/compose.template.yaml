@@ -1,0 +1,46 @@
+# Station compose TEMPLATE — read surface + signed-publish ingress.
+# Copy to /opt/{{STATION_NAME}}/compose.yaml on the droplet and replace every
+# {{PLACEHOLDER}}. Bring up with:
+#   STATION_CORPUS={{DATA_DIR}} docker compose up -d
+#
+# Both services run the SAME pinned image (built on the dev box, shipped via
+# docker save|ssh|docker load). NO `build:` stanza — the droplet never rebuilds.
+# Both bind 127.0.0.1 only; nginx is the sole public listener (Docker bypasses
+# UFW via iptables, so a bare host port would be public regardless of the firewall).
+services:
+  {{STATION_NAME}}:
+    image: {{IMAGE_TAG}}
+    container_name: {{STATION_NAME}}
+    # Read surface: uses the image's default CMD (`skein station … serve`).
+    ports:
+      - "127.0.0.1:{{READ_PORT}}:9001"
+    environment:
+      - SKEIN_STATION_DATA_DIR=/data
+      - SKEIN_STATION_NAME={{STATION_NAME}}
+      - SKEIN_STATION_BASE_URL=https://{{READ_DOMAIN}}
+    volumes:
+      - "${STATION_CORPUS:?set STATION_CORPUS to the station data dir}:/data:ro"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9001/').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  {{STATION_NAME}}-ingress:
+    image: {{IMAGE_TAG}}
+    container_name: {{STATION_NAME}}-ingress
+    command: ["skein", "station", "--data-dir", "/data", "ingress", "--host", "0.0.0.0", "--port", "9101"]
+    ports:
+      - "127.0.0.1:{{INGRESS_PORT}}:9101"
+    environment:
+      - SKEIN_STATION_DATA_DIR=/data
+      - SKEIN_STATION_NAME={{STATION_NAME}}
+      - SKEIN_STATION_REQUIRE_SIGNED=1
+      # MUST equal the public host collaborators pass as --to (both the POST
+      # endpoint and the redeem signed-origin). A host mismatch fails closed.
+      - SKEIN_STATION_ORIGIN=https://{{INGRESS_DOMAIN}}
+    volumes:
+      - "${STATION_CORPUS:?set STATION_CORPUS to the station data dir}:/data"
+    restart: unless-stopped

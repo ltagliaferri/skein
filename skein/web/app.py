@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from pathlib import Path
 from typing import Iterator, Optional
+from urllib.parse import quote
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -43,9 +45,10 @@ from markdown_it import MarkdownIt
 from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
+from ..station import StationBootError
 from ..station_env import station_env
 from ..stationfile import StationConfig, StationfileError, load_station_config
-from ..station_store import StationStore, make_snippet
+from ..station_store import DB_FILENAME, StationStore, make_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +127,16 @@ def clean_title(title: str, fallback: str = "") -> str:
         return fallback
     first = next((ln.strip() for ln in title.splitlines() if ln.strip()), "")
     first = re.sub(r"^#+\s*", "", first)
-    first = re.sub(r"^\*\*|^__", "", first)
+    # Strip a leading bold/italic marker and, ONLY when that leading marker was
+    # present, its matching trailing marker — so paired decoration like ``**Bold**``
+    # renders ``Bold``, not ``Bold**``. A lone trailing ``**`` in prose (no leading
+    # marker) is left alone; the trailing strip is gated on the paired open.
+    for marker in ("**", "__"):
+        if first.startswith(marker):
+            first = first[len(marker) :]
+            if first.endswith(marker):
+                first = first[: -len(marker)]
+            break
     if len(first) > 120:
         first = first[:117] + "..."
     return first or fallback
@@ -221,6 +233,17 @@ def get_store() -> Iterator[StationStore]:
 
 _AGENT_UA_TOKENS = ("skein", "curl", "wget", "python", "httpie", "go-http")
 
+# The three representations we serve, in tie-break priority order (json > markdown
+# > html for equal q). Negotiation matches these CONCRETE media types only: a
+# wildcard range (``*/*``, ``text/*``) names none of the three, so an Accept made
+# solely of wildcards "matches none of the three" and falls through to the UA —
+# which keeps curl/skein (`Accept: */*`) on markdown, not silently on json.
+_SUPPORTED_MEDIA = (
+    ("application/json", "json"),
+    ("text/markdown", "markdown"),
+    ("text/html", "html"),
+)
+
 
 def split_representation(ref: str) -> tuple[str, Optional[str]]:
     """Split a trailing ``.json``/``.md`` suffix off an address path."""
@@ -230,13 +253,47 @@ def split_representation(ref: str) -> tuple[str, Optional[str]]:
     return ref, None
 
 
+def _parse_accept(accept: str) -> dict[str, float]:
+    """Map each explicitly-named media type in an ``Accept`` header to its q-value.
+
+    RFC 9110 §12.5.1: a comma list of media ranges, each with an optional ``q``
+    weight (default 1). Only the ``type/subtype`` name is recorded (media parameters
+    other than ``q`` are ignored); wildcard ranges are recorded under their literal
+    name (``*/*``) and so never match one of our concrete supported types. A q that
+    won't parse degrades to 1.0 (never raises); an in-range value is clamped to
+    [0, 1]; a repeated type keeps the last weight seen.
+    """
+    out: dict[str, float] = {}
+    for part in accept.split(","):
+        segments = part.split(";")
+        media = segments[0].strip().lower()
+        if not media:
+            continue
+        q = 1.0
+        for param in segments[1:]:
+            name, _, value = param.partition("=")
+            if name.strip().lower() == "q":
+                try:
+                    q = float(value.strip())
+                except ValueError:
+                    q = 1.0  # malformed q is acceptable, not rejected (treat as 1)
+                else:
+                    q = max(0.0, min(1.0, q))  # RFC weight range; out-of-range clamps
+        out[media] = q
+    return out
+
+
 def negotiate(suffix: Optional[str], accept: Optional[str], user_agent: Optional[str]) -> str:
     """Pick a representation: ``json`` | ``markdown`` | ``html``.
 
-    A ``.json``/``.md`` suffix wins. Then an explicit ``Accept``. Absent both, the
-    User-Agent decides — a browser (``Mozilla``) gets HTML, a CLI/agent tool gets
-    markdown, anything unrecognized defaults to HTML (the human surface stays the
-    safe default; an agent that wants the wire says so via suffix/Accept/UA).
+    A ``.json``/``.md`` suffix wins. Then an explicit ``Accept``, negotiated per RFC
+    9110 §12.5.1 over the three supported types: the highest-q acceptable type wins
+    (``q=0`` means unacceptable), with json > markdown > html breaking an equal-q
+    tie. Absent a usable Accept (no header, or one that names none of the three
+    concrete types), the User-Agent decides — a browser (``Mozilla``) gets HTML, a
+    CLI/agent tool gets markdown, anything unrecognized defaults to HTML (the human
+    surface stays the safe default; an agent that wants the wire says so via
+    suffix/Accept/UA).
 
     The ``.md`` suffix is the full, self-orienting agent markdown — the opener +
     fenced body + fetchable references (brief-20260606-7ddh). This reconciles the
@@ -250,13 +307,18 @@ def negotiate(suffix: Optional[str], accept: Optional[str], user_agent: Optional
     if suffix == "md":
         return "markdown"
 
-    accept = accept or ""
-    if "application/json" in accept:
-        return "json"
-    if "text/markdown" in accept:
-        return "markdown"
-    if "text/html" in accept:
-        return "html"
+    ranges = _parse_accept(accept or "")
+    best_repr: Optional[str] = None
+    best_q = 0.0
+    for media, repr_ in _SUPPORTED_MEDIA:
+        q = ranges.get(media, 0.0)
+        # Strictly-greater preserves the tie-break: _SUPPORTED_MEDIA is iterated in
+        # priority order, so an equal-q later type never displaces an earlier one.
+        if q > best_q:
+            best_q = q
+            best_repr = repr_
+    if best_repr is not None:  # set only when some supported type had q > 0
+        return best_repr
 
     ua = (user_agent or "").lower()
     if "mozilla" in ua:
@@ -278,8 +340,56 @@ def _payload_etag(payload: bytes) -> str:
     return f'"{hashlib.sha256(payload).hexdigest()}"'
 
 
+def _split_etag_list(header: str) -> list[str]:
+    """Split an ``If-None-Match`` value into its entity-tags on the top-level commas.
+
+    An opaque-tag is a quoted string that may itself contain a comma (RFC 7232
+    §2.3), so a naive ``split(",")`` could cleave a tag in two; this splits only on
+    commas OUTSIDE the quotes. Whitespace around each tag is trimmed and empties
+    dropped."""
+    tags: list[str] = []
+    buf: list[str] = []
+    in_quote = False
+    for ch in header:
+        if ch == '"':
+            in_quote = not in_quote
+            buf.append(ch)
+        elif ch == "," and not in_quote:
+            tags.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+    tags.append("".join(buf).strip())
+    return [t for t in tags if t]
+
+
+def _weak_etag(tag: str) -> str:
+    """The opaque-tag with any leading weak marker (``W/``) dropped — the normal form
+    for RFC 7232 weak comparison, which is what ``If-None-Match`` uses."""
+    if tag.startswith("W/"):
+        tag = tag[2:]
+    return tag
+
+
+def _if_none_match(header: Optional[str], etag: str) -> bool:
+    """Whether an ``If-None-Match`` header selects a 304 for ``etag`` (RFC 7232 §3.2).
+
+    The header is a comma list of entity-tags, or ``*`` (any current representation).
+    Comparison is WEAK — a ``W/`` prefix on either side is ignored — as the spec
+    mandates for If-None-Match; our ETags are strong quoted sha256, so weak
+    comparison never widens a real match, it only lets a client's ``W/"…"`` spelling
+    still validate."""
+    if not header:
+        return False
+    header = header.strip()
+    if header == "*":
+        return True
+    target = _weak_etag(etag)
+    return any(_weak_etag(t) == target for t in _split_etag_list(header))
+
+
 def _conditional(request: Request, etag: str, headers: dict) -> Optional[Response]:
-    if request.headers.get("if-none-match") == etag:
+    if _if_none_match(request.headers.get("if-none-match"), etag):
         return Response(status_code=304, headers=headers)
     return None
 
@@ -387,6 +497,31 @@ def verdict_state(verdict: Optional[str]) -> str:
 
 def create_app() -> FastAPI:
     config = load_config()  # fail-loud on an unnamed station, at startup
+    # BOOT READINESS PROBE (brief-20260712-t1tf #4): open the corpus once, do one
+    # trivial read, close. The stores are otherwise PER-REQUEST (get_store), so
+    # without this a missing/corrupt db boots "fine" and then 500s on every
+    # request — the operator's first signal is a raw sqlite3 traceback in the
+    # request log instead of a refusal at startup. On this READ-ONLY surface a
+    # missing db IS a fault (nothing to serve, and the ro open must never
+    # create); so is a garbage file, a directory at the db path, or a
+    # non-station corpus (StationStore's ValueError refusals). All become the
+    # one typed StationBootError the entry points present as a clean exit 2.
+    data_dir = get_data_dir()
+    if not data_dir:
+        raise StationBootError(
+            f"no station data dir is configured ({ENV_DATA_DIR} is unset); "
+            "the read surface has nothing to serve"
+        )
+    try:
+        probe = StationStore(data_dir, read_only=True)
+        try:
+            probe.list_folios(limit=1)  # one real corpus read, not just an open
+        finally:
+            probe.close()
+    except (sqlite3.Error, OSError, ValueError) as e:
+        raise StationBootError(
+            f"station corpus at {Path(data_dir) / DB_FILENAME} is not servable: {e}"
+        ) from e
     token_css = build_token_css(config)
     data_theme = config.tokens.get("default_theme")
 
@@ -453,8 +588,9 @@ def create_app() -> FastAPI:
     # --- index / catalog ----------------------------------------------------
 
     def _catalog_envelope(store) -> dict:
-        rows = store.list_folios(limit=1_000_000)
-        recent = sorted(rows, key=lambda r: r.get("created_at") or "", reverse=True)[:30]
+        # Newest 30 pushed down to SQL (ORDER BY … LIMIT), not a full-corpus scan
+        # sorted in Python on every '/' hit; count_folios supplies the total below.
+        recent = store.recent_folios(30)
         entries = [envelope_mod.folio_entry(r) for r in recent]
         counts: dict = {}
         for slug in store.folio_site_slugs().values():
@@ -516,13 +652,18 @@ def create_app() -> FastAPI:
     def _site_envelope(slug: str, site_hash: str, rows: list, type: Optional[str] = None) -> dict:
         filtered = [r for r in rows if type is None or (r.get("type") or "folio") == type]
         entries = [envelope_mod.folio_entry(r) for r in filtered]
-        address = f"/site/{slug}" + (f"?type={type}" if type else "")
+        # Encode the address like the HTML alternate links do (Jinja ``urlencode`` ==
+        # ``quote(safe="/")`` for the query value); the slug is one path segment, so
+        # encode it fully (safe=""). Consistent, valid URLs — not the raw ``?type=``
+        # / slug that let a space or ``&`` leak into the envelope address.
+        slug_seg = quote(slug, safe="")
+        address = f"/site/{slug_seg}" + (f"?type={quote(type, safe='/')}" if type else "")
         return envelope_mod.build_collection_envelope(
             "site",
             address,
             entries,
             asserted={"slug": slug, "address": site_hash, "type": type, "count": len(filtered)},
-            links={"catalog": "/", "self": f"/site/{slug}"},
+            links={"catalog": "/", "self": f"/site/{slug_seg}"},
         )
 
     @app.get("/site/{site_id}", response_class=HTMLResponse)
@@ -695,19 +836,34 @@ def create_app() -> FastAPI:
 
     def _search_envelope(store, q: str) -> dict:
         terms = q.split()
-        rows = store.search_folios(q, limit=SEARCH_LIMIT) if q.strip() else []
+        # Probe ONE past the cap for an honest `truncated` WITHOUT shifting the served
+        # set: overflow_probe keeps search_folios' ranking window derived from
+        # SEARCH_LIMIT (NOT SEARCH_LIMIT+1) and only returns up to one extra ranked row,
+        # so rows[:SEARCH_LIMIT] is byte-identical to a plain search_folios(q, SEARCH_LIMIT)
+        # — never the widened-window set (finding-20260710-lx37 fix #4). A SEARCH_LIMIT+1th
+        # row proves more matched → truncated; exactly SEARCH_LIMIT with nothing cut is NOT
+        # truncated (the old `>= SEARCH_LIMIT` flagged that boundary falsely).
+        probed = (
+            store.search_folios(q, limit=SEARCH_LIMIT, overflow_probe=True)
+            if q.strip()
+            else []
+        )
+        truncated = len(probed) > SEARCH_LIMIT
+        rows = probed[:SEARCH_LIMIT]
         entries = [
             envelope_mod.folio_entry(r, snippet=make_snippet(r.get("content"), terms))
             for r in rows
         ]
         # `truncated` is the honest signal that the result set was capped at the
         # limit (more matches may exist, and L1 ranks only within that window — it
-        # is not a global relevance sort). A consumer can page/refine on it.
+        # is not a global relevance sort). A consumer can page/refine on it. The
+        # address encodes `q` like the HTML alternate link (Jinja ``urlencode`` ==
+        # ``quote(safe="/")``), so a query with a space or ``&`` stays a valid URL.
         return envelope_mod.build_collection_envelope(
             "search",
-            "/search" + (f"?q={q}" if q else ""),
+            "/search" + (f"?q={quote(q, safe='/')}" if q else ""),
             entries,
-            asserted={"query": q, "count": len(entries), "truncated": len(entries) >= SEARCH_LIMIT},
+            asserted={"query": q, "count": len(entries), "truncated": truncated},
             links={"catalog": "/", "self": "/search"},
         )
 
@@ -799,10 +955,11 @@ def run_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> None:
     except StationfileError as e:
         # A misconfigured station refuses to start with a clean operator message,
         # not a traceback. Name it (the one hard requirement) and try again.
-        # StationEnvError deliberately propagates: presentation belongs to the
-        # entry points (the ``skein station serve`` launcher's ClickException,
-        # ``python -m skein.web``'s __main__ wrapper) — catching it here made the
-        # launcher's handler dead code (deep_code_audit, fell r4).
+        # StationEnvError and StationBootError deliberately propagate:
+        # presentation belongs to the entry points (the ``skein station serve``
+        # launcher's ClickException, ``python -m skein.web``'s __main__ wrapper)
+        # — catching them here made the launcher's handler dead code
+        # (deep_code_audit, fell r4).
         logger.error("station will not start: %s", e)
         raise SystemExit(2) from e
     logger.info("Starting new-skein web UI on http://%s:%s", host, port)

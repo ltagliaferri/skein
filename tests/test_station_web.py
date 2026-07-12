@@ -17,6 +17,7 @@ from skein.stationfile import StationfileError
 from skein.web.app import (
     ENV_DATA_DIR,
     ENV_NAME,
+    clean_title,
     create_app,
     verdict_state,
 )
@@ -625,6 +626,28 @@ def test_verdict_state_mapping():
     assert verdict_state("NOT VERIFIED — proof missing") == "unverified"
     assert verdict_state("UNSIGNED — operator-vouched") == "unsigned"
     assert verdict_state(None) == "unsigned"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("**Bold**", "Bold"),          # paired bold decoration stripped BOTH ends
+        ("__Under__", "Under"),        # paired underscore-italic, both ends
+        ("**Bold", "Bold"),            # unpaired leading marker -> only the leading strip
+        ("Bold**", "Bold**"),          # NO leading marker -> a lone trailing ** in prose kept
+        ("# **Heading**", "Heading"),  # heading marker THEN paired bold
+        ("**Bold__", "Bold__"),        # markers must MATCH; a ** open never pairs with __
+        ("plain title", "plain title"),
+    ],
+)
+def test_clean_title_strips_paired_trailing_decoration(raw, expected):
+    assert clean_title(raw) == expected
+
+
+def test_clean_title_keeps_120_char_ellipsis_after_decoration_strip():
+    # Decoration is stripped BEFORE the 120-char ellipsis, and neither marker survives.
+    out = clean_title("**" + "x" * 200 + "**")
+    assert len(out) == 120 and out.endswith("...") and "*" not in out
 
 
 def test_concurrent_requests_isolated_conns(client):

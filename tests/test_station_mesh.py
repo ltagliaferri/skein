@@ -285,6 +285,111 @@ def test_pin_check_hash_enforces_both_pins():
     assert m is False and k is None and "address mismatch" in r
 
 
+# --- the ref freshness suffix (drift warns, never rejects) -------------------
+
+
+def _serve_a_for_any_address(wired, monkeypatch):
+    """Pin resolution to a's real self-consistent envelope, whatever address is asked.
+
+    The suite's standard shim (cf. test_substituted_content_is_address_mismatch) —
+    needed here because a ref+fragment address cannot resolve end-to-end against
+    today's station (resolve_to_hash routes a Ref to the alias table keyed on the
+    RAW string, fragment included, so the lookup misses). The client-side contract
+    is testable regardless: fetch() sees a resolved head and judges the fragment.
+    """
+    station = TestClient(create_app())
+    env = _envelope(station, wired["a"])
+    monkeypatch.setattr(mesh_client, "resolve", lambda inst, addr, timeout=10.0: (env, None))
+
+
+def test_fetch_ref_fragment_drift_warns_exit_unchanged(wired, monkeypatch):
+    # ADDRESSING_GRAMMAR.md "The freshness suffix": on a REF address the fragment
+    # is a freshness NOTE — resolution returns the current head and WARNS when the
+    # head has moved off the noted digest; it never rejects. State, exit code, and
+    # the unpinnable pin verdict stay exactly what they'd be without the fragment.
+    _serve_a_for_any_address(wired, monkeypatch)
+    r = fetch(LOCAL, "myslug#sha256::" + "cd" * 32)  # noted digest != a's hash
+    assert r.state == "unsigned" and r.exit_code == EXIT_OK
+    assert r.pinned is None and r.pin_kind is None  # a ref stays unpinnable
+    assert r.warning and "MOVED" in r.warning
+    # The warning names both the noted digest and the current head (actionable:
+    # re-resolve the bare noted digest to pin-or-fail).
+    assert ("cd" * 32) in r.warning and wired["a"] in r.warning
+
+
+def test_fetch_ref_fragment_match_is_quiet(wired, monkeypatch):
+    # Head still at the noted digest — match is the quiet case, nothing at all.
+    _serve_a_for_any_address(wired, monkeypatch)
+    r = fetch(LOCAL, f"myslug#{wired['a']}")
+    assert r.state == "unsigned" and r.exit_code == EXIT_OK and r.pinned is None
+    assert r.warning is None
+
+
+def test_fetch_ref_without_fragment_no_warning(wired, seeded):
+    # A ref with no freshness note has nothing to drift from (end-to-end via the
+    # alias table, the one ref form the station resolves today).
+    with Station(seeded["data_dir"]) as st:
+        st.store.set_alias("finding-20260101-leg1", seeded["a"])
+    r = fetch(LOCAL, "finding-20260101-leg1")
+    assert r.state == "unsigned" and r.exit_code == EXIT_OK
+    assert r.warning is None
+
+
+def test_fetch_hash_address_fragment_still_rejects(wired, monkeypatch):
+    # The SAME fragment bytes after a HASH target stay a VERIFIER (reject on
+    # mismatch) — enforcement mode is set by the left-hand production, and the
+    # ref-side warn must not soften it.
+    _serve_a_for_any_address(wired, monkeypatch)
+    r = fetch(LOCAL, f"{wired['a']}#sha256::" + "cd" * 32)
+    assert r.state == "invalid" and r.exit_code == EXIT_SIGNATURE_INVALID
+    assert "address mismatch" in r.reason
+    assert r.warning is None  # the reject path, never the warn path
+
+
+def test_fetch_ref_drift_composes_with_remote_unsigned(wired, monkeypatch):
+    # Both warnings can apply to one fetch (a drifted ref served unsigned by a
+    # remote): newline-joined, neither clobbered, remote-unsigned first (the
+    # pre-existing line keeps its position for anything scraping stderr).
+    _serve_a_for_any_address(wired, monkeypatch)
+    r = fetch(REMOTE, "myslug#sha256::" + "cd" * 32)
+    assert r.state == "unsigned" and r.exit_code == EXIT_OK
+    lines = r.warning.split("\n")
+    assert len(lines) == 2
+    assert "UNSIGNED" in lines[0] and "remote" in lines[0]
+    assert "MOVED" in lines[1]
+
+
+def test_ref_drift_warning_helper_scope():
+    # The helper fires ONLY for a parseable Ref address carrying a drifted
+    # fragment — never for a fragmentless ref, a hash target (verifier territory),
+    # a matching note, or an unparseable string.
+    from skein.mesh.client import _ref_drift_warning
+
+    actual = "sha256::" + "ab" * 32
+    assert _ref_drift_warning("myslug", actual) is None                # no note
+    assert _ref_drift_warning("myslug#sha256::" + "ab" * 32, actual) is None  # match
+    assert _ref_drift_warning(f"sha256::{'ab' * 32}#sha256::{'cd' * 32}", actual) is None  # hash target
+    assert _ref_drift_warning("not a valid address", actual) is None   # unparseable
+    assert _ref_drift_warning(None, actual) is None
+    w = _ref_drift_warning("ref::myslug#sha256::" + "cd" * 32, actual)
+    assert w and "MOVED" in w and ("cd" * 32) in w and actual in w
+
+
+def test_cli_fetch_ref_drift_warning_reaches_stderr(wired, monkeypatch):
+    from click.testing import CliRunner
+
+    from skein.mesh.cli import cli
+
+    # The drift warning rides FetchResult.warning, which `mesh fetch` echoes to
+    # stderr ahead of the verdict line — same surfacing as remote-unsigned.
+    _serve_a_for_any_address(wired, monkeypatch)
+    runner = CliRunner()
+    result = runner.invoke(cli, ["fetch", "myslug#sha256::" + "cd" * 32, "--from", LOCAL])
+    assert result.exit_code == EXIT_OK
+    assert "MOVED" in result.stderr
+    assert "UNSIGNED" in result.stderr  # the verdict line still follows
+
+
 def test_is_remote_loopback_vs_lookalike():
     # Only a genuine loopback IP literal is local; a hostname whose first label is
     # "127" is a registrable REMOTE domain, not 127.0.0.0/8. Misclassifying it as

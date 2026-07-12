@@ -48,6 +48,9 @@ class FetchResult:
     envelope: Optional[dict] = None
     markdown: Optional[str] = None
     remote: bool = False
+    # Stderr-bound safety warnings (remote-unsigned, ref-head drift). Several can
+    # apply to one fetch; they are newline-joined so the CLI's single echo prints
+    # one warning per line.
     warning: Optional[str] = None
     # Did the served content's hash bind to the REQUESTED address?  True = the
     # address carried a digest and the content matched it; None = the address had
@@ -111,7 +114,9 @@ def _pin_check(
     # — it warns, it does not verify or reject (ADDRESSING_GRAMMAR.md "The freshness
     # suffix"). So a Ref address is never a hard local pin: report it unpinnable (the
     # name->hash mapping is the station's word), and never touch ``.algo``/``.is_full`` on
-    # a ``Ref``. (The hardened ``skein.address`` §3 grammar parses these bare-slug REF
+    # a ``Ref``. The drift WARNING itself is :func:`fetch`'s job, via
+    # :func:`_ref_drift_warning` — never this pin's, whose False return would reject.
+    # (The hardened ``skein.address`` §3 grammar parses these bare-slug REF
     # forms that ``skein_next.address`` raised ``AddressError`` on; both routes land here
     # identically.)
     if isinstance(folio, addr.Ref):
@@ -137,6 +142,41 @@ def _pin_check(
         elif not digest.startswith(part.digest):
             return False, None, "address mismatch: served hash does not extend the requested short hash"
     return True, kind, None
+
+
+def _ref_drift_warning(requested_address: Optional[str], actual_hash: str) -> Optional[str]:
+    """The freshness-note drift warning for a Ref address, or ``None``.
+
+    On a REF address a ``#sha256::<digest>`` fragment is a FRESHNESS NOTE, not a
+    pin (ADDRESSING_GRAMMAR.md "The freshness suffix"): resolution returns the
+    current head, and this warns when that head has moved off the noted digest.
+    It never rejects — a caller who wanted pin-or-fail writes the bare
+    ``sha256::<digest>``, which :func:`_pin_check` enforces. The grammar admits
+    exactly one fragment shape on a Ref (a full 64-hex sha256, enforced by
+    ``address._parse_fragment`` + ``ParsedAddress.__post_init__``), so the match
+    test is plain equality on algo + full digest — an algo mismatch is drift too
+    (the head is not the noted digest), mirroring _pin_check's algo-prefix
+    semantics without its short-hash prefix case (a fragment is never short).
+    """
+    if not requested_address:
+        return None
+    from .. import address as addr
+
+    try:
+        parsed = addr.parse(requested_address)
+    except addr.AddressError:
+        return None
+    if not isinstance(parsed.folio, addr.Ref) or parsed.fragment is None:
+        return None
+    noted = f"{parsed.fragment.algo}::{parsed.fragment.digest}"
+    algo, _sep, digest = actual_hash.partition("::")
+    if parsed.fragment.algo == algo and parsed.fragment.digest == digest:
+        return None  # head still at the noted digest — match is the quiet case
+    return (
+        f"warning: the head of {requested_address} has MOVED off the noted digest "
+        f"({noted}; current head {actual_hash}) — you received the CURRENT head. "
+        f"A freshness note does not pin; to pin-or-fail, re-resolve the bare {noted}."
+    )
 
 
 def resolve(instance: str, address: str, *, timeout: float = 10.0) -> Tuple[Optional[dict], Optional[str]]:
@@ -244,7 +284,9 @@ def fetch(
 
     ``--require-signed`` turns a resolved-but-unsigned result into a non-zero
     exit. Remote-unsigned content additionally carries a stderr-bound warning (it
-    is weak on both trust axes: remote + no authorship proof).
+    is weak on both trust axes: remote + no authorship proof), as does a Ref
+    freshness note whose head has drifted (:func:`_ref_drift_warning`) — warn,
+    never reject, per ADDRESSING_GRAMMAR.md "The freshness suffix".
     """
     remote = _is_remote(instance)
     env, err = resolve(instance, address, timeout=timeout)
@@ -257,6 +299,7 @@ def fetch(
     state, exit_code, reason, identity, content_hash = verify_envelope(env)
     pinned: Optional[bool] = None
     pin_kind: Optional[str] = None
+    drift: Optional[str] = None
 
     # Bind the verified content to the address the caller asked for. Runs whenever
     # the content itself verified (content_hash is set) — including unverified
@@ -269,18 +312,30 @@ def fetch(
         else:
             pinned = matched  # True (pinned) or None (no digest to pin against)
             pin_kind = kind
+        # The Ref freshness note (warn-only; needs the same verified hash the pin
+        # ran against). Changes NOTHING else — state/exit/pinned/pin_kind stay as
+        # set above: a Ref remains unpinnable because the slug->head binding is
+        # the station's word, drifted or not.
+        drift = _ref_drift_warning(address, content_hash)
 
     resolved = state != "not_resolved"
-    warning = None
+    # Warning policy: both the remote-unsigned and the drift warning can apply to
+    # one fetch (a drifted ref served unsigned by a remote). Neither clobbers the
+    # other — collect and newline-join, keeping the pre-existing remote-unsigned
+    # warning first so its position stays stable for anything scraping stderr.
+    warnings = []
     if state == "unsigned":
         if require_signed:
             exit_code = EXIT_REQUIRE_SIGNED
         if remote:
             authority = urlparse(instance).hostname or instance
-            warning = (
+            warnings.append(
                 f"warning: {address} is UNSIGNED and served by a remote instance "
                 f"({authority}) — vouched only by that authority, no authorship proof."
             )
+    if drift:
+        warnings.append(drift)
+    warning = "\n".join(warnings) if warnings else None
 
     # Never print an `invalid` (substituted / bad-signature) body to stdout — a
     # consumer reading stdout regardless of exit code must not ingest it. Only the

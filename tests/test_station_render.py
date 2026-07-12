@@ -367,9 +367,10 @@ def test_hostile_ref_fields_cannot_forge_frame_lines_folio():
 
 
 def test_hostile_ref_fields_cannot_forge_frame_lines_collection():
-    # Same sweep for the collection renderer: entry type/address/href are
-    # bare-frame (title/snippet are fenced and exempt), as are as_of, next and
-    # the collection's own address.
+    # Same sweep for the collection renderer: entry type/address are bare-frame,
+    # as are as_of, next and the collection's own address; the never-emitted
+    # entry href is poisoned to guard future emission (title/snippet are fenced
+    # and exempt).
     env = {
         "schema": env_mod.SCHEMA,
         "address": "/search?q=x",

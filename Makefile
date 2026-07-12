@@ -93,13 +93,13 @@ format:  ## Format code with black and isort
 	@black skein/ client/ tests/ skein_server.py
 	@isort skein/ client/ tests/ skein_server.py
 
-docker-build:  ## Build the interskein web instance image
+docker-build:  ## Build the interskein web instance image (tag matches compose.yaml's pinned image)
 	@echo "🐳 Building interskein image..."
-	@docker build -t interskein:latest .
+	@docker build -t interskein:station-20260711 .
 
-docker-up:  ## Start the interskein instance (set INTERSKEIN_CORPUS=/path/to/.skein-next)
+docker-up:  ## Start the interskein instance (set INTERSKEIN_CORPUS=/path/to/.skein-station)
 	@echo "🐳 Starting interskein (corpus: $(INTERSKEIN_CORPUS))..."
-	@docker compose up -d --build
+	@docker compose up -d
 
 docker-down:  ## Stop the interskein instance
 	@echo "🐳 Stopping interskein..."

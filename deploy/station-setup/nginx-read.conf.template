@@ -1,0 +1,36 @@
+# Read-surface vhost TEMPLATE. Copy to
+# /etc/nginx/sites-available/{{STATION_NAME}} and symlink into sites-enabled/.
+# Replace {{PLACEHOLDER}}s. This vhost hardcodes the HTTP->HTTPS 301 and the cert
+# paths itself; run README step 4 (`certbot certonly --nginx -d {{READ_DOMAIN}} -d
+# www.{{READ_DOMAIN}}`) FIRST — certonly issues the cert WITHOUT rewriting this file,
+# so these hand-written blocks stay intact.
+#
+# CO-HOSTING CAVEAT: on a shared [::]:443 socket across multiple stations, exactly
+# ONE vhost may carry `ipv6only=on`. If another station's vhost already owns it,
+# DELETE the `ipv6only=on` token below (duplicate-listen-options is an nginx error).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{READ_DOMAIN}} www.{{READ_DOMAIN}};
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl ipv6only=on;   # <-- see CO-HOSTING CAVEAT above
+    server_name {{READ_DOMAIN}} www.{{READ_DOMAIN}};
+
+    ssl_certificate     /etc/letsencrypt/live/{{READ_DOMAIN}}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{READ_DOMAIN}}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # Read surface is loopback-bound; nginx terminates TLS and forwards.
+    location / {
+        proxy_pass http://127.0.0.1:{{READ_PORT}};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}

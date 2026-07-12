@@ -4114,108 +4114,6 @@ def register(ctx, capabilities, name, agent_type, description):
         click.echo(f"Description: {description}")
 
 
-@cli.command("adopt")
-@click.argument("folio_ids", nargs=-1)
-@click.option("--capabilities", help="Comma-separated capabilities")
-@click.option(
-    "--name",
-    help="Human-readable name (e.g., 'Front End Developer', 'Race Condition Fixer')",
-)
-@click.option(
-    "--type",
-    "agent_type",
-    type=click.Choice(["claude-code", "patbot", "horizon", "human", "system"]),
-    help="Agent type",
-)
-@click.option("--description", help="Longer description of work and focus")
-@click.option("--note", help="Why these folios are being adopted (recorded on the adoption thread)")
-@click.pass_context
-def adopt(ctx, folio_ids, capabilities, name, agent_type, description, note):
-    """
-    Post-facto torch: register this session now and pull existing folios into it.
-
-    For an agent that already did real work (posted folios) without ever
-    running 'skein ignite' / 'skein ready'. Registers the agent in the roster
-    as active, then creates an auditable adoption thread from each given
-    folio to this agent. The folio's original author (created_by) is never
-    rewritten -- adoption only records that the folio is now also part of
-    this session, so 'skein torch' can see it.
-
-    Usage:
-        skein --agent AGENT_ID adopt                        # register only, no folios
-        skein --agent AGENT_ID adopt finding-20260712-85j3   # + adopt one folio
-        skein --agent AGENT_ID adopt finding-1 issue-2 --name "Retroactive Investigator"
-
-    After adopting, the normal torch + complete ceremony applies unchanged:
-        skein torch
-        skein complete
-    """
-    base_url = get_base_url(ctx.obj.get("url"))
-    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
-
-    if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to adopt")
-
-    caps_list = [c.strip() for c in capabilities.split(",")] if capabilities else []
-    data = {"agent_id": agent_id, "capabilities": caps_list, "metadata": {}}
-    if name:
-        data["name"] = name
-    if agent_type:
-        data["agent_type"] = agent_type
-    if description:
-        data["description"] = description
-
-    make_request("POST", "/roster/register", base_url, agent_id, json=data)
-    click.echo(f"Registered (retroactively): {agent_id}")
-    if name:
-        click.echo(f"Name: {name}")
-
-    adopted = []
-    failed = []
-    for folio_id in folio_ids:
-        try:
-            folio = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
-        except Exception as e:
-            failed.append((folio_id, str(e)))
-            continue
-
-        original_author = folio.get("created_by", "unknown")
-        content = (
-            f"Adopted into session {agent_id} (post-facto registration; "
-            f"originally authored by {original_author})"
-        )
-        if note:
-            content += f" -- {note}"
-
-        thread_data = {
-            "from_id": folio_id,
-            "to_id": agent_id,
-            "type": "adoption",
-            "content": content,
-            "weaver": agent_id,
-        }
-        make_request("POST", "/threads", base_url, agent_id, json=thread_data)
-        adopted.append(folio_id)
-
-    if adopted:
-        click.echo()
-        click.echo(f"Adopted {len(adopted)} folio(s) into this session:")
-        for folio_id in adopted:
-            click.echo(f"  • {folio_id}")
-
-    click.echo()
-    click.echo(f"You are: {agent_id}")
-    click.echo()
-    click.echo("The usual torch + complete ceremony now applies:")
-    click.echo(f"  skein --agent {agent_id} torch")
-    click.echo(f"  skein --agent {agent_id} complete")
-    click.echo()
-
-    if failed:
-        details = "\n".join(f"  • {fid}: {err}" for fid, err in failed)
-        raise click.ClickException(f"Failed to adopt {len(failed)} folio(s):\n{details}")
-
-
 @cli.command("ignite")
 @click.argument("brief_id", required=False)
 @click.option("--mantle", help="Ignite from mantle (role template)")
@@ -4296,7 +4194,8 @@ def _generate_suggested_name(
             pass  # Fall back to legacy naming
 
     # Legacy fallback: mantle-based naming
-    suggested_name = f"Agent {agent_id.split('-')[-1]}"
+    suffix = agent_id.split("-")[-1] if agent_id else "retroactive"
+    suggested_name = f"Agent {suffix}"
 
     if mantle_data and mantle_data.get("naming_style"):
         naming_style = mantle_data["naming_style"]
@@ -4614,53 +4513,151 @@ def ready(ctx):
     click.echo()
 
 
-def _get_adopted_folio_ids(base_url: str, agent_id: str) -> Set[str]:
-    """Folio IDs pulled into this session via `skein adopt` (adoption threads
-    from the folio to this agent). Does not touch folio.created_by -- adoption
-    is an additive thread, not a provenance rewrite."""
+MAX_RETROACTIVE_FOLIOS = 25
+FOLIO_SUMMARY_LABELS = {
+    "issue": "issues",
+    "friction": "frictions",
+    "brief": "briefs",
+    "summary": "summaries",
+    "finding": "findings",
+    "notion": "notions",
+    "tender": "tenders",
+    "playbook": "playbooks",
+    "mantle": "mantles",
+    "writ": "writs",
+    "plan": "plans",
+    "hypothesis": "hypotheses",
+}
+
+
+def _summarize_folios(folios: List[dict]) -> Dict[str, int]:
+    """Count every supported folio type for torch and complete output."""
+    return {
+        label: sum(1 for folio in folios if folio.get("type") == folio_type)
+        for folio_type, label in FOLIO_SUMMARY_LABELS.items()
+    }
+
+
+def _get_latest_attributions(base_url: str, agent_id: str) -> Dict[str, str]:
+    """Return the effective author per attributed folio.
+
+    Each attribution is an auditable thread. The latest one is effective;
+    ``created_by`` itself cannot be rewritten because it is part of the folio's
+    content digest.
+    """
     try:
         threads = make_request(
             "GET",
             "/threads",
             base_url,
             agent_id,
-            params={"to_id": agent_id, "type": "adoption"},
+            params={"type": "attribution"},
         )
     except Exception:
-        return set()
-    return {t.get("from_id") for t in threads if t.get("from_id")}
+        return {}
+
+    latest: Dict[str, tuple] = {}
+    for thread in threads:
+        folio_id = thread.get("from_id")
+        attributed_to = thread.get("to_id")
+        if not folio_id or not attributed_to:
+            continue
+        ordering = (str(thread.get("created_at", "")), thread.get("thread_id", ""))
+        if folio_id not in latest or ordering > latest[folio_id][0]:
+            latest[folio_id] = (ordering, attributed_to)
+    return {folio_id: entry[1] for folio_id, entry in latest.items()}
 
 
 def _get_session_folios(all_folios: List[dict], base_url: str, agent_id: str) -> List[dict]:
-    """Folios belonging to this session: authored by this agent (created_by),
-    plus any explicitly adopted via `skein adopt` (post-facto torch)."""
-    adopted_ids = _get_adopted_folio_ids(base_url, agent_id)
-    return [
-        f for f in all_folios if f.get("created_by") == agent_id or f.get("folio_id") in adopted_ids
-    ]
+    """Folios effectively authored by this session.
+
+    A latest attribution overrides the immutable, self-declared ``created_by``;
+    otherwise ``created_by`` remains the owner.
+    """
+    attributions = _get_latest_attributions(base_url, agent_id)
+    session_folios = []
+    for folio in all_folios:
+        folio_id = folio.get("folio_id")
+        effective_author = attributions.get(folio_id, folio.get("created_by"))
+        if effective_author == agent_id:
+            session_folios.append(folio)
+    return session_folios
+
+
+def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[str]:
+    """Attribute all named folios to ``agent_id`` after validating the batch."""
+    unique_ids = list(dict.fromkeys(folio_ids))
+    if not unique_ids:
+        return []
+    if len(unique_ids) > MAX_RETROACTIVE_FOLIOS:
+        raise click.ClickException(
+            f"At most {MAX_RETROACTIVE_FOLIOS} folios can be attributed in one "
+            f"completion; received {len(unique_ids)}."
+        )
+
+    failures = []
+    for folio_id in unique_ids:
+        try:
+            make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+        except Exception as e:
+            failures.append((folio_id, str(e)))
+
+    # Validate the entire batch before minting any attribution threads.
+    if failures:
+        details = "\n".join(f"  {folio_id}: {error}" for folio_id, error in failures)
+        raise click.ClickException(
+            f"Could not attribute {len(failures)} folio(s):\n{details}"
+        )
+
+    current = _get_latest_attributions(base_url, agent_id)
+    attributed = []
+    for folio_id in unique_ids:
+        if current.get(folio_id) == agent_id:
+            attributed.append(folio_id)
+            continue
+
+        thread_data = {
+            "from_id": folio_id,
+            "to_id": agent_id,
+            "type": "attribution",
+            "content": f"Authorship attributed to {agent_id} during retroactive torch",
+            "weaver": agent_id,
+        }
+        make_request("POST", "/threads", base_url, agent_id, json=thread_data)
+        current[folio_id] = agent_id
+        attributed.append(folio_id)
+
+    return attributed
 
 
 @cli.command("torch")
+@click.option(
+    "--retroactive",
+    is_flag=True,
+    help="Close work done without ignite; assign a name and attribute folios at complete.",
+)
 @click.pass_context
-def torch_start(ctx):
+def torch_start(ctx, retroactive):
     """
     Begin retirement - Prepare to torch.
 
     Usage:
         skein torch
+        skein torch --retroactive
 
     After filing any remaining work:
-        skein complete [--summary "..."]
+        skein complete [FOLIO_ID...] [--summary "..."]
     """
-    _torch_start(ctx)
+    _torch_start(ctx, retroactive=retroactive)
 
 
-def _torch_start(ctx):
+def _torch_start(ctx, retroactive=False):
     """
     Begin retirement process - Prepare to torch.
 
     Usage:
         skein torch
+        skein torch --retroactive
 
     After filing any remaining work:
         skein complete [--summary "..."]
@@ -4668,49 +4665,67 @@ def _torch_start(ctx):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    if agent_id is None:
+    if not agent_id and not retroactive:
         raise click.ClickException(
-            "Must set SKEIN_AGENT_ID or use --agent flag to torch"
+            "Must set SKEIN_AGENT_ID or use --agent flag to torch.\n\n"
+            "Already did the work without igniting? Run:\n"
+            "  skein torch --retroactive"
         )
 
-    # Get roster info
-    try:
-        roster_data = make_request("GET", f"/roster/{agent_id}", base_url, agent_id)
-        name = roster_data.get("name", agent_id)
-    except Exception:
-        raise click.ClickException(
-            f"Agent {agent_id} not found in roster. Must ignite before torching."
-        )
+    if retroactive:
+        # The work already happened, so create the missing identity directly in
+        # retirement rather than pretending the agent still needs orientation.
+        agent_id = _generate_suggested_name(base_url, agent_id, None, None)
+        name = agent_id
+        register_data = {
+            "agent_id": agent_id,
+            "name": name,
+            "status": "retiring",
+            "metadata": {"retroactive_torch_at": datetime.now().isoformat()},
+        }
+        try:
+            make_request(
+                "POST", "/roster/register", base_url, agent_id, json=register_data
+            )
+        except Exception as e:
+            raise click.ClickException(
+                f"Could not register retroactive torch identity: {e}"
+            )
+    else:
+        try:
+            roster_data = make_request(
+                "GET", f"/roster/{agent_id}", base_url, agent_id
+            )
+            name = roster_data.get("name", agent_id)
+        except Exception:
+            raise click.ClickException(
+                f"Agent {agent_id} not found in roster. Must ignite before torching.\n\n"
+                "Already did the work without igniting? Run:\n"
+                "  skein torch --retroactive"
+            )
 
     # Get agent's SKEIN activity
     try:
-        # Get all folios in this session: authored by this agent, plus any
-        # adopted via `skein adopt` (post-facto torch). Folios carry
-        # created_by, not "author"/"weaver" -- those keys never existed on a
-        # folio, so this previously always matched zero folios.
+        # Folios carry created_by, not "author"/"weaver" -- those keys never
+        # existed on a folio, so this previously always matched zero folios.
+        # A later attribution overrides created_by for session ownership.
         all_folios = make_request("GET", "/folios", base_url, agent_id)
         agent_folios = _get_session_folios(all_folios, base_url, agent_id)
 
-        # Count by type
-        work_summary = {
-            "issues": len([f for f in agent_folios if f.get("type") == "issue"]),
-            "findings": len([f for f in agent_folios if f.get("type") == "finding"]),
-            "plans": len([f for f in agent_folios if f.get("type") == "plan"]),
-            "briefs": len([f for f in agent_folios if f.get("type") == "brief"]),
-            "notions": len([f for f in agent_folios if f.get("type") == "notion"]),
-            "frictions": len([f for f in agent_folios if f.get("type") == "friction"]),
-            "summaries": len([f for f in agent_folios if f.get("type") == "summary"]),
-        }
+        work_summary = _summarize_folios(agent_folios)
     except Exception:
         work_summary = {}
 
-    # Update status to retiring (if server supports it)
-    try:
-        # Try to update via re-registration with new status
-        update_data = {"agent_id": agent_id, "name": name, "status": "retiring"}
-        make_request("POST", "/roster/register", base_url, agent_id, json=update_data)
-    except Exception:
-        pass  # Continue even if update fails (server might not support status)
+    # Retroactive torch was registered directly as retiring above. Re-registering
+    # it here would replace its metadata and registration timestamp.
+    if not retroactive:
+        try:
+            update_data = {"agent_id": agent_id, "name": name, "status": "retiring"}
+            make_request(
+                "POST", "/roster/register", base_url, agent_id, json=update_data
+            )
+        except Exception:
+            pass  # Continue even if update fails (server might not support status)
 
     click.echo("=" * 60)
     click.echo("TORCH - Retirement Phase")
@@ -4843,11 +4858,19 @@ def _torch_start(ctx):
     click.echo()
     click.echo("When done:")
     click.echo()
-    click.echo("  skein complete")
+    if retroactive:
+        click.echo("Pass every folio you authored, of any type, to complete:")
+        click.echo()
+        click.echo(f"  skein --agent {agent_id} complete FOLIO_ID...")
+        click.echo()
+        click.echo(f"You can include up to {MAX_RETROACTIVE_FOLIOS} folios.")
+    else:
+        click.echo("  skein complete")
     click.echo()
 
 
 @cli.command("complete")
+@click.argument("folio_ids", nargs=-1)
 @click.option("--summary", help="Optional retirement summary")
 @click.option(
     "--yield-status",
@@ -4860,12 +4883,13 @@ def _torch_start(ctx):
 )
 @click.option("--yield-notes", "yield_notes", help="Notes for next agent in chain")
 @click.pass_context
-def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
+def complete(ctx, folio_ids, summary, yield_status, yield_outcome, yield_notes):
     """
     Complete torch - Retire from roster.
 
     Usage:
         skein complete
+        skein complete brief-20260712-abcd finding-20260712-efgh
         skein complete --summary "Completed auth audit. 3 issues filed."
 
     If SKEIN_CHAIN_ID is set, will prompt for yield sign-off:
@@ -4888,22 +4912,20 @@ def complete(ctx, summary, yield_status, yield_outcome, yield_notes):
     except Exception:
         raise click.ClickException(f"Agent {agent_id} not found in roster")
 
-    # Get final work summary (own folios plus anything adopted via `skein adopt`)
+    attributed = _attribute_folios(base_url, agent_id, folio_ids)
+    if attributed:
+        click.echo(f"Attributed {len(attributed)} folio(s) to {agent_id}:")
+        for folio_id in attributed:
+            click.echo(f"  {folio_id}")
+        click.echo()
+
+    # Get final work summary using attribution when present.
     agent_folios = []
     try:
         all_folios = make_request("GET", "/folios", base_url, agent_id)
         agent_folios = _get_session_folios(all_folios, base_url, agent_id)
 
-        final_work = {
-            "issues": len([f for f in agent_folios if f.get("type") == "issue"]),
-            "findings": len([f for f in agent_folios if f.get("type") == "finding"]),
-            "plans": len([f for f in agent_folios if f.get("type") == "plan"]),
-            "briefs": len([f for f in agent_folios if f.get("type") == "brief"]),
-            "notions": len([f for f in agent_folios if f.get("type") == "notion"]),
-            "frictions": len([f for f in agent_folios if f.get("type") == "friction"]),
-            "summaries": len([f for f in agent_folios if f.get("type") == "summary"]),
-            "tenders": len([f for f in agent_folios if f.get("type") == "tender"]),
-        }
+        final_work = _summarize_folios(agent_folios)
     except Exception:
         final_work = {}
 

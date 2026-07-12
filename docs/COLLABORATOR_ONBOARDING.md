@@ -1,7 +1,8 @@
 # Collaborator onboarding — redeem an invite, publish signed
 
 This is the **collaborator** side of agent-mediated onboarding (the operator side
-is `docs/PUBLIC_INGRESS_OPERATIONS.md`). You were sent a one-time invite token out
+— minting invites, bindings, revocation — lives with the station's deployment
+runbooks, not in this repo). You were sent a one-time invite token out
 of band. Hand this whole document to your coding agent; it walks the agent through
 installing the CLI, redeeming the invite, and publishing — surfacing provenance and
 the Rekor-consent stop for you to confirm.

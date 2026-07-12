@@ -121,7 +121,16 @@ def _md_fetch_url(base_url: str, address: str) -> str:
 
 
 def _ref_tail(ref: Mapping[str, Any], base_url: str) -> str:
-    """The ``<.md url>  (<bare address>)`` tail shared by every rendered reference."""
+    """The ``<.md url>  (<bare address>)`` tail shared by every rendered reference.
+
+    Emits ONLY the ref's ``address``, flattened in both spots (percent-encoded
+    into the ``.md`` URL, ``_oneline`` in the bare echo). The ref's ``href`` is
+    deliberately NOT emitted — it is station-local and 404s for a peer held
+    elsewhere; following uses the address — so nothing here flattens it. A change
+    that starts emitting ``href`` (or any other ref field) must flatten it at the
+    point of emission or it reopens the bare-frame injection; the hostile-fields
+    sweep in test_station_render.py pins that invariant.
+    """
     return f"{_md_fetch_url(base_url, ref['address'])}  ({_oneline(ref['address'])})"
 
 
@@ -235,7 +244,9 @@ def _render_footer(env: Mapping[str, Any], base_url: str) -> str:
     # A thread peer that isn't held locally exposes its raw thread endpoint as
     # `address`/`href` (envelope._peer_ref), and threads are unsigned and
     # forgeable — so those, too, must be flattened before they go in the bare
-    # frame, not just the type/title (the fell-r2 catch). `_ref_tail` flattens both.
+    # frame, not just the type/title (the fell-r2 catch). `_ref_tail` flattens the
+    # emitted `address`; `href` is deliberately not emitted at all (see its
+    # docstring) — emitting it unflattened would reopen this injection.
     out = asserted.get("threads_out", [])
     if out:
         lines.append("Threads out:")

@@ -46,7 +46,7 @@ from . import sign as _sign
 from . import redeem as _redeem
 from .authorization import default_bindings
 from .identity import content_hash_for_bytes
-from .station_env import StationEnvError, legacy_key, station_env
+from .station_env import StationEnvError, station_env
 from .station_store import bundle_hash_for, sqlite_error_is_lock
 
 logger = logging.getLogger(__name__)
@@ -70,8 +70,7 @@ def _constituent_manifest_reject_reason(m_reason: str) -> str:
     return f"manifest signature {m_reason}"
 
 DEFAULT_PORT = 9101  # read web app is 9001; ingress is a distinct write surface
-# Env reads resolve through station_env (Stage 6): the SKEIN_STATION_* canonical
-# name, with the retired SKEIN_NEXT_* key as a warned fallback alias until Stage 8.
+# Env reads resolve through station_env: the SKEIN_STATION_* canonical name.
 ENV_DATA_DIR = "SKEIN_STATION_DATA_DIR"
 
 # The station's canonical origin — a SIGNED field of the redeem challenge (INV-1).
@@ -484,13 +483,9 @@ def create_app() -> FastAPI:
     try:
         redeem_origin = _canonical_instance(_raw_origin) if _raw_origin else None
     except ValueError as e:
-        # Name the legacy alias too: on a mid-transition box the operator may
-        # have set only the old key, and a message naming a key they never set
-        # misdirects the debugging (deep_code_audit, fell r4).
         raise StationEnvError(
-            f"{ENV_ORIGIN} (or its legacy alias {legacy_key('ORIGIN')}) is set to "
-            f"{_raw_origin!r}, which is not a valid origin URL ({e}); "
-            "expected e.g. https://ingress.interskein.com"
+            f"{ENV_ORIGIN} is set to {_raw_origin!r}, which is not a valid origin "
+            f"URL ({e}); expected e.g. https://ingress.interskein.com"
         ) from e
     if redeem_origin:
         logger.info("ingress redeem origin: %s", redeem_origin)

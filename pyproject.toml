@@ -59,7 +59,6 @@ dev = [
 
 [project.scripts]
 skein = "client.cli:main"
-interskein = "skein_next.cli:main"
 mesh = "skein.mesh.cli:main"
 
 [project.urls]
@@ -82,10 +81,9 @@ skein = [
     "web/static/*.css",
     "web/static/themes/*.css",
 ]
-skein_next = ["web/templates/*.html", "web/static/*.css", "web/static/themes/*.css"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "skein_next/tests", "skein/tests"]
+testpaths = ["tests", "skein/tests"]
 asyncio_mode = "auto"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -142,18 +140,13 @@ extend-exclude = ["docs"]
 # The signing bit-flip probe deliberately imports after an explanatory setup
 # block (E402) — the staging is intentional, not an accident.
 "tests/test_signing/bit_flip_matrix_probe.py" = ["E402"]
-# skein_next mesh tests bind single-letter identifiers straight from the crypto /
-# OIDC spec notation they mirror — I (issuer), l / r (merkle left/right) — so
-# E741's ambiguous-name rule would only obscure the correspondence to the vectors
-# under test. Scope the ignore to those tests, not the package.
-"skein_next/tests/*" = ["E741"]
-# The re-homed station merkle test (ported verbatim from skein_next/tests/
-# test_manifest.py) carries the same l / r left/right merkle notation — same
-# rationale as the skein_next exemption above.
+# The station merkle test carries l / r left/right merkle notation straight from the
+# spec vectors it mirrors, so E741's ambiguous-name rule would only obscure the
+# correspondence — scope the ignore to the test, not the package.
 "tests/test_station_manifest.py" = ["E741"]
-# The re-homed station ingress/authorization tests + their shared publish helper bind
-# I (issuer) straight from the crypto/OIDC notation the skein_next originals use — same
-# rationale as the skein_next exemption above.
+# The station ingress/authorization tests + their shared publish helper bind I (issuer)
+# straight from the crypto/OIDC spec notation under test — same E741 rationale as the
+# merkle test above.
 "tests/station_publish_helpers.py" = ["E741"]
 "tests/test_station_authorization.py" = ["E741"]
 "tests/test_station_ingress_boot.py" = ["E741"]

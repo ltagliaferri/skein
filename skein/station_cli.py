@@ -15,8 +15,7 @@ and binding management stays off the network surface (the trust anchor is shell
 access to the box). The client-facing verbs (``redeem-invite``, ``login``,
 ``whoami``) do speak HTTP / run the Sigstore ceremony.
 
-The data dir comes from ``--data-dir``, else ``$SKEIN_STATION_DATA_DIR`` (with
-the retired ``$SKEIN_NEXT_DATA_DIR`` as a warned alias until Stage 8), else
+The data dir comes from ``--data-dir``, else ``$SKEIN_STATION_DATA_DIR``, else
 ``./.skein-station``.
 
 Output is plain text built for a screen reader: one item per line, a human
@@ -32,7 +31,7 @@ from typing import Any, Dict, Optional
 
 import click
 
-from .station_env import ENV_DATA_DIR, StationEnvError, legacy_key, station_env
+from .station_env import ENV_DATA_DIR, StationEnvError, station_env
 
 # The bare-default corpus location. A DELIBERATE rename from skein_next's
 # ``./.skein-next`` default — the fifth named delta of the Stage-6 re-home,
@@ -65,12 +64,8 @@ def _export_data_dir(ctx: click.Context) -> None:
     """Hand the RESOLVED data dir to the server process env, unambiguously.
 
     ``_data_dir`` already applied the precedence (--data-dir wins, else env,
-    else default) — so after writing the canonical key, drop the legacy alias:
-    a stale ``SKEIN_NEXT_DATA_DIR`` left in the shell would otherwise conflict
-    with the value the operator just resolved and refuse a boot their explicit
-    ``--data-dir`` had made unambiguous (deep_code_audit, fell r4)."""
+    else default), so write the canonical key with that resolved value."""
     os.environ[ENV_DATA_DIR] = _data_dir(ctx)
-    os.environ.pop(legacy_key("DATA_DIR"), None)
 
 
 @click.group()

@@ -79,30 +79,6 @@ def test_default_ports_match_live_surfaces(tmp_path, monkeypatch):
     assert seen == {"serve": 9001, "ingress": 9101}
 
 
-def test_explicit_data_dir_beats_stale_legacy_env(tmp_path, monkeypatch):
-    """`--data-dir` is the operator's explicit intent: a stale SKEIN_NEXT_DATA_DIR
-    left in the shell must not manufacture a new/legacy conflict that refuses the
-    boot (deep_code_audit r4). The launcher exports the RESOLVED dir and drops
-    the alias, so the server's own env reads see one unambiguous value."""
-    from skein.station_env import station_env
-
-    seen = {}
-
-    def fake_run_server(host="127.0.0.1", port=9001):
-        seen["resolved"] = station_env("DATA_DIR")  # would raise on a conflict
-
-    from skein.web import app as web_app
-
-    monkeypatch.setenv("SKEIN_NEXT_DATA_DIR", str(tmp_path / "stale-old"))
-    monkeypatch.setattr(web_app, "run_server", fake_run_server)
-    r = CliRunner().invoke(
-        cli, ["station", "--data-dir", str(tmp_path / "explicit-new"), "serve"]
-    )
-    assert r.exit_code == 0, r.output
-    assert seen["resolved"] == str(tmp_path / "explicit-new")
-    assert os.environ.get("SKEIN_NEXT_DATA_DIR") is None  # alias dropped, not fought
-
-
 def test_data_dir_defaults_from_station_env(tmp_path, monkeypatch):
     """Without --data-dir the group resolves the station env key, so the ops
     verbs and the launchers agree on the corpus location."""

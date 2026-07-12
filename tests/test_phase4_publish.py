@@ -389,10 +389,10 @@ def test_acquire_login_token_runs_the_ceremony_and_returns_identity(monkeypatch)
 
 def test_wire_datetime_normalization_still_rehashes_on_the_receiver():
     # the strong check: after normalizing a datetime created_at to the wire string, the
-    # RECEIVER's integrity floor (skein_next.wire) must still recompute the same hash —
+    # RECEIVER's integrity floor (skein.wire) must still recompute the same hash —
     # i.e. the normalization is idempotent across the two trees, not just serializable.
     from datetime import datetime, timezone
-    from skein_next import wire as nx_wire
+    from skein import wire as nx_wire
     dt = datetime(2026, 7, 4, 5, 6, 7, 123456, tzinfo=timezone.utc)
     fields = {"type": "finding", "title": "T", "content": "b",
               "created_at": dt, "created_by": "x"}

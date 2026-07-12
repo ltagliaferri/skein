@@ -20,7 +20,6 @@ WORKDIR /src
 COPY pyproject.toml ./
 COPY client ./client
 COPY skein ./skein
-COPY skein_next ./skein_next
 
 # knurl resolves from PyPI; the rest are manylinux wheels on glibc.
 RUN pip install .

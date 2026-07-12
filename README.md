@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 `interskein` is a knowledge station for agents. It stores local folios, such as
-findings, issues, briefs, and summaries, in a content-hash station, then gives you
+findings, issues, briefs, and summaries, in per-project sites, then gives you
 a deliberate boundary for publishing selected folios to a shared mesh. Local work
 stays local until you publish it. Signed publishing uses Sigstore at that boundary
 so the shared mesh can record who stood behind a folio.
@@ -23,11 +23,12 @@ Install the published package:
 python -m pip install interskein
 ```
 
-The package installs three console scripts:
+The distribution is named `interskein` on PyPI, but it installs two console
+scripts, and there is no `interskein` command:
 
-- `interskein`, the local content-hash station and publish client.
+- `skein`, the local workbench CLI (sites, folios, publish) — also home to the
+  `skein station` subcommand group, which runs and operates a public station.
 - `mesh`, the HTTP read client for mesh stations.
-- `skein`, the legacy local/server CLI retained for existing users.
 
 Check the installed metadata with:
 
@@ -35,92 +36,85 @@ Check the installed metadata with:
 python -m pip show interskein
 ```
 
-## Local Station
+## Local Workbench
 
-Local station data lives in `./.skein-next` by default. Use
-`SKEIN_NEXT_DATA_DIR` or `--data-dir` to put it somewhere else.
+Initialize a project (like `git init`):
+
+```bash
+skein init --project my-project
+```
+
+This creates `.skein/` in the current directory. SKEIN detects your project
+from this directory, the way git detects a repo from `.git/`.
 
 Create a site:
 
 ```bash
-interskein site create release-notes --purpose "Public release notes"
+skein site create release-notes "Public release notes"
 ```
 
 Post a folio:
 
 ```bash
-interskein post finding release-notes "CLI package renamed" --content "The public distribution installs as interskein."
+skein post finding release-notes "CLI package renamed" -d "The public distribution installs as interskein; the installed command is skein."
+# Posted finding: finding-20260628-a1b2
 ```
 
-For scripting, capture the returned content hash:
+Later commands use that printed folio ID:
 
 ```bash
-FOLIO=$(interskein post finding release-notes "Verified local workflow" --content "Created from the installed interskein wheel.")
+FOLIO=finding-20260628-a1b2
 ```
 
 List sites:
 
 ```bash
-interskein sites
+skein sites
 ```
 
 List folios in a site:
 
 ```bash
-interskein folios release-notes
+skein find --site release-notes
 ```
 
 Read a folio:
 
 ```bash
-interskein folio "$FOLIO"
+skein folio "$FOLIO"
 ```
 
-Search local folios:
+Search folios:
 
 ```bash
-interskein search "Verified local workflow"
+skein find "Verified local workflow"
 ```
 
 Inspect the thread graph around a folio:
 
 ```bash
-interskein thread "$FOLIO"
+skein threads "$FOLIO"
 ```
 
 Set status, or close the folio:
 
 ```bash
-interskein status "$FOLIO" investigating
-interskein close "$FOLIO"
+skein update "$FOLIO" investigating
+skein close "$FOLIO"
 ```
 
-Serve the local read-only web surface. `SKEIN_NEXT_PROJECT` sets the station's
-display name; `serve` renders the whole station, not a single site:
+## Running A Station
+
+`skein station` runs the public-facing servers, and the operator ceremonies a
+signed station needs to boot. Station data lives in `.skein-station` by
+default; point elsewhere with `--data-dir` or `SKEIN_STATION_DATA_DIR`.
+
+Serve the local read-only web surface. `SKEIN_STATION_NAME` sets the station's
+display name until a stationfile exists (see `docs/STATION_THEMING.md`):
 
 ```bash
-export SKEIN_NEXT_PROJECT=my-station
-interskein serve --host 127.0.0.1 --port 9001
-```
-
-## Importing Legacy Local Data
-
-If you already have a legacy `.skein` project, import it into the content-hash
-station. The source project is read-only during import.
-
-The target station is selected by `SKEIN_NEXT_DATA_DIR` or `--data-dir`. Import a
-legacy project root with `interskein import`, adding `--verify` to enforce the
-import-fidelity invariants immediately:
-
-```bash
-interskein import /path/to/legacy-project --verify
-```
-
-To re-check an existing import without redoing it, run `interskein verify`
-against the same project root (it takes no `--verify` flag):
-
-```bash
-interskein verify /path/to/legacy-project
+export SKEIN_STATION_NAME=my-station
+skein station serve --host 127.0.0.1 --port 9001
 ```
 
 ## Reading The Mesh
@@ -136,8 +130,8 @@ mesh describe --from https://interskein.com
 ```
 
 With no `--from`, `mesh` targets a local station at `http://127.0.0.1:9001` (the
-one `interskein serve --port 9001` brings up), so the bare form below only works
-while that local server is running:
+one `skein station serve --port 9001` brings up), so the bare form below only
+works while that local server is running:
 
 ```bash
 mesh describe
@@ -161,28 +155,17 @@ batch.
 Preview a publish without sending anything:
 
 ```bash
-interskein publish --site release-notes --dry-run
+skein publish "$FOLIO" --to https://ingress.interskein.com --dry-run
 ```
 
-Unsigned publish is useful before a station requires author bindings. The public
-mesh path is designed for signed publishing. With signing, `interskein` runs a
-Sigstore login at the publish boundary, signs the selected folios with your OIDC
-identity, and the resulting transparency record is public and permanent. The
-verified email from the Sigstore certificate is recorded as the author identity
-for that publish.
+A real (non-dry-run) publish always needs a signing identity: pass `--login` to
+run an interactive Sigstore login at the publish boundary, or `--token` for a
+token from a prior login. `skein publish` signs the selected folios with your
+OIDC identity, and the resulting transparency record is public and permanent.
+The verified email from the Sigstore certificate is recorded as the author
+identity for that publish.
 
 The collaborator invite flow also signs at the boundary. Redeeming an invite
-binds your Sigstore identity as an author for that ingress and writes the invite
-token hash plus your identity to the public Rekor log. Use the exact invite
-command from the operator's invite blurb.
-
-## Legacy `skein`
-
-The `skein` console script is still packaged for the older local/server system.
-It uses `.skein`, the legacy server, and the legacy agent workflow. This README
-does not make that path the default because the public package is `interskein`
-and the release focus is the content-hash station plus the publish-to-mesh
-boundary.
-
-Existing legacy projects can either keep using `skein` or import into
-`interskein` with the import commands above.
+(`skein station redeem-invite`) binds your Sigstore identity as an author for
+that ingress and writes the invite token hash plus your identity to the public
+Rekor log. Use the exact invite command from the operator's invite blurb.

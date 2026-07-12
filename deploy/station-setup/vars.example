@@ -1,0 +1,31 @@
+# Station stand-up variables. Copy to `vars.env`, fill in, and substitute the
+# {{PLACEHOLDER}}s in the templates (compose.template.yaml, nginx-read.conf.template,
+# and the copied ingress vhost). Example values are for a hypothetical darkive station.
+
+# Identity + domains
+STATION_NAME=darkive
+READ_DOMAIN=darkive.org
+INGRESS_DOMAIN=ingress.darkive.org
+INGRESS_SUBDOMAIN=ingress            # the A-record name under the read zone
+READ_DOMAIN_ZONE=darkive.org         # the DO DNS zone
+
+# Loopback ports (MUST be distinct per station co-hosted on one box;
+# interskein uses 9001/9101, so pick others, e.g. 9002/9102)
+READ_PORT=9002
+INGRESS_PORT=9102
+
+# Image (built on the dev box, shipped via docker save|ssh|docker load).
+# The station image is code-identical across stations; reuse or re-tag.
+IMAGE_TAG=interskein:station-20260711
+
+# Data dir on the droplet (host path; owned by uid 10001 so the container can write)
+DATA_DIR=/srv/darkive/corpus
+
+# Operator = the trust anchor's verified OIDC identity (init-operator records it;
+# any active binding authorizes publishing). Decide per station whether this is a
+# shared identity or a station-specific one.
+OPERATOR_ISSUER=https://accounts.google.com
+OPERATOR_SUBJECT=patricksmyth01@gmail.com
+
+# Deploy target
+DROPLET=45.55.249.33                 # root ssh; NOTE: port 22 blocked through the sbccvpn VPN

@@ -640,11 +640,12 @@ def test_verdict_state_mapping():
         ("plain title", "plain title"),
     ],
 )
-def test_clean_title_strips_paired_trailing_decoration(raw, expected):
+def test_clean_title_strips_paired_markers(raw, expected):
+    """Paired (matching) leading/trailing decoration markers are stripped from titles."""
     assert clean_title(raw) == expected
 
 
-def test_clean_title_keeps_120_char_ellipsis_after_decoration_strip():
+def test_clean_title_ellipsis_after_strip():
     # Decoration is stripped BEFORE the 120-char ellipsis, and neither marker survives.
     out = clean_title("**" + "x" * 200 + "**")
     assert len(out) == 120 and out.endswith("...") and "*" not in out

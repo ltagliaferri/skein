@@ -330,7 +330,8 @@ def _poison_strings(obj, counter, skip=()):
             _poison_strings(v, counter, skip)
 
 
-def test_hostile_ref_fields_cannot_forge_frame_lines_folio():
+def test_no_forged_frame_lines_in_folio():
+    """Hostile ref fields (every peer-ref string, address, href, links) cannot forge folio frame lines."""
     # The generic sweep behind the _ref_tail contract: EVERY string a hostile
     # station can plant in a folio envelope's bare frame — every field of every
     # peer ref (address AND the never-emitted href), lineage, superseded_by, site,
@@ -366,7 +367,8 @@ def test_hostile_ref_fields_cannot_forge_frame_lines_folio():
     assert not any(ln.startswith("INJECTED-") for ln in lines)
 
 
-def test_hostile_ref_fields_cannot_forge_frame_lines_collection():
+def test_no_forged_frame_lines_in_collection():
+    """Hostile ref fields cannot forge frame lines in the collection renderer."""
     # Same sweep for the collection renderer: entry type/address are bare-frame,
     # as are as_of, next and the collection's own address; the never-emitted
     # entry href is poisoned to guard future emission (title/snippet are fenced

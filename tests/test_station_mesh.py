@@ -291,7 +291,7 @@ def test_pin_check_hash_enforces_both_pins():
 def _serve_a_for_any_address(wired, monkeypatch):
     """Pin resolution to a's real self-consistent envelope, whatever address is asked.
 
-    The suite's standard shim (cf. test_substituted_content_is_address_mismatch) —
+    The suite's standard shim (cf. test_substitution_is_address_mismatch) —
     needed here because a ref+fragment address cannot resolve end-to-end against
     today's station (resolve_to_hash routes a Ref to the alias table keyed on the
     RAW string, fragment included, so the lookup misses). The client-side contract
@@ -302,7 +302,8 @@ def _serve_a_for_any_address(wired, monkeypatch):
     monkeypatch.setattr(mesh_client, "resolve", lambda inst, addr, timeout=10.0: (env, None))
 
 
-def test_fetch_ref_fragment_drift_warns_exit_unchanged(wired, monkeypatch):
+def test_fetch_ref_drift_warns_not_rejects(wired, monkeypatch):
+    """A drifted freshness fragment on a REF warns; state and exit code unchanged."""
     # ADDRESSING_GRAMMAR.md "The freshness suffix": on a REF address the fragment
     # is a freshness NOTE — resolution returns the current head and WARNS when the
     # head has moved off the noted digest; it never rejects. State, exit code, and
@@ -325,7 +326,7 @@ def test_fetch_ref_fragment_match_is_quiet(wired, monkeypatch):
     assert r.warning is None
 
 
-def test_fetch_ref_without_fragment_no_warning(wired, seeded):
+def test_fetch_ref_no_fragment_no_warning(wired, seeded):
     # A ref with no freshness note has nothing to drift from (end-to-end via the
     # alias table, the one ref form the station resolves today).
     with Station(seeded["data_dir"]) as st:
@@ -335,7 +336,7 @@ def test_fetch_ref_without_fragment_no_warning(wired, seeded):
     assert r.warning is None
 
 
-def test_fetch_hash_address_fragment_still_rejects(wired, monkeypatch):
+def test_fetch_hash_fragment_still_rejects(wired, monkeypatch):
     # The SAME fragment bytes after a HASH target stay a VERIFIER (reject on
     # mismatch) — enforcement mode is set by the left-hand production, and the
     # ref-side warn must not soften it.
@@ -346,7 +347,7 @@ def test_fetch_hash_address_fragment_still_rejects(wired, monkeypatch):
     assert r.warning is None  # the reject path, never the warn path
 
 
-def test_fetch_ref_drift_composes_with_remote_unsigned(wired, monkeypatch):
+def test_ref_drift_composes_remote_unsigned(wired, monkeypatch):
     # Both warnings can apply to one fetch (a drifted ref served unsigned by a
     # remote): newline-joined, neither clobbered, remote-unsigned first (the
     # pre-existing line keeps its position for anything scraping stderr).
@@ -375,7 +376,7 @@ def test_ref_drift_warning_helper_scope():
     assert w and "MOVED" in w and ("cd" * 32) in w and actual in w
 
 
-def test_cli_fetch_ref_drift_warning_reaches_stderr(wired, monkeypatch):
+def test_cli_ref_drift_warning_on_stderr(wired, monkeypatch):
     from click.testing import CliRunner
 
     from skein.mesh.cli import cli

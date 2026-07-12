@@ -525,7 +525,7 @@ def test_negotiate_honors_accept_qvalues(accept, expected):
     assert negotiate(None, accept, None) == expected
 
 
-def test_negotiate_q0_only_falls_through_to_user_agent():
+def test_negotiate_q0_falls_through_to_ua():
     # A type explicitly refused (q=0) is not selected; with no other acceptable
     # supported type the negotiation falls to the UA branch — curl -> markdown, no
     # UA -> HTML — exactly as an Accept naming none of the three would.
@@ -533,7 +533,7 @@ def test_negotiate_q0_only_falls_through_to_user_agent():
     assert negotiate(None, "application/json;q=0", None) == "html"
 
 
-def test_catalog_returns_newest_30_pushed_to_sql(tmp_path, monkeypatch):
+def test_catalog_newest_30_via_sql_limit(tmp_path, monkeypatch):
     # 35 findings (+ the older site folio = 36 total); the catalog renders only the
     # newest 30 by created_at, read via recent_folios (SQL ORDER BY ... LIMIT), and
     # count_folios still reports the full total.
@@ -564,12 +564,12 @@ def test_site_envelope_address_is_urlencoded(client):
     assert env["address"] == "/site/proj?type=a%20b%26c"
 
 
-def test_search_envelope_address_is_urlencoded(client):
+def test_search_envelope_address_urlencoded(client):
     env = client.get("/search.json", params={"q": "a b&c"}).json()
     assert env["address"] == "/search?q=a%20b%26c"
 
 
-def test_search_truncated_is_honest_at_the_boundary(tmp_path, monkeypatch):
+def test_search_truncated_honest_at_boundary(tmp_path, monkeypatch):
     # 3 matching folios; vary the cap. The fix: exactly CAP matches with nothing cut
     # is NOT truncated (the old `>= SEARCH_LIMIT` flagged that boundary falsely).
     data_dir = tmp_path / ".skein-next"
@@ -593,7 +593,7 @@ def test_search_truncated_is_honest_at_the_boundary(tmp_path, monkeypatch):
     assert result() == (3, False)  # under the cap
 
 
-def test_search_truncated_serves_cap_entries_and_never_leaks_the_probe(tmp_path, monkeypatch):
+def test_search_serves_cap_never_leaks_probe(tmp_path, monkeypatch):
     # The overflow probe returns SEARCH_LIMIT+1 rows to detect truncation, but the served
     # body must stay exactly SEARCH_LIMIT and must NOT include that extra probe row
     # (finding-20260710-lx37 fix #4). Four body-only "needle" matches, distinct created_at
@@ -628,7 +628,7 @@ def test_search_truncated_serves_cap_entries_and_never_leaks_the_probe(tmp_path,
     assert len(e["body"]) == 4
 
 
-def test_conditional_if_none_match_list_star_and_weak(client, seeded):
+def test_if_none_match_list_star_weak(client, seeded):
     first = client.get(f"/folio/{seeded['a']}.json")
     etag = first.headers["etag"]  # strong quoted sha256: "<hex>"
 

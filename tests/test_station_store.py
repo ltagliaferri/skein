@@ -189,7 +189,7 @@ def test_search_folios_matches(store, q, names):
     assert station.search_folios(q, limit=1) == [_folio(h, n) for n in names[:1]]
 
 
-def test_search_folios_overflow_probe_does_not_widen_window(tmp_path):
+def test_search_probe_does_not_widen_window(tmp_path):
     """>window matches: the overflow probe serves the SAME top-N as the served-limit
     window, NEVER a widened one (finding-20260710-lx37 fix #4).
 
@@ -235,7 +235,7 @@ def test_search_folios_overflow_probe_does_not_widen_window(tmp_path):
         station.close()
 
 
-def test_search_folios_overflow_probe_signals_without_widening(store):
+def test_search_probe_contract_in_the_small(store):
     """The overflow_probe contract in the small: at exactly the served ``limit`` there is
     no extra row (no false overflow); one match past ``limit`` yields exactly one extra
     ranked row whose head is the plain served set — the probe row is the excluded tail."""

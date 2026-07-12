@@ -593,6 +593,41 @@ def test_search_truncated_is_honest_at_the_boundary(tmp_path, monkeypatch):
     assert result() == (3, False)  # under the cap
 
 
+def test_search_truncated_serves_cap_entries_and_never_leaks_the_probe(tmp_path, monkeypatch):
+    # The overflow probe returns SEARCH_LIMIT+1 rows to detect truncation, but the served
+    # body must stay exactly SEARCH_LIMIT and must NOT include that extra probe row
+    # (finding-20260710-lx37 fix #4). Four body-only "needle" matches, distinct created_at
+    # so ranking is pure recency: the oldest (00:00) ranks last and is the probe row at cap 3.
+    data_dir = tmp_path / ".skein-next"
+    hashes = []
+    with StationBuilder(data_dir) as st:
+        st.create_site("proj", created_at="2026-01-01T00:00:00Z")
+        for i in range(4):
+            hashes.append(st.post(type="finding", site="proj", title=f"hit {i}",
+                                  content="needle body", created_at=f"2026-02-01T00:0{i}:00Z"))
+    probe_row = hashes[0]  # oldest created_at -> ranked last -> excluded at cap 3
+    monkeypatch.setenv(ENV_DATA_DIR, str(data_dir))
+    monkeypatch.setenv(ENV_NAME, "interskein")
+
+    def env():
+        return TestClient(create_app()).get("/search.json", params={"q": "needle"}).json()
+
+    # SEARCH_LIMIT+1 (=4) in-window matches at cap 3: truncated, exactly 3 served, probe absent.
+    monkeypatch.setattr("skein.web.app.SEARCH_LIMIT", 3)
+    e = env()
+    assert e["asserted"]["truncated"] is True
+    assert e["asserted"]["count"] == 3
+    assert len(e["body"]) == 3
+    assert probe_row not in [entry["address"] for entry in e["body"]]
+
+    # exactly SEARCH_LIMIT (=4) matches at cap 4: nothing cut -> not truncated, all served.
+    monkeypatch.setattr("skein.web.app.SEARCH_LIMIT", 4)
+    e = env()
+    assert e["asserted"]["truncated"] is False
+    assert e["asserted"]["count"] == 4
+    assert len(e["body"]) == 4
+
+
 def test_conditional_if_none_match_list_star_and_weak(client, seeded):
     first = client.get(f"/folio/{seeded['a']}.json")
     etag = first.headers["etag"]  # strong quoted sha256: "<hex>"

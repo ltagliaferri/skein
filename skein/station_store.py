@@ -520,13 +520,26 @@ class StationStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def search_folios(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def search_folios(
+        self, query: str, limit: int = 100, *, overflow_probe: bool = False
+    ) -> List[Dict[str, Any]]:
         """Folios matching ``query``, AND-of-terms, ranked title-over-body (skein_next L1).
 
         A folio matches only if EVERY whitespace-split term appears (case-insensitively)
         in its title or content; terms are matched literally (``LIKE`` wildcards escaped).
         A bounded recency-ordered candidate window is pulled, then ranked in Python — NOT
         a whole-corpus rank — so the tiebreak and which rows survive match skein_next.
+
+        ``overflow_probe`` lets a caller detect "more than ``limit`` matched" WITHOUT
+        widening that window: the SQL candidate window stays derived from the SERVED
+        ``limit`` (``max(limit*5, 200)`` — unchanged), and only the final Python slice
+        grows, returning up to ``limit + 1`` ranked rows instead of ``limit``. The served
+        set is the first ``limit`` rows, byte-identical to a plain ``search_folios(query,
+        limit)`` (same window, same ranking, ``ranked[:limit+1][:limit] == ranked[:limit]``);
+        a present ``(limit + 1)``th row ONLY signals overflow, it never changes the window.
+        Because the window is 5x the served ``limit``, any query with more than ``limit``
+        matches leaves more than ``limit`` survivors in the window, so the probe row is
+        always present when it should be — no false-negative edge for this window formula.
         """
         terms = [t for t in query.split() if t][:_MAX_SEARCH_TERMS]
         if not terms:
@@ -538,6 +551,9 @@ class StationStore:
         for term in terms:
             like = "%" + _like_escape(term) + "%"
             params.extend([like, like])
+        # Window derived from the SERVED limit, NOT from the probe: probing must never
+        # widen the candidate set or the served top-``limit`` could shift (a wider window
+        # admits older rows that can out-score served ones — finding-20260710-lx37 fix #4).
         params.append(max(limit * 5, 200))
         rows = self.conn.execute(
             f"""
@@ -553,7 +569,8 @@ class StationStore:
             key=lambda r: _search_score(r, terms),
             reverse=True,
         )
-        return ranked[:limit]
+        cut = limit + 1 if overflow_probe else limit
+        return ranked[:cut]
 
     def find_by_prefix(self, prefix: str, limit: int = 10) -> List[str]:
         """Content hashes beginning with ``prefix`` (git-style short-hash lookup).

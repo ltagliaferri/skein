@@ -809,11 +809,18 @@ def create_app() -> FastAPI:
 
     def _search_envelope(store, q: str) -> dict:
         terms = q.split()
-        # Probe ONE past the cap: an extra row proves more matches exist, so
-        # `truncated` is honest — exactly SEARCH_LIMIT matches with nothing cut is
-        # NOT truncated (the old `>= SEARCH_LIMIT` flagged that boundary falsely).
-        # We serve only the first SEARCH_LIMIT.
-        probed = store.search_folios(q, limit=SEARCH_LIMIT + 1) if q.strip() else []
+        # Probe ONE past the cap for an honest `truncated` WITHOUT shifting the served
+        # set: overflow_probe keeps search_folios' ranking window derived from
+        # SEARCH_LIMIT (NOT SEARCH_LIMIT+1) and only returns up to one extra ranked row,
+        # so rows[:SEARCH_LIMIT] is byte-identical to a plain search_folios(q, SEARCH_LIMIT)
+        # — never the widened-window set (finding-20260710-lx37 fix #4). A SEARCH_LIMIT+1th
+        # row proves more matched → truncated; exactly SEARCH_LIMIT with nothing cut is NOT
+        # truncated (the old `>= SEARCH_LIMIT` flagged that boundary falsely).
+        probed = (
+            store.search_folios(q, limit=SEARCH_LIMIT, overflow_probe=True)
+            if q.strip()
+            else []
+        )
         truncated = len(probed) > SEARCH_LIMIT
         rows = probed[:SEARCH_LIMIT]
         entries = [

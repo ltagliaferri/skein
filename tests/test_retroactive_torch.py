@@ -144,6 +144,61 @@ def test_normal_torch_shows_counts_titles_and_closed_ignition_brief():
     assert not any(method == "POST" and endpoint == "/roster/register" for method, endpoint, _ in calls)
 
 
+def test_ignite_ready_torch_preserves_qualified_ignition_brief():
+    agent_id = "ember-badger-0712"
+    brief_ref = "speakbot:brief-20260712-start"
+    brief = {
+        "folio_id": "brief-20260712-start",
+        "type": "brief",
+        "title": "Carry the ceremony into the next session",
+        "content": "Implement the retirement ceremony.",
+        "status": "closed",
+    }
+    roster = {}
+
+    def request(method, endpoint, _base_url, request_agent, **kwargs):
+        if method == "GET" and endpoint == f"/folios/{brief_ref}":
+            return brief
+        if method == "POST" and endpoint == "/roster/register":
+            payload = kwargs["json"]
+            roster.clear()
+            roster.update(payload)
+            return {"success": True}
+        if method == "GET" and endpoint == f"/roster/{agent_id}":
+            return dict(roster)
+        if method == "PATCH" and endpoint == f"/roster/{agent_id}":
+            payload = kwargs["json"]
+            roster.update({key: value for key, value in payload.items() if key != "metadata"})
+            roster.setdefault("metadata", {}).update(payload.get("metadata", {}))
+            return {"success": True}
+        if method == "GET" and endpoint == "/folios":
+            return []
+        if method == "GET" and endpoint == "/threads":
+            return []
+        raise AssertionError((method, endpoint, request_agent, kwargs))
+
+    ignited = _invoke(
+        ["ignite", brief_ref], request, generated_name=agent_id
+    )
+    assert ignited.exit_code == 0, ignited.output
+    assert roster["metadata"]["ignited_from"] == brief_ref
+
+    readied = _invoke(["--agent", agent_id, "ready"], request)
+    assert readied.exit_code == 0, readied.output
+    assert roster["status"] == "active"
+    assert roster["metadata"]["ignited_from"] == brief_ref
+    assert "ready_at" in roster["metadata"]
+
+    torched = _invoke(["--agent", agent_id, "torch"], request)
+    assert torched.exit_code == 0, torched.output
+    assert (
+        "Carry the ceremony into the next session [closed] brief-20260712-start"
+        in torched.output
+    )
+    assert roster["status"] == "retiring"
+    assert roster["metadata"]["ignited_from"] == brief_ref
+
+
 def test_ceremony_title_inventory_is_capped(capsys):
     folios = [
         {

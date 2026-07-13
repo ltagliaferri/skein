@@ -4487,16 +4487,19 @@ def ready(ctx):
                 "Run 'skein ignite' to get a new agent assignment."
             )
 
-    # Update agent status from orienting to active
-    data = {
-        "agent_id": agent_id,
-        "name": agent_id,
-        "status": "active",
-        "metadata": {"ready_at": datetime.now().isoformat()},
-    }
-
+    # Patch rather than re-register: POST /roster/register replaces the roster
+    # record and would erase ignite metadata such as ignited_from and ignited_at.
     try:
-        make_request("POST", "/roster/register", base_url, agent_id, json=data)
+        make_request(
+            "PATCH",
+            f"/roster/{agent_id}",
+            base_url,
+            agent_id,
+            json={
+                "status": "active",
+                "metadata": {"ready_at": datetime.now().isoformat()},
+            },
+        )
     except Exception as e:
         raise click.ClickException(f"Failed to activate: {str(e)}")
 
@@ -4562,12 +4565,13 @@ def _show_folio_inventory(heading: str, folios: List[dict]) -> None:
 def _get_ignition_brief(base_url: str, agent_id: str, roster_data: dict):
     """Load the brief this agent ignited from, whether open or closed."""
     brief_id = roster_data.get("metadata", {}).get("ignited_from")
-    if not brief_id or not brief_id.startswith("brief-"):
+    if not brief_id:
         return None
     try:
-        return make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+        brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
     except Exception:
         return None
+    return brief if brief.get("type") == "brief" else None
 
 
 def _show_ignition_brief(brief: Optional[dict]) -> None:

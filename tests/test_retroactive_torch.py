@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from client.cli import (
@@ -37,6 +38,17 @@ def test_torch_without_agent_has_retroactive_breadcrumb():
     assert "skein torch --retroactive" in result.output
 
 
+def test_torch_preview_without_agent_keeps_recovery_breadcrumb():
+    def no_request(*_args, **_kwargs):
+        raise AssertionError("missing-agent preview must fail before an API request")
+
+    result = _invoke(["torch", "--preview"], no_request)
+
+    assert result.exit_code != 0
+    assert "Must set SKEIN_AGENT_ID or use --agent flag" in result.output
+    assert "skein torch --retroactive" in result.output
+
+
 def test_unknown_roster_agent_has_retroactive_breadcrumb():
     def request(method, endpoint, *_args, **_kwargs):
         assert method == "GET" and endpoint == "/roster/unregistered-agent"
@@ -47,6 +59,80 @@ def test_unknown_roster_agent_has_retroactive_breadcrumb():
     assert result.exit_code != 0
     assert "not found in roster" in result.output
     assert "skein torch --retroactive" in result.output
+
+
+@pytest.mark.parametrize("flag", ["--preview", "--dry-run"])
+def test_torch_preview_renders_real_ceremony_without_writes(flag):
+    agent_id = "ember-badger-0712"
+    calls = []
+
+    def request(method, endpoint, _base_url, request_agent, **kwargs):
+        assert request_agent == agent_id
+        calls.append((method, endpoint, kwargs))
+        assert method == "GET", "preview must not make any API write"
+        if endpoint == f"/roster/{agent_id}":
+            return {
+                "name": agent_id,
+                "status": "active",
+                "metadata": {"ignited_from": "brief-20260712-start"},
+            }
+        if endpoint == "/folios/brief-20260712-start":
+            return {
+                "folio_id": "brief-20260712-start",
+                "type": "brief",
+                "title": "Improve the torch ceremony",
+                "status": "open",
+            }
+        if endpoint == "/folios":
+            return [
+                {
+                    "folio_id": "finding-20260712-work",
+                    "type": "finding",
+                    "title": "Preview must share the real renderer",
+                    "created_by": agent_id,
+                }
+            ]
+        if endpoint == "/threads":
+            return []
+        raise AssertionError((method, endpoint, kwargs))
+
+    result = _invoke(["--agent", agent_id, "torch", flag], request)
+
+    assert result.exit_code == 0, result.output
+    assert "TORCH PREVIEW - Retirement Phase" in result.output
+    assert "Preview only: roster state will not be changed." in result.output
+    assert "Improve the torch ceremony [open] brief-20260712-start" in result.output
+    assert "findings: 1" in result.output
+    assert "Preview must share the real renderer finding-20260712-work" in result.output
+    assert "consider what should survive this session" in result.output
+    assert "Preview only: retirement has not been recorded." in result.output
+    assert f"skein --agent {agent_id} torch" in result.output
+    assert "skein complete" not in result.output
+    assert calls and all(method == "GET" for method, *_ in calls)
+
+
+@pytest.mark.parametrize("flag", ["--preview", "--dry-run"])
+def test_torch_preview_rejects_retroactive_before_requests_or_name_generation(flag):
+    def no_request(*_args, **_kwargs):
+        raise AssertionError("incompatible flags must fail before an API request")
+
+    with patch(
+        "client.cli._generate_suggested_name",
+        side_effect=AssertionError("must fail before generating a name"),
+    ):
+        result = _invoke(["torch", "--retroactive", flag], no_request)
+
+    assert result.exit_code != 0
+    assert "cannot be combined with --retroactive" in result.output
+    assert "skein torch --retroactive" in result.output
+
+
+def test_torch_help_lists_preview_and_dry_run_aliases():
+    result = CliRunner().invoke(cli, ["torch", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "--preview" in result.output
+    assert "--dry-run" in result.output
 
 
 def test_retroactive_torch_assigns_name_and_runs_normal_suggestions():
@@ -83,6 +169,7 @@ def test_retroactive_torch_assigns_name_and_runs_normal_suggestions():
     assert registrations[0][2] == "copper-owl-0712"
     assert registrations[0][3]["json"]["status"] == "retiring"
     assert "retroactive_torch_at" in registrations[0][3]["json"]["metadata"]
+    assert [call for call in calls if call[0] != "GET"] == registrations
 
 
 def test_normal_torch_shows_counts_titles_and_closed_ignition_brief():
@@ -142,6 +229,9 @@ def test_normal_torch_shows_counts_titles_and_closed_ignition_brief():
         for method, endpoint, kwargs in calls
     )
     assert not any(method == "POST" and endpoint == "/roster/register" for method, endpoint, _ in calls)
+    assert [
+        (method, endpoint) for method, endpoint, _ in calls if method != "GET"
+    ] == [("PATCH", f"/roster/{agent_id}")]
 
 
 def test_ignite_ready_torch_preserves_qualified_ignition_brief():

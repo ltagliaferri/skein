@@ -4687,32 +4687,48 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[dict]:
     is_flag=True,
     help="Close work done without ignite; assign a name and attribute folios at complete.",
 )
+@click.option(
+    "--preview",
+    "--dry-run",
+    "preview",
+    is_flag=True,
+    help="Show the torch ceremony without changing roster state.",
+)
 @click.pass_context
-def torch_start(ctx, retroactive):
+def torch_start(ctx, retroactive, preview):
     """
     Begin retirement - Prepare to torch.
 
     Usage:
         skein torch
         skein torch --retroactive
+        skein torch --preview
 
     After filing any remaining work:
         skein complete [FOLIO_ID...] [--summary "..."]
     """
-    _torch_start(ctx, retroactive=retroactive)
+    _torch_start(ctx, retroactive=retroactive, preview=preview)
 
 
-def _torch_start(ctx, retroactive=False):
+def _torch_start(ctx, retroactive=False, preview=False):
     """
     Begin retirement process - Prepare to torch.
 
     Usage:
         skein torch
         skein torch --retroactive
+        skein torch --preview
 
     After filing any remaining work:
         skein complete [--summary "..."]
     """
+    if preview and retroactive:
+        raise click.ClickException(
+            "--preview/--dry-run cannot be combined with --retroactive because "
+            "retroactive torch must register a recovered identity. Run "
+            "'skein torch --retroactive' when ready."
+        )
+
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
@@ -4773,7 +4789,7 @@ def _torch_start(ctx, retroactive=False):
 
     # Retroactive torch was registered directly as retiring above. Normal torch
     # patches the existing entry so ignition metadata and registered_at survive.
-    if not retroactive:
+    if not retroactive and not preview:
         try:
             make_request(
                 "PATCH",
@@ -4786,9 +4802,13 @@ def _torch_start(ctx, retroactive=False):
             pass  # Continue even if update fails (server might not support status)
 
     click.echo("=" * 60)
-    click.echo("TORCH - Retirement Phase")
+    heading = "TORCH PREVIEW - Retirement Phase" if preview else "TORCH - Retirement Phase"
+    click.echo(heading)
     click.echo("=" * 60)
     click.echo()
+    if preview:
+        click.echo("Preview only: roster state will not be changed.")
+        click.echo()
     click.echo(f"Name: {name}")
     if retroactive:
         click.echo("Session recovered: this work began without ignition.")
@@ -4930,15 +4950,23 @@ def _torch_start(ctx, retroactive=False):
     click.echo("Writing to SKEIN is optional. Preserve what matters; do not post merely")
     click.echo("to complete the ceremony.")
     click.echo()
-    click.echo("When done:")
-    click.echo()
-    if retroactive:
+    if preview:
+        click.echo("Preview only: retirement has not been recorded.")
+        click.echo()
+        click.echo("To begin retirement:")
+        click.echo()
+        click.echo(f"  skein --agent {agent_id} torch")
+    elif retroactive:
+        click.echo("When done:")
+        click.echo()
         click.echo("Pass every folio you authored, of any type, to complete:")
         click.echo()
         click.echo(f"  skein --agent {agent_id} complete FOLIO_ID...")
         click.echo()
         click.echo(f"You can include up to {MAX_RETROACTIVE_FOLIOS} folios.")
     else:
+        click.echo("When done:")
+        click.echo()
         click.echo("  skein complete")
     click.echo()
 

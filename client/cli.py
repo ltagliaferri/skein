@@ -4487,16 +4487,19 @@ def ready(ctx):
                 "Run 'skein ignite' to get a new agent assignment."
             )
 
-    # Update agent status from orienting to active
-    data = {
-        "agent_id": agent_id,
-        "name": agent_id,
-        "status": "active",
-        "metadata": {"ready_at": datetime.now().isoformat()},
-    }
-
+    # Patch rather than re-register: POST /roster/register replaces the roster
+    # record and would erase ignite metadata such as ignited_from and ignited_at.
     try:
-        make_request("POST", "/roster/register", base_url, agent_id, json=data)
+        make_request(
+            "PATCH",
+            f"/roster/{agent_id}",
+            base_url,
+            agent_id,
+            json={
+                "status": "active",
+                "metadata": {"ready_at": datetime.now().isoformat()},
+            },
+        )
     except Exception as e:
         raise click.ClickException(f"Failed to activate: {str(e)}")
 
@@ -4514,6 +4517,7 @@ def ready(ctx):
 
 
 MAX_RETROACTIVE_FOLIOS = 25
+MAX_CEREMONY_FOLIO_TITLES = 20
 FOLIO_SUMMARY_LABELS = {
     "issue": "issues",
     "friction": "frictions",
@@ -4536,6 +4540,48 @@ def _summarize_folios(folios: List[dict]) -> Dict[str, int]:
         label: sum(1 for folio in folios if folio.get("type") == folio_type)
         for folio_type, label in FOLIO_SUMMARY_LABELS.items()
     }
+
+
+def _folio_ceremony_line(folio: dict) -> str:
+    """Screen-reader-friendly title then folio ID for ceremony inventories."""
+    folio_id = folio.get("folio_id", "unknown-folio")
+    title = folio.get("title") or f"Untitled {folio.get('type', 'folio')}"
+    return f"  {title} {folio_id}"
+
+
+def _show_folio_inventory(heading: str, folios: List[dict]) -> None:
+    """Show titled folios without letting a large session swamp the ceremony."""
+    if not folios:
+        return
+    click.echo(heading)
+    for folio in folios[:MAX_CEREMONY_FOLIO_TITLES]:
+        click.echo(_folio_ceremony_line(folio))
+    remaining = len(folios) - MAX_CEREMONY_FOLIO_TITLES
+    if remaining > 0:
+        click.echo(f"  ...and {remaining} more")
+    click.echo()
+
+
+def _get_ignition_brief(base_url: str, agent_id: str, roster_data: dict):
+    """Load the brief this agent ignited from, whether open or closed."""
+    brief_id = roster_data.get("metadata", {}).get("ignited_from")
+    if not brief_id:
+        return None
+    try:
+        brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+    except Exception:
+        return None
+    return brief if brief.get("type") == "brief" else None
+
+
+def _show_ignition_brief(brief: Optional[dict]) -> None:
+    if not brief:
+        return
+    status = str(brief.get("status", "unknown")).lower()
+    title = brief.get("title") or "Untitled ignition brief"
+    click.echo("Ignition brief:")
+    click.echo(f"  {title} [{status}] {brief.get('folio_id', 'unknown-brief')}")
+    click.echo()
 
 
 def _get_latest_attributions(base_url: str, agent_id: str) -> Dict[str, str]:
@@ -4581,7 +4627,7 @@ def _get_session_folios(all_folios: List[dict], base_url: str, agent_id: str) ->
     return session_folios
 
 
-def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[str]:
+def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[dict]:
     """Attribute all named folios to ``agent_id`` after validating the batch."""
     unique_ids = list(dict.fromkeys(folio_ids))
     if not unique_ids:
@@ -4593,9 +4639,12 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[str]:
         )
 
     failures = []
+    folios = {}
     for folio_id in unique_ids:
         try:
-            make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+            folios[folio_id] = make_request(
+                "GET", f"/folios/{folio_id}", base_url, agent_id
+            )
         except Exception as e:
             failures.append((folio_id, str(e)))
 
@@ -4615,7 +4664,7 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[str]:
     attributed = []
     for folio_id in unique_ids:
         if current.get(folio_id) == agent_id:
-            attributed.append(folio_id)
+            attributed.append(folios[folio_id])
             continue
 
         thread_data = {
@@ -4627,7 +4676,7 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[str]:
         }
         make_request("POST", "/threads", base_url, agent_id, json=thread_data)
         current[folio_id] = agent_id
-        attributed.append(folio_id)
+        attributed.append(folios[folio_id])
 
     return attributed
 
@@ -4638,32 +4687,48 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[str]:
     is_flag=True,
     help="Close work done without ignite; assign a name and attribute folios at complete.",
 )
+@click.option(
+    "--preview",
+    "--dry-run",
+    "preview",
+    is_flag=True,
+    help="Show the torch ceremony without changing roster state.",
+)
 @click.pass_context
-def torch_start(ctx, retroactive):
+def torch_start(ctx, retroactive, preview):
     """
     Begin retirement - Prepare to torch.
 
     Usage:
         skein torch
         skein torch --retroactive
+        skein torch --preview
 
     After filing any remaining work:
         skein complete [FOLIO_ID...] [--summary "..."]
     """
-    _torch_start(ctx, retroactive=retroactive)
+    _torch_start(ctx, retroactive=retroactive, preview=preview)
 
 
-def _torch_start(ctx, retroactive=False):
+def _torch_start(ctx, retroactive=False, preview=False):
     """
     Begin retirement process - Prepare to torch.
 
     Usage:
         skein torch
         skein torch --retroactive
+        skein torch --preview
 
     After filing any remaining work:
         skein complete [--summary "..."]
     """
+    if preview and retroactive:
+        raise click.ClickException(
+            "--preview/--dry-run cannot be combined with --retroactive because "
+            "retroactive torch must register a recovered identity. Run "
+            "'skein torch --retroactive' when ready."
+        )
+
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
@@ -4693,6 +4758,7 @@ def _torch_start(ctx, retroactive=False):
             raise click.ClickException(
                 f"Could not register retroactive torch identity: {e}"
             )
+        roster_data = register_data
     else:
         try:
             roster_data = make_request(
@@ -4706,7 +4772,10 @@ def _torch_start(ctx, retroactive=False):
                 "  skein torch --retroactive"
             )
 
+    ignition_brief = _get_ignition_brief(base_url, agent_id, roster_data)
+
     # Get agent's SKEIN activity
+    agent_folios = []
     try:
         # Folios carry created_by, not "author"/"weaver" -- those keys never
         # existed on a folio, so this previously always matched zero folios.
@@ -4718,37 +4787,51 @@ def _torch_start(ctx, retroactive=False):
     except Exception:
         work_summary = {}
 
-    # Retroactive torch was registered directly as retiring above. Re-registering
-    # it here would replace its metadata and registration timestamp.
-    if not retroactive:
+    # Retroactive torch was registered directly as retiring above. Normal torch
+    # patches the existing entry so ignition metadata and registered_at survive.
+    if not retroactive and not preview:
         try:
-            update_data = {"agent_id": agent_id, "name": name, "status": "retiring"}
             make_request(
-                "POST", "/roster/register", base_url, agent_id, json=update_data
+                "PATCH",
+                f"/roster/{agent_id}",
+                base_url,
+                agent_id,
+                json={"status": "retiring"},
             )
         except Exception:
             pass  # Continue even if update fails (server might not support status)
 
     click.echo("=" * 60)
-    click.echo("TORCH - Retirement Phase")
+    heading = "TORCH PREVIEW - Retirement Phase" if preview else "TORCH - Retirement Phase"
+    click.echo(heading)
     click.echo("=" * 60)
     click.echo()
+    if preview:
+        click.echo("Preview only: roster state will not be changed.")
+        click.echo()
     click.echo(f"Name: {name}")
+    if retroactive:
+        click.echo("Session recovered: this work began without ignition.")
     click.echo()
+
+    _show_ignition_brief(ignition_brief)
 
     if work_summary:
         click.echo("Your SKEIN Activity:")
+        nonzero_work = False
         for folio_type, count in work_summary.items():
             if count > 0:
+                nonzero_work = True
                 click.echo(f"  {folio_type}: {count}")
+        if retroactive and not nonzero_work:
+            click.echo("  no folios attributed yet")
         click.echo()
+
+    _show_folio_inventory("Work from this session:", agent_folios)
 
     # Query agent's open work for visibility (work assigned TO them)
     open_issues = []
     open_frictions = []
-    ignited_from_brief = None
-    brief_is_open = False
-
     try:
         # Get assignment threads pointing to this agent
         all_threads = make_request("GET", "/threads", base_url, agent_id)
@@ -4784,31 +4867,12 @@ def _torch_start(ctx, retroactive=False):
                 f for f in open_frictions_all if f.get("folio_id") in assigned_folio_ids
             ]
 
-        # Check if agent was ignited from a brief and if it's still open
-        try:
-            roster_entry = make_request(
-                "GET", f"/roster/{agent_id}", base_url, agent_id
-            )
-            ignited_from = roster_entry.get("metadata", {}).get("ignited_from")
-            if ignited_from and ignited_from.startswith("brief-"):
-                # Get brief status
-                all_briefs = make_request(
-                    "GET", "/folios", base_url, agent_id, params={"type": "brief"}
-                )
-                brief = next(
-                    (b for b in all_briefs if b.get("folio_id") == ignited_from), None
-                )
-                if brief and brief.get("status") == "open":
-                    ignited_from_brief = brief
-                    brief_is_open = True
-        except Exception:
-            pass
     except Exception:
         # Continue even if we can't fetch open work
         pass
 
     # Display open work if any exists
-    if open_issues or open_frictions or brief_is_open:
+    if open_issues or open_frictions:
         click.echo("=" * 60)
         click.echo("YOUR OPEN WORK")
         click.echo("=" * 60)
@@ -4817,8 +4881,7 @@ def _torch_start(ctx, retroactive=False):
         if open_issues:
             click.echo("Issues assigned to you:")
             for issue in open_issues[:5]:
-                title = issue.get("title", "")[:50]
-                click.echo(f"  • {issue['folio_id']} - {title}")
+                click.echo(_folio_ceremony_line(issue))
             if len(open_issues) > 5:
                 click.echo(f"  ... and {len(open_issues) - 5} more")
             click.echo()
@@ -4826,47 +4889,84 @@ def _torch_start(ctx, retroactive=False):
         if open_frictions:
             click.echo("Frictions assigned to you:")
             for friction in open_frictions[:5]:
-                title = friction.get("title", "")[:50]
-                click.echo(f"  • {friction['folio_id']} - {title}")
+                click.echo(_folio_ceremony_line(friction))
             if len(open_frictions) > 5:
                 click.echo(f"  ... and {len(open_frictions) - 5} more")
             click.echo()
 
-        if brief_is_open and ignited_from_brief:
-            click.echo("Ignition brief:")
-            click.echo(f"  • {ignited_from_brief['folio_id']} [OPEN]")
-            click.echo()
-
-    click.echo("Before completing retirement, consider:")
+    click.echo("Before completing retirement, consider what should survive this session:")
     click.echo()
-    click.echo(
-        "  • Is there incomplete work? File brief(s) if someone should continue."
-    )
-    click.echo(
-        "  • Did you have larger ideas or patterns worth sharing? File notion(s)."
-    )
-    click.echo("  • Did you encounter friction or blockers? File friction(s).")
-    click.echo("  • Do you know of completed work that should be closed? Close it.")
+    click.echo("  • Is there a clear next collection of work, or were you asked for a")
+    click.echo("    handoff? If so, write one handoff brief. Create any missing unit")
+    click.echo("    briefs, thread the relevant briefs to the handoff, summarize the")
+    click.echo("    current state, and describe what the next session should do. If the")
+    click.echo("    work does not cohere into a next session, do not manufacture one.")
+    click.echo()
+    click.echo("  • Are there directions or units of work that should exist beyond this")
+    click.echo("    session? File briefs for them.")
+    click.echo()
+    click.echo("  • Did you uncover a larger idea, possibility, or pattern that is not yet")
+    click.echo("    a direction? File a notion.")
+    click.echo()
+    click.echo("  • Did you find a concrete problem that needs repair? File an issue.")
+    click.echo()
+    click.echo("  • Did the tools, documentation, or process create repeatable friction?")
+    click.echo("    File a friction.")
+    click.echo()
+    click.echo("  • Is any existing work now demonstrably complete? Close it.")
     click.echo()
     click.echo("Examples:")
-    click.echo("  skein close issue-20251112-757o --link summary-20251112-5lut")
+    click.echo("  Post a brief (--title is required):")
     click.echo(
-        '  skein close friction-20251109-1lfe --note "Fixed by refactoring imports"'
+        '    skein post brief SITE "Describe what the next session should do" '
+        '--title "Continue the work"'
+    )
+    click.echo("  Post a handoff brief from a file (--title is still required):")
+    click.echo(
+        '    skein post brief SITE - --title "Handoff: continue the work" < handoff.md'
+    )
+    click.echo("  Thread a relevant brief to the handoff:")
+    click.echo(
+        '    skein thread brief-RELEVANT brief-HANDOFF reference "Included in handoff"'
+    )
+    click.echo("  Record an idea that is not yet a direction:")
+    click.echo('    skein post notion SITE "A larger idea worth preserving"')
+    click.echo("  Record a concrete problem:")
+    click.echo(
+        '    skein post issue SITE "Concrete problem to repair" --content "What is broken"'
+    )
+    click.echo("  Record repeatable friction:")
+    click.echo(
+        '    skein post friction SITE "Repeatable slowdown" --details "Where it happens"'
+    )
+    click.echo("  Close completed work:")
+    click.echo(
+        "    skein close issue-20251112-757o --link summary-20251112-5lut"
+    )
+    click.echo(
+        '    skein close friction-20251109-1lfe --note "Fixed by refactoring imports"'
     )
     click.echo()
-    click.echo(
-        "Note: Writing to SKEIN is optional but encouraged. Don't post just to post."
-    )
+    click.echo("Writing to SKEIN is optional. Preserve what matters; do not post merely")
+    click.echo("to complete the ceremony.")
     click.echo()
-    click.echo("When done:")
-    click.echo()
-    if retroactive:
+    if preview:
+        click.echo("Preview only: retirement has not been recorded.")
+        click.echo()
+        click.echo("To begin retirement:")
+        click.echo()
+        click.echo(f"  skein --agent {agent_id} torch")
+    elif retroactive:
+        click.echo("When done:")
+        click.echo()
         click.echo("Pass every folio you authored, of any type, to complete:")
         click.echo()
         click.echo(f"  skein --agent {agent_id} complete FOLIO_ID...")
         click.echo()
         click.echo(f"You can include up to {MAX_RETROACTIVE_FOLIOS} folios.")
     else:
+        click.echo("When done:")
+        click.echo()
         click.echo("  skein complete")
     click.echo()
 
@@ -4913,12 +5013,13 @@ def complete(ctx, folio_ids, summary, yield_status, yield_outcome, yield_notes):
         name = roster_data.get("name", agent_id)
     except Exception:
         raise click.ClickException(f"Agent {agent_id} not found in roster")
+    ignition_brief = _get_ignition_brief(base_url, agent_id, roster_data)
 
     attributed = _attribute_folios(base_url, agent_id, folio_ids)
     if attributed:
         click.echo(f"Attributed {len(attributed)} folio(s) to {agent_id}:")
-        for folio_id in attributed:
-            click.echo(f"  {folio_id}")
+        for folio in attributed:
+            click.echo(_folio_ceremony_line(folio))
         click.echo()
 
     # Get final work summary using attribution when present.
@@ -5061,12 +5162,16 @@ def complete(ctx, folio_ids, summary, yield_status, yield_outcome, yield_notes):
     click.echo(f"✓ Retired: {name}")
     click.echo()
 
+    _show_ignition_brief(ignition_brief)
+
     if final_work:
         click.echo("Final Work Summary:")
         for folio_type, count in final_work.items():
             if count > 0:
                 click.echo(f"  {folio_type}: {count}")
         click.echo()
+
+    _show_folio_inventory("Left in SKEIN:", agent_folios)
 
     if summary_id:
         click.echo(f"✓ Summary posted: {summary_id}")

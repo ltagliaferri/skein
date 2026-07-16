@@ -104,17 +104,35 @@ def test_legacy_site_not_nameable_by_non_owner(instance):
     assert instance.store.get_slug_claim("specs") is None
 
 
-def test_legacy_site_nameable_by_steward(instance):
-    """The tier path stays reachable: a steward CAN name a legacy owner-None site."""
+def _legacy_site_slug_batch(instance):
     legacy_site = h.folio("site", "legacy site", "b", "2026-01-01T00:00:00+00:00")
     F = legacy_site["content_hash"]
     ingest(instance, wire.build_batch([legacy_site], []), require_signed=False)
-    instance.store.add_binding(I, ALICE, role="administrator",
-                               vouched_by_issuer=I, vouched_by_subject=I)
     batch = wire.build_batch([legacy_site], [], {F: "specs"})
     batch["manifest_signature"] = h.manifest_over([legacy_site], [])
+    return batch, F
+
+
+def test_legacy_site_nameable_by_administrator(instance):
+    """The OVERRIDE path stays reachable: an administrator CAN name a legacy owner-None
+    site. Naming an unowned lineage is the §6 admin/operator override — NOT a steward
+    power (see the steward case below), so this binds administrator deliberately."""
+    batch, F = _legacy_site_slug_batch(instance)
+    instance.store.add_binding(I, ALICE, role="administrator",
+                               vouched_by_issuer=I, vouched_by_subject=I)
     ingest(instance, batch, verifier=h.ok_verifier, require_signed=True)
     assert instance.store.get_slug_claim("specs")["anchor_hash"] == F
+
+
+def test_legacy_site_not_nameable_by_steward(instance):
+    """§6 scopes the slug override to administrator/operator ONLY — a steward may
+    moderate a lineage but may NOT seize its name. Pins the boundary so the override set
+    and _TIER_MAY_ACT are not silently conflated."""
+    batch, _F = _legacy_site_slug_batch(instance)
+    instance.store.add_binding(I, ALICE, role="steward",
+                               vouched_by_issuer=I, vouched_by_subject=I)
+    ingest(instance, batch, verifier=h.ok_verifier, require_signed=True)
+    assert instance.store.get_slug_claim("specs") is None
 
 
 # --- finding 3: OFF merge honest ack ----------------------------------------

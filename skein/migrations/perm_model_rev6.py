@@ -217,7 +217,7 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     # (and the partial-unique index would not catch a lone self-edge). Quarantine first.
     self_edges = conn.execute(
         """
-        SELECT thread_hash, from_id, to_id, created_at FROM threads
+        SELECT rowid, thread_hash, from_id, to_id, created_at FROM threads
          WHERE type='supersedes' AND from_id = to_id
         """
     ).fetchall()
@@ -232,7 +232,7 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     # guard class as station_store.unresolved_endpoints) so quarantine stays total.
     dangling = conn.execute(
         """
-        SELECT thread_hash, from_id, to_id, created_at FROM threads
+        SELECT rowid, thread_hash, from_id, to_id, created_at FROM threads
          WHERE type='supersedes'
            AND (to_id IS NULL
                 OR to_id NOT IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL))
@@ -251,7 +251,7 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     # from-end requires a HELD owned folio), so quarantine it.
     orphan = conn.execute(
         """
-        SELECT thread_hash, from_id, to_id, created_at FROM threads
+        SELECT rowid, thread_hash, from_id, to_id, created_at FROM threads
          WHERE type='supersedes'
            AND (from_id IS NULL
                 OR from_id NOT IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL))
@@ -275,7 +275,7 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     for from_id in merge_from_ids:
         parents = conn.execute(
             """
-            SELECT thread_hash, from_id, to_id, created_at FROM threads
+            SELECT rowid, thread_hash, from_id, to_id, created_at FROM threads
              WHERE type='supersedes' AND from_id=?
                AND to_id IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL)
              ORDER BY to_id
@@ -295,18 +295,20 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     cycles_broken = 0
     while True:
         edges = {
-            r[0]: (r[1], r[2], r[3])
+            r[0]: (r[1], r[2], r[3], r[4])
             for r in conn.execute(
-                "SELECT from_id, to_id, thread_hash, created_at FROM threads "
-                "WHERE type='supersedes'"
+                "SELECT from_id, to_id, rowid, thread_hash, created_at FROM threads "
+                "WHERE type='supersedes' AND from_id IS NOT NULL"
             ).fetchall()
-        }  # from_id -> (to_id, thread_hash, created_at); <=1 parent per from_id here
+        }  # from_id -> (to_id, rowid, thread_hash, created_at); <=1 parent per from_id
         loop = _find_cycle(edges)
         if not loop:
             break
         victim_from = sorted(loop)[0]
-        to_id, thread_hash, created_at = edges[victim_from]
-        _quarantine(conn, (thread_hash, victim_from, to_id, created_at), "cycle_edge", ts)
+        to_id, rowid, thread_hash, created_at = edges[victim_from]
+        _quarantine(
+            conn, (rowid, thread_hash, victim_from, to_id, created_at), "cycle_edge", ts
+        )
         quarantined += 1
         cycles_broken += 1
 
@@ -322,29 +324,50 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
 
 def _find_cycle(edges: Dict[str, Any]):
     """Return the node set of ONE cycle in the parent map (from_id -> (to_id, ...)), or
-    None. Each from_id has at most one parent here (merges are already quarantined), so a
-    plain walk with a seen-set finds any loop."""
+    None. Each from_id has at most one parent here (merges are already quarantined), so
+    the graph is functional and a walk with a seen-set finds any loop.
+
+    LINEAR (amortized): ``in_path`` is a SET (not a list scan), and ``settled`` memoizes
+    nodes already proven cycle-free ACROSS starts, so each edge is walked once. The naive
+    list-scan-per-start form is O(n^3) and would stall this migration for MINUTES on a
+    long revision chain while holding BEGIN IMMEDIATE — and it runs on every migration,
+    even when there are zero cycles."""
+    settled: set = set()  # nodes whose walk terminated with no cycle
     for start in edges:
-        seen: List[str] = []
+        if start in settled:
+            continue
+        path: List[str] = []
+        in_path: set = set()
         node = start
-        while node in edges:
-            if node in seen:
-                return set(seen[seen.index(node):])  # the loop itself
-            seen.append(node)
+        while node in edges and node not in settled:
+            if node in in_path:
+                return set(path[path.index(node):])  # exactly the loop, tail excluded
+            in_path.add(node)
+            path.append(node)
             node = edges[node][0]
+        settled.update(in_path)  # this whole walk reached a terminal / settled node
     return None
 
 
 def _quarantine(conn: sqlite3.Connection, row, reason: str, ts: str) -> None:
+    """Copy a supersedes row to quarantined_supersedes, then DELETE it by ROWID.
+
+    ``row`` is ``(rowid, thread_hash, from_id, to_id, created_at)``. Deleting by ROWID —
+    never by thread_hash — is load-bearing: SQLite permits NULL in a TEXT PRIMARY KEY, so
+    a corrupt row with a NULL thread_hash would match zero rows on a
+    ``WHERE thread_hash=?`` delete. That would (a) leave the row LIVE while this function
+    reports it quarantined (a pre-plant edge surviving a migration that claims to have
+    repaired it), and (b) make the cycle loop below spin FOREVER holding BEGIN IMMEDIATE,
+    because the cycle it re-queries never goes away. rowid always identifies the row."""
     conn.execute(
         """
         INSERT INTO quarantined_supersedes
             (thread_hash, from_id, to_id, created_at, quarantined_reason, quarantined_at)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (row[0], row[1], row[2], row[3], reason, ts),
+        (row[1], row[2], row[3], row[4], reason, ts),
     )
-    conn.execute("DELETE FROM threads WHERE thread_hash=?", (row[0],))
+    conn.execute("DELETE FROM threads WHERE rowid=?", (row[0],))
 
 
 def _now() -> str:

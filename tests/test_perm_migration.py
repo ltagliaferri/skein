@@ -241,6 +241,61 @@ def test_cycle_supersedes_broken(tmp_path):
     conn.close()
 
 
+def test_null_thread_hash_row_actually_removed(tmp_path):
+    """audit-cap r2: SQLite permits NULL in a TEXT PRIMARY KEY, so a DELETE keyed on
+    thread_hash removes ZERO rows for a NULL-hash row — which would leave it LIVE while
+    the report claims it quarantined, and make the cycle loop spin forever. Quarantine
+    deletes by ROWID, so the row genuinely goes."""
+    p = tmp_path / "old-nullhash.db"
+    _old_shape_db(p)
+    conn = sqlite3.connect(str(p))
+    # a NULL-thread_hash dangling row (unheld parent)
+    conn.execute("INSERT INTO threads VALUES (NULL,'9','nh-child','ghost','supersedes',NULL,'t',NULL)")
+    conn.commit()
+    conn.close()
+    migrate(p)
+    conn = sqlite3.connect(str(p))
+    live = conn.execute(
+        "SELECT COUNT(*) FROM threads WHERE type='supersedes' AND from_id='nh-child'"
+    ).fetchone()[0]
+    assert live == 0  # genuinely removed, not just reported
+    conn.close()
+
+
+def test_null_hash_cycle_terminates(tmp_path):
+    """audit-cap r2: a cycle whose victim edge has a NULL thread_hash must still be
+    broken — with a thread_hash-keyed DELETE the repair loop never terminates."""
+    p = tmp_path / "old-nullcycle.db"
+    _old_shape_db(p)
+    conn = sqlite3.connect(str(p))
+    conn.execute("INSERT INTO versions VALUES ('na','finding','t','b','t','t')")
+    conn.execute("INSERT INTO versions VALUES ('nb','finding','t','b','t','t')")
+    conn.execute("INSERT INTO threads VALUES (NULL,'9','na','nb','supersedes',NULL,'t',NULL)")
+    conn.execute("INSERT INTO threads VALUES ('t-nb','9','nb','na','supersedes',NULL,'t',NULL)")
+    conn.commit()
+    conn.close()
+    report = migrate(p)  # must TERMINATE
+    assert report["cycles_broken"] >= 1
+    conn = sqlite3.connect(str(p))
+    rows = dict(conn.execute(
+        "SELECT from_id, to_id FROM threads WHERE type='supersedes' AND from_id IN ('na','nb')"
+    ).fetchall())
+    assert not (rows.get("na") == "nb" and rows.get("nb") == "na")  # loop broken
+    conn.close()
+
+
+def test_find_cycle_is_linear_on_a_long_chain(tmp_path):
+    """audit-cap r2: _find_cycle ran O(n^3) (list scan per start, no memoization) — a
+    long revision chain stalled the migration for minutes under BEGIN IMMEDIATE. A
+    2000-node cycle-free chain must resolve fast."""
+    import time
+    from skein.migrations.perm_model_rev6 import _find_cycle
+    edges = {f"v{i}": (f"v{i+1}", i, f"h{i}", "t") for i in range(2000)}
+    start = time.monotonic()
+    assert _find_cycle(edges) is None
+    assert time.monotonic() - start < 2.0  # was ~28s at n=2000
+
+
 def test_noop_on_fresh_rev6_db(tmp_path):
     """A corpus born in the rev-6 shape migrates cleanly as a no-op."""
     p = tmp_path / "fresh.db"

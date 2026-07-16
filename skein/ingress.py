@@ -458,36 +458,40 @@ def ingest(
         # free-or-same-signer re-anchors; a different signer collides unless an admin/
         # operator overrides); signer-blind OFF is last-write-wins.
         for site_hash, slug in admitted_site_slugs.items():
-            # NAMING FOLLOWS OWNERSHIP (under ON): only the site folio's OWNER may claim
-            # its slug; an administrator/operator may override. Without this a signer who
-            # merely RE-PUBLISHES a legacy owner-None site's bytes would be recorded as
-            # its slug claimant — and could then same-signer re-anchor that name onto a
-            # lineage of their own. A legacy owner-None site is nameable only by a tier.
-            if require_signed and signer is not None and not (
-                slug_override or owns_folio(station.store, signer, site_hash)
-            ):
-                logger.debug(
-                    "slug %r for %s skipped: signer does not own the site folio",
-                    slug, site_hash,
-                )
-                continue
             # Per-item guard (mirrors the folio/thread loops): a single bad slug claim
-            # must never sink the batch or 500 the request. The savepoint isolates its
-            # writes so a failure rolls back only this claim; the except stops it from
-            # propagating to the outer transaction. The site folio stays stored, just
-            # unnamed.
+            # must never sink the batch or 500 the request. The savepoint isolates the
+            # write so a failure rolls back only this claim; the except stops it from
+            # propagating to the outer transaction. The site folio stays stored, unnamed.
             try:
+                try:
+                    anchor = lineage_genesis_for(station.store, site_hash).hash
+                except LineageReject as exc:
+                    # A malformed site lineage (merge/cycle) has no single genesis —
+                    # fall back to the folio's own hash rather than failing the batch.
+                    logger.debug(
+                        "slug %r: genesis for %s unresolvable (%s); anchoring at the folio",
+                        slug, site_hash, exc,
+                    )
+                    anchor = site_hash
+                # NAMING FOLLOWS OWNERSHIP OF THE ANCHOR (under ON). The claim is written
+                # against the GENESIS, so ownership must be checked on the GENESIS — not
+                # on the published folio. Checking the published folio would let a signer
+                # who owns only a NEW HEAD name someone else's lineage: holding just a
+                # supersede grant on Bob's site G, Alice publishes her own v2 +
+                # supersedes(v2 -> G) with a slug, owns v2, and is recorded as claimant of
+                # a name anchored on G — then same-signer re-anchors it onto her own
+                # lineage. A supersede grant is scoped to superseding (§3.2/§5.2); it does
+                # not confer naming. An administrator/operator may override (§6); a legacy
+                # owner-None genesis is nameable only through that override.
+                if require_signed and signer is not None and not (
+                    slug_override or owns_folio(station.store, signer, anchor)
+                ):
+                    logger.debug(
+                        "slug %r for %s skipped: signer does not own the anchor %s",
+                        slug, site_hash, anchor,
+                    )
+                    continue
                 with station.store.savepoint():
-                    try:
-                        anchor = lineage_genesis_for(station.store, site_hash).hash
-                    except LineageReject as exc:
-                        # A malformed site lineage (merge/cycle) has no single genesis —
-                        # fall back to the folio's own hash rather than failing the batch.
-                        logger.debug(
-                            "slug %r: genesis for %s unresolvable (%s); anchoring at the folio",
-                            slug, site_hash, exc,
-                        )
-                        anchor = site_hash
                     if require_signed and signer is not None:
                         station.store.claim_slug(
                             slug, anchor, signer.issuer, signer.subject,

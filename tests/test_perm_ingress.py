@@ -151,6 +151,26 @@ def test_ingress_slug_stays_genesis_anchored_across_supersession(instance):
     assert instance.store.folio_site_slug(member["content_hash"]) == "specs"
 
 
+def test_supersede_grantee_cannot_seize_the_name(instance):
+    """audit-cap r2 (HIGH): naming must follow ownership of the ANCHOR (the genesis the
+    claim keys on), not of the published folio. Alice holds ONLY a supersede grant on
+    Bob's site genesis; she publishes her own v2 + supersedes(v2 -> G) with a slug. She
+    owns v2 — but NOT G — so she must not be recorded as claimant of a name anchored on
+    Bob's lineage (from which she could same-signer re-anchor it onto her own)."""
+    _bind(instance)  # ALICE: bound originator, no tier
+    G = _seed_owned(instance, BOB, "bob site genesis", ftype="site")
+    instance.store.add_grant(G, I, ALICE, "supersede", I, ADMIN)  # supersede ONLY
+    v2 = h.folio("site", "alice v2", "b", "2026-02-01T00:00:00+00:00")
+    sup = _supersedes(v2["content_hash"], G)
+    batch = wire.build_batch([v2], [sup], {v2["content_hash"]: "specs"})
+    batch["manifest_signature"] = h.manifest_over([v2], [sup])
+    ack = ingest(instance, batch, verifier=h.ok_verifier, require_signed=True)
+    # the grant DOES authorize the supersede...
+    assert sup["thread_hash"] in ack["threads"]["accepted"]
+    # ...but it does NOT confer naming on Bob's lineage
+    assert instance.store.get_slug_claim("specs") is None
+
+
 def test_ingress_non_string_slug_value_rejected_not_500(instance):
     """fell-r5: a non-string site_slugs VALUE (list/dict — valid JSON) must be a clean
     shape rejection (400), never an uncaught sqlite ProgrammingError -> 500 per request

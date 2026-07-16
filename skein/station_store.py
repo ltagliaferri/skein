@@ -814,11 +814,23 @@ class StationStore:
             INSERT INTO station_slugs (slug, anchor_hash, claimed_by_issuer,
                                        claimed_by_subject, scope)
             VALUES (?, ?, NULL, NULL, NULL)
-            ON CONFLICT(slug) DO UPDATE SET anchor_hash = excluded.anchor_hash
+            ON CONFLICT(slug) DO UPDATE SET
+                anchor_hash = excluded.anchor_hash,
+                claimed_by_issuer = NULL,
+                claimed_by_subject = NULL
             """,
             (slug, content_hash),
         )
         self._maybe_commit()
+
+    def perm_schema_current(self) -> bool:
+        """Whether the corpus is on the rev-6 permission-model schema shape — detected by
+        the ``station_slugs.claimed_by_issuer`` column (the pair-claim rebuild). A False
+        result means a PRE-rev6 corpus that has not run perm_model_rev6.migrate(); the
+        ingress boot guard refuses to serve it (else claim_slug/set_slug fail at runtime
+        with a cryptic 'no such column')."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(station_slugs)")}
+        return "claimed_by_issuer" in cols
 
     def get_slug_claim(self, slug: str) -> Optional[Dict[str, Any]]:
         """The raw claim row for ``slug`` — ``{anchor_hash, claimed_by_issuer,

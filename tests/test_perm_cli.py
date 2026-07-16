@@ -110,10 +110,21 @@ def test_slug_override_repoints(tmp_path):
     _init_op(tmp_path)
     with _open(tmp_path) as st:
         st.store.claim_slug("specs", "sha256::" + "b" * 64, ISS, BOB)  # bob owns it
-    new_anchor = "sha256::" + "c" * 64
+        # the new anchor must name a HELD folio (the override guard refuses otherwise)
+        new_anchor = st.store.create_folio({
+            "type": "site", "title": "op site", "content": "b",
+            "created_at": "2026-07-16T00:00:00+00:00", "created_by": "op",
+        })
     r = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", new_anchor)
     assert r.exit_code == 0
     with _open(tmp_path) as st:
         claim = st.store.get_slug_claim("specs")
         assert claim["anchor_hash"] == new_anchor
         assert claim["claimed_by_subject"] == OP  # now the operator's
+
+
+def test_slug_override_refuses_unheld_anchor(tmp_path):
+    """fell-r3: an unheld anchor is refused — the slug would resolve to nothing."""
+    _init_op(tmp_path)
+    r = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", "sha256::" + "c" * 64)
+    assert r.exit_code != 0 and "not a held folio" in r.output

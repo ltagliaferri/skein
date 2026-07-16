@@ -12,7 +12,7 @@ from skein.authorization import Principal
 from skein.station_store import StationStore
 
 TS = "2026-07-16T00:00:00+00:00"
-I = "https://accounts.google.com"
+I = "https://accounts.google.com"  # noqa: E741 (matches the codebase issuer-constant convention)
 
 OWNER = Principal(I, "alice@example.com")
 BOB = Principal(I, "bob@example.com")

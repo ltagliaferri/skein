@@ -9,7 +9,7 @@ import pytest
 
 from skein.station_store import StationStore
 
-I = "https://accounts.google.com"
+I = "https://accounts.google.com"  # noqa: E741 (matches the codebase issuer-constant convention)
 ANCHOR = "sha256::" + "a" * 64
 ANCHOR2 = "sha256::" + "b" * 64
 GRANTEE = (I, "bob@example.com")

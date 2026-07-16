@@ -212,15 +212,30 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     ts = _now()
     quarantined = 0
 
-    # NOT IN is NULL-blind: a single NULL content_hash in versions (SQLite permits NULL
-    # in a TEXT PRIMARY KEY) makes `to_id NOT IN (...)` evaluate to NULL/false for EVERY
-    # row, silently returning no dangling rows. Exclude NULLs (same guard as
-    # station_store.unresolved_endpoints) so quarantine stays total on a legacy corpus.
+    # SELF-EDGE: from_id == to_id. A held self-edge is NOT dangling (its to_id is held),
+    # so the dangling query misses it, yet lineage_genesis_for rejects a self-edge forever
+    # (and the partial-unique index would not catch a lone self-edge). Quarantine first.
+    self_edges = conn.execute(
+        """
+        SELECT thread_hash, from_id, to_id, created_at FROM threads
+         WHERE type='supersedes' AND from_id = to_id
+        """
+    ).fetchall()
+    for r in self_edges:
+        _quarantine(conn, r, "self_edge", ts)
+        quarantined += 1
+
+    # DANGLING: a NULL to_id, or a to_id that is not a held version. NOT IN is NULL-blind
+    # (a single NULL content_hash in versions — SQLite permits NULL in a TEXT PRIMARY KEY
+    # — makes `to_id NOT IN (...)` evaluate to NULL/false for EVERY row); AND a NULL to_id
+    # on the ROW side is likewise never selected by NOT IN. Handle both explicitly (same
+    # guard class as station_store.unresolved_endpoints) so quarantine stays total.
     dangling = conn.execute(
         """
         SELECT thread_hash, from_id, to_id, created_at FROM threads
          WHERE type='supersedes'
-           AND to_id NOT IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL)
+           AND (to_id IS NULL
+                OR to_id NOT IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL))
         """
     ).fetchall()
     for r in dangling:
@@ -252,7 +267,12 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
             _quarantine(conn, r, "merge_extra_parent", ts)
             quarantined += 1
 
-    return {"quarantined": quarantined, "dangling": len(dangling), "merges": len(merge_from_ids)}
+    return {
+        "quarantined": quarantined,
+        "self_edges": len(self_edges),
+        "dangling": len(dangling),
+        "merges": len(merge_from_ids),
+    }
 
 
 def _quarantine(conn: sqlite3.Connection, row, reason: str, ts: str) -> None:
@@ -281,9 +301,11 @@ def migrate(db_path: Any) -> Dict[str, Any]:
     # isolation_level=None: full manual transaction control, so no DBAPI-implicit
     # BEGIN/COMMIT interferes with the single BEGIN IMMEDIATE below.
     conn = sqlite3.connect(str(db_path), isolation_level=None)
+    began = False
     try:
         conn.execute("PRAGMA foreign_keys=OFF")  # table rebuilds drop/recreate
         conn.execute("BEGIN IMMEDIATE")
+        began = True
         report: Dict[str, Any] = {}
         report["bindings_renamed"] = _migrate_bindings(conn)
         report["invites_renamed"] = _migrate_invites(conn)
@@ -297,7 +319,12 @@ def migrate(db_path: Any) -> Dict[str, Any]:
         conn.execute("COMMIT")
         return report
     except BaseException:
-        conn.execute("ROLLBACK")
+        # Only ROLLBACK if BEGIN IMMEDIATE actually opened a transaction — if the BEGIN
+        # itself failed (e.g. another writer holds the lock), there is no transaction to
+        # roll back and a blind ROLLBACK would raise "cannot rollback", masking the real
+        # (lock) error.
+        if began:
+            conn.execute("ROLLBACK")
         raise
     finally:
         conn.close()

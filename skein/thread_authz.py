@@ -456,10 +456,10 @@ def authorize_thread(
         # TO-end: fail-closed on a dangling target (§5.6), then the to-end right.
         if store.get_folio(to) is None:
             raise AuthzReject(f"affecting edge target {to} is not held")
-        genesis = _resolve_or_reject(store, to, pending_supersedes)
         if ttype == "within":
             # within.to_id MUST be the site GENESIS (reject a head-anchored within, so
             # auth/folio_site_slug/folios_in_site all key on the genesis, §5.2/§5.5).
+            genesis = _resolve_or_reject(store, to, pending_supersedes)
             if not genesis.resolved or genesis.hash != to:
                 raise AuthzReject(
                     f"within must anchor at the site genesis, not the head {to}"
@@ -483,14 +483,25 @@ def authorize_thread(
                 raise AuthzReject(
                     "supersedes would give the new version a second parent (merge)"
                 )
+            # Resolve the to-end genesis with THIS edge included in the pending set, so a
+            # supersedes that would CLOSE A CYCLE (e.g. co-batch A->B plus B->A) is
+            # detected and rejected here — before it is staged or stored, where it would
+            # poison a co-batch edge's genesis resolution (a cycle confused-deputy).
+            genesis = _resolve_or_reject(
+                store, to, list(_pending_pairs(pending_supersedes)) + [(frm, to)]
+            )
             if not may_act_on_lineage(store, signer, genesis, "supersede"):
                 raise AuthzReject(f"no edit access to {genesis.hash}; fork instead")
         return
 
     if klass is ThreadClass.POINTER:
-        # FROM-end ownership of a held folio origin; NO to-end right (a pointer carries
-        # no power on its target, so a dangling/remote to-end is allowed).
+        # FROM-end ownership of a held folio origin; NO to-end RIGHT (a pointer carries
+        # no power on its target). Both endpoints must still be content hashes — an ALIAS
+        # to-end is REJECTED (§5.1: no wire path writes aliases; else a signed pointer
+        # would resolve through the mutable aliases table to a target its signature never
+        # fixed). The to-end may be DANGLING (unheld) — only alias/slug shapes reject.
         _require_content_hash(frm, "from_id")
+        _require_content_hash(to, "to_id")
         if not owns_folio(store, signer, frm):
             raise AuthzReject(_FROM_OWN_REJECT)
         return
@@ -508,6 +519,15 @@ def authorize_thread(
                 raise AuthzReject(f"reverted head {frm} is not held")
             if store.get_folio(to) is None:
                 raise AuthzReject(f"reverted target {to} is not held")
+            # from_id must be the CURRENT HEAD — nothing supersedes it (§5.4). A revert
+            # runs from the head back to an ancestor; a revert from an already-superseded
+            # version is malformed.
+            if store.get_threads(to_id=frm, type="supersedes") or any(
+                t == frm for (f, t) in _pending_pairs(pending_supersedes)
+            ):
+                raise AuthzReject(
+                    f"reverted from_id {frm} is not the current head (it is superseded)"
+                )
             # to_id must be a reachable ANCESTOR of the head (from_id), not merely a
             # same-genesis sibling in a fork (§5.4).
             try:
@@ -549,6 +569,12 @@ def authorize_thread(
         if store.get_folio(frm) is None:
             raise AuthzReject(f"assignment source folio {frm} is not held")
         genesis = _resolve_or_reject(store, frm, pending_supersedes)
+        # from_id is the folio GENESIS (§5.1), not a head — so a genesis-keyed assignment
+        # reducer keys on the anchor the design mandates.
+        if genesis.hash != frm:
+            raise AuthzReject(
+                f"assignment from_id must be the lineage genesis, not the head {frm}"
+            )
         if not may_act_on_lineage(store, signer, genesis, "supersede"):
             raise AuthzReject(f"no assignment access to {genesis.hash}")
         return

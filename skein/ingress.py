@@ -555,6 +555,25 @@ def create_app() -> FastAPI:
         raise StationBootError(
             f"station corpus at {boot_db_path} is unopenable: {e}"
         ) from e
+    # PERM-MODEL SCHEMA GUARD: refuse to serve a PRE-rev6 corpus (one that has not run
+    # perm_model_rev6.migrate() — detected by the station_slugs claimed_by pair). Without
+    # this, the ingress boots but claim_slug/set_slug fail at runtime with a cryptic
+    # 'no such column: claimed_by_issuer', and 'author' bindings/invites are stranded
+    # (not in the wire-redeemable set). Fail LOUD with the exact remediation. Applies in
+    # BOTH postures (the slug write happens under OFF and ON).
+    try:
+        perm_current = station.store.perm_schema_current()
+    except sqlite3.Error as e:
+        raise StationBootError(
+            f"station corpus at {boot_db_path} is unreadable: {e}"
+        ) from e
+    if not perm_current:
+        station.close()
+        raise StationBootError(
+            f"station corpus at {boot_db_path} predates the rev-6 permission model; "
+            f"run 'python -m skein.migrations.perm_model_rev6 {boot_db_path}' before "
+            "starting the ingress"
+        )
     # STARTUP INVARIANT (the ingress only — the read app is EXEMPT, D17): under
     # require_signed the active operator count must be EXACTLY 1. Count 0 or >1
     # refuses boot. The operator is read from the account_bindings sidecar, the

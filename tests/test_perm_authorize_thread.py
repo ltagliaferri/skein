@@ -187,6 +187,24 @@ def test_pointer_dangling_target_allowed(store):
     _ok(store, OWNER, thread("reference", owned, "sha256::" + "e" * 64))  # unheld to-end OK
 
 
+def test_pointer_alias_target_rejected(store):
+    """fell-r3: a pointer to-end must be a content hash — an ALIAS/legacy-id to-end is
+    rejected on the signed path (§5.1), else it resolves through the mutable aliases
+    table to a target the signature never fixed."""
+    owned = signed_folio(store, OWNER, "owned")
+    reason = _reject(store, OWNER, thread("reference", owned, "finding-20260101-alias"))
+    assert "content hash" in reason
+
+
+def test_supersedes_cycle_rejected(store):
+    """fell-r3: a supersedes that would CLOSE A CYCLE (B->A when A->B is staged) is
+    rejected here, before it can be stored/staged and poison a co-batch edge's genesis."""
+    a = signed_folio(store, OWNER, "a")
+    b = signed_folio(store, OWNER, "b")
+    # A->B is staged; B->A would close the cycle
+    _reject(store, OWNER, thread("supersedes", b, a), pending=[(a, b)])
+
+
 # --- control: status / reverted / archive -----------------------------------
 
 
@@ -218,6 +236,19 @@ def test_reverted_cross_lineage_rejected(store):
     other = signed_folio(store, OWNER, "unrelated")  # different lineage
     reason = _reject(store, OWNER, thread("reverted", v2, other))
     assert "ancestor" in reason or "lineage" in reason
+
+
+def test_reverted_from_non_head_rejected(store):
+    """fell-r3: reverted's from_id must be the CURRENT HEAD (§5.4) — a revert from an
+    already-superseded version is malformed."""
+    g = signed_folio(store, OWNER, "v1")
+    v2 = signed_folio(store, OWNER, "v2")
+    v3 = signed_folio(store, OWNER, "v3")
+    supersede(store, v2, g)
+    supersede(store, v3, v2)  # v3 is the head; v2 is superseded
+    reason = _reject(store, OWNER, thread("reverted", v2, g))  # from a non-head
+    assert "head" in reason
+    _ok(store, OWNER, thread("reverted", v3, g))  # from the head, to an ancestor: fine
 
 
 def test_reverted_fork_sibling_rejected(store):
@@ -273,7 +304,6 @@ def test_pointer_from_a_thread_hash_rejected(store):
     """fell-r2: owns_folio requires a HELD FOLIO from-end — a thread hash the signer
     published must NOT satisfy a folio from-end (attribution is keyed by hash regardless
     of kind)."""
-    owned = signed_folio(store, OWNER, "owned")
     target = signed_folio(store, OWNER, "target")
     # attribute a THREAD hash to OWNER (as the ingress would for a published thread)
     fake_thread_hash = "sha256::" + "7" * 64
@@ -302,6 +332,18 @@ def test_assignment_nonprivileged_rejected(store):
 def test_assignment_owner_ok(store):
     doc = signed_folio(store, OWNER, "doc")
     _ok(store, OWNER, thread("assignment", doc, "burr-0715"))
+
+
+def test_assignment_from_non_genesis_head_rejected(store):
+    """fell-r3: assignment's from_id must be the lineage GENESIS (§5.1), not a head — a
+    genesis-keyed assignment reducer keys on the anchor the design mandates."""
+    g = signed_folio(store, OWNER, "v1")
+    v2 = signed_folio(store, OWNER, "v2")
+    supersede(store, v2, g)  # v2 is the head, g the genesis
+    bind(store, STEWARD, "steward")
+    reason = _reject(store, STEWARD, thread("assignment", v2, "burr-0715"))
+    assert "genesis" in reason
+    _ok(store, STEWARD, thread("assignment", g, "burr-0715"))  # from the genesis is fine
 
 
 # --- attribution ------------------------------------------------------------

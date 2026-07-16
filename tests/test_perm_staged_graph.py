@@ -12,8 +12,7 @@ import pytest
 
 from skein.thread_authz import AuthzReject, authorize_thread, authorized_staged_supersedes
 from tests.perm_helpers import (
-    BOB, OWNER, STEWARD,
-    bind, grant, make_store, signed_folio, supersede, thread,
+    BOB, OWNER, grant, make_store, signed_folio, thread,
 )
 
 
@@ -76,6 +75,21 @@ def test_authorized_supersede_steers_co_batch_within(store):
     with pytest.raises(AuthzReject):
         authorize_thread(store, OWNER, thread("within", member, site_v2), staged)
     authorize_thread(store, OWNER, thread("within", member, site_g), staged)
+
+
+def test_batch_cycle_does_not_poison_co_batch_status(store):
+    """fell-r3: a same-batch cycle A->B + B->A must not BOTH stage and then poison a
+    co-batch status with a spurious cycle at genesis resolution. Only the first edge
+    (A->B) stages, so B is the genesis; a co-batch status on the genesis B resolves
+    CLEANLY (no cycle LineageReject) — the bug was the status being rejected as an
+    unresolvable lineage even though neither cycle edge was truly authorized."""
+    a = signed_folio(store, OWNER, "a")
+    b = signed_folio(store, OWNER, "b")
+    batch = [thread("supersedes", a, b), thread("supersedes", b, a)]  # a cycle
+    staged = authorized_staged_supersedes(store, OWNER, batch)
+    assert staged == [(a, b)]  # only the first stages; the cycle-closer is rejected
+    # a co-batch status on the genesis B resolves cleanly over the acyclic staged set
+    authorize_thread(store, OWNER, thread("status", b, b), staged)
 
 
 def test_same_batch_merge_only_one_parent_stages(store):

@@ -16,7 +16,7 @@ from skein.station_store import StationStore
 from skein.thread_authz import Genesis, LineageReject, lineage_genesis_for
 
 
-I = "https://accounts.google.com"
+I = "https://accounts.google.com"  # noqa: E741 (matches the codebase issuer-constant convention)
 
 
 @pytest.fixture

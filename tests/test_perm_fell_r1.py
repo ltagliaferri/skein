@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import sqlite3
 
 import pytest
@@ -151,7 +150,7 @@ def test_migration_reruns_cleanly_after_failure(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         perm_model_rev6.migrate(p)
     monkeypatch.undo()  # remove the fault
-    report = perm_model_rev6.migrate(p)  # must not raise (no orphan invites_new etc.)
+    perm_model_rev6.migrate(p)  # must not raise (no orphan invites_new etc.)
     conn = sqlite3.connect(str(p))
     roles = {r[0] for r in conn.execute("SELECT role FROM account_bindings")}
     assert roles == {"operator", "originator"}

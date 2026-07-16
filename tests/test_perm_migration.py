@@ -156,6 +156,42 @@ def test_dangling_quarantine_survives_null_content_hash(tmp_path):
     conn.close()
 
 
+def test_self_edge_supersedes_quarantined(tmp_path):
+    """fell-r3: a self-edge supersedes A->A (which lineage_genesis_for rejects forever)
+    must be quarantined so its lineage stays resolvable."""
+    p = tmp_path / "old-self.db"
+    _old_shape_db(p)
+    conn = sqlite3.connect(str(p))
+    conn.execute("INSERT INTO threads VALUES ('t-self','9','cleankid','cleankid','supersedes',NULL,'t',NULL)")
+    conn.commit()
+    conn.close()
+    report = migrate(p)
+    conn = sqlite3.connect(str(p))
+    remaining = {r[0] for r in conn.execute("SELECT thread_hash FROM threads WHERE type='supersedes'")}
+    assert "t-self" not in remaining
+    q = {r[0] for r in conn.execute("SELECT thread_hash FROM quarantined_supersedes")}
+    assert "t-self" in q and report["self_edges"] == 1
+    conn.close()
+
+
+def test_null_to_id_supersedes_quarantined(tmp_path):
+    """fell-r3: a supersedes with a NULL to_id is dangling but NOT IN is NULL-blind on
+    the row side too — quarantine must still catch it so the <=1-parent index builds."""
+    p = tmp_path / "old-nullto.db"
+    _old_shape_db(p)
+    conn = sqlite3.connect(str(p))
+    conn.execute("INSERT INTO threads VALUES ('t-nullto','9','cleankid2',NULL,'supersedes',NULL,'t',NULL)")
+    conn.commit()
+    conn.close()
+    migrate(p)
+    conn = sqlite3.connect(str(p))
+    remaining = {r[0] for r in conn.execute("SELECT thread_hash FROM threads WHERE type='supersedes'")}
+    assert "t-nullto" not in remaining
+    q = {r[0] for r in conn.execute("SELECT thread_hash FROM quarantined_supersedes")}
+    assert "t-nullto" in q
+    conn.close()
+
+
 def test_noop_on_fresh_rev6_db(tmp_path):
     """A corpus born in the rev-6 shape migrates cleanly as a no-op."""
     p = tmp_path / "fresh.db"

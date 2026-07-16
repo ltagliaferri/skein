@@ -1029,10 +1029,23 @@ class LogDatabase:
         # is ever bypassed. NOT UNIQUE(to_id) — that would forbid a legitimate FORK
         # (two children sharing one parent). Station-only: the signed content-hash
         # graph lives here, not on the slug-keyed workbench threads table.
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_supersedes_one_parent "
-            "ON threads(from_id) WHERE type = 'supersedes'"
-        )
+        #
+        # On a FRESH corpus (empty threads) this always succeeds. On a PRE-rev6 corpus
+        # that still contains merges (>1 supersedes parent per from_id) it would raise —
+        # but the perm_model_rev6 migration quarantines those merges and then creates the
+        # index, and the ingress boot guard refuses to serve an unmigrated corpus. So a
+        # raise here is not fatal: skip (loudly) and let the migration build it.
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_supersedes_one_parent "
+                "ON threads(from_id) WHERE type = 'supersedes'"
+            )
+        except sqlite3.IntegrityError:
+            logger.warning(
+                "idx_threads_supersedes_one_parent not created: the corpus contains "
+                "pre-existing supersedes merges; run skein.migrations.perm_model_rev6 to "
+                "quarantine them and build the index."
+            )
 
     @contextmanager
     def _get_connection(self):

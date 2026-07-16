@@ -192,14 +192,15 @@ def account_init_operator(ctx: click.Context, issuer: str, subject: str) -> None
     "--role",
     default="originator",
     type=click.Choice(["originator", "administrator", "steward"]),
-    help="Tier to bind (default originator). administrator/steward are the "
-    "privileged LOCAL bind path — operator is init-operator/rotate-operator only.",
+    help="Tier to bind (default originator). administrator is the privileged LOCAL-only "
+    "bind (never wire-redeemable); operator is init-operator/rotate-operator only.",
 )
 @click.pass_context
 def account_add(ctx: click.Context, issuer: str, subject: str, role: str) -> None:
     """Add a binding at a tier (originator/administrator/steward), vouched for by the
-    active operator. administrator and steward are privileged LOCAL binds (never
-    wire-redeemable); operator is installed only via init-operator/rotate-operator."""
+    active operator. administrator is a privileged LOCAL-only bind (never wire-redeemable);
+    originator and steward may ALSO be onboarded over the wire via invites; operator is
+    installed only via init-operator/rotate-operator."""
     with _open_station(ctx) as st:
         op = st.store.get_operator()
         if op is None:
@@ -393,6 +394,13 @@ def slug_override(ctx: click.Context, slug: str, anchor: str) -> None:
         op = st.store.get_operator()
         if op is None:
             raise click.ClickException("no operator; run init-operator first")
+        # Refuse an anchor that names no held lineage — the slug would resolve to None
+        # (resolve_slug finds no head), so the "override" would silently break the name.
+        if st.store.get_folio(anchor) is None:
+            raise click.ClickException(
+                f"anchor {anchor} is not a held folio on this station; "
+                "the slug would resolve to nothing"
+            )
         status = st.store.claim_slug(slug, anchor, op.issuer, op.subject, override=True)
     click.echo(f"slug {slug} -> {anchor} ({status})")
 

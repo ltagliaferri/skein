@@ -330,8 +330,14 @@ def _proof_signer(store, content_hash: str) -> Optional[Tuple[str, str]]:
 
 def owns_folio(store, signer: Principal, folio_hash: str) -> bool:
     """FROM-end ownership (PURE — NEVER grant-satisfiable): ``signer`` is the covering-
-    manifest signer of the ``folio_hash`` folio ITSELF (its own attribution). An unheld
-    or unsigned folio origin FAILS CLOSED (§5.1/§5.6 anti-forgery, anti-pre-plant)."""
+    manifest signer of the ``folio_hash`` FOLIO ITSELF (its own attribution), AND that
+    hash is a HELD folio (present in ``versions``, not a thread hash or an unheld id).
+    An unheld or unsigned folio origin FAILS CLOSED (§5.1/§5.6 anti-forgery,
+    anti-pre-plant). The held-folio check keeps a thread_hash the signer happens to have
+    published from satisfying a folio from-end (attribution is keyed by hash regardless
+    of kind — fell-r2)."""
+    if store.get_folio(folio_hash) is None:
+        return False
     owner = _proof_signer(store, folio_hash)
     return owner is not None and owner == (signer.issuer, signer.subject)
 
@@ -515,21 +521,22 @@ def authorize_thread(
                     f"reverted target {to} is not a reachable ancestor of the head {frm}"
                 )
             genesis = _resolve_or_reject(store, frm, pending_supersedes)
-        elif ttype == "status":
-            # status is a self-loop from=to=genesis (§5.4): reject a non-self-loop, which
-            # also rejects any agent-origin from_id.
+        else:  # status, archive — a self-loop ANCHORED AT THE GENESIS (§5.4)
+            # Both are from=to=genesis self-loops (the workbench _genesis_key_control
+            # writes them so, and verify_threads_control flags a non-self-loop as
+            # invariant I2). Enforce the FULL shape: from==to (rejects any agent-origin
+            # from_id) AND the self-loop is on the lineage GENESIS (rejects a self-loop
+            # on a non-genesis head), so control state stays single-valued per lineage.
             if frm != to:
-                raise AuthzReject("status must be a self-loop (from_id == to_id)")
+                raise AuthzReject(f"{ttype} must be a self-loop (from_id == to_id)")
             _require_content_hash(to, "to_id")
             if store.get_folio(to) is None:
                 raise AuthzReject(f"control target {to} is not held")
             genesis = _resolve_or_reject(store, to, pending_supersedes)
-        else:  # archive (inert control) — the to-end names the controlled lineage
-            _require_content_hash(frm, "from_id")
-            _require_content_hash(to, "to_id")
-            if store.get_folio(to) is None:
-                raise AuthzReject(f"control target {to} is not held")
-            genesis = _resolve_or_reject(store, to, pending_supersedes)
+            if genesis.hash != to:
+                raise AuthzReject(
+                    f"{ttype} must anchor at the lineage genesis, not the head {to}"
+                )
         if not may_act_on_lineage(store, signer, genesis, "supersede"):
             raise AuthzReject(f"no moderation access to {genesis.hash}")
         return

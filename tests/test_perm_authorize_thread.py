@@ -12,7 +12,7 @@ import pytest
 from skein.thread_authz import AuthzReject, authorize_thread
 from tests.perm_helpers import (
     ADMIN, BOB, OWNER, STEWARD,
-    bind, grant, make_store, signed_folio, supersede, thread,
+    bind, grant, make_store, sign, signed_folio, supersede, thread,
 )
 
 
@@ -243,6 +243,43 @@ def test_status_agent_origin_rejected(store):
     assert "self-loop" in reason
     # the proper self-loop by the owner is accepted
     _ok(store, OWNER, thread("status", g, g))
+
+
+def test_status_on_non_genesis_head_rejected(store):
+    """fell-r2: status must anchor at the GENESIS, not a non-genesis head — a self-loop
+    on a superseding version is rejected so control state stays single-valued."""
+    g = signed_folio(store, OWNER, "v1")
+    v2 = signed_folio(store, OWNER, "v2")
+    supersede(store, v2, g)  # v2 is a head, g is the genesis
+    reason = _reject(store, OWNER, thread("status", v2, v2))  # self-loop on the head
+    assert "genesis" in reason
+    _ok(store, OWNER, thread("status", g, g))  # self-loop on the genesis is fine
+
+
+def test_archive_self_loop_on_genesis_enforced(store):
+    """fell-r2: archive is a self-loop on the genesis like status — a two-folio archive,
+    an agent-origin from_id, and a self-loop on a non-genesis head all reject."""
+    g = signed_folio(store, OWNER, "v1")
+    v2 = signed_folio(store, OWNER, "v2")
+    supersede(store, v2, g)
+    bind(store, STEWARD, "steward")
+    assert "self-loop" in _reject(store, STEWARD, thread("archive", g, v2))       # from!=to
+    assert "self-loop" in _reject(store, STEWARD, thread("archive", "burr-0715", g))  # agent origin
+    assert "genesis" in _reject(store, STEWARD, thread("archive", v2, v2))        # on the head
+    _ok(store, STEWARD, thread("archive", g, g))  # self-loop on the genesis is fine
+
+
+def test_pointer_from_a_thread_hash_rejected(store):
+    """fell-r2: owns_folio requires a HELD FOLIO from-end — a thread hash the signer
+    published must NOT satisfy a folio from-end (attribution is keyed by hash regardless
+    of kind)."""
+    owned = signed_folio(store, OWNER, "owned")
+    target = signed_folio(store, OWNER, "target")
+    # attribute a THREAD hash to OWNER (as the ingress would for a published thread)
+    fake_thread_hash = "sha256::" + "7" * 64
+    sign(store, fake_thread_hash, OWNER, kind="thread")
+    reason = _reject(store, OWNER, thread("reference", fake_thread_hash, target))
+    assert reason == "cannot originate from a folio you do not hold"
 
 
 # --- assignment -------------------------------------------------------------

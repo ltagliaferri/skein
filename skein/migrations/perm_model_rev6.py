@@ -212,11 +212,15 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     ts = _now()
     quarantined = 0
 
+    # NOT IN is NULL-blind: a single NULL content_hash in versions (SQLite permits NULL
+    # in a TEXT PRIMARY KEY) makes `to_id NOT IN (...)` evaluate to NULL/false for EVERY
+    # row, silently returning no dangling rows. Exclude NULLs (same guard as
+    # station_store.unresolved_endpoints) so quarantine stays total on a legacy corpus.
     dangling = conn.execute(
         """
         SELECT thread_hash, from_id, to_id, created_at FROM threads
          WHERE type='supersedes'
-           AND to_id NOT IN (SELECT content_hash FROM versions)
+           AND to_id NOT IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL)
         """
     ).fetchall()
     for r in dangling:
@@ -229,7 +233,7 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
             """
             SELECT from_id FROM threads
              WHERE type='supersedes'
-               AND to_id IN (SELECT content_hash FROM versions)
+               AND to_id IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL)
              GROUP BY from_id HAVING COUNT(*) > 1
             """
         ).fetchall()
@@ -239,7 +243,7 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
             """
             SELECT thread_hash, from_id, to_id, created_at FROM threads
              WHERE type='supersedes' AND from_id=?
-               AND to_id IN (SELECT content_hash FROM versions)
+               AND to_id IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL)
              ORDER BY to_id
             """,
             (from_id,),

@@ -135,6 +135,27 @@ def test_idempotent_second_run(old_db):
     assert report2["quarantined"] == 0
 
 
+def test_dangling_quarantine_survives_null_content_hash(tmp_path):
+    """fell-r2: a NULL versions.content_hash must not make the NOT-IN dangling query
+    miss real dangling rows (SQL three-valued logic). SQLite permits NULL in a TEXT
+    PRIMARY KEY, so a legacy/corrupt corpus can carry one."""
+    p = tmp_path / "old-null.db"
+    _old_shape_db(p)
+    conn = sqlite3.connect(str(p))
+    # a corrupt legacy row with a NULL content_hash
+    conn.execute("INSERT INTO versions VALUES (NULL,'finding','t','b','t','t')")
+    conn.commit()
+    conn.close()
+    migrate(p)
+    conn = sqlite3.connect(str(p))
+    # t-dang (v2 -> ghost, ghost unheld) is still quarantined despite the NULL row
+    remaining = {r[0] for r in conn.execute("SELECT thread_hash FROM threads WHERE type='supersedes'")}
+    assert "t-dang" not in remaining
+    q = {r[0] for r in conn.execute("SELECT thread_hash FROM quarantined_supersedes")}
+    assert "t-dang" in q
+    conn.close()
+
+
 def test_noop_on_fresh_rev6_db(tmp_path):
     """A corpus born in the rev-6 shape migrates cleanly as a no-op."""
     p = tmp_path / "fresh.db"

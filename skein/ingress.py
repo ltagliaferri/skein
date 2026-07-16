@@ -45,8 +45,14 @@ from .station import Station, StationBootError
 from . import canon, wire
 from . import sign as _sign
 from . import redeem as _redeem
-from .authorization import default_bindings
+from .authorization import Principal, default_bindings
 from .identity import content_hash_for_bytes
+from .thread_authz import (
+    AuthzReject,
+    LineageReject,
+    authorize_thread,
+    authorized_staged_supersedes,
+)
 from .station_env import StationEnvError, station_env
 from .station_store import DB_FILENAME, bundle_hash_for, sqlite_error_is_lock
 
@@ -182,20 +188,14 @@ def ingest(
             batch["manifest_signature"], verifier
         )
 
-    # Bind the verified manifest signer ONCE (only under ON, only when verified) —
-    # a single get_binding for the whole batch (RS8). NEVER memoized from stored
-    # manifests/attribution rows (the re-gating pin, C40): a revocation between
-    # publishes flips the verdict on the next ingest.
+    # The verified manifest signer's binding is read ONCE for the whole batch (RS8),
+    # LIVE inside the ingest BEGIN IMMEDIATE (below), never here pre-transaction: the
+    # single get_binding is the re-gating pin C40 / §8, so a revocation that commits
+    # before the write lock flips the verdict on THIS ingest, not the next. These are
+    # initialized here only so manifest_decision (a closure over them) has values to
+    # read; the authoritative assignment happens live in the transaction.
     m_bound = False
     m_bind_reason: Optional[str] = None
-    if has_manifest and m_verified and require_signed:
-        binding = bindings.get_binding(m_identity["issuer"], m_identity["subject"])
-        if binding is None:
-            m_bind_reason = "unbound signer"
-        elif binding.revoked_at is not None:
-            m_bind_reason = "revoked binding"
-        else:
-            m_bound = True
 
     # Manifest context for the attribution writes (only meaningful when verified).
     mctx: Optional[Dict[str, Any]] = None
@@ -253,6 +253,33 @@ def ingest(
     site_slugs: Dict[str, str] = batch.get("site_slugs") or {}
 
     with station.store.transaction():
+        # RE-READ the signer's binding LIVE inside BEGIN IMMEDIATE (§8, C40): the
+        # pre-transaction m_bound (ingress.py, computed at :191) is a PRE-FILTER only.
+        # A revocation that commits between that read and this lock must flip the
+        # verdict, so a revoked signer's tiered writes are never admitted in the
+        # window. Reassigning m_bound/m_bind_reason here updates what manifest_decision
+        # (a closure over them) sees at call time. `signer` is the Principal the thread
+        # authorization gates on; it is set ONLY when the live binding is active.
+        signer: Optional[Principal] = None
+        live = None
+        if require_signed and has_manifest and m_verified:
+            live = bindings.get_binding(m_identity["issuer"], m_identity["subject"])
+            if live is None:
+                m_bound, m_bind_reason = False, "unbound signer"
+            elif live.revoked_at is not None:
+                m_bound, m_bind_reason = False, "revoked binding"
+            else:
+                m_bound, m_bind_reason = True, None
+                signer = Principal(m_identity["issuer"], m_identity["subject"])
+        # Whether the live signer holds a tier that may OVERRIDE a slug collision
+        # (an administrator/operator re-point, §6). Read from the same live binding.
+        slug_override = bool(
+            require_signed
+            and signer is not None
+            and live is not None
+            and live.role in ("operator", "administrator")
+        )
+
         for wf in batch.get("folios", []):
             claimed = wf.get("content_hash")
             reason = wire.folio_reject_reason(wf)
@@ -273,10 +300,20 @@ def ingest(
                         accepted.append(claimed)
                     if require_signed:
                         write_attribution(claimed, "folio")
-                    # A site folio's slug is gated TRANSITIVELY: this set_slug is
-                    # only reached for an admitted site folio (Q2/RS18).
+                    # A site folio's slug is gated TRANSITIVELY: this claim is only
+                    # reached for an admitted site folio (Q2/RS18). Under ON the claim is
+                    # keyed on the signer PAIR (§3.3/§6): free-or-same-signer re-anchors,
+                    # a DIFFERENT signer COLLIDES (the existing claim stands; the folio is
+                    # still stored, just not renamed) unless an administrator/operator
+                    # overrides. Signer-blind OFF keeps the last-write-wins set_slug.
                     if wf.get("type") == "site" and claimed in site_slugs:
-                        station.store.set_slug(site_slugs[claimed], claimed)
+                        if require_signed and signer is not None:
+                            station.store.claim_slug(
+                                site_slugs[claimed], claimed,
+                                signer.issuer, signer.subject, override=slug_override,
+                            )
+                        else:
+                            station.store.set_slug(site_slugs[claimed], claimed)
             except Exception as exc:  # noqa: BLE001 — one bad item never 500s the batch
                 logger.debug("folio %s rolled back: %s", claimed, exc)
                 if claimed in accepted:
@@ -289,6 +326,26 @@ def ingest(
         thread_existing: List[str] = []
         thread_rejected: List[Dict[str, str]] = []
         thread_dangling: List[str] = []
+
+        # The STAGED FINAL GRAPH (§8): the fixpoint of AUTHORIZED same-batch supersedes.
+        # Built AFTER the folio loop (so same-batch new-version folios and their
+        # attributions are landed and ownership resolves) and BEFORE the thread loop (so
+        # every affecting edge's genesis resolves over the batch's pending supersedes).
+        # A rejected supersedes never enters it (knuth F2). Only membership-valid signed
+        # supersedes are candidates.
+        staged_supersedes: List[Tuple[str, str]] = []
+        if require_signed and m_verified and m_bound and signer is not None:
+            batch_supersedes = []
+            for wt in batch.get("threads", []):
+                if wt.get("type") != "supersedes":
+                    continue
+                if wire.thread_reject_reason(wt):
+                    continue
+                if manifest_decision(wt.get("thread_hash"))[0]:
+                    batch_supersedes.append(wt)
+            staged_supersedes = authorized_staged_supersedes(
+                station.store, signer, batch_supersedes
+            )
 
         def present(endpoint: Any) -> bool:
             # On the instance iff it exists in the store — either landed in this
@@ -324,6 +381,20 @@ def ingest(
                 admit, mreason = manifest_decision(claimed)
                 if not admit:
                     thread_rejected.append({"thread_hash": claimed, "reason": mreason})
+                    continue
+                # BY-ENDS AUTHORIZATION (§5.1): a signed manifest leaf is necessary but
+                # not sufficient — the signer must be authorized to ORIGINATE this typed
+                # edge given its endpoints. Resolved over the staged final graph, with
+                # tier + grants read LIVE (inside this BEGIN IMMEDIATE). Fail-closed:
+                # AuthzReject/LineageReject reject this one edge with its wire reason,
+                # never a 500 and never the sibling edges.
+                try:
+                    authorize_thread(station.store, signer, wt, staged_supersedes)
+                except (AuthzReject, LineageReject) as exc:
+                    thread_rejected.append(
+                        {"thread_hash": claimed,
+                         "reason": getattr(exc, "reason", str(exc))}
+                    )
                     continue
             try:
                 with station.store.savepoint():

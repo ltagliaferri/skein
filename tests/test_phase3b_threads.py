@@ -782,24 +782,28 @@ class TestTypeSetInvariants:  # fell:phase3b-impl:r5 (opus + codex) — cross-mo
         assert g | v == set(m.STRUCTURAL_TYPES) and g.isdisjoint(v)
 
     def test_within_published_deferred_from_threadtype_enum(self):
-        # fell:phase3b-impl:r5:within-published-deferred (codex) — within/published are
+        # fell:phase3b-impl:r5:within-published-deferred (codex) — within/published were
         # named ahead in the 3b classifier/manifest/display constants "so the rule is
-        # complete" (§9 #2), but their ThreadType enum add is DEFERRED to first use
-        # (with write paths + exact anchor). That deferral is the GATE that keeps 0 such
-        # rows: the Thread model rejects them, so none can be created via any app path,
-        # so the display reader (which cannot instantiate one) never encounters one.
-        # Adding `published` to the enum early would be UNSAFE — a slug-keyed published
-        # posted via POST /threads stays slug-keyed across the swap (version-anchored ->
-        # not re-anchored) and the verifier then blocks it as dangling. If a future
-        # feature adds either to ThreadType, this tripwire fires: also wire its write
-        # path + get_threads_display coverage so a stored row stays displayable.
+        # complete" (§9 #2), with their ThreadType enum add DEFERRED to first use (write
+        # path + exact anchor + reader coverage landing together).
+        #
+        # rev 6 (brief-20260716-u73x §5.1): `within` NOW ENTERS ThreadType — its write
+        # path (the by-ends authorization at ingress, thread_authz.authorize_thread) and
+        # reader coverage (station folios_in_site + the CLASS_B genesis-anchored
+        # get_threads_display re-anchor) land together, exactly the gate this test
+        # guards. `published` stays OUT: it is a version-anchored local-ledger edge that
+        # never travels (wire-REJECTed) — adding it early would leave a slug-keyed
+        # published posted via POST /threads dangling across the pk swap. This tripwire
+        # still fires for ANY unexpected further addition: wire its write path +
+        # get_threads_display coverage before it enters the enum.
         from typing import get_args
         from skein.models import ThreadType
         enum = set(get_args(ThreadType))
-        assert "within" not in enum and "published" not in enum, (
-            "within/published must stay OUT of ThreadType until their write path + "
-            "reader coverage land together (§9 #2)")
-        m = _load_pk_migration()  # ...but they ARE named ahead in the structural rule
+        assert "within" in enum, "rev 6 adds within to ThreadType (write path + reader coverage landed)"
+        assert "published" not in enum, (
+            "published must stay OUT of ThreadType (version-anchored local-ledger edge, "
+            "wire-rejected — no travelling write path)")
+        m = _load_pk_migration()  # both remain named ahead in the structural rule
         assert "within" in m.STRUCTURAL_TYPES and "published" in m.STRUCTURAL_TYPES
 
 

@@ -71,7 +71,7 @@ def _finding_hash(batch):
     return next(f["content_hash"] for f in batch["folios"] if f["type"] == "finding")
 
 
-def _bind(instance, issuer=I, subject=ALICE, role="author"):
+def _bind(instance, issuer=I, subject=ALICE, role="originator"):
     instance.store.add_binding(issuer, subject, role=role,
                                vouched_by_issuer=issuer, vouched_by_subject=subject)
 
@@ -361,7 +361,7 @@ def test_cross_instance_replay_contained(tmp_path):  # C42
     bindings are per-instance."""
     batch = _signed_batch()
     a = Station(tmp_path / "A" / ".skein-next")
-    a.store.add_binding(I, ALICE, role="author")
+    a.store.add_binding(I, ALICE, role="originator")
     ackA = ingest(a, copy.deepcopy(batch), verifier=_ok_verifier, require_signed=True)
     assert len(ackA["accepted"]) == 2
     a.close()
@@ -500,9 +500,12 @@ def test_on_malformed_manifest_rejects_all(instance):  # FIX 2 (a)
     assert instance.store.count_folios() == 0
 
 
-def test_on_thread_only_manifest_dangling_ok(instance):  # FIX 2 (b)
-    """A valid manifest covering only the thread accepts it as dangling; the
-    uncovered folios reject 'not in manifest'."""
+def test_on_thread_only_manifest_dangling_affecting_rejected(instance):  # FIX 2(b) + rev6 §5.6
+    """A manifest covering ONLY the within thread: the uncovered folios reject 'not in
+    manifest', and the within (an AFFECTING edge) now FAILS CLOSED because its endpoints
+    are unheld — the by-ends rule rejects an origin-owned edge whose folio from_id is
+    not held (anti-pre-plant, §5.6), superseding the old accept-and-flag for affecting
+    edges. (Dangling stays allowed only for pointer edges, which carry no to-end power.)"""
     _bind(instance)
     folios, threads, slugs = h.specs_set()
     batch = wire.build_batch(folios, threads, slugs)
@@ -511,9 +514,9 @@ def test_on_thread_only_manifest_dangling_ok(instance):  # FIX 2 (b)
     batch["manifest_signature"] = sign_mod.sign_manifest([thread_hash], h.make_signer())
     ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
     assert ack["rejected"] and all(r["reason"] == "not in manifest" for r in ack["rejected"])
-    assert thread_hash in ack["threads"]["dangling"]
-    assert thread_hash in ack["threads"]["accepted"]
-    assert not ack["threads"]["rejected"]
+    assert not ack["threads"]["accepted"]
+    assert ack["threads"]["rejected"] and ack["threads"]["rejected"][0]["thread_hash"] == thread_hash
+    assert ack["threads"]["rejected"][0]["reason"] == "cannot originate from a folio you do not hold"
     assert instance.store.count_folios() == 0
 
 

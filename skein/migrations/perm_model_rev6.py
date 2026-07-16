@@ -1,0 +1,294 @@
+"""One-shot migration for the permission model (rev 6, brief-20260716-u73x).
+
+Transforms a PRE-rev6 station corpus to the rev-6 shape, IDEMPOTENTLY (safe to re-run,
+and a no-op on a corpus already born in the rev-6 shape by ``_init_station_schema``):
+
+  1. account_bindings.role : rename 'author' -> 'originator'; add the tier CHECK
+     (rebuild — SQLite cannot ALTER a CHECK onto an existing column).
+  2. invites.role          : same rename + CHECK (an outstanding 'author' invite would
+     otherwise become unredeemable under the new wire-redeemable set).
+  3. station_slugs         : replace the single claimed_by column with the
+     claimed_by_issuer + claimed_by_subject PAIR (old claimed_by was always NULL).
+  4. document_grants + grant_events : create if absent.
+  5. supersedes repair     : QUARANTINE pre-existing DANGLING (unheld-parent) and
+     MULTI-PARENT (merge) supersedes rows, so a signed chain never has a gap and the
+     <=1-parent partial-unique index can be created (§4/§5.3). Quarantined rows are
+     PRESERVED in quarantined_supersedes (audited, never silently dropped).
+  6. idx_threads_supersedes_one_parent : create the partial-unique index (after 5).
+
+Runs the whole transform in ONE transaction: either the corpus is fully migrated or
+untouched. Returns a report dict (counts) for the operator runbook.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+_ROLE_CHECK = (
+    "CHECK (role IN ('operator', 'administrator', 'steward', 'originator'))"
+)
+
+
+def _table_sql(conn: sqlite3.Connection, table: str) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return row[0] if row and row[0] else ""
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> List[str]:
+    return [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+
+
+def _migrate_bindings(conn: sqlite3.Connection) -> int:
+    """Rename author->originator and add the CHECK (rebuild if the CHECK is absent).
+    Returns the number of rows renamed."""
+    renamed = conn.execute(
+        "UPDATE account_bindings SET role='originator' WHERE role='author'"
+    ).rowcount
+    if "CHECK" in _table_sql(conn, "account_bindings").upper():
+        return renamed  # already rev-6 shape
+    conn.executescript(
+        f"""
+        CREATE TABLE account_bindings_new (
+            issuer            TEXT,
+            subject           TEXT,
+            role              TEXT {_ROLE_CHECK},
+            vouched_by_issuer  TEXT,
+            vouched_by_subject TEXT,
+            created_at        TEXT,
+            revoked_at        TEXT,
+            PRIMARY KEY (issuer, subject)
+        );
+        INSERT INTO account_bindings_new
+            SELECT issuer, subject, role, vouched_by_issuer, vouched_by_subject,
+                   created_at, revoked_at FROM account_bindings;
+        DROP TABLE account_bindings;
+        ALTER TABLE account_bindings_new RENAME TO account_bindings;
+        """
+    )
+    return renamed
+
+
+def _migrate_invites(conn: sqlite3.Connection) -> int:
+    renamed = conn.execute(
+        "UPDATE invites SET role='originator' WHERE role='author'"
+    ).rowcount
+    if "CHECK" in _table_sql(conn, "invites").upper():
+        return renamed
+    # Rebuild preserving every column (the invites table is wide); copy by name.
+    cols = _columns(conn, "invites")
+    collist = ", ".join(cols)
+    conn.executescript(
+        f"""
+        CREATE TABLE invites_new (
+            token_hash            TEXT PRIMARY KEY,
+            role                  TEXT NOT NULL {_ROLE_CHECK},
+            created_at            TEXT,
+            expires_at            TEXT NOT NULL,
+            used_at               TEXT,
+            revoked_at            TEXT,
+            vouched_by_issuer     TEXT,
+            vouched_by_subject    TEXT,
+            bound_issuer          TEXT,
+            bound_subject         TEXT,
+            redeemed_at           TEXT,
+            note                  TEXT,
+            failed_attempts       INTEGER NOT NULL DEFAULT 0,
+            attempts_window_start TEXT
+        );
+        INSERT INTO invites_new ({collist}) SELECT {collist} FROM invites;
+        DROP TABLE invites;
+        ALTER TABLE invites_new RENAME TO invites;
+        """
+    )
+    return renamed
+
+
+def _migrate_slugs(conn: sqlite3.Connection) -> bool:
+    """Replace claimed_by with the claimed_by_issuer/subject pair. Returns True if a
+    rebuild happened."""
+    cols = _columns(conn, "station_slugs")
+    if "claimed_by_issuer" in cols:
+        return False  # already rev-6 shape
+    conn.executescript(
+        """
+        CREATE TABLE station_slugs_new (
+            slug                 TEXT PRIMARY KEY,
+            anchor_hash          TEXT NOT NULL,
+            claimed_by_issuer    TEXT,
+            claimed_by_subject   TEXT,
+            scope                TEXT
+        );
+        INSERT INTO station_slugs_new (slug, anchor_hash, claimed_by_issuer,
+                                       claimed_by_subject, scope)
+            SELECT slug, anchor_hash, NULL, NULL, scope FROM station_slugs;
+        DROP TABLE station_slugs;
+        ALTER TABLE station_slugs_new RENAME TO station_slugs;
+        CREATE INDEX IF NOT EXISTS idx_station_slugs_anchor
+            ON station_slugs(anchor_hash);
+        """
+    )
+    return True
+
+
+def _create_grant_tables(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS document_grants (
+            anchor_hash        TEXT NOT NULL,
+            grantee_issuer     TEXT NOT NULL,
+            grantee_subject    TEXT NOT NULL,
+            kind               TEXT NOT NULL CHECK (kind IN
+                ('supersede', 'site_contribute', 'site_edit')),
+            vouched_by_issuer  TEXT,
+            vouched_by_subject TEXT,
+            created_at         TEXT,
+            revoked_at         TEXT,
+            PRIMARY KEY (anchor_hash, grantee_issuer, grantee_subject, kind)
+        );
+        CREATE INDEX IF NOT EXISTS idx_document_grants_grantee
+            ON document_grants(grantee_issuer, grantee_subject);
+        CREATE TABLE IF NOT EXISTS grant_events (
+            event_seq          INTEGER PRIMARY KEY,
+            grantee_issuer     TEXT,
+            grantee_subject    TEXT,
+            event              TEXT,
+            kind               TEXT,
+            anchor_hash        TEXT,
+            vouched_by_issuer  TEXT,
+            vouched_by_subject TEXT,
+            at                 TEXT
+        );
+        """
+    )
+
+
+def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
+    """Quarantine DANGLING (unheld-parent) and MULTI-PARENT (merge) supersedes rows so
+    the <=1-parent invariant holds and its partial-unique index can be created (§4/§5.3).
+    A quarantined row is copied to quarantined_supersedes (audited) then deleted from
+    threads. Forks (two children sharing a to_id) are LEGITIMATE and untouched — the
+    merge audit keys on from_id, never to_id."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS quarantined_supersedes (
+            thread_hash TEXT,
+            from_id     TEXT,
+            to_id       TEXT,
+            created_at  TEXT,
+            quarantined_reason TEXT,
+            quarantined_at TEXT
+        )
+        """
+    )
+    ts = _now()
+    quarantined = 0
+
+    # DANGLING: a supersedes whose parent (to_id) is not a held version.
+    dangling = conn.execute(
+        """
+        SELECT thread_hash, from_id, to_id, created_at FROM threads
+         WHERE type='supersedes'
+           AND to_id NOT IN (SELECT content_hash FROM versions)
+        """
+    ).fetchall()
+    for r in dangling:
+        _quarantine(conn, r, "dangling_parent", ts)
+        quarantined += 1
+
+    # MERGE: a from_id with more than one supersedes parent. Keep a single
+    # DETERMINISTIC anchor (the lexicographically smallest to_id) and quarantine the
+    # rest, so the lineage resolves to one genesis rather than fail-closing forever.
+    merge_from_ids = [
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT from_id FROM threads
+             WHERE type='supersedes'
+               AND to_id IN (SELECT content_hash FROM versions)
+             GROUP BY from_id HAVING COUNT(*) > 1
+            """
+        ).fetchall()
+    ]
+    for from_id in merge_from_ids:
+        parents = conn.execute(
+            """
+            SELECT thread_hash, from_id, to_id, created_at FROM threads
+             WHERE type='supersedes' AND from_id=?
+               AND to_id IN (SELECT content_hash FROM versions)
+             ORDER BY to_id
+            """,
+            (from_id,),
+        ).fetchall()
+        for r in parents[1:]:  # keep parents[0] (smallest to_id), quarantine the rest
+            _quarantine(conn, r, "merge_extra_parent", ts)
+            quarantined += 1
+
+    return {"quarantined": quarantined, "dangling": len(dangling), "merges": len(merge_from_ids)}
+
+
+def _quarantine(conn: sqlite3.Connection, row, reason: str, ts: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO quarantined_supersedes
+            (thread_hash, from_id, to_id, created_at, quarantined_reason, quarantined_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (row[0], row[1], row[2], row[3], reason, ts),
+    )
+    conn.execute("DELETE FROM threads WHERE thread_hash=?", (row[0],))
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def migrate(db_path: Any) -> Dict[str, Any]:
+    """Apply the rev-6 permission-model migration to the station db at ``db_path``,
+    atomically and idempotently. Returns a report of what changed."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")  # table rebuilds drop/recreate
+        conn.execute("BEGIN IMMEDIATE")
+        report: Dict[str, Any] = {}
+        report["bindings_renamed"] = _migrate_bindings(conn)
+        report["invites_renamed"] = _migrate_invites(conn)
+        report["slugs_rebuilt"] = _migrate_slugs(conn)
+        _create_grant_tables(conn)
+        report.update(_repair_supersedes(conn))
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_supersedes_one_parent "
+            "ON threads(from_id) WHERE type = 'supersedes'"
+        )
+        conn.commit()
+        return report
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _main() -> None:
+    import sys
+
+    if len(sys.argv) != 2:
+        print("usage: python -m skein.migrations.perm_model_rev6 <station-db-path>", file=sys.stderr)
+        raise SystemExit(2)
+    path = Path(sys.argv[1])
+    if not path.exists():
+        print(f"no such db: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    report = migrate(path)
+    print("perm_model_rev6 migration complete:")
+    for k, v in report.items():
+        print(f"  {k}: {v}")
+
+
+if __name__ == "__main__":
+    _main()

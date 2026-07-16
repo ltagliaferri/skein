@@ -165,6 +165,12 @@ ThreadType = Literal[
     # edge as broken.
     "supersedes",  # the edit edge: from_id = new hash, to_id = old head hash
     "reverted",    # the revert marker: from_id = prior head hash, to_id = reused hash
+    # Site membership: from_id = member folio, to_id = site (genesis). Long a live,
+    # used thread type (station_store.folios_in_site queries type='within';
+    # envelope._STRUCTURAL_THREADS and storage.CLASS_B_GENESIS_DISPLAY_TYPES carry it)
+    # but historically MISSING from this Literal. Added for the by-ends authorization
+    # taxonomy (thread_authz), which unions this Literal with the other code type sets.
+    "within",
     # Phase 3a Class-A control marker (finding-20260630-0r3x). The folio-archived
     # FEATURE was removed 2026-07-08 (never used: zero archive threads and zero
     # archived refs ecosystem-wide) — the type stays accepted as a generic edge for

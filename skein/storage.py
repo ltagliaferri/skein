@@ -819,10 +819,11 @@ class LogDatabase:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS station_slugs (
-                slug        TEXT PRIMARY KEY,
-                anchor_hash TEXT NOT NULL,
-                claimed_by  TEXT,
-                scope       TEXT
+                slug                 TEXT PRIMARY KEY,
+                anchor_hash          TEXT NOT NULL,
+                claimed_by_issuer    TEXT,
+                claimed_by_subject   TEXT,
+                scope                TEXT
             )
             """
         )
@@ -890,7 +891,8 @@ class LogDatabase:
             CREATE TABLE IF NOT EXISTS account_bindings (
                 issuer            TEXT,
                 subject           TEXT,
-                role              TEXT,
+                role              TEXT CHECK (role IN
+                    ('operator', 'administrator', 'steward', 'originator')),
                 vouched_by_issuer  TEXT,
                 vouched_by_subject TEXT,
                 created_at        TEXT,
@@ -923,7 +925,8 @@ class LogDatabase:
             """
             CREATE TABLE IF NOT EXISTS invites (
                 token_hash            TEXT PRIMARY KEY,
-                role                  TEXT NOT NULL,
+                role                  TEXT NOT NULL CHECK (role IN
+                    ('operator', 'administrator', 'steward', 'originator')),
                 created_at            TEXT,
                 expires_at            TEXT NOT NULL,
                 used_at               TEXT,
@@ -971,6 +974,64 @@ class LogDatabase:
                 PRIMARY KEY (manifest_hash, bundle_hash)
             )
             """
+        )
+
+        # document_grants — a per-document delegation of a TO-end right (rev 6 §3.2).
+        # Keyed by (anchor_hash = lineage GENESIS content hash, grantee issuer+subject,
+        # kind). vouched_by is the granting binding (an administrator or the operator).
+        # revoked_at NULL = active; live-revocable, rotation-proof, READ LIVE per ingest
+        # inside the ingest transaction — never memoized. A grant authorizes the TO-end
+        # ONLY, never the from-end (which is pure per-folio ownership). Grants do NOT
+        # cascade on granter revocation; containment is the explicit
+        # revoke-all-grants-by verb. Kinds day-one: supersede, site_contribute, site_edit.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_grants (
+                anchor_hash        TEXT NOT NULL,
+                grantee_issuer     TEXT NOT NULL,
+                grantee_subject    TEXT NOT NULL,
+                kind               TEXT NOT NULL CHECK (kind IN
+                    ('supersede', 'site_contribute', 'site_edit')),
+                vouched_by_issuer  TEXT,
+                vouched_by_subject TEXT,
+                created_at         TEXT,
+                revoked_at         TEXT,
+                PRIMARY KEY (anchor_hash, grantee_issuer, grantee_subject, kind)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_grants_grantee "
+            "ON document_grants(grantee_issuer, grantee_subject)"
+        )
+
+        # grant_events — append-only grant audit (binding_events shape). One row per
+        # issuance / revocation / bulk-revocation.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS grant_events (
+                event_seq          INTEGER PRIMARY KEY,
+                grantee_issuer     TEXT,
+                grantee_subject    TEXT,
+                event              TEXT,
+                kind               TEXT,
+                anchor_hash        TEXT,
+                vouched_by_issuer  TEXT,
+                vouched_by_subject TEXT,
+                at                 TEXT
+            )
+            """
+        )
+
+        # The <=1-parent invariant, enforced at the SCHEMA (rev 6 §5.3): at most one
+        # supersedes edge per from_id (one new version supersedes at most one parent).
+        # A partial UNIQUE index aborts a second parent if the ingress admission check
+        # is ever bypassed. NOT UNIQUE(to_id) — that would forbid a legitimate FORK
+        # (two children sharing one parent). Station-only: the signed content-hash
+        # graph lives here, not on the slug-keyed workbench threads table.
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_supersedes_one_parent "
+            "ON threads(from_id) WHERE type = 'supersedes'"
         )
 
     @contextmanager

@@ -90,7 +90,7 @@ def _valid_proof(token, origin=ORIGIN, issuer=ISSUER, subject=SUBJECT, **kw):
     return proof
 
 
-def _mint(station, token, role="author", expires_in_days=7):
+def _mint(station, token, role="originator", expires_in_days=7):
     th = hash_token(token)
     station.store.mint_invite(
         th, role, datetime.now(timezone.utc) + timedelta(days=expires_in_days),
@@ -259,7 +259,7 @@ def test_redeem_state_machine_invariants(tmp_path_factory, ops):
                 r = None
             elif op == "revoke_self_identity":
                 if station.store.get_binding(ISSUER, SUBJECT) is None:
-                    station.store.add_binding(ISSUER, SUBJECT, role="author")
+                    station.store.add_binding(ISSUER, SUBJECT, role="originator")
                 station.store.revoke_binding(ISSUER, SUBJECT)
                 r = None
 

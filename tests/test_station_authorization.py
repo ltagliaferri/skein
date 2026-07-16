@@ -75,20 +75,20 @@ def test_can_write_absent_binding_false():  # A1
 
 def test_can_write_active_binding_true():  # A2
     fb = FakeBindings()
-    fb.add_binding(I, S, "author", I, S)
+    fb.add_binding(I, S, "originator", I, S)
     assert can_write(Principal(I, S), fb) is True
 
 
 def test_can_write_revoked_binding_false():  # A3
     fb = FakeBindings()
-    fb.add_binding(I, S, "author", I, S)
+    fb.add_binding(I, S, "originator", I, S)
     fb._revoke(I, S)
     assert can_write(Principal(I, S), fb) is False
 
 
 def test_can_write_keys_issuer_subject_pair():  # A4
     fb = FakeBindings()
-    fb.add_binding(I, S, "author", I, S)
+    fb.add_binding(I, S, "originator", I, S)
     assert can_write(Principal("https://other.idp", S), fb) is False
     assert can_write(Principal(I, "bob@example.com"), fb) is False
 
@@ -148,9 +148,9 @@ A2P = ("https://accounts.google.com", "author2@example.com")
 
 
 def test_add_binding_then_get_active(store):  # B1
-    store.add_binding(*A2P, role="author", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
+    store.add_binding(*A2P, role="originator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
     b = store.get_binding(*A2P)
-    assert b is not None and b.role == "author" and b.revoked_at is None
+    assert b is not None and b.role == "originator" and b.revoked_at is None
 
 
 def test_get_binding_absent_returns_none(store):  # B2
@@ -158,7 +158,7 @@ def test_get_binding_absent_returns_none(store):  # B2
 
 
 def test_revoke_binding_sets_revoked_at(store):  # B3
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     store.revoke_binding(*A2P)
     b = store.get_binding(*A2P)
     assert b is not None and b.revoked_at is not None  # present, not deleted
@@ -166,37 +166,37 @@ def test_revoke_binding_sets_revoked_at(store):  # B3
 
 def test_revoke_nonexistent_returns_false(store):  # B4
     assert store.revoke_binding("https://x", "ghost") is False
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     store.revoke_binding(*A2P)
     assert store.revoke_binding(*A2P) is False  # already revoked
 
 
 def test_readd_after_revoke_keeps_created_at(store):  # B5
     """Re-adding a revoked binding reactivates it and preserves the original created_at."""
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     t0 = store.get_binding(*A2P).created_at
     store.revoke_binding(*A2P)
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     b = store.get_binding(*A2P)
     assert b.revoked_at is None and b.created_at == t0
 
 
 def test_readd_active_is_idempotent(store):  # B6
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     t0 = store.get_binding(*A2P).created_at
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     assert store.get_binding(*A2P).created_at == t0
     assert len(store.list_active_bindings()) == 1
 
 
 def test_bindings_keyed_on_pair(store):  # B7
-    store.add_binding("https://idpA", "sub", role="author")
+    store.add_binding("https://idpA", "sub", role="originator")
     assert store.get_binding("https://idpB", "sub") is None
 
 
 def test_operator_vs_author_roles_distinct(store):  # B8
     store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     assert store.get_operator().subject == OP[1]
 
 
@@ -247,22 +247,22 @@ def test_bootstrap_race_yields_one_operator(tmp_path):  # finding-6(b)
 
 
 def test_event_logged_on_create(store):  # B_E1
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     events = store.get_binding_events()
     assert [e["event"] for e in events] == ["created"]
 
 
 def test_event_logged_on_revoke(store):  # B_E2
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     store.revoke_binding(*A2P)
     assert [e["event"] for e in store.get_binding_events()] == ["created", "revoked"]
 
 
 def test_event_logged_on_reactivate(store):  # B_E3
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     t0 = store.get_binding(*A2P).created_at
     store.revoke_binding(*A2P)
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     assert [e["event"] for e in store.get_binding_events()] == [
         "created", "revoked", "reactivated",
     ]
@@ -270,9 +270,9 @@ def test_event_logged_on_reactivate(store):  # B_E3
 
 
 def test_events_are_append_only(store):  # B_E4
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     store.revoke_binding(*A2P)
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     events = store.get_binding_events()
     assert len(events) == 3
     seqs = [e["event_seq"] for e in events]
@@ -292,7 +292,7 @@ def test_rotate_logs_paired_events(store):  # B_E5
 
 def test_rotate_onto_author_logs_promoted(store):  # B_E6
     store.add_binding(*OP, role="operator", vouched_by_issuer=OP[0], vouched_by_subject=OP[1])
-    store.add_binding(*A2P, role="author")
+    store.add_binding(*A2P, role="originator")
     t0 = store.get_binding(*A2P).created_at
     with store.transaction():
         store.revoke_binding(*OP, event="rotated_out")

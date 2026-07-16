@@ -107,7 +107,7 @@ def test_google_cert_accepted_through_ingest(instance, google_provider, monkeypa
         "this means the fake signer's fallback changed — update the binding or fix the signer"
     )
 
-    instance.store.add_binding(probe["issuer"], probe["subject"], role="author")
+    instance.store.add_binding(probe["issuer"], probe["subject"], role="originator")
 
     ack = _publish_specs(instance, signer, monkeypatch)
 
@@ -131,7 +131,7 @@ def test_broker_cert_rejected_google_bound(instance, google_provider, monkeypatc
     signer = sign_mod.make_oidc_signer(google_provider)
 
     # Bind ONLY under the Google issuer — the real cert would carry.
-    instance.store.add_binding(_GOOGLE_ISSUER, "alice@example.com", role="author")
+    instance.store.add_binding(_GOOGLE_ISSUER, "alice@example.com", role="originator")
 
     ack = _publish_specs(instance, signer, monkeypatch)
 

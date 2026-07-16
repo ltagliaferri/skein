@@ -106,7 +106,7 @@ def test_station_slugs_is_genesis_anchored(tmp_dir):
         cols = {r[1] for r in conn.execute("PRAGMA table_info(station_slugs)")}
     finally:
         conn.close()
-    assert {"slug", "anchor_hash", "claimed_by", "scope"} <= cols
+    assert {"slug", "anchor_hash", "claimed_by_issuer", "claimed_by_subject", "scope"} <= cols
 
 
 # ── workbench db (regression — must be untouched) ───────────────────────────────

@@ -99,12 +99,12 @@ def test_list_shows_outstanding_then_revoked(tmp_path):
     r = _run(tmp_path, "invite", "mint", "--json", "--note", "Bob")
     token = json.loads(r.output)["token"]
     out = _run(tmp_path, "invite", "list").output
-    assert "outstanding author" in out and "Bob" in out
+    assert "outstanding originator" in out and "Bob" in out
     # revoke by token, then it drops from the default list, shows under --all
     rr = _run(tmp_path, "invite", "revoke", token)
     assert rr.exit_code == 0 and "revoked invite" in rr.output
     assert "outstanding" not in _run(tmp_path, "invite", "list").output
-    assert "revoked author" in _run(tmp_path, "invite", "list", "--all").output
+    assert "revoked originator" in _run(tmp_path, "invite", "list", "--all").output
 
 
 def test_revoke_by_hash_prefix(tmp_path):
@@ -176,7 +176,7 @@ def test_mint_naive_expires_at_stored_utc(tmp_path, monkeypatch):
             op = st.store.get_operator()
             st.store.mint_invite(
                 hash_token("tok-naive"),
-                "author",
+                "originator",
                 naive,
                 vouched_by_issuer=op.issuer,
                 vouched_by_subject=op.subject,

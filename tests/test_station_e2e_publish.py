@@ -83,7 +83,7 @@ def test_e2e_bound_signed_publish_accepted(instance, provider, monkeypatch):  # 
     signer = sign_mod.make_oidc_signer(provider)
     # discover the verified identity, bind it on the instance
     probe = sign_mod.sign_manifest(["sha256::" + "0" * 64], signer)
-    instance.store.add_binding(probe["issuer"], probe["subject"], role="author")
+    instance.store.add_binding(probe["issuer"], probe["subject"], role="originator")
     monkeypatch.setattr(
         pub_mod, "post_batch",
         lambda url, batch, timeout=30.0: ingest(instance, batch, require_signed=True),
@@ -120,7 +120,7 @@ def test_e2e_unbound_signer_rejected(instance):  # E3
 
 
 def test_e2e_revoked_signer_rejected(instance):  # E4
-    instance.store.add_binding(I, ALICE, role="author")
+    instance.store.add_binding(I, ALICE, role="originator")
     instance.store.revoke_binding(I, ALICE)
     batch = _signed_batch()
     ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
@@ -130,7 +130,7 @@ def test_e2e_revoked_signer_rejected(instance):  # E4
 def test_e2e_membership_vs_no_manifest(instance, tmp_path):  # E5
     """A bound author's manifest-covered batch is accepted with per-constituent proofs;
     the same constituents delivered with NO manifest are rejected 'no manifest'."""
-    instance.store.add_binding(I, ALICE, role="author")
+    instance.store.add_binding(I, ALICE, role="originator")
     batch = _signed_batch()
     ack = ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
     assert len(ack["accepted"]) == 2 and len(ack["threads"]["accepted"]) == 1
@@ -149,7 +149,7 @@ def test_e2e_membership_vs_no_manifest(instance, tmp_path):  # E5
 
 
 def test_e2e_read_cache_hit_after_ingest(instance, monkeypatch):  # E6
-    instance.store.add_binding(I, ALICE, role="author")
+    instance.store.add_binding(I, ALICE, role="originator")
     batch = _signed_batch()
     ingest(instance, batch, verifier=_ok_verifier, require_signed=True)
     finding = _finding_hash(batch)

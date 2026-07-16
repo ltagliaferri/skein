@@ -151,6 +151,24 @@ def test_ingress_slug_stays_genesis_anchored_across_supersession(instance):
     assert instance.store.folio_site_slug(member["content_hash"]) == "specs"
 
 
+def test_ingress_non_string_slug_value_rejected_not_500(instance):
+    """fell-r5: a non-string site_slugs VALUE (list/dict — valid JSON) must be a clean
+    shape rejection (400), never an uncaught sqlite ProgrammingError -> 500 per request
+    (the ingress never-500s-over-hostile-input contract). Reproduces unauthenticated
+    under OFF."""
+    from skein.ingress import BatchShapeError
+    site = h.folio("site", "s", "b", "2026-01-01T00:00:00+00:00")
+    batch = wire.build_batch([site], [], {})
+    batch["site_slugs"] = {site["content_hash"]: ["not", "a", "string"]}  # hostile value
+    with pytest.raises(BatchShapeError):
+        ingest(instance, batch, require_signed=False)
+    # a valid string slug still works (no over-rejection)
+    ok = wire.build_batch([site], [], {site["content_hash"]: "specs"})
+    ack = ingest(instance, ok, require_signed=False)
+    assert site["content_hash"] in ack["accepted"]
+    assert instance.store.resolve_slug("specs") == site["content_hash"]
+
+
 def test_ingress_same_batch_supersede_and_within_authorize(instance):
     """A same-batch supersede + within by the site owner both authorize (the staged
     graph does not wrong-block a legit same-batch filing)."""

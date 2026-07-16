@@ -139,8 +139,15 @@ def _validate_shape(batch: Dict[str, Any]) -> None:
         value = batch.get(key, [])
         if not isinstance(value, list) or not all(isinstance(i, dict) for i in value):
             raise BatchShapeError(f"{key!r} must be a list of objects")
-    if not isinstance(batch.get("site_slugs", {}), dict):
+    site_slugs = batch.get("site_slugs", {})
+    if not isinstance(site_slugs, dict):
         raise BatchShapeError("'site_slugs' must be an object")
+    # The VALUES must be strings (slug names) — a list/dict/int value is valid JSON but
+    # binds nowhere in SQLite (raises ProgrammingError), which the slug-claim pass would
+    # otherwise let escape as an uncaught 500 per request (the log-amplification-DoS class
+    # this surface hardens against). Reject the malformed batch cleanly as a 400 here.
+    if not all(isinstance(v, str) for v in site_slugs.values()):
+        raise BatchShapeError("'site_slugs' values must be strings")
 
 
 def ingest(
@@ -451,16 +458,26 @@ def ingest(
         # free-or-same-signer re-anchors; a different signer collides unless an admin/
         # operator overrides); signer-blind OFF is last-write-wins.
         for site_hash, slug in admitted_site_slugs.items():
+            # Per-item guard (mirrors the folio/thread loops): a single bad slug claim
+            # must never sink the batch or 500 the request. The savepoint isolates its
+            # writes so a failure rolls back only this claim; the except stops it from
+            # propagating to the outer transaction. The site folio stays stored, just
+            # unnamed.
             try:
-                anchor = lineage_genesis_for(station.store, site_hash).hash
-            except LineageReject:
-                anchor = site_hash
-            if require_signed and signer is not None:
-                station.store.claim_slug(
-                    slug, anchor, signer.issuer, signer.subject, override=slug_override
-                )
-            else:
-                station.store.set_slug(slug, anchor)
+                with station.store.savepoint():
+                    try:
+                        anchor = lineage_genesis_for(station.store, site_hash).hash
+                    except LineageReject:
+                        anchor = site_hash
+                    if require_signed and signer is not None:
+                        station.store.claim_slug(
+                            slug, anchor, signer.issuer, signer.subject,
+                            override=slug_override,
+                        )
+                    else:
+                        station.store.set_slug(slug, anchor)
+            except Exception as exc:  # noqa: BLE001 — one bad slug never sinks the batch
+                logger.debug("slug %r for %s skipped: %s", slug, site_hash, exc)
 
     return {
         "protocol": wire.PROTOCOL,

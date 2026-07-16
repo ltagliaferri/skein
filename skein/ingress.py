@@ -466,13 +466,19 @@ def ingest(
                 try:
                     anchor = lineage_genesis_for(station.store, site_hash).hash
                 except LineageReject as exc:
-                    # A malformed site lineage (merge/cycle) has no single genesis —
-                    # fall back to the folio's own hash rather than failing the batch.
+                    # A malformed site lineage (merge/cycle/self-edge/signed-chain gap)
+                    # has NO single genesis, so there is no anchor to name. FAIL CLOSED —
+                    # skip the claim (the folio stays stored, unnamed) rather than
+                    # anchoring at the published folio: a signed-chain gap is a forgery
+                    # signal (§4), and anchoring at the folio would let a name be reserved
+                    # on a lineage the station cannot resolve. This matches
+                    # `station slug-override`, which refuses an unresolvable anchor and
+                    # tells the operator to repair the lineage first.
                     logger.debug(
-                        "slug %r: genesis for %s unresolvable (%s); anchoring at the folio",
+                        "slug %r for %s skipped: lineage unresolvable (%s)",
                         slug, site_hash, exc,
                     )
-                    anchor = site_hash
+                    continue
                 # NAMING FOLLOWS OWNERSHIP OF THE ANCHOR (under ON). The claim is written
                 # against the GENESIS, so ownership must be checked on the GENESIS — not
                 # on the published folio. Checking the published folio would let a signer

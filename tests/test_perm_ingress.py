@@ -171,6 +171,29 @@ def test_supersede_grantee_cannot_seize_the_name(instance):
     assert instance.store.get_slug_claim("specs") is None
 
 
+def test_unresolvable_lineage_is_not_nameable(instance):
+    """audit-cap r3: a site whose lineage has NO single genesis (here a signed-chain gap —
+    a forgery signal per §4) must NOT be nameable. The old fallback anchored at the
+    published folio and let its owner reserve a name on a lineage the station cannot
+    resolve; fail closed instead (matching slug-override, which refuses such an anchor)."""
+    _bind(instance)
+    site = h.folio("site", "gapped site", "b", "2026-01-01T00:00:00+00:00")
+    A = site["content_hash"]
+    # publish + sign the site (ALICE owns it)
+    b1 = wire.build_batch([site], [])
+    b1["manifest_signature"] = h.manifest_over([site], [])
+    ingest(instance, b1, verifier=h.ok_verifier, require_signed=True)
+    assert instance.store.get_constituent_proof(A) is not None  # signed + owned
+    # an OFF publish injects a DANGLING supersedes from the signed site -> signed gap
+    gap = _supersedes(A, "sha256::" + "f" * 64)
+    ingest(instance, wire.build_batch([], [gap]), require_signed=False)
+    # now ALICE re-publishes the site with a slug: owner, but unresolvable lineage
+    b2 = wire.build_batch([site], [], {A: "gapped"})
+    b2["manifest_signature"] = h.manifest_over([site], [])
+    ingest(instance, b2, verifier=h.ok_verifier, require_signed=True)
+    assert instance.store.get_slug_claim("gapped") is None  # fail closed, no claim
+
+
 def test_ingress_non_string_slug_value_rejected_not_500(instance):
     """fell-r5: a non-string site_slugs VALUE (list/dict — valid JSON) must be a clean
     shape rejection (400), never an uncaught sqlite ProgrammingError -> 500 per request

@@ -87,6 +87,36 @@ def test_legacy_folio_moderable_by_steward(instance):
     assert st["thread_hash"] in ack["threads"]["accepted"]
 
 
+def test_legacy_site_not_nameable_by_non_owner(instance):
+    """audit-cap: a signer who merely RE-PUBLISHES a legacy owner-None site must not be
+    recorded as its slug claimant — else they could same-signer re-anchor that name onto
+    a lineage of their own. Naming follows ownership; a legacy site is tier-nameable."""
+    legacy_site = h.folio("site", "legacy site", "b", "2026-01-01T00:00:00+00:00")
+    F = legacy_site["content_hash"]
+    ingest(instance, wire.build_batch([legacy_site], []), require_signed=False)
+    assert instance.store.get_constituent_proof(F) is None  # owner-None
+
+    _bind(instance)  # ALICE: bound originator, no tier
+    batch = wire.build_batch([legacy_site], [], {F: "specs"})
+    batch["manifest_signature"] = h.manifest_over([legacy_site], [])
+    ingest(instance, batch, verifier=h.ok_verifier, require_signed=True)
+    # no claim recorded — ALICE does not own the legacy site
+    assert instance.store.get_slug_claim("specs") is None
+
+
+def test_legacy_site_nameable_by_steward(instance):
+    """The tier path stays reachable: a steward CAN name a legacy owner-None site."""
+    legacy_site = h.folio("site", "legacy site", "b", "2026-01-01T00:00:00+00:00")
+    F = legacy_site["content_hash"]
+    ingest(instance, wire.build_batch([legacy_site], []), require_signed=False)
+    instance.store.add_binding(I, ALICE, role="administrator",
+                               vouched_by_issuer=I, vouched_by_subject=I)
+    batch = wire.build_batch([legacy_site], [], {F: "specs"})
+    batch["manifest_signature"] = h.manifest_over([legacy_site], [])
+    ingest(instance, batch, verifier=h.ok_verifier, require_signed=True)
+    assert instance.store.get_slug_claim("specs")["anchor_hash"] == F
+
+
 # --- finding 3: OFF merge honest ack ----------------------------------------
 
 

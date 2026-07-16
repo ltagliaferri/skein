@@ -300,6 +300,31 @@ def test_archive_self_loop_on_genesis_enforced(store):
     _ok(store, STEWARD, thread("archive", g, g))  # self-loop on the genesis is fine
 
 
+def test_proof_missing_attribution_confers_no_ownership(store):
+    """audit-cap: an attribution row whose manifest parent is GONE (proof_missing) must
+    confer NO ownership — the read path already refuses to verify such a folio
+    ('NOT VERIFIED — proof missing'), so trusting its denormalized signer on the WRITE
+    path would be a fail-open the read side rejects. Only a tier may act."""
+    g = signed_folio(store, OWNER, "doc")
+    v2 = signed_folio(store, OWNER, "v2")
+    # orphan the attribution: drop its covering manifest (FK off — we are simulating the
+    # corrupt/mid-migration state get_constituent_proof reports as proof_missing)
+    store.conn.execute("PRAGMA foreign_keys=OFF")
+    store.conn.execute("DELETE FROM manifests")
+    proof = store.get_constituent_proof(g)
+    assert proof is not None and proof["proof_missing"] is True  # the corrupt state
+    assert proof["subject"] == OWNER.subject  # OWNER is still NAMED in the stale row...
+    # ...but confers NO ownership on either predicate
+    from skein.thread_authz import lineage_owner, owns_folio
+    assert owns_folio(store, OWNER, g) is False      # from-end: pure ownership
+    assert lineage_owner(store, g) is None           # to-end: owner-of-genesis
+    # so both a supersedes onto that lineage and a pointer from it fail closed
+    _reject(store, OWNER, thread("supersedes", v2, g))
+    assert _reject(store, OWNER, thread("reference", g, g)) == (
+        "cannot originate from a folio you do not hold"
+    )
+
+
 def test_pointer_from_a_thread_hash_rejected(store):
     """fell-r2: owns_folio requires a HELD FOLIO from-end — a thread hash the signer
     published must NOT satisfy a folio from-end (attribution is keyed by hash regardless

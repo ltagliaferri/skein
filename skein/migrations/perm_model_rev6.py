@@ -242,6 +242,25 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
         _quarantine(conn, r, "dangling_parent", ts)
         quarantined += 1
 
+    # ORPHAN CHILD: a NULL from_id, or a from_id (the NEW version) that is not held. The
+    # dangling sweep above only tests the PARENT (to_id), so a pre-rev6 row like
+    # supersedes(<unheld child> -> <held site genesis>) survives it — and the moment that
+    # child hash is later imported, _derive_heads follows the stale edge and REDIRECTS the
+    # site's slug, with no authorization ever applied (the pre-plant class §5.6 closes on
+    # the live path). Under the rev-6 rules such an edge could never be admitted (the
+    # from-end requires a HELD owned folio), so quarantine it.
+    orphan = conn.execute(
+        """
+        SELECT thread_hash, from_id, to_id, created_at FROM threads
+         WHERE type='supersedes'
+           AND (from_id IS NULL
+                OR from_id NOT IN (SELECT content_hash FROM versions WHERE content_hash IS NOT NULL))
+        """
+    ).fetchall()
+    for r in orphan:
+        _quarantine(conn, r, "orphan_child", ts)
+        quarantined += 1
+
     merge_from_ids = [
         row[0]
         for row in conn.execute(
@@ -267,12 +286,53 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
             _quarantine(conn, r, "merge_extra_parent", ts)
             quarantined += 1
 
+    # CYCLES: a multi-row loop (A->B plus B->A, or longer). Each node still has <=1
+    # parent, so neither the merge sweep nor the partial-unique index catches it — but
+    # lineage_genesis_for fail-closes on a cycle FOREVER, leaving every version in the
+    # loop permanently unauthorizable and its slug unresolvable (the same
+    # permanently-stuck class as an unrepaired merge, knuth F1). Break each cycle by
+    # quarantining one deterministic edge (the one whose from_id sorts first).
+    cycles_broken = 0
+    while True:
+        edges = {
+            r[0]: (r[1], r[2], r[3])
+            for r in conn.execute(
+                "SELECT from_id, to_id, thread_hash, created_at FROM threads "
+                "WHERE type='supersedes'"
+            ).fetchall()
+        }  # from_id -> (to_id, thread_hash, created_at); <=1 parent per from_id here
+        loop = _find_cycle(edges)
+        if not loop:
+            break
+        victim_from = sorted(loop)[0]
+        to_id, thread_hash, created_at = edges[victim_from]
+        _quarantine(conn, (thread_hash, victim_from, to_id, created_at), "cycle_edge", ts)
+        quarantined += 1
+        cycles_broken += 1
+
     return {
         "quarantined": quarantined,
         "self_edges": len(self_edges),
         "dangling": len(dangling),
+        "orphan_children": len(orphan),
+        "cycles_broken": cycles_broken,
         "merges": len(merge_from_ids),
     }
+
+
+def _find_cycle(edges: Dict[str, Any]):
+    """Return the node set of ONE cycle in the parent map (from_id -> (to_id, ...)), or
+    None. Each from_id has at most one parent here (merges are already quarantined), so a
+    plain walk with a seen-set finds any loop."""
+    for start in edges:
+        seen: List[str] = []
+        node = start
+        while node in edges:
+            if node in seen:
+                return set(seen[seen.index(node):])  # the loop itself
+            seen.append(node)
+            node = edges[node][0]
+    return None
 
 
 def _quarantine(conn: sqlite3.Connection, row, reason: str, ts: str) -> None:

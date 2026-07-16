@@ -123,6 +123,29 @@ def test_slug_override_repoints(tmp_path):
         assert claim["claimed_by_subject"] == OP  # now the operator's
 
 
+def test_slug_override_normalizes_to_genesis(tmp_path):
+    """audit-cap: slug-override must anchor at the lineage GENESIS, not a head — a
+    head-anchored slug orphans members filed under the genesis."""
+    _init_op(tmp_path)
+    with _open(tmp_path) as st:
+        g = st.store.create_folio({
+            "type": "site", "title": "site v1", "content": "b",
+            "created_at": "2026-07-16T00:00:00+00:00", "created_by": "op",
+        })
+        v2 = st.store.create_folio({
+            "type": "site", "title": "site v2", "content": "b",
+            "created_at": "2026-07-16T01:00:00+00:00", "created_by": "op",
+        })
+        st.store.save_thread(from_id=v2, to_id=g, type="supersedes",
+                             created_at="2026-07-16T02:00:00+00:00")
+    # override pointing at the HEAD v2 must normalize down to the genesis g
+    r = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", v2)
+    assert r.exit_code == 0
+    with _open(tmp_path) as st:
+        assert st.store.get_slug_claim("specs")["anchor_hash"] == g   # genesis, not v2
+        assert st.store.resolve_slug("specs") == v2                   # head derived
+
+
 def test_slug_override_refuses_unheld_anchor(tmp_path):
     """fell-r3: an unheld anchor is refused — the slug would resolve to nothing."""
     _init_op(tmp_path)

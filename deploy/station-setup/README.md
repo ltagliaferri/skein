@@ -125,10 +125,26 @@ Publishing runs over 443 (works regardless of the SSH VPN state).
 ```
 # operator mints ON THE BOX — no host CLI, so via the image (like init-operator):
 docker run --rm -v {{DATA_DIR}}:/data -e SKEIN_STATION_DATA_DIR=/data {{IMAGE_TAG}} \
-  skein station invite mint --role author                 # token shown ONCE
+  skein station invite mint --role originator            # token shown ONCE
+# --role takes the WIRE-REDEEMABLE tiers only: originator (default) or steward.
+# administrator/operator are never wire-redeemable — bind those locally with
+#   skein station account add --issuer ... --subject ... --role administrator
 # collaborator, from their workstation:
 #   skein station redeem-invite <token> --to https://{{INGRESS_DOMAIN}} --login
 ```
+
+### 8a. Permission-model migration (REQUIRED before serving a pre-rev6 corpus)
+A corpus created before the rev-6 permission model must be migrated once, or the ingress
+refuses to boot (it fails loud with this exact command):
+```
+docker run --rm -v {{DATA_DIR}}:/data {{IMAGE_TAG}} \
+  python -m skein.migrations.perm_model_rev6 /data/skein.db
+```
+Atomic + idempotent: it renames author->originator (bindings AND invites), installs the
+role CHECK, splits the slug claim into the claimed_by pair, creates the grant tables, and
+quarantines any pre-existing self-edge / dangling / orphan-child / cycle / merge
+supersedes rows (preserved in `quarantined_supersedes`) before building the <=1-parent
+index. Re-running is a no-op.
 
 ## Rollback
 `docker compose down`; restore the prior compose + image; move the fresh `skein.db` aside and

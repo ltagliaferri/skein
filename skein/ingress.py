@@ -458,6 +458,19 @@ def ingest(
         # free-or-same-signer re-anchors; a different signer collides unless an admin/
         # operator overrides); signer-blind OFF is last-write-wins.
         for site_hash, slug in admitted_site_slugs.items():
+            # NAMING FOLLOWS OWNERSHIP (under ON): only the site folio's OWNER may claim
+            # its slug; an administrator/operator may override. Without this a signer who
+            # merely RE-PUBLISHES a legacy owner-None site's bytes would be recorded as
+            # its slug claimant — and could then same-signer re-anchor that name onto a
+            # lineage of their own. A legacy owner-None site is nameable only by a tier.
+            if require_signed and signer is not None and not (
+                slug_override or owns_folio(station.store, signer, site_hash)
+            ):
+                logger.debug(
+                    "slug %r for %s skipped: signer does not own the site folio",
+                    slug, site_hash,
+                )
+                continue
             # Per-item guard (mirrors the folio/thread loops): a single bad slug claim
             # must never sink the batch or 500 the request. The savepoint isolates its
             # writes so a failure rolls back only this claim; the except stops it from
@@ -467,7 +480,13 @@ def ingest(
                 with station.store.savepoint():
                     try:
                         anchor = lineage_genesis_for(station.store, site_hash).hash
-                    except LineageReject:
+                    except LineageReject as exc:
+                        # A malformed site lineage (merge/cycle) has no single genesis —
+                        # fall back to the folio's own hash rather than failing the batch.
+                        logger.debug(
+                            "slug %r: genesis for %s unresolvable (%s); anchoring at the folio",
+                            slug, site_hash, exc,
+                        )
                         anchor = site_hash
                     if require_signed and signer is not None:
                         station.store.claim_slug(

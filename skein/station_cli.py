@@ -385,11 +385,19 @@ def grant_list(ctx: click.Context, show_all: bool) -> None:
 
 @station.command("slug-override")
 @click.option("--slug", required=True)
-@click.option("--anchor", required=True, help="Lineage genesis to point the slug at.")
+@click.option(
+    "--anchor", required=True,
+    help="A held folio in the target lineage; the slug is anchored at that lineage's "
+    "GENESIS (resolve_slug then derives the head).",
+)
 @click.pass_context
 def slug_override(ctx: click.Context, slug: str, anchor: str) -> None:
     """Re-point a slug to a lineage as the operator (a privileged override of a claim
-    held by another signer, §6). The slug's claimant becomes the operator."""
+    held by another signer, §6). The slug's claimant becomes the operator, and the
+    anchor is normalized to the lineage GENESIS so members filed under the genesis keep
+    their breadcrumb (a head-anchored slug would orphan them)."""
+    from .thread_authz import LineageReject, lineage_genesis_for
+
     with _open_station(ctx) as st:
         op = st.store.get_operator()
         if op is None:
@@ -401,8 +409,15 @@ def slug_override(ctx: click.Context, slug: str, anchor: str) -> None:
                 f"anchor {anchor} is not a held folio on this station; "
                 "the slug would resolve to nothing"
             )
-        status = st.store.claim_slug(slug, anchor, op.issuer, op.subject, override=True)
-    click.echo(f"slug {slug} -> {anchor} ({status})")
+        try:
+            genesis = lineage_genesis_for(st.store, anchor).hash
+        except LineageReject as e:
+            raise click.ClickException(
+                f"anchor {anchor} has no single lineage genesis ({e}); "
+                "repair the lineage before naming it"
+            )
+        status = st.store.claim_slug(slug, genesis, op.issuer, op.subject, override=True)
+    click.echo(f"slug {slug} -> {genesis} ({status})")
 
 
 # --- invite (one-time collaborator onboarding tokens) -------------------------

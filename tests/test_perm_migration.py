@@ -192,6 +192,55 @@ def test_null_to_id_supersedes_quarantined(tmp_path):
     conn.close()
 
 
+def test_orphan_child_supersedes_quarantined(tmp_path):
+    """audit-cap: a supersedes from an UNHELD child to a HELD parent survives the
+    dangling sweep (which only tests to_id) — and when that child hash is later imported
+    it silently redirects the parent's slug with no authorization. Quarantine it."""
+    p = tmp_path / "old-orphan.db"
+    _old_shape_db(p)
+    conn = sqlite3.connect(str(p))
+    # from_id 'ghostchild' is NOT held; to_id 'g' IS held -> not dangling, but an orphan
+    conn.execute("INSERT INTO threads VALUES ('t-orphan','9','ghostchild','g','supersedes',NULL,'t',NULL)")
+    conn.commit()
+    conn.close()
+    report = migrate(p)
+    conn = sqlite3.connect(str(p))
+    remaining = {r[0] for r in conn.execute("SELECT thread_hash FROM threads WHERE type='supersedes'")}
+    assert "t-orphan" not in remaining
+    q = {r[0] for r in conn.execute("SELECT thread_hash FROM quarantined_supersedes")}
+    assert "t-orphan" in q and report["orphan_children"] >= 1
+    conn.close()
+
+
+def test_cycle_supersedes_broken(tmp_path):
+    """audit-cap: a two-row cycle (A->B, B->A) passes the merge sweep and the <=1-parent
+    index, but makes lineage_genesis_for fail-closed FOREVER — the lineage is permanently
+    unauthorizable and its slug unresolvable. The migration must break it."""
+    p = tmp_path / "old-cycle.db"
+    _old_shape_db(p)
+    conn = sqlite3.connect(str(p))
+    conn.execute("INSERT INTO versions VALUES ('ca','finding','t','b','t','t')")
+    conn.execute("INSERT INTO versions VALUES ('cb','finding','t','b','t','t')")
+    conn.execute("INSERT INTO threads VALUES ('t-c1','9','ca','cb','supersedes',NULL,'t',NULL)")
+    conn.execute("INSERT INTO threads VALUES ('t-c2','9','cb','ca','supersedes',NULL,'t',NULL)")
+    conn.commit()
+    conn.close()
+    report = migrate(p)
+    assert report["cycles_broken"] >= 1
+    conn = sqlite3.connect(str(p))
+    # the loop is broken: exactly one of the two edges survives, the other is quarantined
+    left = {r[0] for r in conn.execute(
+        "SELECT thread_hash FROM threads WHERE thread_hash IN ('t-c1','t-c2')")}
+    assert len(left) == 1
+    q = {r[0] for r in conn.execute(
+        "SELECT thread_hash FROM quarantined_supersedes WHERE quarantined_reason='cycle_edge'")}
+    assert len(q) == 1
+    # no from_id in the surviving graph still loops back on itself
+    rows = dict(conn.execute("SELECT from_id, to_id FROM threads WHERE type='supersedes'").fetchall())
+    assert not (rows.get("ca") == "cb" and rows.get("cb") == "ca")
+    conn.close()
+
+
 def test_noop_on_fresh_rev6_db(tmp_path):
     """A corpus born in the rev-6 shape migrates cleanly as a no-op."""
     p = tmp_path / "fresh.db"

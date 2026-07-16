@@ -53,8 +53,15 @@ class ThreadClass(Enum):
                       folio apply from-end ownership; if it is a NON-folio (an agent
                       id) REJECT on the published graph (no station principal
                       authorizes an agent origin day-one).
-    - WIRE_REJECT     never travels the published graph (a local-ledger bookkeeping
-                      edge); reject at ingress.
+    - WIRE_REJECT     does not travel the SIGNED published graph (a local-ledger
+                      bookkeeping edge); rejected at ingress.
+
+    POSTURE: every class here is enforced ONLY under ``require_signed`` (ON) — the
+    ingress calls :func:`authorize_thread` only on that path. Under OFF the surface is
+    authorization-blind BY DESIGN (byte-identical to the pre-mesh posture, rev 6 §8/§9:
+    "OFF posture has NO edit authorization — single-party/local ONLY; a multi-party
+    station MUST run ON"). So statements like "published never travels" and "archive is
+    inert" are claims about the ON graph; an OFF station stores whatever hashes.
     """
 
     AFFECTING = "affecting"
@@ -319,11 +326,17 @@ def reachable_ancestors(store, node: str, pending_supersedes: Iterable[Any] = ()
 
 def _proof_signer(store, content_hash: str) -> Optional[Tuple[str, str]]:
     """The (issuer, subject) of a constituent's OWN covering-manifest attribution, or
-    None when it has none (unheld/unsigned). The single read behind both ownership
-    notions — ``get_constituent_proof`` (station_store.py:1050) is authoritative for
-    the folio's own signer whether or not its manifest row is still present."""
+    None when it has none (unheld/unsigned) OR its proof is incomplete.
+
+    A ``proof_missing`` row (attribution present but its manifest parent gone —
+    corruption / mid-migration / a non-ingress writer) yields NO owner: the READ path
+    already refuses to call such a folio verified ('NOT VERIFIED — proof missing',
+    envelope.folio_verdict step 1/ST5), so trusting its DENORMALIZED (issuer, subject)
+    on the WRITE path would let the named signer act as owner over a folio the station
+    will not vouch for — a fail-open the read side rejects. Fail closed: no proof, no
+    owner (only a station tier can act on such a lineage)."""
     proof = store.get_constituent_proof(content_hash)
-    if proof is None:
+    if proof is None or proof.get("proof_missing"):
         return None
     return (proof["issuer"], proof["subject"])
 

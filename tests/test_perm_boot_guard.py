@@ -7,7 +7,6 @@ runtime with a cryptic 'no such column: claimed_by_issuer'.
 
 from __future__ import annotations
 
-import sqlite3
 
 import pytest
 

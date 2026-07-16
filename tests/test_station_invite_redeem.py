@@ -71,7 +71,7 @@ def _binding_verifier(issuer=ISSUER, subject=SUBJECT):
     return _v
 
 
-def _mint(station, token="tok-" + "a" * 40, role="author", expires_in_days=7, note="Alice"):
+def _mint(station, token="tok-" + "a" * 40, role="originator", expires_in_days=7, note="Alice"):
     th = hash_token(token)
     station.store.mint_invite(
         th, role, datetime.now(timezone.utc) + timedelta(days=expires_in_days),
@@ -198,7 +198,7 @@ def test_cas_burns_exactly_once(station):
 def test_cas_refuses_revoked_no_burn(station):
     """A revoked identity is refused (revoked_identity) and the invite is not burned."""
     token, th = _mint(station)
-    station.store.add_binding(ISSUER, SUBJECT, role="author")
+    station.store.add_binding(ISSUER, SUBJECT, role="originator")
     station.store.revoke_binding(ISSUER, SUBJECT)
     assert station.store.redeem_invite_cas(th, ISSUER, SUBJECT) == "revoked_identity"
     assert station.store.get_invite_by_token_hash(th)["used_at"] is None
@@ -286,7 +286,7 @@ def test_redeem_happy_binds_author(station):
     assert r.ok and r.status == redeem_mod.RedeemStatus.OK_REDEEMED
     assert (r.issuer, r.subject) == (ISSUER, SUBJECT)
     b = station.store.get_binding(ISSUER, SUBJECT)
-    assert b is not None and b.role == "author" and b.revoked_at is None
+    assert b is not None and b.role == "originator" and b.revoked_at is None
 
 
 def test_redeem_unknown_token_cheap(station, monkeypatch):
@@ -462,7 +462,7 @@ def test_second_identity_already_redeemed(station):
 
 def test_revoked_identity_no_self_readmit(station):
     token, th = _mint(station)
-    station.store.add_binding(ISSUER, SUBJECT, role="author")
+    station.store.add_binding(ISSUER, SUBJECT, role="originator")
     station.store.revoke_binding(ISSUER, SUBJECT)
     r = _do(station, token)
     assert not r.ok and r.status == redeem_mod.RedeemStatus.REVOKED_IDENTITY
@@ -515,7 +515,7 @@ def test_e2e_real_signing_redeem_binds(station, real_provider, monkeypatch):
     assert r.ok and r.status == redeem_mod.RedeemStatus.OK_REDEEMED
     assert (r.issuer, r.subject) == (issuer, subject)
     b = station.store.get_binding(issuer, subject)
-    assert b is not None and b.role == "author"
+    assert b is not None and b.role == "originator"
 
 
 def test_e2e_harvested_manifest_no_redeem(station, real_provider, monkeypatch):

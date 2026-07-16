@@ -84,7 +84,7 @@ def test_verify_cache_caches_stable_statuses(store, status):  # VC5
 
 def test_ingest_populates_manifest_verdict(tmp_path):  # VC6
     instance = Station(tmp_path / "instance" / ".skein-next")
-    instance.store.add_binding(I, ALICE, role="author")
+    instance.store.add_binding(I, ALICE, role="originator")
     folios, threads, slugs = h.specs_set()
     batch = wire.build_batch(folios, threads, slugs)
     batch["manifest_signature"] = h.manifest_over(folios, threads)
@@ -162,7 +162,7 @@ def _cover(store, content_hash, *, cache_status=None, bind=True, subject=ALICE):
         if cache_status:
             store.verify_cache_put(mh, bundle_hash_for(ms["signature_bundle"]), cache_status, I, subject)
     if bind:
-        store.add_binding(I, subject, role="author")
+        store.add_binding(I, subject, role="originator")
     return mh
 
 

@@ -213,7 +213,7 @@ def _cover_folio(data_dir, content_hash, *, subject="alice@example.com",
                            issuer, subject, d["leaf_count"])
         store.add_constituent_attribution(content_hash, "folio", d["root"], issuer, subject)
     if bind:
-        store.add_binding(issuer, subject, role="author")
+        store.add_binding(issuer, subject, role="originator")
     store.close()
 
 

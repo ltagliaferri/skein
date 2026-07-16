@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from . import sign as _sign
+from .authorization import WIRE_REDEEMABLE_ROLES
 from .identity import hash_token
 
 # Per-token failed-verify flood backstop (INV-5). A leaked valid-but-UNUSED token
@@ -52,7 +53,7 @@ class RedeemStatus:
     ALREADY_REDEEMED = "already_redeemed"  # burned, but by a DIFFERENT identity
     RACE_LOST = "race_lost"             # concurrent winner / became invalid mid-redeem
     REVOKED_IDENTITY = "revoked_identity"  # identity holds a revoked binding (INV-3)
-    INVALID_ROLE = "invalid_role"       # invite's role is not 'author' (A7 backstop)
+    INVALID_ROLE = "invalid_role"       # invite's role is not wire-redeemable (§2 backstop)
     PROOF_MALFORMED = "proof_malformed"  # non-crypto proof shape failure
     PROOF_REJECTED = "proof_rejected"   # crypto/binding failure (SIGNATURE_MISMATCH, ...)
     RATE_LIMITED = "rate_limited"       # per-token attempt cap hit
@@ -147,11 +148,12 @@ def redeem(
         return RedeemResult(False, RedeemStatus.UNKNOWN, "unknown or invalid invite token")
     if row.get("revoked_at") is not None:
         return RedeemResult(False, RedeemStatus.REVOKED_INVITE, "this invite was revoked by the operator")
-    # A7 — a self-service redeem must never be the path that creates a second
-    # active operator. Checked cheaply here (mirroring redeem_invite_cas's
-    # authoritative backstop below) so a non-author-role invite is refused
-    # before the expensive verify_multi round-trip, not just before the bind.
-    if row.get("role") != "author":
+    # A self-service redeem may install ONLY a wire-redeemable tier (originator or
+    # steward); operator/administrator are never wire-bound (§2). Checked cheaply here
+    # (mirroring redeem_invite_cas's authoritative backstop below) so a non-redeemable
+    # role is refused before the expensive verify_multi round-trip, not just before the
+    # bind. This preserves the single-active-operator invariant across the wire path.
+    if row.get("role") not in WIRE_REDEEMABLE_ROLES:
         return RedeemResult(False, RedeemStatus.INVALID_ROLE, "this invite cannot be redeemed")
 
     now = datetime.now(timezone.utc)

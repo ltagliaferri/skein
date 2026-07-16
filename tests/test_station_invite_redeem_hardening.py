@@ -62,7 +62,7 @@ def _redeem_signer(subject=SUBJECT):
 def _mint(station, token, expires_in_days=7):
     th = hash_token(token)
     station.store.mint_invite(
-        th, "author", datetime.now(timezone.utc) + timedelta(days=expires_in_days),
+        th, "originator", datetime.now(timezone.utc) + timedelta(days=expires_in_days),
         vouched_by_issuer=OP[0], vouched_by_subject=OP[1], note="n",
     )
     return th

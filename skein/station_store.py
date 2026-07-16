@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 from urllib.parse import quote
 
+from .authorization import WIRE_REDEEMABLE_ROLES
 from .identity import compute_folio_hash, compute_thread_hash, normalize_created_at
 from .storage import LogDatabase
 from .utils import generate_thread_id
@@ -805,18 +806,102 @@ class StationStore:
 
     def set_slug(self, slug: str, content_hash: str) -> None:
         """Bind ``slug`` to a lineage anchored at ``content_hash`` (upsert, LAST-WRITE-
-        WINS). ``content_hash`` is the anchor (genesis) of the claim; for a site folio
-        (the only Stage-1 caller, via ingress) the site is its own genesis, so the anchor
-        is the site hash and resolution returns it directly."""
+        WINS, signer-BLIND). Retained for internal/test callers; the ingress uses
+        :meth:`claim_slug` (signer-pair collision, §3.3/§6). A signer-blind set writes a
+        NULL claimant pair."""
         self.conn.execute(
             """
-            INSERT INTO station_slugs (slug, anchor_hash, claimed_by, scope)
-            VALUES (?, ?, NULL, NULL)
-            ON CONFLICT(slug) DO UPDATE SET anchor_hash = excluded.anchor_hash
+            INSERT INTO station_slugs (slug, anchor_hash, claimed_by_issuer,
+                                       claimed_by_subject, scope)
+            VALUES (?, ?, NULL, NULL, NULL)
+            ON CONFLICT(slug) DO UPDATE SET
+                anchor_hash = excluded.anchor_hash,
+                claimed_by_issuer = NULL,
+                claimed_by_subject = NULL
             """,
             (slug, content_hash),
         )
         self._maybe_commit()
+
+    def perm_schema_current(self) -> bool:
+        """Whether the corpus is on the rev-6 permission-model schema shape — detected by
+        the ``station_slugs.claimed_by_issuer`` column (the pair-claim rebuild). A False
+        result means a PRE-rev6 corpus that has not run perm_model_rev6.migrate(); the
+        ingress boot guard refuses to serve it (else claim_slug/set_slug fail at runtime
+        with a cryptic 'no such column')."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(station_slugs)")}
+        return "claimed_by_issuer" in cols
+
+    def get_slug_claim(self, slug: str) -> Optional[Dict[str, Any]]:
+        """The raw claim row for ``slug`` — ``{anchor_hash, claimed_by_issuer,
+        claimed_by_subject}`` — or ``None`` if unclaimed. (Distinct from
+        :meth:`resolve_slug`, which DERIVES the head; this reads the claim itself.)"""
+        row = self.conn.execute(
+            "SELECT anchor_hash, claimed_by_issuer, claimed_by_subject "
+            "FROM station_slugs WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def claim_slug(
+        self,
+        slug: str,
+        anchor_hash: str,
+        issuer: str,
+        subject: str,
+        *,
+        override: bool = False,
+    ) -> str:
+        """Claim ``slug`` for a lineage anchored at ``anchor_hash`` on behalf of the
+        signer PAIR ``(issuer, subject)``, with a collision check BEFORE the write
+        (atomic inside the caller's ingest transaction, §3.3/§6). Returns a status:
+
+        - ``'claimed'``      — the slug was free; recorded to this signer.
+        - ``'re-anchored'``  — the SAME signer re-claims; the anchor is repointed
+          (a re-publish of a superseding genesis under an existing owned slug).
+        - ``'overridden'``   — a DIFFERENT signer, but ``override`` (an administrator /
+          operator re-point) is set; the anchor AND the claimant pair are rewritten.
+        - ``'collision'``    — a DIFFERENT signer without override: NOTHING is written
+          (the ingress rejects the slug claim).
+
+        A NULL-claimant legacy row (a signer-blind :meth:`set_slug` / pre-migration
+        claim) is NOT "the same signer", so it collides for a real signer unless
+        overridden — deliberately fail-closed against squatting a legacy name."""
+        existing = self.get_slug_claim(slug)
+        if existing is None:
+            self.conn.execute(
+                """
+                INSERT INTO station_slugs
+                    (slug, anchor_hash, claimed_by_issuer, claimed_by_subject, scope)
+                VALUES (?, ?, ?, ?, NULL)
+                """,
+                (slug, anchor_hash, issuer, subject),
+            )
+            self._maybe_commit()
+            return "claimed"
+        same_signer = (
+            existing["claimed_by_issuer"] == issuer
+            and existing["claimed_by_subject"] == subject
+        )
+        if same_signer:
+            self.conn.execute(
+                "UPDATE station_slugs SET anchor_hash = ? WHERE slug = ?",
+                (anchor_hash, slug),
+            )
+            self._maybe_commit()
+            return "re-anchored"
+        if override:
+            self.conn.execute(
+                """
+                UPDATE station_slugs
+                   SET anchor_hash = ?, claimed_by_issuer = ?, claimed_by_subject = ?
+                 WHERE slug = ?
+                """,
+                (anchor_hash, issuer, subject, slug),
+            )
+            self._maybe_commit()
+            return "overridden"
+        return "collision"
 
     def _version_exists(self, content_hash: str) -> bool:
         return (
@@ -1169,7 +1254,7 @@ class StationStore:
         self,
         issuer: str,
         subject: str,
-        role: str = "author",
+        role: str = "originator",
         vouched_by_issuer: Optional[str] = None,
         vouched_by_subject: Optional[str] = None,
         event: Optional[str] = None,
@@ -1239,6 +1324,29 @@ class StationStore:
         )
         self._maybe_commit()
         return True
+
+    def set_role(self, issuer: str, subject: str, role: str):
+        """Change an ACTIVE binding's tier locally (a privileged rebind). Returns the
+        updated ``Binding``, or ``None`` if there is no active binding. Refuses to touch
+        the operator role in EITHER direction (``ValueError``) — installing or removing
+        an operator goes through rotate-operator so the single-active-operator invariant
+        (A7/D13) is never bypassed. Logs a 'rebound' event; created_at is preserved."""
+        b = self.get_binding(issuer, subject)
+        if b is None or b.revoked_at is not None:
+            return None
+        if b.role == "operator" or role == "operator":
+            raise ValueError(
+                "operator role changes go through rotate-operator, not rebind"
+            )
+        self.conn.execute(
+            "UPDATE account_bindings SET role = ? WHERE issuer = ? AND subject = ?",
+            (role, issuer, subject),
+        )
+        self._log_binding_event(
+            issuer, subject, "rebound", role, b.vouched_by_issuer, b.vouched_by_subject
+        )
+        self._maybe_commit()
+        return self.get_binding(issuer, subject)
 
     def promote_to_operator(self, issuer: str, subject: str):
         """Promote an EXISTING author row to operator, preserving created_at (D19).
@@ -1320,6 +1428,176 @@ class StationStore:
         if subject is not None:
             clauses.append("subject = ?")
             params.append(subject)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY event_seq"
+        return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    # --- document grants + audit (the per-document delegation sidecar) -------
+    #
+    # A grant delegates a TO-end right on ONE lineage (anchor = its GENESIS) to a
+    # grantee signer pair, for a KIND (supersede | site_contribute | site_edit). Read
+    # LIVE per ingest inside the ingest transaction, never memoized (rotation-proof).
+    # Grants authorize the TO-end ONLY (never the pure per-folio from-end). They do NOT
+    # cascade on granter revocation; containment is the explicit
+    # revoke_grants_vouched_by verb (§3.2).
+
+    def _log_grant_event(
+        self, grantee_issuer, grantee_subject, event, kind, anchor_hash,
+        vouched_by_issuer, vouched_by_subject,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO grant_events
+                (grantee_issuer, grantee_subject, event, kind, anchor_hash,
+                 vouched_by_issuer, vouched_by_subject, at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (grantee_issuer, grantee_subject, event, kind, anchor_hash,
+             vouched_by_issuer, vouched_by_subject, _now_iso()),
+        )
+
+    def add_grant(
+        self,
+        anchor_hash: str,
+        grantee_issuer: str,
+        grantee_subject: str,
+        kind: str,
+        vouched_by_issuer: Optional[str] = None,
+        vouched_by_subject: Optional[str] = None,
+    ) -> None:
+        """Issue (or reactivate) a grant for (anchor, grantee, kind). A fresh tuple
+        INSERTs with a 'granted' event; a revoked tuple REACTIVATES the SAME row
+        (revoked_at back to NULL, created_at preserved) with a 'regranted' event; an
+        already-active tuple is an idempotent no-op (no event). Mirrors add_binding's
+        revoke/reactivate discipline so a re-grant after revocation is auditable."""
+        existing = self.conn.execute(
+            "SELECT created_at, revoked_at FROM document_grants "
+            "WHERE anchor_hash = ? AND grantee_issuer = ? AND grantee_subject = ? AND kind = ?",
+            (anchor_hash, grantee_issuer, grantee_subject, kind),
+        ).fetchone()
+        if existing is None:
+            self.conn.execute(
+                """
+                INSERT INTO document_grants
+                    (anchor_hash, grantee_issuer, grantee_subject, kind,
+                     vouched_by_issuer, vouched_by_subject, created_at, revoked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (anchor_hash, grantee_issuer, grantee_subject, kind,
+                 vouched_by_issuer, vouched_by_subject, _now_iso()),
+            )
+            self._log_grant_event(
+                grantee_issuer, grantee_subject, "granted", kind, anchor_hash,
+                vouched_by_issuer, vouched_by_subject,
+            )
+        elif existing["revoked_at"] is not None:
+            self.conn.execute(
+                """
+                UPDATE document_grants
+                   SET revoked_at = NULL, vouched_by_issuer = ?, vouched_by_subject = ?
+                 WHERE anchor_hash = ? AND grantee_issuer = ? AND grantee_subject = ? AND kind = ?
+                """,
+                (vouched_by_issuer, vouched_by_subject,
+                 anchor_hash, grantee_issuer, grantee_subject, kind),
+            )
+            self._log_grant_event(
+                grantee_issuer, grantee_subject, "regranted", kind, anchor_hash,
+                vouched_by_issuer, vouched_by_subject,
+            )
+        # else: already active -> idempotent no-op, no event
+        self._maybe_commit()
+
+    def has_active_grant(
+        self, anchor_hash: str, grantee_issuer: str, grantee_subject: str, kind: str
+    ) -> bool:
+        """True iff (anchor, grantee, kind) has an ACTIVE (revoked_at NULL) grant. The
+        live predicate the to-end authorization consults inside the ingest txn."""
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM document_grants
+             WHERE anchor_hash = ? AND grantee_issuer = ? AND grantee_subject = ?
+               AND kind = ? AND revoked_at IS NULL
+             LIMIT 1
+            """,
+            (anchor_hash, grantee_issuer, grantee_subject, kind),
+        ).fetchone()
+        return row is not None
+
+    def revoke_grant(
+        self, anchor_hash: str, grantee_issuer: str, grantee_subject: str, kind: str
+    ) -> bool:
+        """Revoke ONE active grant (sets revoked_at; row stays). Returns False if there
+        was no active grant to revoke."""
+        cur = self.conn.execute(
+            """
+            UPDATE document_grants SET revoked_at = ?
+             WHERE anchor_hash = ? AND grantee_issuer = ? AND grantee_subject = ?
+               AND kind = ? AND revoked_at IS NULL
+            """,
+            (_now_iso(), anchor_hash, grantee_issuer, grantee_subject, kind),
+        )
+        if cur.rowcount == 0:
+            self._maybe_commit()
+            return False
+        self._log_grant_event(
+            grantee_issuer, grantee_subject, "revoked", kind, anchor_hash, None, None
+        )
+        self._maybe_commit()
+        return True
+
+    def revoke_grants_vouched_by(
+        self, vouched_by_issuer: str, vouched_by_subject: str
+    ) -> int:
+        """Revoke EVERY active grant vouched by ``(vouched_by_issuer,
+        vouched_by_subject)`` — the containment verb for a revoked/compromised granter
+        (grants do NOT auto-cascade on granter revocation, §3.2). Returns the count
+        revoked. Each revocation logs a 'revoked_containment' event."""
+        rows = self.conn.execute(
+            """
+            SELECT anchor_hash, grantee_issuer, grantee_subject, kind
+              FROM document_grants
+             WHERE vouched_by_issuer = ? AND vouched_by_subject = ? AND revoked_at IS NULL
+            """,
+            (vouched_by_issuer, vouched_by_subject),
+        ).fetchall()
+        for r in rows:
+            self.conn.execute(
+                """
+                UPDATE document_grants SET revoked_at = ?
+                 WHERE anchor_hash = ? AND grantee_issuer = ? AND grantee_subject = ? AND kind = ?
+                """,
+                (_now_iso(), r["anchor_hash"], r["grantee_issuer"],
+                 r["grantee_subject"], r["kind"]),
+            )
+            self._log_grant_event(
+                r["grantee_issuer"], r["grantee_subject"], "revoked_containment",
+                r["kind"], r["anchor_hash"], vouched_by_issuer, vouched_by_subject,
+            )
+        self._maybe_commit()
+        return len(rows)
+
+    def list_grants(self, include_revoked: bool = False) -> List[Dict[str, Any]]:
+        """All grants (active only unless asked), ordered by anchor then grantee."""
+        sql = "SELECT * FROM document_grants"
+        if not include_revoked:
+            sql += " WHERE revoked_at IS NULL"
+        sql += " ORDER BY anchor_hash, grantee_issuer, grantee_subject, kind"
+        return [dict(r) for r in self.conn.execute(sql).fetchall()]
+
+    def get_grant_events(
+        self, grantee_issuer: Optional[str] = None, grantee_subject: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """The append-only grant audit trail, in insertion order (optionally filtered)."""
+        sql = "SELECT * FROM grant_events"
+        clauses = []
+        params: List[Any] = []
+        if grantee_issuer is not None:
+            clauses.append("grantee_issuer = ?")
+            params.append(grantee_issuer)
+        if grantee_subject is not None:
+            clauses.append("grantee_subject = ?")
+            params.append(grantee_subject)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY event_seq"
@@ -1514,14 +1792,15 @@ class StationStore:
         - ``'revoked_identity'`` — the identity currently holds a REVOKED binding;
           NOTHING is burned or bound (INV-3: a self-service redeem must never
           un-revoke an identity the operator deliberately revoked).
-        - ``'invalid_role'``     — the invite's role is not ``'author'``. A
-          self-service redeem must NEVER be the path that creates a second
-          active operator (the single-active-operator invariant, A7/D13); an
+        - ``'invalid_role'``     — the invite's role is not WIRE-REDEEMABLE
+          (not in ``{originator, steward}``, §2). A self-service redeem must
+          NEVER install an operator or administrator (the single-active-operator
+          invariant, A7/D13; administrator is a privileged LOCAL bind only) — an
           operator is installed ONLY via the local ``init-operator`` /
           ``rotate-operator`` CLI path. NOTHING is burned or bound. The
-          supported mint path already restricts ``--role`` to ``author``, but
-          this is the actual bind point, so it is the backstop that must
-          refuse regardless of how a non-author-role invite row came to exist
+          supported mint path already restricts ``--role`` to the wire-redeemable
+          set, but this is the actual bind point, so it is the backstop that must
+          refuse regardless of how a non-redeemable-role invite row came to exist
           (direct store use, migration, or future caller drift).
         - ``'race_lost'``        — the conditional UPDATE matched 0 rows: a
           concurrent redeem won, or the token became used/revoked/expired between
@@ -1538,7 +1817,7 @@ class StationStore:
             ).fetchone()
             if inv is None:
                 return "race_lost"  # vanished between cheap check and here
-            if inv["role"] != "author":
+            if inv["role"] not in WIRE_REDEEMABLE_ROLES:
                 return "invalid_role"
             # INV-3 — refuse to bind an identity that currently holds a REVOKED
             # binding (add_binding would reactivate it, B5). Guard BEFORE the burn so

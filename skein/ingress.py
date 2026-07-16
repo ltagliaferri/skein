@@ -45,8 +45,16 @@ from .station import Station, StationBootError
 from . import canon, wire
 from . import sign as _sign
 from . import redeem as _redeem
-from .authorization import default_bindings
+from .authorization import Principal, default_bindings
 from .identity import content_hash_for_bytes
+from .thread_authz import (
+    AuthzReject,
+    LineageReject,
+    authorize_thread,
+    authorized_staged_supersedes,
+    lineage_genesis_for,
+    owns_folio,
+)
 from .station_env import StationEnvError, station_env
 from .station_store import DB_FILENAME, bundle_hash_for, sqlite_error_is_lock
 
@@ -131,8 +139,15 @@ def _validate_shape(batch: Dict[str, Any]) -> None:
         value = batch.get(key, [])
         if not isinstance(value, list) or not all(isinstance(i, dict) for i in value):
             raise BatchShapeError(f"{key!r} must be a list of objects")
-    if not isinstance(batch.get("site_slugs", {}), dict):
+    site_slugs = batch.get("site_slugs", {})
+    if not isinstance(site_slugs, dict):
         raise BatchShapeError("'site_slugs' must be an object")
+    # The VALUES must be strings (slug names) — a list/dict/int value is valid JSON but
+    # binds nowhere in SQLite (raises ProgrammingError), which the slug-claim pass would
+    # otherwise let escape as an uncaught 500 per request (the log-amplification-DoS class
+    # this surface hardens against). Reject the malformed batch cleanly as a 400 here.
+    if not all(isinstance(v, str) for v in site_slugs.values()):
+        raise BatchShapeError("'site_slugs' values must be strings")
 
 
 def ingest(
@@ -182,20 +197,14 @@ def ingest(
             batch["manifest_signature"], verifier
         )
 
-    # Bind the verified manifest signer ONCE (only under ON, only when verified) —
-    # a single get_binding for the whole batch (RS8). NEVER memoized from stored
-    # manifests/attribution rows (the re-gating pin, C40): a revocation between
-    # publishes flips the verdict on the next ingest.
+    # The verified manifest signer's binding is read ONCE for the whole batch (RS8),
+    # LIVE inside the ingest BEGIN IMMEDIATE (below), never here pre-transaction: the
+    # single get_binding is the re-gating pin C40 / §8, so a revocation that commits
+    # before the write lock flips the verdict on THIS ingest, not the next. These are
+    # initialized here only so manifest_decision (a closure over them) has values to
+    # read; the authoritative assignment happens live in the transaction.
     m_bound = False
     m_bind_reason: Optional[str] = None
-    if has_manifest and m_verified and require_signed:
-        binding = bindings.get_binding(m_identity["issuer"], m_identity["subject"])
-        if binding is None:
-            m_bind_reason = "unbound signer"
-        elif binding.revoked_at is not None:
-            m_bind_reason = "revoked binding"
-        else:
-            m_bound = True
 
     # Manifest context for the attribution writes (only meaningful when verified).
     mctx: Optional[Dict[str, Any]] = None
@@ -253,6 +262,36 @@ def ingest(
     site_slugs: Dict[str, str] = batch.get("site_slugs") or {}
 
     with station.store.transaction():
+        # RE-READ the signer's binding LIVE inside BEGIN IMMEDIATE (§8, C40): the
+        # pre-transaction m_bound (ingress.py, computed at :191) is a PRE-FILTER only.
+        # A revocation that commits between that read and this lock must flip the
+        # verdict, so a revoked signer's tiered writes are never admitted in the
+        # window. Reassigning m_bound/m_bind_reason here updates what manifest_decision
+        # (a closure over them) sees at call time. `signer` is the Principal the thread
+        # authorization gates on; it is set ONLY when the live binding is active.
+        signer: Optional[Principal] = None
+        live = None
+        if require_signed and has_manifest and m_verified:
+            live = bindings.get_binding(m_identity["issuer"], m_identity["subject"])
+            if live is None:
+                m_bound, m_bind_reason = False, "unbound signer"
+            elif live.revoked_at is not None:
+                m_bound, m_bind_reason = False, "revoked binding"
+            else:
+                m_bound, m_bind_reason = True, None
+                signer = Principal(m_identity["issuer"], m_identity["subject"])
+        # Whether the live signer holds a tier that may OVERRIDE a slug collision
+        # (an administrator/operator re-point, §6). Read from the same live binding.
+        slug_override = bool(
+            require_signed
+            and signer is not None
+            and live is not None
+            and live.role in ("operator", "administrator")
+        )
+        # Admitted site folios that carry a slug — claimed in a pass AFTER the thread
+        # loop (so the supersedes are stored and the anchor can be the genesis).
+        admitted_site_slugs: Dict[str, str] = {}
+
         for wf in batch.get("folios", []):
             claimed = wf.get("content_hash")
             reason = wire.folio_reject_reason(wf)
@@ -266,17 +305,32 @@ def ingest(
                     continue
             try:
                 with station.store.savepoint():
-                    if station.store.get_folio(claimed) is not None:
-                        existing.append(claimed)
-                    else:
+                    newly_created = station.store.get_folio(claimed) is None
+                    if newly_created:
                         station.store.create_folio(wf)
                         accepted.append(claimed)
-                    if require_signed:
+                    else:
+                        existing.append(claimed)
+                    # Attribute a folio to the signer ONLY when the signer CREATED it in
+                    # this batch, or ALREADY owns it (re-affirm). NEVER first-attribute a
+                    # PRE-EXISTING previously-unattributed (legacy) folio to a re-publisher:
+                    # that would let a bound non-owner CAPTURE a legacy owner-None lineage
+                    # (fell-r1 finding 1) and then supersede it — reopening the exact hole
+                    # this model closes. A legacy/unsigned folio stays owner-None, actionable
+                    # only by a station tier (§4).
+                    if require_signed and signer is not None and (
+                        newly_created or owns_folio(station.store, signer, claimed)
+                    ):
                         write_attribution(claimed, "folio")
-                    # A site folio's slug is gated TRANSITIVELY: this set_slug is
-                    # only reached for an admitted site folio (Q2/RS18).
+                    # A site folio's slug is gated TRANSITIVELY: only an admitted site
+                    # folio is recorded here (Q2/RS18). The CLAIM itself is deferred to a
+                    # pass AFTER the thread loop, so the anchor can be the lineage GENESIS
+                    # (resolved over the now-stored supersedes) rather than a published
+                    # HEAD — the slug is genesis-anchored so within/folio_site_slug/
+                    # folios_in_site all key on the same genesis (§5.2; a head-anchored
+                    # slug loses the breadcrumb of members filed under the genesis).
                     if wf.get("type") == "site" and claimed in site_slugs:
-                        station.store.set_slug(site_slugs[claimed], claimed)
+                        admitted_site_slugs[claimed] = site_slugs[claimed]
             except Exception as exc:  # noqa: BLE001 — one bad item never 500s the batch
                 logger.debug("folio %s rolled back: %s", claimed, exc)
                 if claimed in accepted:
@@ -289,6 +343,26 @@ def ingest(
         thread_existing: List[str] = []
         thread_rejected: List[Dict[str, str]] = []
         thread_dangling: List[str] = []
+
+        # The STAGED FINAL GRAPH (§8): the fixpoint of AUTHORIZED same-batch supersedes.
+        # Built AFTER the folio loop (so same-batch new-version folios and their
+        # attributions are landed and ownership resolves) and BEFORE the thread loop (so
+        # every affecting edge's genesis resolves over the batch's pending supersedes).
+        # A rejected supersedes never enters it (knuth F2). Only membership-valid signed
+        # supersedes are candidates.
+        staged_supersedes: List[Tuple[str, str]] = []
+        if require_signed and m_verified and m_bound and signer is not None:
+            batch_supersedes = []
+            for wt in batch.get("threads", []):
+                if wt.get("type") != "supersedes":
+                    continue
+                if wire.thread_reject_reason(wt):
+                    continue
+                if manifest_decision(wt.get("thread_hash"))[0]:
+                    batch_supersedes.append(wt)
+            staged_supersedes = authorized_staged_supersedes(
+                station.store, signer, batch_supersedes
+            )
 
         def present(endpoint: Any) -> bool:
             # On the instance iff it exists in the store — either landed in this
@@ -325,6 +399,20 @@ def ingest(
                 if not admit:
                     thread_rejected.append({"thread_hash": claimed, "reason": mreason})
                     continue
+                # BY-ENDS AUTHORIZATION (§5.1): a signed manifest leaf is necessary but
+                # not sufficient — the signer must be authorized to ORIGINATE this typed
+                # edge given its endpoints. Resolved over the staged final graph, with
+                # tier + grants read LIVE (inside this BEGIN IMMEDIATE). Fail-closed:
+                # AuthzReject/LineageReject reject this one edge with its wire reason,
+                # never a 500 and never the sibling edges.
+                try:
+                    authorize_thread(station.store, signer, wt, staged_supersedes)
+                except (AuthzReject, LineageReject) as exc:
+                    thread_rejected.append(
+                        {"thread_hash": claimed,
+                         "reason": getattr(exc, "reason", str(exc))}
+                    )
+                    continue
             try:
                 with station.store.savepoint():
                     already = station.store.get_thread(claimed) is not None
@@ -336,17 +424,90 @@ def ingest(
                         created_at=wt.get("created_at"),
                         content=wt.get("content"),
                     )
-                    if require_signed:
-                        write_attribution(claimed, "thread")
-                    (thread_existing if already else thread_accepted).append(claimed)
-                    if dangling:
-                        thread_dangling.append(claimed)
+                    # save_thread is INSERT OR IGNORE: if the row is NOT present after it
+                    # AND was not already there, the insert was silently swallowed by a
+                    # constraint — the <=1-parent partial-unique index (a second supersedes
+                    # parent for this from_id, i.e. a MERGE). Report it HONESTLY as rejected
+                    # rather than a false 'accepted' — the ack must never claim a row it did
+                    # not persist (fell-r1 finding 3; the OFF-posture backstop, since under
+                    # ON authorize_thread already rejects a merge before save).
+                    if not already and station.store.get_thread(claimed) is None:
+                        thread_rejected.append(
+                            {"thread_hash": claimed,
+                             "reason": "supersedes would create a second parent (merge)"}
+                        )
+                    else:
+                        if require_signed:
+                            write_attribution(claimed, "thread")
+                        (thread_existing if already else thread_accepted).append(claimed)
+                        if dangling:
+                            thread_dangling.append(claimed)
             except Exception as exc:  # noqa: BLE001 — one bad item never 500s the batch
                 logger.debug("thread %s rolled back: %s", claimed, exc)
                 for lst in (thread_accepted, thread_existing):
                     if claimed in lst:
                         lst.remove(claimed)
                 thread_rejected.append({"thread_hash": claimed, "reason": "invalid fields"})
+
+        # SLUG CLAIM PASS — runs AFTER the thread loop (supersedes now stored) so each
+        # admitted site folio's slug anchors at its lineage GENESIS, not the published
+        # head: publishing site_v2 + supersedes(site_v2 -> site_g) keeps "specs" on
+        # site_g, so resolve_slug derives the head and within(member -> site_g) rows keep
+        # their breadcrumb (§5.2). A lineage with NO single genesis is NOT nameable (the
+        # claim is skipped, fail-closed). Under ON the claim is the signer-PAIR collision
+        # (§3.3/§6: free-or-same-signer re-anchors; a different signer collides unless an
+        # admin/operator overrides), and naming requires ownership OF THE ANCHOR;
+        # signer-blind OFF is last-write-wins.
+        for site_hash, slug in admitted_site_slugs.items():
+            # Per-item guard (mirrors the folio/thread loops): a single bad slug claim
+            # must never sink the batch or 500 the request. The savepoint isolates the
+            # write so a failure rolls back only this claim; the except stops it from
+            # propagating to the outer transaction. The site folio stays stored, unnamed.
+            try:
+                try:
+                    anchor = lineage_genesis_for(station.store, site_hash).hash
+                except LineageReject as exc:
+                    # A malformed site lineage (merge/cycle/self-edge/signed-chain gap)
+                    # has NO single genesis, so there is no anchor to name. FAIL CLOSED —
+                    # skip the claim (the folio stays stored, unnamed) rather than
+                    # anchoring at the published folio: a signed-chain gap is a forgery
+                    # signal (§4), and anchoring at the folio would let a name be reserved
+                    # on a lineage the station cannot resolve. This matches
+                    # `station slug-override`, which refuses an unresolvable anchor and
+                    # tells the operator to repair the lineage first.
+                    logger.debug(
+                        "slug %r for %s skipped: lineage unresolvable (%s)",
+                        slug, site_hash, exc,
+                    )
+                    continue
+                # NAMING FOLLOWS OWNERSHIP OF THE ANCHOR (under ON). The claim is written
+                # against the GENESIS, so ownership must be checked on the GENESIS — not
+                # on the published folio. Checking the published folio would let a signer
+                # who owns only a NEW HEAD name someone else's lineage: holding just a
+                # supersede grant on Bob's site G, Alice publishes her own v2 +
+                # supersedes(v2 -> G) with a slug, owns v2, and is recorded as claimant of
+                # a name anchored on G — then same-signer re-anchors it onto her own
+                # lineage. A supersede grant is scoped to superseding (§3.2/§5.2); it does
+                # not confer naming. An administrator/operator may override (§6); a legacy
+                # owner-None genesis is nameable only through that override.
+                if require_signed and signer is not None and not (
+                    slug_override or owns_folio(station.store, signer, anchor)
+                ):
+                    logger.debug(
+                        "slug %r for %s skipped: signer does not own the anchor %s",
+                        slug, site_hash, anchor,
+                    )
+                    continue
+                with station.store.savepoint():
+                    if require_signed and signer is not None:
+                        station.store.claim_slug(
+                            slug, anchor, signer.issuer, signer.subject,
+                            override=slug_override,
+                        )
+                    else:
+                        station.store.set_slug(slug, anchor)
+            except Exception as exc:  # noqa: BLE001 — one bad slug never sinks the batch
+                logger.debug("slug %r for %s skipped: %s", slug, site_hash, exc)
 
     return {
         "protocol": wire.PROTOCOL,
@@ -460,6 +621,25 @@ def create_app() -> FastAPI:
         raise StationBootError(
             f"station corpus at {boot_db_path} is unopenable: {e}"
         ) from e
+    # PERM-MODEL SCHEMA GUARD: refuse to serve a PRE-rev6 corpus (one that has not run
+    # perm_model_rev6.migrate() — detected by the station_slugs claimed_by pair). Without
+    # this, the ingress boots but claim_slug/set_slug fail at runtime with a cryptic
+    # 'no such column: claimed_by_issuer', and 'author' bindings/invites are stranded
+    # (not in the wire-redeemable set). Fail LOUD with the exact remediation. Applies in
+    # BOTH postures (the slug write happens under OFF and ON).
+    try:
+        perm_current = station.store.perm_schema_current()
+    except sqlite3.Error as e:
+        raise StationBootError(
+            f"station corpus at {boot_db_path} is unreadable: {e}"
+        ) from e
+    if not perm_current:
+        station.close()
+        raise StationBootError(
+            f"station corpus at {boot_db_path} predates the rev-6 permission model; "
+            f"run 'python -m skein.migrations.perm_model_rev6 {boot_db_path}' before "
+            "starting the ingress"
+        )
     # STARTUP INVARIANT (the ingress only — the read app is EXEMPT, D17): under
     # require_signed the active operator count must be EXACTLY 1. Count 0 or >1
     # refuses boot. The operator is read from the account_bindings sidecar, the

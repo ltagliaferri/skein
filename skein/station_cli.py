@@ -188,10 +188,19 @@ def account_init_operator(ctx: click.Context, issuer: str, subject: str) -> None
 @account.command("add")
 @click.option("--issuer", required=True)
 @click.option("--subject", required=True)
-@click.option("--role", default="author", type=click.Choice(["author"]))
+@click.option(
+    "--role",
+    default="originator",
+    type=click.Choice(["originator", "administrator", "steward"]),
+    help="Tier to bind (default originator). administrator is the privileged LOCAL-only "
+    "bind (never wire-redeemable); operator is init-operator/rotate-operator only.",
+)
 @click.pass_context
 def account_add(ctx: click.Context, issuer: str, subject: str, role: str) -> None:
-    """Add an author binding, vouched for by the active operator."""
+    """Add a binding at a tier (originator/administrator/steward), vouched for by the
+    active operator. administrator is a privileged LOCAL-only bind (never wire-redeemable);
+    originator and steward may ALSO be onboarded over the wire via invites; operator is
+    installed only via init-operator/rotate-operator."""
     with _open_station(ctx) as st:
         op = st.store.get_operator()
         if op is None:
@@ -280,6 +289,137 @@ def account_list(ctx: click.Context, show_all: bool) -> None:
             click.echo(f"{b.role} {b.issuer}/{b.subject}{suffix}")
 
 
+@account.command("rebind")
+@click.option("--issuer", required=True)
+@click.option("--subject", required=True)
+@click.option(
+    "--role", required=True,
+    type=click.Choice(["originator", "administrator", "steward"]),
+    help="New tier for an ACTIVE binding (operator changes go through rotate-operator).",
+)
+@click.pass_context
+def account_rebind(ctx: click.Context, issuer: str, subject: str, role: str) -> None:
+    """Change an active binding's tier locally (a privileged rebind). Refuses to touch
+    the operator role in either direction — operator handoff is rotate-operator."""
+    with _open_station(ctx) as st:
+        try:
+            b = st.store.set_role(issuer, subject, role)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        if b is None:
+            raise click.ClickException(f"no active binding for {issuer}/{subject}")
+    click.echo(f"{b.role} {issuer}/{subject}")
+
+
+# --- grant (per-document delegation of a to-end right) ------------------------
+
+_GRANT_KINDS = ["supersede", "site_contribute", "site_edit"]
+
+
+@station.group()
+def grant() -> None:
+    """Issue, revoke, and list per-document grants — a delegated TO-end right on ONE
+    lineage (anchor = its genesis hash). Issued by the operator (administrator/operator
+    only, §3.2). A grant never satisfies the pure per-folio from-end."""
+
+
+@grant.command("issue")
+@click.option("--anchor", required=True, help="Lineage GENESIS content hash.")
+@click.option("--issuer", required=True, help="Grantee issuer.")
+@click.option("--subject", required=True, help="Grantee subject.")
+@click.option("--kind", required=True, type=click.Choice(_GRANT_KINDS))
+@click.pass_context
+def grant_issue(ctx: click.Context, anchor: str, issuer: str, subject: str, kind: str) -> None:
+    """Issue a grant, vouched for by the active operator."""
+    with _open_station(ctx) as st:
+        op = st.store.get_operator()
+        if op is None:
+            raise click.ClickException("no operator; run init-operator first")
+        st.store.add_grant(anchor, issuer, subject, kind, op.issuer, op.subject)
+    click.echo(f"granted {kind} on {anchor} to {issuer}/{subject}")
+
+
+@grant.command("revoke")
+@click.option("--anchor", required=True)
+@click.option("--issuer", required=True)
+@click.option("--subject", required=True)
+@click.option("--kind", required=True, type=click.Choice(_GRANT_KINDS))
+@click.pass_context
+def grant_revoke(ctx: click.Context, anchor: str, issuer: str, subject: str, kind: str) -> None:
+    """Revoke ONE grant (revocation is not deletion)."""
+    with _open_station(ctx) as st:
+        if not st.store.revoke_grant(anchor, issuer, subject, kind):
+            raise click.ClickException(
+                f"no active {kind} grant on {anchor} for {issuer}/{subject}"
+            )
+    click.echo(f"revoked {kind} on {anchor} for {issuer}/{subject}")
+
+
+@grant.command("revoke-all-by")
+@click.option("--issuer", required=True, help="Granter (vouched-by) issuer.")
+@click.option("--subject", required=True, help="Granter (vouched-by) subject.")
+@click.pass_context
+def grant_revoke_all_by(ctx: click.Context, issuer: str, subject: str) -> None:
+    """Containment verb: revoke EVERY active grant vouched by a granter (grants do NOT
+    auto-cascade on granter revocation, §3.2). Run this after revoking a compromised
+    administrator to contain the grants they issued."""
+    with _open_station(ctx) as st:
+        n = st.store.revoke_grants_vouched_by(issuer, subject)
+    click.echo(f"revoked {n} grant(s) vouched by {issuer}/{subject}")
+
+
+@grant.command("list")
+@click.option("--all", "show_all", is_flag=True, help="Include revoked grants.")
+@click.pass_context
+def grant_list(ctx: click.Context, show_all: bool) -> None:
+    """List grants, one per line (a11y plain text):
+    ``<kind> <anchor> <grantee_issuer>/<grantee_subject>``."""
+    with _open_station(ctx) as st:
+        for g in st.store.list_grants(include_revoked=show_all):
+            suffix = " (revoked)" if g.get("revoked_at") else ""
+            click.echo(
+                f"{g['kind']} {g['anchor_hash']} "
+                f"{g['grantee_issuer']}/{g['grantee_subject']}{suffix}"
+            )
+
+
+@station.command("slug-override")
+@click.option("--slug", required=True)
+@click.option(
+    "--anchor", required=True,
+    help="A held folio in the target lineage; the slug is anchored at that lineage's "
+    "GENESIS (resolve_slug then derives the head).",
+)
+@click.pass_context
+def slug_override(ctx: click.Context, slug: str, anchor: str) -> None:
+    """Re-point a slug to a lineage as the operator (a privileged override of a claim
+    held by another signer, §6). The slug's claimant becomes the operator, and the
+    anchor is normalized to the lineage GENESIS so members filed under the genesis keep
+    their breadcrumb (a head-anchored slug would orphan them)."""
+    from .thread_authz import LineageReject, lineage_genesis_for
+
+    with _open_station(ctx) as st:
+        op = st.store.get_operator()
+        if op is None:
+            raise click.ClickException("no operator; run init-operator first")
+        # Refuse an anchor that names no held lineage — the slug would resolve to None
+        # (resolve_slug finds no head), so the "override" would silently break the name.
+        if st.store.get_folio(anchor) is None:
+            raise click.ClickException(
+                f"anchor {anchor} is not a held folio on this station; "
+                "the slug would resolve to nothing"
+            )
+        try:
+            genesis = lineage_genesis_for(st.store, anchor).hash
+        except LineageReject as e:
+            raise click.ClickException(
+                f"anchor {anchor} has no single lineage genesis ({e}); "
+                "repair the lineage before naming it"
+            )
+        status = st.store.claim_slug(slug, genesis, op.issuer, op.subject, override=True)
+    click.echo(f"slug {slug} -> {genesis} ({status})")
+
+
 # --- invite (one-time collaborator onboarding tokens) -------------------------
 
 _DURATION_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -321,7 +461,7 @@ def _invite_line(row: Dict[str, Any], state: str) -> str:
     """One screen-reader line for an invite (plain text: ``<description> <id>``)."""
     note = f' "{row["note"]}"' if row.get("note") else ""
     short = (row.get("token_hash") or "?")[:12]
-    role = row.get("role") or "author"
+    role = row.get("role") or "originator"
     if state == "redeemed":
         return f"redeemed {role} by {row.get('bound_subject')} at {row.get('redeemed_at')}{note} {short}"
     if state == "outstanding":
@@ -364,7 +504,13 @@ def invite() -> None:
 
 
 @invite.command("mint")
-@click.option("--role", default="author", type=click.Choice(["author"]))
+@click.option(
+    "--role",
+    default="originator",
+    type=click.Choice(["originator", "steward"]),
+    help="Wire-redeemable tier for this invite (default originator). Only "
+    "originator/steward may be minted — operator/administrator are never wire-bound.",
+)
 @click.option("--expires", default="7d", help="Validity window (e.g. 30m, 24h, 7d). Default 7d.")
 @click.option("--note", default=None, help="Operator note (who this invite is for).")
 @click.option(

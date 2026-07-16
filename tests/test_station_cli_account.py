@@ -65,11 +65,11 @@ def test_init_operator_after_revoke_succeeds(tmp_path):  # D3
 
 def test_account_add_happy(tmp_path):  # D4
     _run(tmp_path, "account", "init-operator", "--issuer", ISS, "--subject", S)
-    r = _run(tmp_path, "account", "add", "--issuer", ISS2, "--subject", S2, "--role", "author")
+    r = _run(tmp_path, "account", "add", "--issuer", ISS2, "--subject", S2, "--role", "originator")
     assert r.exit_code == 0
     with _open(tmp_path) as st:
         b = st.store.get_binding(ISS2, S2)
-        assert b.role == "author" and b.revoked_at is None
+        assert b.role == "originator" and b.revoked_at is None
         assert b.vouched_by_subject == S
         assert "created" in [e["event"] for e in st.store.get_binding_events(ISS2, S2)]
 
@@ -80,15 +80,15 @@ def test_account_add_requires_operator(tmp_path):  # D5
 
 
 def test_account_add_echoes_stored_role(tmp_path):
-    """`account add --role author` on the ACTIVE OPERATOR's own identity hits
+    """`account add --role originator` on the ACTIVE OPERATOR's own identity hits
     add_binding's already-active idempotent no-op: the binding correctly STAYS
     operator. The CLI must echo the STORED role ("operator"), not the requested
-    one ("author")."""
+    one ("originator")."""
     _run(tmp_path, "account", "init-operator", "--issuer", ISS, "--subject", S)
-    r = _run(tmp_path, "account", "add", "--issuer", ISS, "--subject", S, "--role", "author")
+    r = _run(tmp_path, "account", "add", "--issuer", ISS, "--subject", S, "--role", "originator")
     assert r.exit_code == 0
     assert f"operator {ISS}/{S}" in r.output
-    assert "author" not in r.output  # the requested role is NOT echoed
+    assert "originator" not in r.output  # the requested role is NOT echoed
     with _open(tmp_path) as st:
         b = st.store.get_binding(ISS, S)
         assert b.role == "operator" and b.revoked_at is None  # unchanged in the store
@@ -215,11 +215,11 @@ def test_account_list_plain_text(tmp_path):  # D12
     assert r.exit_code == 0
     lines = [ln for ln in r.output.splitlines() if ln.strip()]
     assert f"operator {ISS}/{S}" in lines
-    assert f"author {ISS2}/{S2}" in lines
+    assert f"originator {ISS2}/{S2}" in lines
     assert "|" not in r.output and "<" not in r.output  # no tables/markdown
     # revoked excluded by default; included with --all
     _run(tmp_path, "account", "revoke", "--issuer", ISS2, "--subject", S2)
-    assert f"author {ISS2}/{S2}" not in _run(tmp_path, "account", "list").output
+    assert f"originator {ISS2}/{S2}" not in _run(tmp_path, "account", "list").output
     assert "(revoked)" in _run(tmp_path, "account", "list", "--all").output
 
 
@@ -249,7 +249,7 @@ def test_maintenance_verify_cache_backfills(tmp_path, monkeypatch):  # VC9
 
     _run(tmp_path, "account", "init-operator", "--issuer", ISS, "--subject", S)
     instance = Station(tmp_path / ".skein-station")
-    instance.store.add_binding(ISS, S, role="author")
+    instance.store.add_binding(ISS, S, role="originator")
 
     # Client content built directly (the skein_next authoring verbs are DROP):
     # the canonical specs set, manifest-signed by a fake signer under ISS/S.

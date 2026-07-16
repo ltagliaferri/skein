@@ -171,7 +171,7 @@ def test_covered_no_bindings_table_degrades(tmp_path, monkeypatch):
             # warm the signature cache so step 3 passes without a live verifier.
             st.store.verify_cache_put(
                 mh, bundle_hash_for(ms["signature_bundle"]), "VERIFIED", issuer, subject)
-        st.store.add_binding(issuer, subject, role="author")
+        st.store.add_binding(issuer, subject, role="originator")
 
     # Confirm the covered folio reads SIGNED while the binding table is present.
     monkeypatch.setattr(
@@ -233,7 +233,7 @@ def test_covered_no_verify_cache_still_signs(tmp_path, monkeypatch):
                                   json.dumps(ms["leaf_list"]), ms["signature_bundle"],
                                   issuer, subject, d["leaf_count"])
             st.store.add_constituent_attribution(h, "folio", d["root"], issuer, subject)
-        st.store.add_binding(issuer, subject, role="author")
+        st.store.add_binding(issuer, subject, role="originator")
 
     # Strip ONLY verify_cache — the step-3 signature-cache read must degrade to a miss
     # and verify in-process, not raise "no such table".
@@ -326,7 +326,7 @@ def test_migrated_corpus_ok_both_modes(tmp_path):
     data_dir = tmp_path / ".skein-next"
     with StationBuilder(data_dir) as st:
         st.create_site("s", purpose="p", created_by="t")
-        st.store.add_binding(issuer, subject, role="author")
+        st.store.add_binding(issuer, subject, role="originator")
     with StationStore(data_dir) as rw:  # read_write
         assert rw.read_only is False
         assert rw.get_binding(issuer, subject).subject == subject

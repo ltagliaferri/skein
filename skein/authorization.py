@@ -26,6 +26,19 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
+# The station tier vocabulary, top-down (rev 6 §2). Built day-one:
+# operator, administrator, steward, originator. Reserved-but-unbuilt:
+# contributor, curator, reader (deliberately absent so an unbuilt tier
+# never satisfies any check). Backs the DB role CHECK and the CLI Choices.
+STATION_ROLES = ("operator", "administrator", "steward", "originator")
+
+# The tiers a WIRE invite may bind on redeem. ``administrator`` is a privileged
+# LOCAL bind only (station account add), and ``operator`` is NEVER wire-redeemable
+# (the single-active-operator invariant, A7/D13) — so a self-service redeem may
+# install ONLY these two (§2). The redeem cheap pre-check AND the authoritative
+# redeem_invite_cas backstop both gate on this one set.
+WIRE_REDEEMABLE_ROLES = frozenset({"originator", "steward"})
+
 
 @dataclass(frozen=True)
 class Principal:

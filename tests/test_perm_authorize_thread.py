@@ -217,7 +217,32 @@ def test_reverted_cross_lineage_rejected(store):
     supersede(store, v2, g)
     other = signed_folio(store, OWNER, "unrelated")  # different lineage
     reason = _reject(store, OWNER, thread("reverted", v2, other))
-    assert "lineage" in reason
+    assert "ancestor" in reason or "lineage" in reason
+
+
+def test_reverted_fork_sibling_rejected(store):
+    """fell-r1 finding 4: a fork sibling shares the genesis but is NOT a reachable
+    ancestor of the head — reverting to it must fail closed."""
+    g = signed_folio(store, OWNER, "v1")
+    a = signed_folio(store, OWNER, "childA")
+    b = signed_folio(store, OWNER, "childB")
+    supersede(store, a, g)  # a supersedes g
+    supersede(store, b, g)  # b ALSO supersedes g (fork — a and b are siblings)
+    # reverted(from=a, to=b): same genesis, but b is not an ancestor of a
+    reason = _reject(store, OWNER, thread("reverted", a, b))
+    assert "ancestor" in reason
+    # reverting to the true ancestor g is fine
+    _ok(store, OWNER, thread("reverted", a, g))
+
+
+def test_status_agent_origin_rejected(store):
+    """fell-r1 finding 5: a status edge with a non-self-loop (agent-origin) from_id must
+    be rejected — status is a self-loop from=to=genesis, and no agent origin travels."""
+    g = signed_folio(store, OWNER, "doc")
+    reason = _reject(store, OWNER, thread("status", "burr-0715", g))
+    assert "self-loop" in reason
+    # the proper self-loop by the owner is accepted
+    _ok(store, OWNER, thread("status", g, g))
 
 
 # --- assignment -------------------------------------------------------------

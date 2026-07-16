@@ -52,6 +52,7 @@ from .thread_authz import (
     LineageReject,
     authorize_thread,
     authorized_staged_supersedes,
+    owns_folio,
 )
 from .station_env import StationEnvError, station_env
 from .station_store import DB_FILENAME, bundle_hash_for, sqlite_error_is_lock
@@ -293,12 +294,22 @@ def ingest(
                     continue
             try:
                 with station.store.savepoint():
-                    if station.store.get_folio(claimed) is not None:
-                        existing.append(claimed)
-                    else:
+                    newly_created = station.store.get_folio(claimed) is None
+                    if newly_created:
                         station.store.create_folio(wf)
                         accepted.append(claimed)
-                    if require_signed:
+                    else:
+                        existing.append(claimed)
+                    # Attribute a folio to the signer ONLY when the signer CREATED it in
+                    # this batch, or ALREADY owns it (re-affirm). NEVER first-attribute a
+                    # PRE-EXISTING previously-unattributed (legacy) folio to a re-publisher:
+                    # that would let a bound non-owner CAPTURE a legacy owner-None lineage
+                    # (fell-r1 finding 1) and then supersede it — reopening the exact hole
+                    # this model closes. A legacy/unsigned folio stays owner-None, actionable
+                    # only by a station tier (§4).
+                    if require_signed and signer is not None and (
+                        newly_created or owns_folio(station.store, signer, claimed)
+                    ):
                         write_attribution(claimed, "folio")
                     # A site folio's slug is gated TRANSITIVELY: this claim is only
                     # reached for an admitted site folio (Q2/RS18). Under ON the claim is
@@ -407,11 +418,24 @@ def ingest(
                         created_at=wt.get("created_at"),
                         content=wt.get("content"),
                     )
-                    if require_signed:
-                        write_attribution(claimed, "thread")
-                    (thread_existing if already else thread_accepted).append(claimed)
-                    if dangling:
-                        thread_dangling.append(claimed)
+                    # save_thread is INSERT OR IGNORE: if the row is NOT present after it
+                    # AND was not already there, the insert was silently swallowed by a
+                    # constraint — the <=1-parent partial-unique index (a second supersedes
+                    # parent for this from_id, i.e. a MERGE). Report it HONESTLY as rejected
+                    # rather than a false 'accepted' — the ack must never claim a row it did
+                    # not persist (fell-r1 finding 3; the OFF-posture backstop, since under
+                    # ON authorize_thread already rejects a merge before save).
+                    if not already and station.store.get_thread(claimed) is None:
+                        thread_rejected.append(
+                            {"thread_hash": claimed,
+                             "reason": "supersedes would create a second parent (merge)"}
+                        )
+                    else:
+                        if require_signed:
+                            write_attribution(claimed, "thread")
+                        (thread_existing if already else thread_accepted).append(claimed)
+                        if dangling:
+                            thread_dangling.append(claimed)
             except Exception as exc:  # noqa: BLE001 — one bad item never 500s the batch
                 logger.debug("thread %s rolled back: %s", claimed, exc)
                 for lst in (thread_accepted, thread_existing):

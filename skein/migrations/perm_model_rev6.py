@@ -1,7 +1,8 @@
 """One-shot migration for the permission model (rev 6, brief-20260716-u73x).
 
-Transforms a PRE-rev6 station corpus to the rev-6 shape, IDEMPOTENTLY (safe to re-run,
-and a no-op on a corpus already born in the rev-6 shape by ``_init_station_schema``):
+Transforms a PRE-rev6 station corpus to the rev-6 shape, ATOMICALLY and IDEMPOTENTLY
+(safe to re-run, and a no-op on a corpus already born in the rev-6 shape by
+``_init_station_schema``):
 
   1. account_bindings.role : rename 'author' -> 'originator'; add the tier CHECK
      (rebuild — SQLite cannot ALTER a CHECK onto an existing column).
@@ -16,15 +17,25 @@ and a no-op on a corpus already born in the rev-6 shape by ``_init_station_schem
      PRESERVED in quarantined_supersedes (audited, never silently dropped).
   6. idx_threads_supersedes_one_parent : create the partial-unique index (after 5).
 
-Runs the whole transform in ONE transaction: either the corpus is fully migrated or
-untouched. Returns a report dict (counts) for the operator runbook.
+ATOMICITY: the whole transform runs in ONE ``BEGIN IMMEDIATE`` transaction using only
+``conn.execute`` (NEVER ``executescript``, whose implicit COMMIT would break the
+transaction and leave a half-migrated corpus on failure). Every table rebuild
+``DROP TABLE IF EXISTS <name>_new`` first, so a re-run after a crash never trips on an
+orphan scratch table. Either the corpus is fully migrated or it is untouched.
+
+RUN BEFORE SERVING (deploy ordering): ``_init_station_schema`` creates the <=1-parent
+partial-unique index on every read-write open, which raises on a corpus that still
+contains merges. Run this migration (which quarantines merges first) BEFORE the station
+opens the corpus read-write. The live interskein.com corpus has no supersedes edges, so
+the fresh index creation is a no-op there; this ordering matters only for a pre-rev6
+corpus that accumulated merges.
 """
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 _ROLE_CHECK = (
     "CHECK (role IN ('operator', 'administrator', 'steward', 'originator'))"
@@ -42,6 +53,13 @@ def _columns(conn: sqlite3.Connection, table: str) -> List[str]:
     return [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
 
 
+def _exec_all(conn: sqlite3.Connection, statements: List[str]) -> None:
+    """Run each statement with ``execute`` (which respects the open BEGIN IMMEDIATE) —
+    NEVER executescript, whose implicit COMMIT would break atomicity."""
+    for sql in statements:
+        conn.execute(sql)
+
+
 def _migrate_bindings(conn: sqlite3.Connection) -> int:
     """Rename author->originator and add the CHECK (rebuild if the CHECK is absent).
     Returns the number of rows renamed."""
@@ -50,7 +68,8 @@ def _migrate_bindings(conn: sqlite3.Connection) -> int:
     ).rowcount
     if "CHECK" in _table_sql(conn, "account_bindings").upper():
         return renamed  # already rev-6 shape
-    conn.executescript(
+    _exec_all(conn, [
+        "DROP TABLE IF EXISTS account_bindings_new",
         f"""
         CREATE TABLE account_bindings_new (
             issuer            TEXT,
@@ -61,14 +80,16 @@ def _migrate_bindings(conn: sqlite3.Connection) -> int:
             created_at        TEXT,
             revoked_at        TEXT,
             PRIMARY KEY (issuer, subject)
-        );
+        )
+        """,
+        """
         INSERT INTO account_bindings_new
             SELECT issuer, subject, role, vouched_by_issuer, vouched_by_subject,
-                   created_at, revoked_at FROM account_bindings;
-        DROP TABLE account_bindings;
-        ALTER TABLE account_bindings_new RENAME TO account_bindings;
-        """
-    )
+                   created_at, revoked_at FROM account_bindings
+        """,
+        "DROP TABLE account_bindings",
+        "ALTER TABLE account_bindings_new RENAME TO account_bindings",
+    ])
     return renamed
 
 
@@ -78,10 +99,10 @@ def _migrate_invites(conn: sqlite3.Connection) -> int:
     ).rowcount
     if "CHECK" in _table_sql(conn, "invites").upper():
         return renamed
-    # Rebuild preserving every column (the invites table is wide); copy by name.
     cols = _columns(conn, "invites")
     collist = ", ".join(cols)
-    conn.executescript(
+    _exec_all(conn, [
+        "DROP TABLE IF EXISTS invites_new",
         f"""
         CREATE TABLE invites_new (
             token_hash            TEXT PRIMARY KEY,
@@ -98,12 +119,12 @@ def _migrate_invites(conn: sqlite3.Connection) -> int:
             note                  TEXT,
             failed_attempts       INTEGER NOT NULL DEFAULT 0,
             attempts_window_start TEXT
-        );
-        INSERT INTO invites_new ({collist}) SELECT {collist} FROM invites;
-        DROP TABLE invites;
-        ALTER TABLE invites_new RENAME TO invites;
-        """
-    )
+        )
+        """,
+        f"INSERT INTO invites_new ({collist}) SELECT {collist} FROM invites",
+        "DROP TABLE invites",
+        "ALTER TABLE invites_new RENAME TO invites",
+    ])
     return renamed
 
 
@@ -113,7 +134,8 @@ def _migrate_slugs(conn: sqlite3.Connection) -> bool:
     cols = _columns(conn, "station_slugs")
     if "claimed_by_issuer" in cols:
         return False  # already rev-6 shape
-    conn.executescript(
+    _exec_all(conn, [
+        "DROP TABLE IF EXISTS station_slugs_new",
         """
         CREATE TABLE station_slugs_new (
             slug                 TEXT PRIMARY KEY,
@@ -121,21 +143,22 @@ def _migrate_slugs(conn: sqlite3.Connection) -> bool:
             claimed_by_issuer    TEXT,
             claimed_by_subject   TEXT,
             scope                TEXT
-        );
+        )
+        """,
+        """
         INSERT INTO station_slugs_new (slug, anchor_hash, claimed_by_issuer,
                                        claimed_by_subject, scope)
-            SELECT slug, anchor_hash, NULL, NULL, scope FROM station_slugs;
-        DROP TABLE station_slugs;
-        ALTER TABLE station_slugs_new RENAME TO station_slugs;
-        CREATE INDEX IF NOT EXISTS idx_station_slugs_anchor
-            ON station_slugs(anchor_hash);
-        """
-    )
+            SELECT slug, anchor_hash, NULL, NULL, scope FROM station_slugs
+        """,
+        "DROP TABLE station_slugs",
+        "ALTER TABLE station_slugs_new RENAME TO station_slugs",
+        "CREATE INDEX IF NOT EXISTS idx_station_slugs_anchor ON station_slugs(anchor_hash)",
+    ])
     return True
 
 
 def _create_grant_tables(conn: sqlite3.Connection) -> None:
-    conn.executescript(
+    _exec_all(conn, [
         """
         CREATE TABLE IF NOT EXISTS document_grants (
             anchor_hash        TEXT NOT NULL,
@@ -148,9 +171,11 @@ def _create_grant_tables(conn: sqlite3.Connection) -> None:
             created_at         TEXT,
             revoked_at         TEXT,
             PRIMARY KEY (anchor_hash, grantee_issuer, grantee_subject, kind)
-        );
-        CREATE INDEX IF NOT EXISTS idx_document_grants_grantee
-            ON document_grants(grantee_issuer, grantee_subject);
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_document_grants_grantee "
+        "ON document_grants(grantee_issuer, grantee_subject)",
+        """
         CREATE TABLE IF NOT EXISTS grant_events (
             event_seq          INTEGER PRIMARY KEY,
             grantee_issuer     TEXT,
@@ -161,9 +186,9 @@ def _create_grant_tables(conn: sqlite3.Connection) -> None:
             vouched_by_issuer  TEXT,
             vouched_by_subject TEXT,
             at                 TEXT
-        );
-        """
-    )
+        )
+        """,
+    ])
 
 
 def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
@@ -172,7 +197,7 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     A quarantined row is copied to quarantined_supersedes (audited) then deleted from
     threads. Forks (two children sharing a to_id) are LEGITIMATE and untouched — the
     merge audit keys on from_id, never to_id."""
-    conn.executescript(
+    conn.execute(
         """
         CREATE TABLE IF NOT EXISTS quarantined_supersedes (
             thread_hash TEXT,
@@ -187,7 +212,6 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
     ts = _now()
     quarantined = 0
 
-    # DANGLING: a supersedes whose parent (to_id) is not a held version.
     dangling = conn.execute(
         """
         SELECT thread_hash, from_id, to_id, created_at FROM threads
@@ -199,9 +223,6 @@ def _repair_supersedes(conn: sqlite3.Connection) -> Dict[str, int]:
         _quarantine(conn, r, "dangling_parent", ts)
         quarantined += 1
 
-    # MERGE: a from_id with more than one supersedes parent. Keep a single
-    # DETERMINISTIC anchor (the lexicographically smallest to_id) and quarantine the
-    # rest, so the lineage resolves to one genesis rather than fail-closing forever.
     merge_from_ids = [
         row[0]
         for row in conn.execute(
@@ -250,8 +271,12 @@ def _now() -> str:
 
 def migrate(db_path: Any) -> Dict[str, Any]:
     """Apply the rev-6 permission-model migration to the station db at ``db_path``,
-    atomically and idempotently. Returns a report of what changed."""
-    conn = sqlite3.connect(str(db_path))
+    ATOMICALLY (one BEGIN IMMEDIATE, no executescript) and IDEMPOTENTLY (re-runnable,
+    a no-op on the rev-6 shape). Returns a report of what changed. On ANY failure the
+    whole transform rolls back — the corpus is left untouched."""
+    # isolation_level=None: full manual transaction control, so no DBAPI-implicit
+    # BEGIN/COMMIT interferes with the single BEGIN IMMEDIATE below.
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
     try:
         conn.execute("PRAGMA foreign_keys=OFF")  # table rebuilds drop/recreate
         conn.execute("BEGIN IMMEDIATE")
@@ -265,10 +290,10 @@ def migrate(db_path: Any) -> Dict[str, Any]:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_supersedes_one_parent "
             "ON threads(from_id) WHERE type = 'supersedes'"
         )
-        conn.commit()
+        conn.execute("COMMIT")
         return report
     except BaseException:
-        conn.rollback()
+        conn.execute("ROLLBACK")
         raise
     finally:
         conn.close()

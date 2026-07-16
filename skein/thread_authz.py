@@ -288,6 +288,32 @@ def lineage_genesis_for(
         node = parent
 
 
+def reachable_ancestors(store, node: str, pending_supersedes: Iterable[Any] = ()) -> set:
+    """The set of strict ancestors of ``node`` reachable by walking ``supersedes``
+    BACKWARD (older predecessors), over stored + staged edges. Fails CLOSED
+    (:class:`LineageReject`) on a merge/cycle/self-edge, exactly like
+    :func:`lineage_genesis_for`. Used by ``reverted`` to require that its target is a
+    reachable ANCESTOR of the head, not merely a same-genesis sibling (§5.4)."""
+    pending = _pending_pairs(pending_supersedes)
+    seen = {node}
+    ancestors: set = set()
+    cur = node
+    while True:
+        parents = _supersedes_parents(store, cur, pending)
+        if not parents:
+            return ancestors
+        if len(parents) > 1:
+            raise LineageReject(f"merge: {cur!r} has {len(parents)} supersedes parents")
+        parent = parents[0]
+        if parent == cur:
+            raise LineageReject(f"self-edge supersedes at {cur!r}")
+        if parent in seen:
+            raise LineageReject(f"cycle in supersedes lineage at {parent!r}")
+        ancestors.add(parent)
+        seen.add(parent)
+        cur = parent
+
+
 # --- the two authorization predicates ---------------------------------------
 
 
@@ -464,9 +490,11 @@ def authorize_thread(
         return
 
     if klass is ThreadClass.CONTROL:
-        # from-end is STRUCTURAL (a self-loop for status, the head for reverted) — the
-        # from-end ownership check is NOT applied, else steward/administrator moderation
-        # wrong-blocks. Gated SOLELY on the to-end right at the controlled genesis.
+        # from-end OWNERSHIP is exempt (structural, not an origin) — else steward/
+        # administrator moderation wrong-blocks. But the structural SHAPE is still
+        # enforced (an agent-origin/alias from_id must never reach the published graph,
+        # §5.1/§9): status is a self-loop, reverted/archive carry content-hash endpoints.
+        # Gated on the to-end right at the controlled genesis.
         if ttype == "reverted":
             _require_content_hash(frm, "from_id")
             _require_content_hash(to, "to_id")
@@ -474,13 +502,30 @@ def authorize_thread(
                 raise AuthzReject(f"reverted head {frm} is not held")
             if store.get_folio(to) is None:
                 raise AuthzReject(f"reverted target {to} is not held")
-            g_from = _resolve_or_reject(store, frm, pending_supersedes)
-            g_to = _resolve_or_reject(store, to, pending_supersedes)
-            # to_id must be a reachable ancestor in the SAME lineage as the head (§5.4).
-            if not (g_from.resolved and g_to.resolved and g_from.hash == g_to.hash):
-                raise AuthzReject(f"reverted target {to} is not in the head's lineage")
-            genesis = g_from
-        else:  # status, archive — the to-end names the controlled lineage
+            # to_id must be a reachable ANCESTOR of the head (from_id), not merely a
+            # same-genesis sibling in a fork (§5.4).
+            try:
+                ancestors = reachable_ancestors(store, frm, pending_supersedes)
+            except LineageReject as e:
+                raise AuthzReject(
+                    f"unresolvable head lineage for reverted {frm} (merge/cycle)"
+                ) from e
+            if to not in ancestors:
+                raise AuthzReject(
+                    f"reverted target {to} is not a reachable ancestor of the head {frm}"
+                )
+            genesis = _resolve_or_reject(store, frm, pending_supersedes)
+        elif ttype == "status":
+            # status is a self-loop from=to=genesis (§5.4): reject a non-self-loop, which
+            # also rejects any agent-origin from_id.
+            if frm != to:
+                raise AuthzReject("status must be a self-loop (from_id == to_id)")
+            _require_content_hash(to, "to_id")
+            if store.get_folio(to) is None:
+                raise AuthzReject(f"control target {to} is not held")
+            genesis = _resolve_or_reject(store, to, pending_supersedes)
+        else:  # archive (inert control) — the to-end names the controlled lineage
+            _require_content_hash(frm, "from_id")
             _require_content_hash(to, "to_id")
             if store.get_folio(to) is None:
                 raise AuthzReject(f"control target {to} is not held")

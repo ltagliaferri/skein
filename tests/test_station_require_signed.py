@@ -282,19 +282,24 @@ def test_ingress_no_binding_mutation_route(monkeypatch):  # RS17
     assert not any("account" in p or "binding" in p for p in paths)
 
 
-def test_off_then_on_body_gains_attribution(instance):  # RS20
-    # 1) ingest the finding under OFF (no manifest, no attribution)
+def test_off_then_on_legacy_folio_stays_owner_none(instance):  # RS20 (rev 6 §4)
+    # A folio created under OFF is UNATTRIBUTED (owner-None). Re-delivering the same body
+    # under ON does NOT retroactively attribute it to the re-publisher: a legacy lineage
+    # stays owner-None (tier-moderated), closing the legacy-capture vector (fell-r1
+    # finding 1 — a bound non-owner re-publishing a legacy folio's public bytes must NOT
+    # become its owner and gain the power to supersede it). Attribution is established
+    # only by CREATING a folio under ON (see RS7); a pre-existing folio is never
+    # first-attributed to a re-publisher.
     off_batch = _unsigned_batch()
     ingest(instance, off_batch, require_signed=False)
     finding = _finding_hash(off_batch)
-    assert instance.store.get_constituent_proof(finding) is None  # UNSIGNED
-    # 2) re-deliver under ON inside a valid bound covering manifest
+    assert instance.store.get_constituent_proof(finding) is None  # UNSIGNED under OFF
     _bind(instance)
     on_batch = _signed_batch()
     ack = ingest(instance, on_batch, verifier=_ok_verifier, require_signed=True)
-    assert finding in ack["existing"]  # body de-dups
-    proof = instance.store.get_constituent_proof(finding)
-    assert proof is not None and proof["subject"] == ALICE
+    assert finding in ack["existing"]  # body de-dups (already stored)
+    # STILL owner-None — the re-publisher did not capture the legacy folio.
+    assert instance.store.get_constituent_proof(finding) is None
 
 
 def test_off_then_on_unverified_unattributed(instance):  # RS20 negative

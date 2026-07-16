@@ -52,6 +52,7 @@ from .thread_authz import (
     LineageReject,
     authorize_thread,
     authorized_staged_supersedes,
+    lineage_genesis_for,
     owns_folio,
 )
 from .station_env import StationEnvError, station_env
@@ -280,6 +281,9 @@ def ingest(
             and live is not None
             and live.role in ("operator", "administrator")
         )
+        # Admitted site folios that carry a slug — claimed in a pass AFTER the thread
+        # loop (so the supersedes are stored and the anchor can be the genesis).
+        admitted_site_slugs: Dict[str, str] = {}
 
         for wf in batch.get("folios", []):
             claimed = wf.get("content_hash")
@@ -311,20 +315,15 @@ def ingest(
                         newly_created or owns_folio(station.store, signer, claimed)
                     ):
                         write_attribution(claimed, "folio")
-                    # A site folio's slug is gated TRANSITIVELY: this claim is only
-                    # reached for an admitted site folio (Q2/RS18). Under ON the claim is
-                    # keyed on the signer PAIR (§3.3/§6): free-or-same-signer re-anchors,
-                    # a DIFFERENT signer COLLIDES (the existing claim stands; the folio is
-                    # still stored, just not renamed) unless an administrator/operator
-                    # overrides. Signer-blind OFF keeps the last-write-wins set_slug.
+                    # A site folio's slug is gated TRANSITIVELY: only an admitted site
+                    # folio is recorded here (Q2/RS18). The CLAIM itself is deferred to a
+                    # pass AFTER the thread loop, so the anchor can be the lineage GENESIS
+                    # (resolved over the now-stored supersedes) rather than a published
+                    # HEAD — the slug is genesis-anchored so within/folio_site_slug/
+                    # folios_in_site all key on the same genesis (§5.2; a head-anchored
+                    # slug loses the breadcrumb of members filed under the genesis).
                     if wf.get("type") == "site" and claimed in site_slugs:
-                        if require_signed and signer is not None:
-                            station.store.claim_slug(
-                                site_slugs[claimed], claimed,
-                                signer.issuer, signer.subject, override=slug_override,
-                            )
-                        else:
-                            station.store.set_slug(site_slugs[claimed], claimed)
+                        admitted_site_slugs[claimed] = site_slugs[claimed]
             except Exception as exc:  # noqa: BLE001 — one bad item never 500s the batch
                 logger.debug("folio %s rolled back: %s", claimed, exc)
                 if claimed in accepted:
@@ -442,6 +441,26 @@ def ingest(
                     if claimed in lst:
                         lst.remove(claimed)
                 thread_rejected.append({"thread_hash": claimed, "reason": "invalid fields"})
+
+        # SLUG CLAIM PASS — runs AFTER the thread loop (supersedes now stored) so each
+        # admitted site folio's slug anchors at its lineage GENESIS, not the published
+        # head: publishing site_v2 + supersedes(site_v2 -> site_g) keeps "specs" on
+        # site_g, so resolve_slug derives the head and within(member -> site_g) rows keep
+        # their breadcrumb (§5.2). A malformed lineage (merge/cycle) falls back to the
+        # folio's own hash. Under ON the claim is the signer-PAIR collision (§3.3/§6:
+        # free-or-same-signer re-anchors; a different signer collides unless an admin/
+        # operator overrides); signer-blind OFF is last-write-wins.
+        for site_hash, slug in admitted_site_slugs.items():
+            try:
+                anchor = lineage_genesis_for(station.store, site_hash).hash
+            except LineageReject:
+                anchor = site_hash
+            if require_signed and signer is not None:
+                station.store.claim_slug(
+                    slug, anchor, signer.issuer, signer.subject, override=slug_override
+                )
+            else:
+                station.store.set_slug(slug, anchor)
 
     return {
         "protocol": wire.PROTOCOL,

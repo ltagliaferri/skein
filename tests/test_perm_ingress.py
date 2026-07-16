@@ -123,6 +123,34 @@ def test_ingress_slug_collision_preserves_existing_claim(instance):
     assert claim["claimed_by_subject"] == BOB and claim["anchor_hash"] == bob_site
 
 
+def test_ingress_slug_stays_genesis_anchored_across_supersession(instance):
+    """fell-r4: publishing a superseding site version under the same slug keeps the slug
+    ANCHORED AT THE GENESIS (resolve_slug derives the head), so members filed under the
+    genesis keep their breadcrumb (§5.2) — not re-anchored to the published head."""
+    _bind(instance)
+    site_v1 = h.folio("site", "site v1", "b", "2026-01-01T00:00:00+00:00")
+    member = h.folio("finding", "member", "b", "2026-01-02T00:00:00+00:00")
+    win = h.within(member["content_hash"], site_v1["content_hash"], "2026-01-03T00:00:00+00:00")
+    b1 = wire.build_batch([site_v1, member], [win], {site_v1["content_hash"]: "specs"})
+    b1["manifest_signature"] = h.manifest_over([site_v1, member], [win])
+    ingest(instance, b1, verifier=h.ok_verifier, require_signed=True)
+    assert instance.store.resolve_slug("specs") == site_v1["content_hash"]
+    assert instance.store.folio_site_slug(member["content_hash"]) == "specs"
+
+    # publish v2 superseding v1, under the SAME slug
+    site_v2 = h.folio("site", "site v2", "b", "2026-02-01T00:00:00+00:00")
+    sup = _supersedes(site_v2["content_hash"], site_v1["content_hash"])
+    b2 = wire.build_batch([site_v2], [sup], {site_v2["content_hash"]: "specs"})
+    b2["manifest_signature"] = h.manifest_over([site_v2], [sup])
+    ack = ingest(instance, b2, verifier=h.ok_verifier, require_signed=True)
+    assert sup["thread_hash"] in ack["threads"]["accepted"]
+    # the ANCHOR stays the genesis (v1); the derived head is v2
+    assert instance.store.get_slug_claim("specs")["anchor_hash"] == site_v1["content_hash"]
+    assert instance.store.resolve_slug("specs") == site_v2["content_hash"]
+    # the member filed under v1 KEEPS its breadcrumb
+    assert instance.store.folio_site_slug(member["content_hash"]) == "specs"
+
+
 def test_ingress_same_batch_supersede_and_within_authorize(instance):
     """A same-batch supersede + within by the site owner both authorize (the staged
     graph does not wrong-block a legit same-batch filing)."""

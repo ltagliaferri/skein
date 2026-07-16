@@ -453,10 +453,11 @@ def ingest(
         # admitted site folio's slug anchors at its lineage GENESIS, not the published
         # head: publishing site_v2 + supersedes(site_v2 -> site_g) keeps "specs" on
         # site_g, so resolve_slug derives the head and within(member -> site_g) rows keep
-        # their breadcrumb (§5.2). A malformed lineage (merge/cycle) falls back to the
-        # folio's own hash. Under ON the claim is the signer-PAIR collision (§3.3/§6:
-        # free-or-same-signer re-anchors; a different signer collides unless an admin/
-        # operator overrides); signer-blind OFF is last-write-wins.
+        # their breadcrumb (§5.2). A lineage with NO single genesis is NOT nameable (the
+        # claim is skipped, fail-closed). Under ON the claim is the signer-PAIR collision
+        # (§3.3/§6: free-or-same-signer re-anchors; a different signer collides unless an
+        # admin/operator overrides), and naming requires ownership OF THE ANCHOR;
+        # signer-blind OFF is last-write-wins.
         for site_hash, slug in admitted_site_slugs.items():
             # Per-item guard (mirrors the folio/thread loops): a single bad slug claim
             # must never sink the batch or 500 the request. The savepoint isolates the

@@ -47,9 +47,9 @@ class ThreadClass(Enum):
     - ASSIGNMENT      its own rule: supersession at ``lineage_genesis_for(from_id)``;
                       no from-end ownership (a steward may assign another's folio); the
                       to-end is an agent — not resolved as a lineage, but rejected if it
-                      names a held folio.
+                      is content-hash-SHAPED (a folio reference, never an agent).
     - ATTRIBUTION     from-end ownership ONLY (folio -> agent owner-only self-torch); the
-                      to-end is an agent, rejected if it names a held folio. Distinct
+                      to-end is an agent, rejected if it is content-hash-SHAPED. Distinct
                       from ASSIGNMENT despite the shared shape.
     - NON_FOLIO       from-end is not (necessarily) a folio: if ``from_id`` IS a held
                       folio apply from-end ownership; if it is a NON-folio (an agent
@@ -593,12 +593,17 @@ def authorize_thread(
             )
         if not may_act_on_lineage(store, signer, genesis, "supersede"):
             raise AuthzReject(f"no assignment access to {genesis.hash}")
-        # TO-end: an assignment names an AGENT, never a held document. A to-end that
-        # resolves to a HELD FOLIO is a forged breadcrumb — it would render on the
-        # victim's threads_in with an attacker-chosen title/href — so reject it (§5.4).
-        if store.get_folio(to) is not None:
+        # TO-end: an assignment names an AGENT, never a content-hash reference. Reject the
+        # content-hash SHAPE (framed sha256:: or bare 64-hex), not merely a folio held
+        # right now: get_folio is a point-in-time lookup, so it rejects the SYNCHRONOUS
+        # case but ADMITS a PRE-PLANTED assignment to a hash not yet held — a forged
+        # breadcrumb that renders on the victim's threads_in with an attacker-chosen
+        # title/href the moment that exact folio lands (a normal publish/federation event,
+        # §5.4). An agent id is a human slug, never content-hash-shaped, so this rejects
+        # zero legitimate assignments.
+        if _is_content_hash(to):
             raise AuthzReject(
-                "assignment to-end must name an agent, not a held folio"
+                "assignment to-end must name an agent, not a content-hash reference"
             )
         return
 
@@ -610,10 +615,14 @@ def authorize_thread(
         if not owns_folio(store, signer, frm):
             raise AuthzReject(_FROM_OWN_REJECT)
         # TO-end: same forged-breadcrumb close as ASSIGNMENT — an attribution names an
-        # AGENT, never a held document (§5.4).
-        if store.get_folio(to) is not None:
+        # AGENT, never a content-hash reference. Reject the content-hash SHAPE (framed or
+        # bare), not merely a folio held right now: a PRE-PLANTED attribution to a
+        # not-yet-held hash passes a point-in-time lookup and would render on the victim
+        # once that folio lands (§5.4). An agent id is never content-hash-shaped, so this
+        # rejects zero legitimate attributions.
+        if _is_content_hash(to):
             raise AuthzReject(
-                "attribution to-end must name an agent, not a held folio"
+                "attribution to-end must name an agent, not a content-hash reference"
             )
         return
 

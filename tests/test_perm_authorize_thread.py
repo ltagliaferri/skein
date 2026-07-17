@@ -372,14 +372,39 @@ def test_assignment_from_non_genesis_head_rejected(store):
 
 
 def test_assignment_to_held_folio_rejected(store):
-    """§5.4 to-end close: an assignment names an AGENT, never a held document. A to-end
-    that resolves to a HELD victim folio is a forged breadcrumb — it would render on the
+    """§5.4 to-end close: an assignment names an AGENT, never a content-hash reference. A
+    to-end that is a HELD victim folio is a forged breadcrumb — it would render on the
     victim's threads_in with an attacker-chosen title/href — even when the from-end is a
-    folio the signer legitimately owns. Reject on the held-folio to-end."""
+    folio the signer legitimately owns. A held folio's hash is content-hash-SHAPED, so the
+    shape reject still catches it; only the message changed from the held-folio form."""
     doc = signed_folio(store, OWNER, "doc")      # a folio the signer owns (from-end OK)
     victim = signed_folio(store, BOB, "victim")  # a HELD folio owned by someone else
     reason = _reject(store, OWNER, thread("assignment", doc, victim))
-    assert reason == "assignment to-end must name an agent, not a held folio"
+    assert reason == "assignment to-end must name an agent, not a content-hash reference"
+
+
+def test_assignment_preplant_unheld_hash_rejected(store):
+    """The pre-plant close (2026-07-17): a content-hash-SHAPED to-end that is NOT held
+    right now must reject too. get_folio is a point-in-time lookup — an attacker can
+    PRE-PLANT assignment(owned_doc -> sha256::<hash not yet held>); the old held-folio
+    check admitted it, and it would render on the victim's threads_in the moment that
+    exact folio lands (a normal publish/federation event). Reject the SHAPE, not just a
+    currently-held folio."""
+    doc = signed_folio(store, OWNER, "doc")      # a folio the signer owns (from-end OK)
+    not_held = "sha256::" + "a" * 64             # content-hash-shaped, not a held folio
+    assert store.get_folio(not_held) is None     # the pre-plant precondition
+    reason = _reject(store, OWNER, thread("assignment", doc, not_held))
+    assert reason == "assignment to-end must name an agent, not a content-hash reference"
+
+
+def test_assignment_preplant_bare_hex_rejected(store):
+    """The bare (unframed) 64-hex form of the pre-plant is caught too — _is_content_hash
+    matches both the framed sha256::<hex> and a bare 64-hex."""
+    doc = signed_folio(store, OWNER, "doc")
+    bare = "b" * 64                              # bare 64-hex, no sha256:: frame, not held
+    assert store.get_folio(bare) is None
+    reason = _reject(store, OWNER, thread("assignment", doc, bare))
+    assert reason == "assignment to-end must name an agent, not a content-hash reference"
 
 
 def test_assignment_to_agent_id_still_admits(store):
@@ -401,13 +426,25 @@ def test_attribution_owner_ok_nonowner_rejected(store):
 
 
 def test_attribution_to_held_folio_rejected(store):
-    """§5.4 to-end close: an attribution names an AGENT, never a held document — a to-end
-    that resolves to a HELD victim folio is the same forged breadcrumb as the assignment
-    case, even from a folio the signer owns."""
+    """§5.4 to-end close: an attribution names an AGENT, never a content-hash reference — a
+    HELD victim folio to-end is the same forged breadcrumb as the assignment case, even
+    from a folio the signer owns. A held folio's hash is content-hash-SHAPED, so the shape
+    reject still catches it; only the message changed."""
     doc = signed_folio(store, OWNER, "doc")      # a folio the signer owns (from-end OK)
     victim = signed_folio(store, BOB, "victim")  # a HELD folio owned by someone else
     reason = _reject(store, OWNER, thread("attribution", doc, victim))
-    assert reason == "attribution to-end must name an agent, not a held folio"
+    assert reason == "attribution to-end must name an agent, not a content-hash reference"
+
+
+def test_attribution_preplant_unheld_hash_rejected(store):
+    """The pre-plant close for attribution: a content-hash-SHAPED to-end that is not held
+    right now still rejects — a pre-planted attribution to a not-yet-held hash passes a
+    point-in-time lookup and would render on the victim once that folio lands."""
+    doc = signed_folio(store, OWNER, "doc")      # a folio the signer owns (from-end OK)
+    not_held = "sha256::" + "c" * 64             # content-hash-shaped, not a held folio
+    assert store.get_folio(not_held) is None
+    reason = _reject(store, OWNER, thread("attribution", doc, not_held))
+    assert reason == "attribution to-end must name an agent, not a content-hash reference"
 
 
 def test_attribution_to_agent_id_still_admits(store):

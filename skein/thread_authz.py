@@ -45,10 +45,12 @@ class ThreadClass(Enum):
                       (status self-loop, reverted head) — the from-end check is NOT
                       applied, else steward/administrator moderation wrong-blocks.
     - ASSIGNMENT      its own rule: supersession at ``lineage_genesis_for(from_id)``;
-                      no from-end ownership (a steward may assign another's folio) and
-                      no to-end resolve (the to-end is an agent).
-    - ATTRIBUTION     from-end ownership ONLY (folio -> agent owner-only self-torch);
-                      no to-end. Distinct from ASSIGNMENT despite the shared shape.
+                      no from-end ownership (a steward may assign another's folio); the
+                      to-end is an agent — not resolved as a lineage, but rejected if it
+                      is content-hash-SHAPED (a folio reference, never an agent).
+    - ATTRIBUTION     from-end ownership ONLY (folio -> agent owner-only self-torch); the
+                      to-end is an agent, rejected if it is content-hash-SHAPED. Distinct
+                      from ASSIGNMENT despite the shared shape.
     - NON_FOLIO       from-end is not (necessarily) a folio: if ``from_id`` IS a held
                       folio apply from-end ownership; if it is a NON-folio (an agent
                       id) REJECT on the published graph (no station principal
@@ -577,7 +579,8 @@ def authorize_thread(
     if klass is ThreadClass.ASSIGNMENT:
         # from = folio GENESIS, to = assignee AGENT. Gate on supersession at
         # lineage_genesis_for(from_id): no from-end ownership (a steward may assign
-        # another's folio), no to-end resolve (the to-end is an agent, §5.4).
+        # another's folio); the to-end is an AGENT — never resolved as a lineage, but
+        # rejected below if it names a held folio (§5.4).
         _require_content_hash(frm, "from_id")
         if store.get_folio(frm) is None:
             raise AuthzReject(f"assignment source folio {frm} is not held")
@@ -590,14 +593,37 @@ def authorize_thread(
             )
         if not may_act_on_lineage(store, signer, genesis, "supersede"):
             raise AuthzReject(f"no assignment access to {genesis.hash}")
+        # TO-end: an assignment names an AGENT, never a content-hash reference. Reject the
+        # content-hash SHAPE (framed sha256:: or bare 64-hex), not merely a folio held
+        # right now: get_folio is a point-in-time lookup, so it rejects the SYNCHRONOUS
+        # case but ADMITS a PRE-PLANTED assignment to a hash not yet held — a forged
+        # breadcrumb that renders on the victim's threads_in with an attacker-chosen
+        # title/href the moment that exact folio lands (a normal publish/federation event,
+        # §5.4). An agent id is a human slug, never content-hash-shaped, so this rejects
+        # zero legitimate assignments.
+        if _is_content_hash(to):
+            raise AuthzReject(
+                "assignment to-end must name an agent, not a content-hash reference"
+            )
         return
 
     if klass is ThreadClass.ATTRIBUTION:
-        # folio -> agent owner-only self-torch: FROM-end ownership of the folio; no
-        # to-end (the to-end is an agent). Distinct from ASSIGNMENT (§5.1).
+        # folio -> agent owner-only self-torch: FROM-end ownership of the folio; the
+        # to-end is an AGENT, rejected below if it names a held folio. Distinct from
+        # ASSIGNMENT (§5.1).
         _require_content_hash(frm, "from_id")
         if not owns_folio(store, signer, frm):
             raise AuthzReject(_FROM_OWN_REJECT)
+        # TO-end: same forged-breadcrumb close as ASSIGNMENT — an attribution names an
+        # AGENT, never a content-hash reference. Reject the content-hash SHAPE (framed or
+        # bare), not merely a folio held right now: a PRE-PLANTED attribution to a
+        # not-yet-held hash passes a point-in-time lookup and would render on the victim
+        # once that folio lands (§5.4). An agent id is never content-hash-shaped, so this
+        # rejects zero legitimate attributions.
+        if _is_content_hash(to):
+            raise AuthzReject(
+                "attribution to-end must name an agent, not a content-hash reference"
+            )
         return
 
     if klass is ThreadClass.NON_FOLIO:

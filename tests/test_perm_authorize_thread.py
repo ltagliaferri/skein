@@ -371,6 +371,25 @@ def test_assignment_from_non_genesis_head_rejected(store):
     _ok(store, STEWARD, thread("assignment", g, "burr-0715"))  # from the genesis is fine
 
 
+def test_assignment_to_held_folio_rejected(store):
+    """§5.4 to-end close: an assignment names an AGENT, never a held document. A to-end
+    that resolves to a HELD victim folio is a forged breadcrumb — it would render on the
+    victim's threads_in with an attacker-chosen title/href — even when the from-end is a
+    folio the signer legitimately owns. Reject on the held-folio to-end."""
+    doc = signed_folio(store, OWNER, "doc")      # a folio the signer owns (from-end OK)
+    victim = signed_folio(store, BOB, "victim")  # a HELD folio owned by someone else
+    reason = _reject(store, OWNER, thread("assignment", doc, victim))
+    assert reason == "assignment to-end must name an agent, not a held folio"
+
+
+def test_assignment_to_agent_id_still_admits(store):
+    """The permissive horn (Patrick, 2026-07-17): any agent-id to-end still admits — an
+    agent id is never a 64-hex content hash, so get_folio(to) is None. No content-hash
+    requirement on the to-end."""
+    doc = signed_folio(store, OWNER, "doc")
+    _ok(store, OWNER, thread("assignment", doc, "egaragoras"))  # a non-folio agent id
+
+
 # --- attribution ------------------------------------------------------------
 
 
@@ -379,6 +398,23 @@ def test_attribution_owner_ok_nonowner_rejected(store):
     _ok(store, OWNER, thread("attribution", doc, "burr-0715"))  # to-end is an agent
     reason = _reject(store, BOB, thread("attribution", doc, "burr-0715"))
     assert reason == "cannot originate from a folio you do not hold"
+
+
+def test_attribution_to_held_folio_rejected(store):
+    """§5.4 to-end close: an attribution names an AGENT, never a held document — a to-end
+    that resolves to a HELD victim folio is the same forged breadcrumb as the assignment
+    case, even from a folio the signer owns."""
+    doc = signed_folio(store, OWNER, "doc")      # a folio the signer owns (from-end OK)
+    victim = signed_folio(store, BOB, "victim")  # a HELD folio owned by someone else
+    reason = _reject(store, OWNER, thread("attribution", doc, victim))
+    assert reason == "attribution to-end must name an agent, not a held folio"
+
+
+def test_attribution_to_agent_id_still_admits(store):
+    """The permissive horn: a ::-framed agent-id to-end still admits — not a held folio,
+    and no content-hash requirement on the attribution to-end."""
+    doc = signed_folio(store, OWNER, "doc")
+    _ok(store, OWNER, thread("attribution", doc, "agent::x"))
 
 
 # --- non-folio: message / succession ----------------------------------------

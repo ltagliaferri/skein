@@ -45,10 +45,12 @@ class ThreadClass(Enum):
                       (status self-loop, reverted head) — the from-end check is NOT
                       applied, else steward/administrator moderation wrong-blocks.
     - ASSIGNMENT      its own rule: supersession at ``lineage_genesis_for(from_id)``;
-                      no from-end ownership (a steward may assign another's folio) and
-                      no to-end resolve (the to-end is an agent).
-    - ATTRIBUTION     from-end ownership ONLY (folio -> agent owner-only self-torch);
-                      no to-end. Distinct from ASSIGNMENT despite the shared shape.
+                      no from-end ownership (a steward may assign another's folio); the
+                      to-end is an agent — not resolved as a lineage, but rejected if it
+                      names a held folio.
+    - ATTRIBUTION     from-end ownership ONLY (folio -> agent owner-only self-torch); the
+                      to-end is an agent, rejected if it names a held folio. Distinct
+                      from ASSIGNMENT despite the shared shape.
     - NON_FOLIO       from-end is not (necessarily) a folio: if ``from_id`` IS a held
                       folio apply from-end ownership; if it is a NON-folio (an agent
                       id) REJECT on the published graph (no station principal
@@ -577,7 +579,8 @@ def authorize_thread(
     if klass is ThreadClass.ASSIGNMENT:
         # from = folio GENESIS, to = assignee AGENT. Gate on supersession at
         # lineage_genesis_for(from_id): no from-end ownership (a steward may assign
-        # another's folio), no to-end resolve (the to-end is an agent, §5.4).
+        # another's folio); the to-end is an AGENT — never resolved as a lineage, but
+        # rejected below if it names a held folio (§5.4).
         _require_content_hash(frm, "from_id")
         if store.get_folio(frm) is None:
             raise AuthzReject(f"assignment source folio {frm} is not held")
@@ -590,14 +593,28 @@ def authorize_thread(
             )
         if not may_act_on_lineage(store, signer, genesis, "supersede"):
             raise AuthzReject(f"no assignment access to {genesis.hash}")
+        # TO-end: an assignment names an AGENT, never a held document. A to-end that
+        # resolves to a HELD FOLIO is a forged breadcrumb — it would render on the
+        # victim's threads_in with an attacker-chosen title/href — so reject it (§5.4).
+        if store.get_folio(to) is not None:
+            raise AuthzReject(
+                "assignment to-end must name an agent, not a held folio"
+            )
         return
 
     if klass is ThreadClass.ATTRIBUTION:
-        # folio -> agent owner-only self-torch: FROM-end ownership of the folio; no
-        # to-end (the to-end is an agent). Distinct from ASSIGNMENT (§5.1).
+        # folio -> agent owner-only self-torch: FROM-end ownership of the folio; the
+        # to-end is an AGENT, rejected below if it names a held folio. Distinct from
+        # ASSIGNMENT (§5.1).
         _require_content_hash(frm, "from_id")
         if not owns_folio(store, signer, frm):
             raise AuthzReject(_FROM_OWN_REJECT)
+        # TO-end: same forged-breadcrumb close as ASSIGNMENT — an attribution names an
+        # AGENT, never a held document (§5.4).
+        if store.get_folio(to) is not None:
+            raise AuthzReject(
+                "attribution to-end must name an agent, not a held folio"
+            )
         return
 
     if klass is ThreadClass.NON_FOLIO:

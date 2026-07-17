@@ -13,7 +13,7 @@
 # only public listener.
 services:
   interskein:
-    image: interskein:station-20260714
+    image: interskein:station-20260717
     container_name: interskein
     # Read surface: uses the image's default CMD (`skein station … serve`).
     ports:
@@ -54,7 +54,7 @@ services:
   # token-binding (must equal the public host serving redeem == the collaborator's
   # --to).
   ingress:
-    image: interskein:station-20260714
+    image: interskein:station-20260717
     container_name: interskein-ingress
     command: ["skein", "station", "--data-dir", "/data", "ingress", "--host", "0.0.0.0", "--port", "9101"]
     ports:

@@ -20,11 +20,15 @@ head. This is the one place static reading beats measurement (``_folio_lineage``
 the state that surface needs.
 
 THE RENDER SET (§2, the residual named as one). This diffs the HTTP folio envelope
-(``build_folio_envelope``) AND the catalog's ``within`` reader (``folio_site_slugs``, the
-"sixth reader" a naive query misses, station_store.py). NOT measured here, and named as a
-list rather than papered over: the non-HTTP renderers ``render.py`` / ``mesh/`` /
-``resolve.py`` / ``station_cli.py`` (§2). ``published`` is WIRE_REJECT — it can never
-land, so 16 of 17 are landably-measurable and its flag stays unmeasured.
+(``build_folio_envelope``: threads_in/out, lineage children/siblings/parents, descendants,
+superseded_by, site) AND the catalog's ``within`` reader (``folio_site_slugs``, the "sixth
+reader" a naive query misses, station_store.py). The catalog surface is keyed by MEMBER
+HASH, not title, so an admitted ``within`` is detectable there — proven by the positive
+control ``test_catalog_within_reader_fires_on_admitted_membership`` (in the sweep itself
+``within`` is refused, so its catalog signal is only ever asserted ABSENT). NOT measured
+here, and named as a list rather than papered over: the non-HTTP renderers ``render.py`` /
+``mesh/`` / ``resolve.py`` / ``station_cli.py`` (§2). ``published`` is WIRE_REJECT — it
+can never land, so 16 of 17 are landably-measurable and its flag stays unmeasured.
 
 THE VERDICT PARTITION. Post the assignment/attribution to-end fix (b77af99, live), the
 y297-relevant numbers are 6 and 3, not 8 and 4: six types inject into ``threads_in`` with
@@ -319,9 +323,12 @@ def test_surface_partition(measured):
     assert reads_false_but_render == {"tag", "message", "succession"}, reads_false_but_render
 
     # The headline blast radius: one forks edge naming only V renders on V2.siblings —
-    # a folio ALICE never named (§2). Measured, not asserted from the renderer.
+    # a folio ALICE never named (§2). Measured, not asserted from the renderer. Assert
+    # BOTH the sibling hop AND the descendants walk independently, so a silent break in
+    # either surface is caught (children+siblings alone would otherwise mask a dead walk).
     forks_surfaces = results["forks"].injected_surfaces
     assert any(s.startswith("V2:siblings:") for s in forks_surfaces), forks_surfaces
+    assert any(":descendants:" in s for s in forks_surfaces), forks_surfaces
 
     # Emit the measured map + class table for the design pair (visible under -s).
     wire_reject = {t for t in known_thread_types() if classify_thread(t).value == "wire_reject"}
@@ -339,3 +346,36 @@ def test_surface_partition(measured):
               f"reads={thread_reads(t)!s:5} -> {sorted(surfaces_of(t))}")
     for t in sorted(rejected):
         print(f"  REJECT {t:15} class={classify_thread(t).value:11} :: {results[t].reason}")
+
+
+def test_catalog_within_reader_fires_on_admitted_membership(instance):
+    """POSITIVE control for the sixth reader (opus fell). In the sweep, ``within`` is
+    always REFUSED, so the catalog ``folio_site_slugs`` detector is only ever asserted
+    ABSENT — an absent signal proves nothing about whether the detector can fire. Here
+    membership is legitimately ADMITTED (BOB granted ``site_contribute``), so the catalog
+    surface MUST register BOB's folio, keyed by HASH not title. This demonstrates the
+    detection the sweep relies on actually works — the surface half of the measurement
+    is not blind to the membership axis."""
+    fix = build_victim_fixture(instance)
+    bob_own = h.folio("finding", "BOB-MEMBER", "payload", BOB_TS)
+    bob_hash = bob_own["content_hash"]
+    mp.grant_on(instance, fix.siteA, mp.BOB, "site_contribute")
+    edge = _thread("within", bob_hash, fix.siteA)
+
+    before = render_surface(instance.store, fix)
+    ack = mp.publish_as(instance, mp.BOB, [bob_own], [edge])
+    after = render_surface(instance.store, fix)
+
+    assert edge["thread_hash"] in ack["threads"]["accepted"], ack["threads"]["rejected"]
+    catalog_delta = {s for s in (after - before) if s.startswith("catalog:within:")}
+    assert any(bob_hash in s for s in catalog_delta), (
+        f"admitted within did not register on the catalog folio_site_slugs reader: "
+        f"{sorted(catalog_delta)}"
+    )
+
+
+@pytest.fixture
+def instance(tmp_path):
+    s = Station(tmp_path / "instance" / ".skein-next")
+    yield s
+    s.close()

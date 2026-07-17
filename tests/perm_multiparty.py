@@ -71,6 +71,15 @@ def bind_party(
     )
 
 
+def grant_on(
+    instance, anchor: str, grantee: str, kind: str, *,
+    issuer: str = I, vouched_by: str = ADMIN,
+) -> None:
+    """Grant ``grantee`` a per-document right ``kind`` at the ``anchor`` genesis — the
+    ``document_grants`` row ``has_active_grant`` reads for the to-end predicate."""
+    instance.store.add_grant(anchor, issuer, grantee, kind, issuer, vouched_by)
+
+
 def publish_as(
     instance, subject: str,
     folios: Sequence[Mapping[str, Any]],

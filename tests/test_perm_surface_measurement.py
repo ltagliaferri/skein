@@ -145,6 +145,9 @@ def render_surface(store, fix: Fixture) -> Set[str]:
         peers(label, "siblings", env["lineage"]["siblings"])
         peers(label, "parents", env["lineage"]["parents"])
         peers(label, "descendants", env["descendants"])
+        sup = env["superseded_by"]  # the fork "a newer version exists" hatnote (render.py)
+        if sup:
+            surface.add(f"{label}:superseded_by:{sup.get('title')}")
         site = env["site"]
         if site:
             surface.add(f"{label}:site:{site['slug']}")
@@ -155,51 +158,61 @@ def render_surface(store, fix: Fixture) -> Set[str]:
 
 
 # --- the sweep: one attack per type, from BOB the unauthorized bound originator ---------
-# (ttype, from_key, to_key, expect_admit, reason_substr). Keys resolve against the built
-# fixture; "bob_own" is a fresh folio BOB owns (so his from-end ownership is genuine).
-ATTACK_SPECS: List[Tuple[str, str, str, bool, str]] = [
+# (ttype, from_key, to_key, expect_admit, reason_substr, anchor_key). Keys resolve against
+# the built fixture; "bob_own" is a fresh folio BOB owns (so his from-end ownership is
+# genuine). anchor_key names the fixture hash the refusal must cite — asserting it binds
+# the reject to the RESOLVED lineage/site anchor, so a resolver that gated on the head
+# instead of the genesis would fail even though the class phrase still matched (§3 rule 1).
+ATTACK_SPECS: List[Tuple[str, str, str, bool, str, Optional[str]]] = [
     # AFFECTING — from-end ownership + to-end right; BOB has neither on the victim.
-    ("supersedes", "bob_own", "V", False, "no edit access"),
-    ("within", "V", "siteA", False, "cannot originate from a folio you do not hold"),
+    #   supersedes: BOB owns his new version but not the target genesis -> to-end refusal.
+    #   within: BOB owns his member folio but holds no site-contribute right -> to-end
+    #   refusal at the site GENESIS (this exercises the folio_site_slugs catalog reader;
+    #   filing the victim's OWN folio would instead reject at the from-end and never reach
+    #   the site logic).
+    ("supersedes", "bob_own", "V", False, "no edit access", "G"),
+    ("within", "bob_own", "siteA", False, "no contribute access", "siteA"),
     # POINTER — from-end ownership ONLY, no to-end right (by design): all admit + render.
-    ("reference", "bob_own", "V", True, ""),
-    ("reply", "bob_own", "V", True, ""),
-    ("mention", "bob_own", "V", True, ""),
-    ("forks", "bob_own", "V", True, ""),
-    ("responds_to", "bob_own", "V", True, ""),
-    ("imports_legacy", "bob_own", "V", True, ""),
-    ("tag", "bob_own", "V", True, ""),
+    ("reference", "bob_own", "V", True, "", None),
+    ("reply", "bob_own", "V", True, "", None),
+    ("mention", "bob_own", "V", True, "", None),
+    ("forks", "bob_own", "V", True, "", None),
+    ("responds_to", "bob_own", "V", True, "", None),
+    ("imports_legacy", "bob_own", "V", True, "", None),
+    ("tag", "bob_own", "V", True, "", None),
     # CONTROL — to-end moderation right at the genesis; BOB has none.
-    ("status", "G", "G", False, "no moderation access"),
-    ("reverted", "V2", "G", False, "no moderation access"),
-    ("archive", "G", "G", False, "no moderation access"),
+    ("status", "G", "G", False, "no moderation access", "G"),
+    ("reverted", "V2", "G", False, "no moderation access", "G"),
+    ("archive", "G", "G", False, "no moderation access", "G"),
     # ASSIGNMENT / ATTRIBUTION — content-hash to-end now shape-rejected (b77af99, live).
-    ("assignment", "bob_own", "V", False, "assignment to-end must name an agent"),
-    ("attribution", "bob_own", "V", False, "attribution to-end must name an agent"),
+    ("assignment", "bob_own", "V", False, "assignment to-end must name an agent", None),
+    ("attribution", "bob_own", "V", False, "attribution to-end must name an agent", None),
     # NON_FOLIO — admits from a held folio BOB owns (the deferred message/succession pair).
-    ("message", "bob_own", "V", True, ""),
-    ("succession", "bob_own", "V", True, ""),
+    ("message", "bob_own", "V", True, "", None),
+    ("succession", "bob_own", "V", True, "", None),
     # WIRE_REJECT — never travels the published graph.
-    ("published", "bob_own", "V", False, "does not travel the published graph"),
+    ("published", "bob_own", "V", False, "does not travel the published graph", None),
 ]
 
 
 class AttackResult:
-    def __init__(self, ttype, admitted, reason, injected_surfaces, bob_title):
+    def __init__(self, ttype, admitted, reason, injected_surfaces, bob_title, anchor_hash):
         self.ttype = ttype
         self.admitted = admitted
         self.reason = reason
         self.injected_surfaces = injected_surfaces  # the label:surface:title deltas
         self.bob_title = bob_title
+        self.anchor_hash = anchor_hash  # the resolved genesis/site the refusal must cite
 
 
 def run_attack(instance, fix: Fixture, spec) -> AttackResult:
     """BOB publishes a fresh owned folio + one thread of ``spec`` onto the victim,
     then diff the rendered surface. Returns admission + reason + injected surfaces."""
-    ttype, from_key, to_key, _expect, _reason = spec
+    ttype, from_key, to_key, _admit, _reason, anchor_key = spec
     bob_title = f"BOB-INJECT-{ttype}"
     bob_own = h.folio("finding", bob_title, "payload", BOB_TS)
-    resolve = {"bob_own": bob_own["content_hash"], **{k: getattr(fix, k) for k in
+    bob_hash = bob_own["content_hash"]
+    resolve = {"bob_own": bob_hash, **{k: getattr(fix, k) for k in
                ("G", "V", "V2", "S", "siteA")}}
     edge = _thread(ttype, resolve[from_key], resolve[to_key])
 
@@ -213,8 +226,12 @@ def run_attack(instance, fix: Fixture, spec) -> AttackResult:
     if not admitted:
         rej = [r for r in ack["threads"]["rejected"] if r["thread_hash"] == th]
         reason = rej[0]["reason"] if rej else "<not in ack>"
-    injected = {s for s in (after - before) if bob_title in s}
-    return AttackResult(ttype, admitted, reason, injected, bob_title)
+    # A surface is BOB's iff it carries his title (folio-envelope peers resolve a title)
+    # OR his content hash (the catalog within-reader keys on the member HASH, no title —
+    # so a title-only filter would be BLIND to an admitted `within`, the sixth reader).
+    injected = {s for s in (after - before) if bob_title in s or bob_hash in s}
+    anchor_hash = getattr(fix, anchor_key) if anchor_key else None
+    return AttackResult(ttype, admitted, reason, injected, bob_title, anchor_hash)
 
 
 @pytest.fixture(scope="module")
@@ -239,7 +256,7 @@ def test_surface_per_type(measured, spec):
     """One thread of each type, landed by an unauthorized bound party. Admission and the
     SPECIFIC reject reason are both frozen (a right-answer-wrong-reason refusal is a test
     bug wearing a pass, §3 rule 1)."""
-    ttype, _fk, _tk, expect_admit, reason_substr = spec
+    ttype, _fk, _tk, expect_admit, reason_substr, anchor_key = spec
     res = measured[ttype]
 
     assert res.admitted is expect_admit, (
@@ -252,6 +269,13 @@ def test_surface_per_type(measured, spec):
         assert reason_substr in res.reason, (
             f"{ttype}: reason {res.reason!r} lacks {reason_substr!r}"
         )
+        # The refusal must cite the RESOLVED anchor (genesis/site), not just the class
+        # phrase — a resolver that gated on the head would still match the phrase.
+        if anchor_key is not None:
+            assert res.anchor_hash and res.anchor_hash in res.reason, (
+                f"{ttype}: reason {res.reason!r} does not cite the resolved "
+                f"{anchor_key} anchor {res.anchor_hash}"
+            )
         # Refused => the attacker's title reaches NO victim surface.
         assert not res.injected_surfaces, (
             f"{ttype} refused but still rendered at {res.injected_surfaces}"
@@ -262,6 +286,13 @@ def test_surface_partition(measured):
     """The aggregate map + the y297 partition (post-fix 6 and 3), emitted for the design
     pair. This is the S13 deliverable — a measured type->surface map, not a derivation."""
     results = measured
+
+    # The sweep must cover the WHOLE taxonomy — else a new type added to the renderer +
+    # known_thread_types() would go silently unmeasured (the staleness §2 warns about).
+    assert {s[0] for s in ATTACK_SPECS} == known_thread_types(), (
+        "ATTACK_SPECS drifted from the taxonomy: "
+        f"{known_thread_types() ^ {s[0] for s in ATTACK_SPECS}}"
+    )
 
     admitted = {t for t, r in results.items() if r.admitted}
     rejected = {t for t, r in results.items() if not r.admitted}
@@ -293,9 +324,11 @@ def test_surface_partition(measured):
     assert any(s.startswith("V2:siblings:") for s in forks_surfaces), forks_surfaces
 
     # Emit the measured map + class table for the design pair (visible under -s).
+    wire_reject = {t for t in known_thread_types() if classify_thread(t).value == "wire_reject"}
     print("\n=== S13 measured type -> surface map (rung 2, post-b77af99) ===")
-    print(f"landably-measurable: {len(ATTACK_SPECS)} of {len(known_thread_types())} "
-          "(published is WIRE_REJECT, never lands)")
+    print(f"swept: {len(ATTACK_SPECS)} of {len(known_thread_types())} taxonomy types; "
+          f"landable: {len(ATTACK_SPECS) - len(wire_reject)} "
+          f"(WIRE_REJECT never lands: {sorted(wire_reject)})")
     print(f"INJECT via threads_in ({len(threads_in)}): {sorted(threads_in)}")
     print(f"  of which declared reads=False ({len(reads_false_but_render)}): "
           f"{sorted(reads_false_but_render)}")

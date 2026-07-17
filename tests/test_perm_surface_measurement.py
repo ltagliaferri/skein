@@ -199,6 +199,22 @@ ATTACK_SPECS: List[Tuple[str, str, str, bool, str, Optional[str]]] = [
 ]
 
 
+# The EXACT rendered surface each admitted attack reaches, as ``label:surface`` prefixes
+# (the attacker's title is stripped — the injected set is already title/hash-filtered, so
+# every element is BOB's). Frozen from the live measurement (capture, don't hand-derive).
+# Asserting the exact set — not just bucket membership — makes this a precise change
+# detector: a renderer regression that ADDS a surface (e.g. a pointer leaking into
+# ``parents``) or partially DROPS one (``forks`` losing ``V:children`` but keeping
+# ``V2:siblings``) flips the assertion instead of passing on the surviving bucket member.
+_THREADS_IN = frozenset({"V:threads_in"})
+_VERSION_CHAIN = frozenset({"V:children", "V:descendants", "G:descendants", "V2:siblings"})
+EXPECTED_SURFACES: Dict[str, "frozenset[str]"] = {
+    "reference": _THREADS_IN, "reply": _THREADS_IN, "mention": _THREADS_IN,
+    "tag": _THREADS_IN, "message": _THREADS_IN, "succession": _THREADS_IN,
+    "forks": _VERSION_CHAIN, "responds_to": _VERSION_CHAIN, "imports_legacy": _VERSION_CHAIN,
+}
+
+
 class AttackResult:
     def __init__(self, ttype, admitted, reason, injected_surfaces, bob_title, anchor_hash):
         self.ttype = ttype
@@ -269,6 +285,13 @@ def test_surface_per_type(measured, spec):
     if expect_admit:
         # Admitted => it renders the attacker's title somewhere on the victim surface.
         assert res.injected_surfaces, f"{ttype} admitted but rendered nowhere (silent?)"
+        # And on EXACTLY the surfaces measured today — an added or dropped surface flips
+        # this, so a renderer regression can't hide behind a surviving bucket member.
+        prefixes = {s.rsplit(":", 1)[0] for s in res.injected_surfaces}
+        assert prefixes == EXPECTED_SURFACES[ttype], (
+            f"{ttype}: surface set {sorted(prefixes)} != expected "
+            f"{sorted(EXPECTED_SURFACES[ttype])}"
+        )
     else:
         assert reason_substr in res.reason, (
             f"{ttype}: reason {res.reason!r} lacks {reason_substr!r}"

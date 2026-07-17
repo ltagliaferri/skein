@@ -646,6 +646,13 @@ def create_app() -> FastAPI:
     # single source of truth (D16), never a stationfile field.
     try:
         n_ops = station.store.count_active_operators() if require_signed else None
+        # OFF-posture multi-party read (rev 6 §9): gather the active binding count HERE,
+        # inside the one boot open, before the finally closes the station. PRIMARY KEY
+        # (issuer, subject) makes one active binding == one distinct bound identity, so
+        # the count IS the party count.
+        n_bindings = (
+            len(station.store.list_active_bindings()) if not require_signed else None
+        )
     except sqlite3.Error as e:
         # The open resolved but the first real read didn't (e.g. an I/O error,
         # or a truncation whose fault only surfaces on page reads).
@@ -668,6 +675,18 @@ def create_app() -> FastAPI:
             )
         logger.info("ingress starting with require_signed: 1 active operator present")
     else:
+        # rev 6 §9: OFF has NO edit authorization — single-party/local ONLY, so a
+        # multi-party station MUST run ON. Refuse OFF boot when more than one identity
+        # is bound (> 1 active binding); a single-operator or zero-binding station still
+        # boots, keeping local single-party dev working. The stricter ">1 binding"
+        # predicate (not "non-operator bindings > 0") is the faithful reading of
+        # "single-party": two operator bindings are still two distinct parties.
+        if n_bindings > 1:
+            raise StationBootError(
+                f"require_signed is OFF but the station is multi-party ({n_bindings} "
+                "active bindings); a multi-party station must run ON — set "
+                "SKEIN_STATION_REQUIRE_SIGNED=1"
+            )
         logger.warning(
             "ingress starting with require_signed OFF — unsigned content is accepted"
         )

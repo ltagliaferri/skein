@@ -89,6 +89,21 @@ def test_off_boots_zero_binding(tmp_path, monkeypatch):
     assert create_app() is not None
 
 
+def test_off_boots_single_operator_plus_revoked(tmp_path, monkeypatch):
+    # A once-onboarded, now-revoked collaborator must NOT count toward multi-party:
+    # list_active_bindings() filters on revoked_at IS NULL, so 2 rows / 1 active is
+    # still single-party. This locks that active-only invariant against regression.
+    data_dir = tmp_path / ".skein-station"
+    _seed_station(data_dir, [("op@x", "operator"), ("author@x", "originator")])
+    s = Station(data_dir)
+    try:
+        s.store.revoke_binding(ISSUER, "author@x")
+    finally:
+        s.close()
+    _boot_env(monkeypatch, data_dir, require_signed=False)
+    assert create_app() is not None
+
+
 def test_on_single_operator_invariant_unchanged(tmp_path, monkeypatch):
     # ON path is untouched by the OFF guard: a lone operator boots; two operators still
     # trip the pre-existing single-active-operator invariant (OperatorInvariantError, NOT

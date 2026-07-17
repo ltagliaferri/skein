@@ -10,10 +10,100 @@ from __future__ import annotations
 
 import pytest
 
-from skein.ingress import create_app
+from skein.ingress import OperatorInvariantError, create_app
 from skein.station import Station, StationBootError
 from skein.station_store import DB_FILENAME
 from tests.test_perm_migration import _old_shape_db
+
+# --- OFF-posture multi-party boot refusal (rev 6 §9) ------------------------
+#
+# rev 6 §9: OFF has NO edit authorization — single-party/local ONLY; a multi-party
+# station MUST run ON. create_app refuses OFF boot when > 1 identity is bound. The
+# ">1 active binding" predicate is the faithful reading of "single-party" (account_bindings
+# PRIMARY KEY (issuer, subject) makes one active binding == one distinct party); it is
+# stricter than "non-operator bindings > 0" — two operator bindings are still two parties.
+
+ISSUER = "did:key:zTEST-issuer"
+
+
+def _seed_station(data_dir, bindings):
+    """Birth a fresh rev-6 station at ``data_dir`` seeded with ``bindings`` — a list of
+    (subject, role) tuples — committing and closing so ``create_app`` opens it fresh."""
+    s = Station(data_dir)
+    try:
+        for subject, role in bindings:
+            s.store.add_binding(
+                ISSUER, subject, role=role,
+                vouched_by_issuer=ISSUER, vouched_by_subject=ISSUER,
+            )
+    finally:
+        s.close()
+
+
+def _boot_env(monkeypatch, data_dir, *, require_signed):
+    monkeypatch.setenv("SKEIN_STATION_DATA_DIR", str(data_dir))
+    if require_signed:
+        monkeypatch.setenv("SKEIN_STATION_REQUIRE_SIGNED", "1")
+    else:
+        monkeypatch.setenv("SKEIN_STATION_REQUIRE_SIGNED", "0")
+    # A stray origin in the real env would raise StationEnvError past the guard we test.
+    monkeypatch.delenv("SKEIN_STATION_ORIGIN", raising=False)
+
+
+def test_off_refuses_multi_party_second_binding(tmp_path, monkeypatch):
+    # operator + a second (non-operator) binding => 2 parties => multi-party.
+    data_dir = tmp_path / ".skein-station"
+    _seed_station(data_dir, [("op@x", "operator"), ("author@x", "originator")])
+    _boot_env(monkeypatch, data_dir, require_signed=False)
+    with pytest.raises(StationBootError) as ei:
+        create_app()
+    msg = str(ei.value)
+    assert "multi-party" in msg
+    assert "SKEIN_STATION_REQUIRE_SIGNED" in msg
+
+
+def test_off_refuses_two_operators(tmp_path, monkeypatch):
+    # Pins the stricter predicate: two operator bindings (0 non-operator) is still
+    # multi-party and MUST be refused under OFF. The weaker "non-operator > 0" would boot.
+    data_dir = tmp_path / ".skein-station"
+    _seed_station(data_dir, [("op1@x", "operator"), ("op2@x", "operator")])
+    _boot_env(monkeypatch, data_dir, require_signed=False)
+    with pytest.raises(StationBootError) as ei:
+        create_app()
+    assert "multi-party" in str(ei.value)
+
+
+def test_off_boots_single_operator(tmp_path, monkeypatch):
+    # A lone operator is single-party — local single-party dev MUST keep booting under OFF.
+    data_dir = tmp_path / ".skein-station"
+    _seed_station(data_dir, [("op@x", "operator")])
+    _boot_env(monkeypatch, data_dir, require_signed=False)
+    assert create_app() is not None
+
+
+def test_off_boots_zero_binding(tmp_path, monkeypatch):
+    # A pristine, unbound station is single-party/local — MUST keep booting under OFF.
+    data_dir = tmp_path / ".skein-station"
+    _seed_station(data_dir, [])
+    _boot_env(monkeypatch, data_dir, require_signed=False)
+    assert create_app() is not None
+
+
+def test_on_single_operator_invariant_unchanged(tmp_path, monkeypatch):
+    # ON path is untouched by the OFF guard: a lone operator boots; two operators still
+    # trip the pre-existing single-active-operator invariant (OperatorInvariantError, NOT
+    # the new multi-party StationBootError).
+    single = tmp_path / "single" / ".skein-station"
+    _seed_station(single, [("op@x", "operator")])
+    _boot_env(monkeypatch, single, require_signed=True)
+    assert create_app() is not None
+
+    two = tmp_path / "two" / ".skein-station"
+    _seed_station(two, [("op1@x", "operator"), ("op2@x", "operator")])
+    _boot_env(monkeypatch, two, require_signed=True)
+    with pytest.raises(OperatorInvariantError) as ei:
+        create_app()
+    assert "operator" in str(ei.value)
 
 
 def test_perm_schema_current_detects_shape(tmp_path):

@@ -197,12 +197,14 @@ def ingest(
             batch["manifest_signature"], verifier
         )
 
-    # The verified manifest signer's binding is read ONCE for the whole batch (RS8),
-    # LIVE inside the ingest BEGIN IMMEDIATE (below), never here pre-transaction: the
-    # single get_binding is the re-gating pin C40 / §8, so a revocation that commits
-    # before the write lock flips the verdict on THIS ingest, not the next. These are
-    # initialized here only so manifest_decision (a closure over them) has values to
-    # read; the authoritative assignment happens live in the transaction.
+    # The verified manifest signer's binding is read LIVE inside the ingest BEGIN
+    # IMMEDIATE (below), never here pre-transaction — the ingress's re-gating pin
+    # (C40 / §8): a revocation that commits before the write lock flips the verdict on
+    # THIS ingest, not the next. (Not "the single get_binding": thread_authz.
+    # may_act_on_lineage re-reads the binding once per to-end authorization — all inside
+    # that same lock, so they see one committed state.) These are initialized here only
+    # so manifest_decision (a closure over them) has values to read; the authoritative
+    # assignment happens live in the transaction.
     m_bound = False
     m_bind_reason: Optional[str] = None
 

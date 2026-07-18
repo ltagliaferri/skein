@@ -5,12 +5,16 @@ harness :mod:`tests.perm_multiparty`, which closed Fact 1). Batch 1 (test_perm_s
 covered S3/S4/S7; this batch covers the three the plan names as *unreached*:
 
   S8  GET IN THROUGH A FORBIDDEN SHAPE — the clause-(b) shape diff at the INGRESS. The
-      plan: "a from-end alias is tested for no class at all" (rung 0 tests only the
-      TO-end alias, test_perm_authorize_thread.py:104/190). Here every one of the 17
-      taxonomy types is driven through real ``ingest()`` with a non-content-hash
-      from-end, and each asserts the EXACT reason its class produces — including the
-      three classes where a CO-DEFENDING guard fires first, which is the whole point of
-      asserting the reason rather than the refusal.
+      plan says "a from-end alias is tested for no class at all"; that overstates the
+      gap. Rung 0 already drives a NON-HASH from-end for the CO-DEFENDED classes —
+      status/archive (test_perm_authorize_thread.py:269/290, agent-origin -> self-loop)
+      and message/succession (:466/472, agent-origin) — and refuses ``published`` on its
+      CLASS before any shape check (:481). What is genuinely untested is (i) the 12 types
+      carrying a CONTENT-HASH from-end, which have no from-end shape test at any rung,
+      and (ii) the INGRESS level: no from-end shape has ever been driven through real
+      ``ingest()`` as a bound second signer. Both are closed here — all 17 types are
+      swept, each asserting the EXACT reason its class produces, so the 5 co-defended
+      cases are pinned to the guard that really fires rather than to a bare refusal.
 
   S1  SEIZE A NAME — the slug claim under ON, where naming follows OWNERSHIP OF THE
       ANCHOR and a signer-PAIR collision decides (§3.3/§6). The plan's gap: "operator
@@ -37,6 +41,7 @@ from typing import Any, Dict
 
 import pytest
 
+from skein.authorization import STATION_ROLES, Principal
 from skein.identity import compute_thread_hash
 from skein.station import Station
 from skein.thread_authz import (
@@ -48,20 +53,28 @@ from skein.thread_authz import (
 )
 from tests import perm_multiparty as mp
 from tests import station_publish_helpers as h
-from tests.perm_helpers import BOB as BOB_P
 
 _TS = "2026-01-01T00:00:00+00:00"
 BOB_TS = "2026-06-01T00:00:00+00:00"
 
-# A non-content-hash endpoint an attacker might use to slip past a shape check: a folio
-# ALIAS, an AGENT id, a site SLUG, and a near-miss hash (63 hex chars — one short, the
-# regex's length anchor) . None is 64-hex or sha256::<64-hex>, so all are refused by
-# _CONTENT_ADDRESS_RE; the interesting question is with WHICH reason, per class.
-_NON_HASHES = [
-    "finding-20260101-abcd",   # legacy folio alias
-    "burr-0715",               # agent id
-    "specs",                   # site slug
-    "sha256::" + "a" * 63,     # near-miss: one hex short
+# THE CANONICAL NON-CONTENT-HASH FROM-END for the per-type sweep: a legacy folio ALIAS,
+# the shape §5.1 names outright (an alias resolves through the MUTABLE aliases table to a
+# target the signature never fixed). An agent id ("burr-0715") and a site slug ("specs")
+# are the SAME `_CONTENT_ADDRESS_RE.match` failure spelled differently, so sweeping all
+# three across all 17 types re-ran one branch ~50 times. The sweep's job is the
+# type -> CLASS DISPATCH across the ~5 `_require_content_hash` call sites; the regex's own
+# boundary is a separate axis, driven once below where it actually discriminates.
+_ALIAS_FROM = "finding-20260101-abcd"
+
+# THE HASH-REGEX BOUNDARY, on one content-hash-from-end type. Each entry breaks a
+# DIFFERENT piece of `^(?:sha256::)?[0-9a-f]{64}$` — so a widened regex (a relaxed length,
+# a stray re.IGNORECASE, a dropped `$`) fails here instead of admitting a forged endpoint.
+_NEAR_MISS_HASHES = [
+    "a" * 63,                  # one hex SHORT — the {64} lower bound
+    "a" * 65,                  # one hex LONG — the {64} upper bound
+    "A" * 64,                  # right length, UPPERCASE — [0-9a-f] is lowercase-only
+    "a" * 64 + "-forged",      # a full-length hash with a SUFFIX — the trailing `$`
+    "sha256::" + "a" * 63,     # the short hex under the OPTIONAL frame — framing relaxes nothing
 ]
 
 
@@ -102,10 +115,22 @@ def _publish_folio(instance, subject, title, key, ts, ftype="finding", slug=None
 # The from-end shape guard, per class, at the ingress. rev 6 §5.1 rejects a non-content-
 # address endpoint on the signed path: an alias resolves through the MUTABLE aliases table
 # to a target the signature never fixed, and canonicalizing at ingress would break the
-# signed thread_hash. Rung 0 pins the TO-end (supersedes + pointer); the FROM-end is
-# tested for no class at all — so a from-end that is an alias, an agent id, a slug or a
-# near-miss hash is driven here for ALL 17 types, through real ingest(), as a real bound
-# second signer.
+# signed thread_hash.
+#
+# WHAT IS ACTUALLY NEW HERE (the plan's "a from-end alias is tested for no class at all"
+# is one class too broad — see the module docstring):
+#   - The 12 CONTENT-HASH-FROM-END types (AFFECTING / POINTER / reverted / ASSIGNMENT /
+#     ATTRIBUTION). Rung 0 pins only the TO-end shape (supersedes + pointer,
+#     test_perm_authorize_thread.py:104/190); for these types NO rung tests the FROM-end.
+#     This is the load-bearing sweep: it pins type -> class dispatch across the ~5
+#     `_require_content_hash(frm, ...)` call sites, so a type re-classified into a class
+#     that skips the from-end check fails here.
+#   - The INGRESS LEVEL, for all 17. Rung 0 calls authorize_thread directly; nothing has
+#     driven a from-end shape through real ingest() as a bound second signer, where the
+#     wire layer, the batch transaction and the staged graph all sit in front of the guard.
+# The 5 CO-DEFENDED types are already covered at rung 0 (status/archive :269/290,
+# message/succession :466/472, published :481) — they ride along to pin the co-defending
+# guard at the ingress, not because their class is untested.
 #
 # THE CO-DEFENDING GUARDS (§3 rule 2: record the guard stack). Three classes never reach
 # _require_content_hash on the from-end, and asserting the mere refusal would hide that:
@@ -207,12 +232,13 @@ def test_s8_taxonomy_is_fully_covered_by_the_from_end_table():
 
 
 @pytest.mark.parametrize("ttype", sorted(_FROM_END_REJECT))
-@pytest.mark.parametrize("bad_from", _NON_HASHES)
-def test_s8_non_content_hash_from_end_refused_per_class(instance, corpus, ttype, bad_from):
-    """S8, the named gap: a FROM-end that is an alias / agent id / slug / near-miss hash
-    is refused for every class, with the reason that class's guard stack produces."""
+def test_s8_non_content_hash_from_end_refused_per_class(instance, corpus, ttype):
+    """S8, the TYPE -> CLASS DISPATCH sweep: a FROM-end that is a legacy alias is refused
+    for every one of the 17 types, with the reason that type's guard stack produces. One
+    from-end shape, all 17 types — the axis under test is which guard each type reaches,
+    not which spelling of a non-hash is rejected (that is the boundary test below)."""
     to = _attack_to_end(corpus, ttype)
-    bad = _thread(ttype, bad_from, to)
+    bad = _thread(ttype, _ALIAS_FROM, to)
     ack = mp.publish_as(instance, mp.BOB, [], [bad])
 
     assert bad["thread_hash"] not in ack["threads"]["accepted"], ack["threads"]
@@ -222,13 +248,41 @@ def test_s8_non_content_hash_from_end_refused_per_class(instance, corpus, ttype,
     assert instance.store.get_thread(bad["thread_hash"]) is None
 
 
+@pytest.mark.parametrize("near_miss", _NEAR_MISS_HASHES)
+def test_s8_from_end_hash_shape_boundary(instance, corpus, near_miss):
+    """The OTHER S8 axis: the content-address regex's own boundary, driven on ONE type
+    that really shape-checks its from-end (supersedes, AFFECTING). Each near-miss is a
+    hash an attacker could plausibly present — right-length uppercase, one hex off,
+    a real hash with a suffix — and each breaks a different piece of
+    `^(?:sha256::)?[0-9a-f]{64}$`, so a widened regex cannot pass unnoticed.
+
+    Isolating: the type, the to-end and the signer are identical to the admitting
+    supersedes in test_s8_positive_control_same_thread_with_a_real_from_end_admits, whose
+    from-end IS a real content hash — so the from-end SHAPE is the only variable."""
+    to = _attack_to_end(corpus, "supersedes")
+    bad = _thread("supersedes", near_miss, to)
+    ack = mp.publish_as(instance, mp.BOB, [], [bad])
+
+    assert bad["thread_hash"] not in ack["threads"]["accepted"], ack["threads"]
+    assert _FROM_HASH in _reject_reason(ack, bad["thread_hash"])
+    assert instance.store.get_thread(bad["thread_hash"]) is None
+
+
 @pytest.mark.parametrize("ttype", sorted(t for t in _FROM_END_REJECT if t != "published"))
 def test_s8_positive_control_same_thread_with_a_real_from_end_admits(instance, corpus, ttype):
     """The positive control for the test above, per type: swap ONLY the from-end for a
-    content hash BOB owns and the identical edge is ADMITTED. So the refusals above are
-    the from-end shape guard doing its job, not a malformed request or a missing to-end
-    right. (``published`` is excluded: WIRE_REJECT means no admissible instance exists —
-    that IS its contract, and the parametrized test above asserts it.)"""
+    content hash BOB owns and the identical edge is ADMITTED — so the refusals above are
+    a from-end guard doing its job, not a malformed request or a missing to-end right.
+
+    WHICH guard, per type: for the 15 types whose admitting form keeps a from != to shape,
+    the swap isolates the from-end SHAPE guard (or, for message/succession, the agent-
+    origin guard that stands in for it). For status/archive it does NOT: their admitting
+    form is the self-loop (g, g), so swapping the from-end also makes from == to and this
+    control isolates the SELF-LOOP guard instead. The from-end shape guard on those two is
+    never reached — that is exactly what the _FROM_END_REJECT table records, and
+    test_s8_non_self_loop_control_edge_refused pins the self-loop guard on its own.
+    (``published`` is excluded: WIRE_REJECT means no admissible instance exists — that IS
+    its contract, and the parametrized test above asserts it.)"""
     frm, to = _well_shaped(corpus, ttype)
     good = _thread(ttype, frm, to, "2026-07-01T00:00:00+00:00")
     ack = mp.publish_as(instance, mp.BOB, [], [good])
@@ -371,16 +425,45 @@ def _alice_holds_specs(instance) -> str:
     return site
 
 
+def _bob_claims_a_free_name_and_collides(instance) -> str:
+    """BOB publishes TWO of his OWN site folios in ONE batch: one under a FREE name, one
+    under ALICE's 'specs'. Returns the hash of the 'specs' contender.
+
+    THE FREE CLAIM IS A LIVENESS CONTROL, and it is why the collision assertions below
+    mean anything. Every one of them says "nothing changed" — which is also what you get
+    if BOB's slug pass never ran or THREW, since the ingress wraps each claim in
+    `except Exception` and only debug-logs it (ingress.py:509). The free name proves the
+    pass reached claim_slug and WROTE, for this signer, in this batch, in this
+    transaction. So a 'specs' claim that then changes nothing is the signer-pair decision
+    refusing, not the ingress swallowing an error."""
+    free = h.folio("site", "bob free site", "bf", BOB_TS)
+    contender = h.folio("site", "bob specs", "bs", BOB_TS)
+    ack = mp.publish_as(
+        instance, mp.BOB, [free, contender], [],
+        site_slugs={free["content_hash"]: "bob-notes", contender["content_hash"]: "specs"},
+    )
+    for f in (free, contender):
+        assert f["content_hash"] in ack["accepted"], ack
+
+    # The control: BOB's slug pass DOES reach claim_slug and write, in this very batch.
+    got = instance.store.get_slug_claim("bob-notes")
+    assert got is not None, "BOB's slug pass never wrote — the collision below proves nothing"
+    assert got["anchor_hash"] == free["content_hash"], got
+    assert got["claimed_by_subject"] == mp.BOB, got
+    assert instance.store.resolve_slug("bob-notes") == free["content_hash"]
+    return contender["content_hash"]
+
+
 def test_s1_foreign_signer_cannot_collide_on_an_owned_name(instance):
     """(a) A DIFFERENT signer's collision is refused. BOB publishes his OWN site folio —
     so he owns his own anchor and the ingress ownership gate passes — under ALICE's name
     'specs'. The claim is a signer-pair decision, so it collides: NOTHING is written and
-    the name still resolves to ALICE's lineage."""
+    the name still resolves to ALICE's lineage. The free-name control in the helper is
+    what makes "nothing written" a refusal rather than a no-op."""
     alice_site = _alice_holds_specs(instance)
     mp.bind_party(instance, mp.BOB, "originator")
 
-    bob_site = _publish_folio(instance, mp.BOB, "bob specs", "bs", BOB_TS,
-                              ftype="site", slug="specs")
+    bob_site = _bob_claims_a_free_name_and_collides(instance)
 
     # The observable: who owns the slug anchor after. BOB's folio landed; the NAME did not.
     claim = instance.store.get_slug_claim("specs")
@@ -407,12 +490,22 @@ def test_s1_same_signer_re_anchors_its_own_name(instance):
     assert instance.store.resolve_slug("specs") == second
 
 
-@pytest.mark.parametrize("role,seizes", [
+_S1_ROLE_ARMS = [
     ("originator", False),      # the negative control: a bound non-tier cannot override
     ("steward", False),         # §6 scopes the override to administrator/operator ONLY
     ("operator", True),         # the plan's gap: only administrator was tested
     ("administrator", True),    # the covered case, kept as the operator's twin
-])
+]
+
+
+def test_s1_role_arms_cover_every_station_role():
+    """The arms below are hand-enumerated, so pin them to the roles the station actually
+    binds: a new tier added to STATION_ROLES fails here instead of quietly acquiring an
+    untested naming right (and a removed one fails here instead of testing a dead arm)."""
+    assert {role for role, _ in _S1_ROLE_ARMS} == set(STATION_ROLES)
+
+
+@pytest.mark.parametrize("role,seizes", _S1_ROLE_ARMS)
 def test_s1_only_operator_or_administrator_overrides_a_name(instance, role, seizes):
     """(c) The OPERATOR override, and the boundary around it. A tiered signer colliding on
     ALICE's name either takes it outright (operator/administrator) or is refused exactly
@@ -422,12 +515,13 @@ def test_s1_only_operator_or_administrator_overrides_a_name(instance, role, seiz
 
     The steward arm is the sharp one: a steward CAN moderate any lineage
     (_TIER_MAY_ACT) yet must NOT be able to rename one — moderation power and naming
-    power are deliberately different rights (§6)."""
+    power are deliberately different rights (§6). The refusing arms carry the same
+    free-name liveness control as (a), so "nothing written" is a refusal by role and not
+    a slug pass that threw for this role."""
     alice_site = _alice_holds_specs(instance)
     mp.bind_party(instance, mp.BOB, role)
 
-    bob_site = _publish_folio(instance, mp.BOB, f"bob {role} specs", "bs", BOB_TS,
-                              ftype="site", slug="specs")
+    bob_site = _bob_claims_a_free_name_and_collides(instance)
 
     claim = instance.store.get_slug_claim("specs")
     if seizes:
@@ -478,13 +572,20 @@ def test_s1_override_does_not_leak_into_the_thread_authorization(instance):
 #   - The GRANT guard (the second) is genuinely load-bearing and
 #     test_s6_a_grant_never_reaches_an_unresolved_genesis KILLS its mutant: with it
 #     removed, BOB's grant satisfies the to-end and the attack is ADMITTED.
-#   - The OWNER guard (the first) is an EQUIVALENT MUTANT, provably: Genesis(resolved=
-#     False) is returned at exactly one site (thread_authz.py:295), reached only when
-#     `store.get_constituent_proof(node) is None` — and lineage_owner reads THAT SAME
-#     proof, so it returns None for an unresolved anchor no matter what. Removing the
-#     guard cannot change an outcome. It is defense in depth, and
-#     test_s6_an_unresolved_genesis_confers_no_ownership_right pins the property the
-#     guard exists to protect rather than pretending to kill an unkillable mutant.
+#   - The OWNER guard (the first) is an EQUIVALENT MUTANT for every genesis the system
+#     can actually present, provably: Genesis(resolved=False) is RETURNED at exactly one
+#     site (thread_authz.py:295), on the branch where `store.get_constituent_proof(node)
+#     is None` — and lineage_owner is _proof_signer over THAT SAME proof, so it returns
+#     None for such an anchor no matter what. Removing the guard cannot change an outcome
+#     for any genesis lineage_genesis_for can produce, which is every genesis reaching
+#     may_act_on_lineage from authorize_thread (all four call sites resolve through
+#     lineage_genesis_for / _resolve_or_reject; nothing constructs a Genesis by hand).
+#     The scope matters: a HAND-BUILT Genesis(some_owned_hash, resolved=False) WOULD
+#     diverge under the mutant — the guard is what makes it not diverge — but the
+#     resolver never emits that pairing, so no test can reach it through the real path.
+#     The guard is defense in depth against a future second construction site, and
+#     test_s6_an_unresolved_genesis_confers_no_ownership_right pins the property it
+#     exists to protect rather than pretending to kill an unkillable mutant.
 # ============================================================================
 
 def _legacy_gapped_lineage(instance) -> str:
@@ -527,7 +628,12 @@ def test_s6_the_fixture_really_is_an_unresolved_genesis(instance):
     mp.bind_party(instance, mp.BOB, "originator")
     mp.grant_on(instance, node, mp.BOB, "supersede")
     assert instance.store.has_active_grant(node, h.I, mp.BOB, "supersede")  # the grant IS live
-    assert may_act_on_lineage(instance.store, BOB_P, g, "supersede") is False  # ...and skipped
+    # The Principal is built from the SAME (issuer, subject) the grant was written under,
+    # locally — an imported one declaring its own issuer could drift from h.I, and then
+    # may_act_on_lineage would return False because the pair matches NOTHING, making this
+    # assertion pass vacuously instead of proving the resolved-guard skipped a live grant.
+    bob = Principal(h.I, mp.BOB)
+    assert may_act_on_lineage(instance.store, bob, g, "supersede") is False  # ...and skipped
 
 
 def test_s6_a_grant_never_reaches_an_unresolved_genesis(instance):
@@ -569,11 +675,16 @@ def test_s6_a_grant_never_reaches_an_unresolved_genesis(instance):
 
 def test_s6_an_unresolved_genesis_confers_no_ownership_right(instance):
     """(b) The owner-None path grants NOTHING. A legacy anchor has no covering-manifest
-    signer, so there is no owner to match — and critically, the absent owner must never
-    match an absent signer identity (§4: "never a None==None match"). BOB re-publishing
-    the very same legacy folio bytes does NOT make him its owner (the ingress refuses to
-    first-attribute a pre-existing unattributed folio, fell-r1 finding 1), so he cannot
-    convert a legacy lineage into one he owns and then supersede it."""
+    signer, so there is no owner for any signer to match: lineage_owner returns None and
+    may_act_on_lineage's owner arm is `owner is not None and owner == (issuer, subject)`.
+    (§4's "never a None==None match" is a note on that shape, not a testable behaviour —
+    a Principal always carries a real issuer/subject pair, and None never equals a tuple,
+    so no input reaches such a comparison. What IS testable is the property below.)
+
+    BOB re-publishing the very same legacy folio bytes does NOT make him its owner (the
+    ingress refuses to first-attribute a pre-existing unattributed folio, fell-r1
+    finding 1), so he cannot convert a legacy lineage into one he owns and then
+    supersede it."""
     node = _legacy_gapped_lineage(instance)
     mp.bind_party(instance, mp.BOB, "originator")
 

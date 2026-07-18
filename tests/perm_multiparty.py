@@ -88,12 +88,18 @@ def publish_as(
     site_slugs: Optional[Mapping[str, str]] = None,
     require_signed: bool = True,
     issuer: str = I,
+    bindings: Any = None,
 ) -> Dict[str, Any]:
     """Publish ``folios``/``threads`` through the real ``ingest()`` AS ``subject``.
 
     The manifest is signed by and verified as ``subject`` (both agree, though only the
     verifier's identity is load-bearing — see :func:`make_verifier`). Returns the ingest
     ack: ``{accepted, existing, rejected, threads:{accepted, existing, rejected}}``.
+
+    ``bindings`` is passed straight through to ``ingest`` (which defaults it to
+    ``default_bindings(station.store)``). It is the seam rung T uses to OBSERVE the
+    ingress's live binding read — the read whose placement inside ``BEGIN IMMEDIATE``
+    is the property §8/C40 argues for; see tests/test_perm_smoke_rungT.py (S5).
     """
     batch = wire.build_batch(list(folios), list(threads), site_slugs)
     batch["manifest_signature"] = h.manifest_over(
@@ -102,4 +108,5 @@ def publish_as(
     return ingest(
         instance, batch,
         verifier=make_verifier(subject, issuer), require_signed=require_signed,
+        bindings=bindings,
     )

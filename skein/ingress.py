@@ -197,12 +197,14 @@ def ingest(
             batch["manifest_signature"], verifier
         )
 
-    # The verified manifest signer's binding is read ONCE for the whole batch (RS8),
-    # LIVE inside the ingest BEGIN IMMEDIATE (below), never here pre-transaction: the
-    # single get_binding is the re-gating pin C40 / §8, so a revocation that commits
-    # before the write lock flips the verdict on THIS ingest, not the next. These are
-    # initialized here only so manifest_decision (a closure over them) has values to
-    # read; the authoritative assignment happens live in the transaction.
+    # The verified manifest signer's binding is read LIVE inside the ingest BEGIN
+    # IMMEDIATE (below), never here pre-transaction — the ingress's re-gating pin
+    # (C40 / §8): a revocation that commits before the write lock flips the verdict on
+    # THIS ingest, not the next. (Not "the single get_binding": thread_authz.
+    # may_act_on_lineage re-reads the binding once per to-end authorization — all inside
+    # that same lock, so they see one committed state.) These are initialized here only
+    # so manifest_decision (a closure over them) has values to read; the authoritative
+    # assignment happens live in the transaction.
     m_bound = False
     m_bind_reason: Optional[str] = None
 
@@ -262,13 +264,25 @@ def ingest(
     site_slugs: Dict[str, str] = batch.get("site_slugs") or {}
 
     with station.store.transaction():
-        # RE-READ the signer's binding LIVE inside BEGIN IMMEDIATE (§8, C40): the
-        # pre-transaction m_bound (ingress.py, computed at :191) is a PRE-FILTER only.
-        # A revocation that commits between that read and this lock must flip the
-        # verdict, so a revoked signer's tiered writes are never admitted in the
-        # window. Reassigning m_bound/m_bind_reason here updates what manifest_decision
-        # (a closure over them) sees at call time. `signer` is the Principal the thread
-        # authorization gates on; it is set ONLY when the live binding is active.
+        # Read the signer's binding LIVE inside BEGIN IMMEDIATE (§8, C40). This is the
+        # ingress's ONLY binding read — there is NO pre-transaction read to re-check and
+        # no pre-filter: the m_bound/m_bind_reason pair above is initialized to
+        # (False, None) purely so manifest_decision (a closure over them) has values
+        # before this assignment, which is the authoritative one. (Downstream,
+        # thread_authz.may_act_on_lineage re-reads the binding once per to-end
+        # authorization — 1 + N reads for an N-supersedes batch — but all of them are
+        # inside THIS lock, so they see the same committed state.)
+        #
+        # The PLACEMENT is the property, not the count: because this read happens after
+        # BEGIN IMMEDIATE, a revocation that commits before the write lock is taken
+        # flips the verdict on THIS ingest rather than the next, so a revoked signer's
+        # tiered writes are never admitted in the window. Hoisting it above the `with`
+        # restores exactly the pre-filter architecture §8 warns against, and that mutant
+        # passes every other test in the repo — tests/test_perm_smoke_rungT.py (S5) is
+        # what fails against it. Do not move this read.
+        #
+        # `signer` is the Principal the thread authorization gates on; it is set ONLY
+        # when the live binding is active.
         signer: Optional[Principal] = None
         live = None
         if require_signed and has_manifest and m_verified:

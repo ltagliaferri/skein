@@ -13,7 +13,8 @@ refusal is a test bug wearing a pass) and carries a negative/positive control th
 the ONE guard claimed load-bearing, so an "attack -> refused" is distinguished from "I
 built a malformed request."
 
-Batch 1: S3 (breadcrumb / from-end purity) and S4 (tier escalation, incl. the operator gap).
+Batch 1: S3 (breadcrumb / from-end purity), S4 (tier escalation via supersedes, incl. the
+operator gap), and S7 (bricking / claim 2 / the guard asymmetry).
 """
 
 from __future__ import annotations
@@ -74,55 +75,79 @@ def _reject_reason(ack, thread_hash) -> str:
 # site he may contribute to, but can NEVER file a VICTIM's folio there — which would
 # otherwise re-home the victim's breadcrumb (folio_site_slug, the alphabetically-first
 # slug) into the attacker's site. rung 0 tests this BLIND; here BOB really signs.
+#
+# The site is owned by ALICE, not BOB — so BOB's admission genuinely rides the GRANT
+# (may_act_on_lineage via has_active_grant), not ownership of a site he happens to hold.
+# The fell caught the earlier version giving BOB his own site, where owns_folio short-
+# circuited the grant and the from-end-purity property was never actually exercised.
 # ============================================================================
 
-def test_s3_contributor_cannot_file_a_victims_folio(instance):
+def _alice_site(instance) -> str:
+    """ALICE (already a bound originator) owns a site 'alice-site'. Returns its genesis."""
+    site = h.folio("site", "alice site", "alice's site", "2026-01-03T00:00:00+00:00")
+    ack = mp.publish_as(instance, mp.ALICE, [site], [],
+                        site_slugs={site["content_hash"]: "alice-site"})
+    assert site["content_hash"] in ack["accepted"], ack["rejected"]
+    return site["content_hash"]
+
+
+def test_s3_a_grant_satisfies_the_to_end_but_never_the_from_end(instance):
+    """From-end purity (§5.1), fully isolated on the GRANT path: the site is ALICE's, so
+    BOB acts only through the grant. (a) grant NECESSARY, (b) grant SUFFICIENT for the
+    to-end, (c) grant NEVER reaches the from-end — the breadcrumb poison, blocked."""
     g, v = _victim_lineage(instance)
-    # BOB is a bound originator with a site_contribute grant on HIS OWN site.
+    site = _alice_site(instance)               # owned by ALICE; BOB does NOT own it
     mp.bind_party(instance, mp.BOB, "originator")
-    site = h.folio("site", "bob site", "bob's site", BOB_TS)
-    mp.publish_as(instance, mp.BOB, [site], [], site_slugs={site["content_hash"]: "bob-site"})
-    mp.grant_on(instance, site["content_hash"], mp.BOB, "site_contribute")
 
-    # THE ATTACK: file ALICE's folio into BOB's site (from-end = a folio BOB does not own).
-    edge = _thread("within", v, site["content_hash"])
-    ack = mp.publish_as(instance, mp.BOB, [], [edge])
-    assert edge["thread_hash"] not in ack["threads"]["accepted"]
-    assert "cannot originate from a folio you do not hold" in _reject_reason(ack, edge["thread_hash"])
+    # (a) NECESSARY: without the grant, BOB filing his OWN folio is refused at the to-end.
+    m1 = h.folio("finding", "bob member A", "m", BOB_TS)
+    e1 = _thread("within", m1["content_hash"], site)
+    a1 = mp.publish_as(instance, mp.BOB, [m1], [e1])
+    assert e1["thread_hash"] not in a1["threads"]["accepted"]
+    assert "no contribute access" in _reject_reason(a1, e1["thread_hash"])
 
-    # POSITIVE CONTROL — isolates the from-end as the sole load-bearing guard: the SAME
-    # grant DOES admit BOB filing his OWN folio, so the refusal above is from-end purity,
-    # not a broken/missing grant.
-    mine = h.folio("finding", "bob member", "m", BOB_TS)
-    ok_edge = _thread("within", mine["content_hash"], site["content_hash"])
-    ack_ok = mp.publish_as(instance, mp.BOB, [mine], [ok_edge])
-    assert ok_edge["thread_hash"] in ack_ok["threads"]["accepted"], ack_ok["threads"]["rejected"]
+    # (b) SUFFICIENT for the to-end: with the grant, BOB may file his OWN folio.
+    mp.grant_on(instance, site, mp.BOB, "site_contribute")
+    m2 = h.folio("finding", "bob member B", "m", "2026-06-02T00:00:00+00:00")
+    e2 = _thread("within", m2["content_hash"], site)
+    a2 = mp.publish_as(instance, mp.BOB, [m2], [e2])
+    assert e2["thread_hash"] in a2["threads"]["accepted"], a2["threads"]["rejected"]
+
+    # (c) NEVER the from-end: with the SAME active grant, filing ALICE's folio is still
+    # refused — the grant satisfies the to-end but owns_folio gates the from-end.
+    e3 = _thread("within", v, site)
+    a3 = mp.publish_as(instance, mp.BOB, [], [e3])
+    assert e3["thread_hash"] not in a3["threads"]["accepted"]
+    assert "cannot originate from a folio you do not hold" in _reject_reason(a3, e3["thread_hash"])
 
 
 def test_s3_victims_breadcrumb_is_unchanged_by_the_attack(instance):
-    """The observable behind S3 (claim 1): the attack leaves the victim's rendered
-    breadcrumb untouched — ALICE's folio never gains BOB's site."""
+    """The observable behind S3 (claim 1): even holding a live site_contribute grant, the
+    attack leaves the victim's rendered breadcrumb untouched — ALICE's folio never gains
+    the site the attacker could contribute to."""
     from skein.envelope import build_folio_envelope
 
     g, v = _victim_lineage(instance)
+    site = _alice_site(instance)
     mp.bind_party(instance, mp.BOB, "originator")
-    site = h.folio("site", "bob site", "bob's site", BOB_TS)
-    mp.publish_as(instance, mp.BOB, [site], [], site_slugs={site["content_hash"]: "bob-site"})
-    mp.grant_on(instance, site["content_hash"], mp.BOB, "site_contribute")
+    mp.grant_on(instance, site, mp.BOB, "site_contribute")  # BOB may contribute to alice-site
 
     before = build_folio_envelope(instance.store, v)["asserted"]["site"]
-    mp.publish_as(instance, mp.BOB, [], [_thread("within", v, site["content_hash"])])
+    mp.publish_as(instance, mp.BOB, [], [_thread("within", v, site)])  # attack: file ALICE's V
     after = build_folio_envelope(instance.store, v)["asserted"]["site"]
     assert before == after  # no breadcrumb, before and after — the attack changed nothing
     assert after is None
 
 
 # ============================================================================
-# S4 — Escalate. Every tier acting on a FOREIGN lineage, refused where it should be. The
-# to-end right (may_act_on_lineage) is satisfied by a station tier in _TIER_MAY_ACT
-# {operator, administrator, steward}; an ORIGINATOR is NOT a moderation tier. The plan:
-# the OPERATOR tier has ZERO tests in the authorization path, and administrator is never
-# REFUSED anywhere. Both covered here, with a real second signer.
+# S4 — Escalate (via supersedes; batch 1). Each tier acting on a FOREIGN lineage, refused
+# where it should be. The to-end right (may_act_on_lineage) is satisfied by a station tier
+# in _TIER_MAY_ACT {operator, administrator, steward}; an ORIGINATOR is NOT a moderation
+# tier. The plan: the OPERATOR tier has ZERO tests in the authorization path, and
+# administrator is never REFUSED anywhere. Both covered here, with a real second signer.
+# (The full tier x class matrix — status/reverted/archive/assignment — is a later batch;
+# this batch pins the tier boundary on supersedes, which is the moderation predicate the
+# other to-end classes route through.)
 # ============================================================================
 
 @pytest.mark.parametrize("role,admits", [
@@ -144,6 +169,10 @@ def test_s4_tier_may_supersede_a_foreign_lineage(instance, role, admits):
         assert edge["thread_hash"] not in ack["threads"]["accepted"]
         reason = _reject_reason(ack, edge["thread_hash"])
         assert "no edit access" in reason and g in reason  # refused at the resolved GENESIS
+        # Observable (claim 1): the refused attack left ALICE's lineage untouched — the
+        # edge is not stored and V is still the head (nothing supersedes it).
+        assert instance.store.get_thread(edge["thread_hash"]) is None
+        assert not instance.store.get_threads(to_id=v, type="supersedes")
 
 
 def test_s4_originator_is_not_in_the_moderation_tier_set():
@@ -209,8 +238,12 @@ def test_s7_merge_is_refused_and_does_not_brick(instance):
     ack = mp.publish_as(instance, mp.BOB, [new_v], [e1, e2])
 
     acc, rej = ack["threads"]["accepted"], ack["threads"]["rejected"]
-    assert len(acc) == 1 and len(rej) == 1, ack["threads"]  # one parent lands, merge refused
-    assert "second parent (merge)" in rej[0]["reason"]
+    assert acc == [e1["thread_hash"]], ack["threads"]        # the first parent lands
+    assert [r["thread_hash"] for r in rej] == [e2["thread_hash"]]  # the SECOND parent refused
+    # Assert the ON AUTHZ reason ("would GIVE ..."), which is DISTINCT from the OFF index
+    # backstop's "would CREATE ..." — so an authz-check regression rescued by the index
+    # would fail here rather than pass on the shared "(merge)" tail (fell r1, codex).
+    assert "would give the new version a second parent (merge)" in rej[0]["reason"]
     # Claim 2: new_v's lineage still resolves to a single genesis — not bricked.
     assert lineage_genesis_for(instance.store, new_v["content_hash"]).resolved
 
@@ -221,6 +254,11 @@ def test_s7_self_edge_supersedes_refused(instance):
     ack = mp.publish_as(instance, mp.BOB, [], [e])
     assert e["thread_hash"] not in ack["threads"]["accepted"]
     assert "self-edge" in _reject_reason(ack, e["thread_hash"])
+    # GRAPH side effect, not just the ack: the edge is not stored and the lineage still
+    # resolves — a reject that appended a reason but failed to `continue` before save_thread
+    # would leave supersedes(a,a) stored and brick the lineage (fell r1, codex).
+    assert instance.store.get_thread(e["thread_hash"]) is None
+    assert lineage_genesis_for(instance.store, a).resolved
 
 
 def test_s7_cycle_closing_edge_refused_and_does_not_brick(instance):
@@ -230,11 +268,14 @@ def test_s7_cycle_closing_edge_refused_and_does_not_brick(instance):
     ack = mp.publish_as(instance, mp.BOB, [], [c1, c2])
 
     acc, rej = ack["threads"]["accepted"], ack["threads"]["rejected"]
-    # One edge stages; the cycle-CLOSING edge is refused at genesis resolution before it
-    # can land. (Which edge stages is wire-order-dependent — finding 4 / Q4, bucket 3 —
-    # but the cycle itself never fully forms, so no lineage is bricked.)
-    assert len(acc) == 1 and len(rej) == 1, ack["threads"]
-    assert "unresolvable target lineage" in rej[0]["reason"]
+    # The Q4-INDEPENDENT claim-2 invariant: AT MOST one edge of a cyclic batch lands, so
+    # the cycle never fully forms and NEITHER lineage is bricked. Asserting `<= 1` (not
+    # `== 1`) deliberately does not pin how many edges stage — that is finding 4 / Q4,
+    # bucket 3, Patrick's call: today one stages by wire order, but were a cyclic batch
+    # ruled to reject wholesale (acc == 0), this no-brick property must still hold (fell
+    # r1, opus). At least one edge is refused at genesis resolution.
+    assert len(acc) <= 1, ack["threads"]
+    assert any("unresolvable target lineage" in r["reason"] for r in rej), rej
     assert lineage_genesis_for(instance.store, a).resolved
     assert lineage_genesis_for(instance.store, b).resolved
 
@@ -257,7 +298,10 @@ def test_s7_guard_asymmetry_merge_backstopped_cycle_not_under_off(instance):
     m2 = _thread("supersedes", new_v["content_hash"], b)
     ackm = mp.publish_as(instance, "anon@x", [new_v], [m1, m2], require_signed=False)
     assert len(ackm["threads"]["accepted"]) == 1 and len(ackm["threads"]["rejected"]) == 1
-    assert "second parent (merge)" in ackm["threads"]["rejected"][0]["reason"]
+    # The INDEX backstop's reason ("would CREATE ...") — distinct from the ON authz
+    # "would GIVE ..." asserted in test_s7_merge — proving this refusal came from the DB
+    # index under OFF, not the authz check (which never runs under OFF).
+    assert "would create a second parent (merge)" in ackm["threads"]["rejected"][0]["reason"]
 
     # CYCLE under OFF -> NO backstop (distinct from_ids); both edges land and BRICK.
     c1 = _thread("supersedes", a, b)

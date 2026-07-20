@@ -2619,6 +2619,10 @@ class JSONStore:
             from_id=from_id, to_id=to_id, type=type, weaver=weaver
         )
 
+    def get_thread_by_hash(self, thread_hash: str) -> Optional[Dict[str, Any]]:
+        """Return one byte-faithful thread row by its federated content hash."""
+        return self._log_db.get_thread_by_hash(thread_hash)
+
     def get_threads_display(
         self,
         from_id: Optional[str] = None,

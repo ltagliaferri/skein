@@ -393,9 +393,52 @@ def test_wire_datetime_normalization_still_rehashes_on_the_receiver():
     # i.e. the normalization is idempotent across the two trees, not just serializable.
     from datetime import datetime, timezone
     from skein import wire as nx_wire
+
     dt = datetime(2026, 7, 4, 5, 6, 7, 123456, tzinfo=timezone.utc)
-    fields = {"type": "finding", "title": "T", "content": "b",
-              "created_at": dt, "created_by": "x"}
+    fields = {"type": "finding", "title": "T", "content": "b", "created_at": dt, "created_by": "x"}
     folio = dict(fields, content_hash=compute_folio_hash(fields))
     wire_folio = publish.build_batch([folio], [], {})["folios"][0]
     assert nx_wire.folio_reject_reason(wire_folio) is None  # receiver accepts the re-hash
+
+
+# ── G. First-class site declaration ────────────────────────────────────────
+def test_site_anchor_and_membership_identities_are_stable_and_hash_valid():
+    anchor1 = publish.build_site_anchor("gnomon", "Public Gnomon notes", CREATED_AT, "agent-x")
+    anchor2 = publish.build_site_anchor("gnomon", "Public Gnomon notes", CREATED_AT, "agent-x")
+    member = _folio("A member")
+    edge1 = publish.build_within_membership(
+        member["content_hash"], anchor1["content_hash"], member["created_at"]
+    )
+    edge2 = publish.build_within_membership(
+        member["content_hash"], anchor2["content_hash"], member["created_at"]
+    )
+
+    assert anchor1 == anchor2
+    assert edge1 == edge2
+    assert anchor1["folio_id"].endswith(anchor1["content_hash"].removeprefix("sha256::"))
+    assert edge1["thread_id"].endswith(edge1["thread_hash"].removeprefix("sha256::"))
+    publish.physics_check([anchor1, member], [edge1])
+
+
+def test_build_batch_validates_site_slug_claims():
+    site = publish.build_site_anchor("gnomon", "notes", CREATED_AT, "agent-x")
+    batch = publish.build_batch([site], [], {site["content_hash"]: "gnomon"})
+    assert batch["site_slugs"] == {site["content_hash"]: "gnomon"}
+
+    with pytest.raises(publish.SiteSlugError, match="invalid site slug"):
+        publish.build_batch([site], [], {site["content_hash"]: "Bad Slug"})
+    with pytest.raises(publish.SiteSlugError, match="not a declared type=site"):
+        publish.build_batch([_folio("Not a site")], [], {site["content_hash"]: "gnomon"})
+
+
+def test_bad_site_claim_fails_before_signing_ceremony():
+    site = publish.build_site_anchor("gnomon", "notes", CREATED_AT, "agent-x")
+    calls = []
+
+    def signer(canonical_bytes):
+        calls.append(canonical_bytes)
+        raise AssertionError("invalid claim must fail before signing")
+
+    with pytest.raises(publish.SiteSlugError):
+        publish.assemble_signed_batch([site], [], {site["content_hash"]: "not/a/slug"}, signer)
+    assert calls == []

@@ -59,6 +59,7 @@ class Site(BaseModel):
 # Folio Models
 
 FolioType = Literal[
+    "site",
     "issue",
     "friction",
     "brief",

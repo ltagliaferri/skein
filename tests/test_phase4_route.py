@@ -74,7 +74,7 @@ def _client(db, monkeypatch):
     monkeypatch.setattr(P, "post_batch", fake_post_batch)
     app = FastAPI()
     app.include_router(R.router)
-    app.dependency_overrides[R.get_project_log_db] = lambda: db
+    app.dependency_overrides[R.get_project_store] = lambda: db
     return TestClient(app), calls
 
 
@@ -205,12 +205,75 @@ def test_cli_publish_is_thin_and_delegates_to_the_route(monkeypatch):
 
     monkeypatch.setattr(ccli, "make_request", fake_make_request)
     result = CliRunner().invoke(
-        ccli.cli, ["publish", "myref", "--to", "http://s:9101", "--dry-run"])
+        ccli.cli, ["publish", "myref", "--to", "http://s:9101", "--dry-run"]
+    )
     assert result.exit_code == 0, result.output
     posts = [c for c in calls if c[0] == "POST"]
-    assert posts and posts[0][1] == "/publish"                       # hits the route
+    assert posts and posts[0][1] == "/publish"  # hits the route
     assert posts[0][2]["manifest"]["folios"] == ["sha256::" + "a" * 64]  # resolved ref
     assert posts[0][2]["dry_run"] is True
+
+
+def test_cli_site_publish_is_thin_and_needs_no_ref_lookup(monkeypatch):
+    from click.testing import CliRunner
+    from client import cli as ccli
+
+    calls = []
+
+    def fake_make_request(method, endpoint, base_url, agent_id, **kwargs):
+        calls.append((method, endpoint, kwargs.get("json")))
+        assert method == "POST"  # no positional refs: the server selects the site
+        return {
+            "declared": {
+                "folios": ["sha256::" + "a" * 64],
+                "threads": [],
+                "site_slugs": {"sha256::" + "a" * 64: "public-gnomon"},
+            },
+            "warnings": [],
+            "signed": False,
+            "sent": False,
+        }
+
+    monkeypatch.setattr(ccli, "make_request", fake_make_request)
+    result = CliRunner().invoke(
+        ccli.cli,
+        [
+            "publish",
+            "--site",
+            "gnomon",
+            "--slug",
+            "public-gnomon",
+            "--to",
+            "http://s:9101",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert calls[0][1] == "/publish"
+    assert calls[0][2]["site"] == "gnomon"
+    assert calls[0][2]["site_slug"] == "public-gnomon"
+    assert calls[0][2]["manifest"] == {"folios": [], "threads": []}
+    assert "site claim: /site/public-gnomon" in result.output
+
+
+def test_cli_slug_requires_site_before_login(monkeypatch):
+    from click.testing import CliRunner
+    from client import cli as ccli
+    from skein import publish as P
+
+    ceremonies = []
+    monkeypatch.setattr(
+        P,
+        "acquire_login_token",
+        lambda **kwargs: ceremonies.append(1) or {"token": "T", "issuer": "i", "subject": "s"},
+    )
+    result = CliRunner().invoke(
+        ccli.cli,
+        ["publish", "--slug", "gnomon", "--to", "http://s:9101", "--login"],
+    )
+    assert result.exit_code != 0
+    assert "--slug requires --site" in result.output
+    assert ceremonies == []
 
 
 def test_cli_login_runs_the_ceremony_and_hands_the_token_to_the_route(monkeypatch):
@@ -221,8 +284,10 @@ def test_cli_login_runs_the_ceremony_and_hands_the_token_to_the_route(monkeypatc
     from skein import publish as P
 
     monkeypatch.setattr(
-        P, "acquire_login_token",
-        lambda force_oob=False: {"token": "TOK", "issuer": "iss", "subject": "me@x"})
+        P,
+        "acquire_login_token",
+        lambda force_oob=False: {"token": "TOK", "issuer": "iss", "subject": "me@x"},
+    )
 
     posts = []
 
@@ -340,12 +405,42 @@ def test_declared_set_over_max_leaves_is_400_before_any_resolution(monkeypatch):
     db = _CountingDB({ha: va}, {})
     client, calls = _client(db, monkeypatch)
     huge = [ha] * (P.MAX_LEAVES + 1)
-    r = client.post("/publish", json={"to": "http://station:9101",
-                                      "manifest": {"folios": huge, "threads": []}})
+    r = client.post(
+        "/publish", json={"to": "http://station:9101", "manifest": {"folios": huge, "threads": []}}
+    )
     assert r.status_code == 400
     assert "MAX_LEAVES" in r.json()["detail"]
-    assert resolved["n"] == 0        # rejected before any get_version_by_hash/get_thread_by_hash
-    assert calls["signer"] == 0      # and before the token/ceremony gate
+    assert resolved["n"] == 0  # rejected before any get_version_by_hash/get_thread_by_hash
+    assert calls["signer"] == 0  # and before the token/ceremony gate
+
+
+def test_site_slug_claim_does_not_consume_a_merkle_leaf(monkeypatch):
+    fields = {
+        "type": "site",
+        "title": "Site",
+        "content": "body",
+        "created_at": CREATED_AT,
+        "created_by": "agent-x",
+    }
+    site_hash = compute_folio_hash(fields)
+    site = SimpleNamespace(content_hash=site_hash, **fields)
+    db = _FakeDB({site_hash: site}, {})
+    client, calls = _client(db, monkeypatch)
+
+    response = client.post(
+        "/publish",
+        json={
+            "to": "http://station:9101",
+            "manifest": {"folios": [site_hash] * P.MAX_LEAVES, "threads": []},
+            "site_slugs": {site_hash: "gnomon"},
+            "dry_run": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(response.json()["declared"]["folios"]) == P.MAX_LEAVES
+    assert response.json()["declared"]["site_slugs"] == {site_hash: "gnomon"}
+    assert calls["signer"] == 0
 
 
 def test_dangling_thread_warns_but_still_publishes(monkeypatch):
@@ -354,9 +449,10 @@ def test_dangling_thread_warns_but_still_publishes(monkeypatch):
     th, tr = _mk_thread(ha, hc)
     db = _FakeDB({ha: va}, {th: tr})
     client, calls = _client(db, monkeypatch)
-    r = client.post("/publish", json={"to": "http://s:9101",
-                                      "manifest": {"folios": [ha], "threads": [th]},
-                                      "token": "t"})
+    r = client.post(
+        "/publish",
+        json={"to": "http://s:9101", "manifest": {"folios": [ha], "threads": [th]}, "token": "t"},
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["sent"] is True  # dangling never blocks

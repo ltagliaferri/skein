@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from . import canon
+from .address import AddressError, Ref
 from .identity import compute_folio_hash, compute_thread_hash
 
 # --- domain separation (ported from skein_next/profile.py) ------------------
@@ -95,6 +96,98 @@ def manifest_leaf_addresses(
     out = [to_leaf_address(f["content_hash"]) for f in folios]
     out += [to_leaf_address(t["thread_hash"]) for t in threads]
     return out
+
+
+# --- first-class public-site authoring --------------------------------------
+class SiteSlugError(ValueError):
+    """A site-slug claim is malformed or does not name a declared site folio."""
+
+
+def validate_site_slug(slug: Any) -> str:
+    """Return a valid public station slug, or raise :class:`SiteSlugError`."""
+    try:
+        Ref(slug)
+    except AddressError:
+        raise SiteSlugError(
+            f"invalid site slug {slug!r}: use 1-32 lowercase letters, digits, or "
+            "interior hyphens"
+        ) from None
+    return slug
+
+
+def validate_site_slugs(
+    folios: Sequence[Mapping[str, Any]], site_slugs: Optional[Mapping[str, str]]
+) -> Dict[str, str]:
+    """Validate and copy the wire ``site_slugs`` mapping.
+
+    Every key must be the content hash of a ``type=site`` folio in this declared
+    batch. This prevents an otherwise-well-shaped claim from being silently ignored
+    by ingress because it points at a non-site or undeclared folio. The receiving
+    station remains authoritative for permission and collision enforcement.
+    """
+    if site_slugs is None:
+        return {}
+    if not isinstance(site_slugs, Mapping):
+        raise SiteSlugError("site_slugs must be an object mapping site hashes to slugs")
+
+    declared_sites = {
+        f.get("content_hash") for f in folios if isinstance(f, Mapping) and f.get("type") == "site"
+    }
+    clean: Dict[str, str] = {}
+    for site_hash, slug in site_slugs.items():
+        if not isinstance(site_hash, str) or not is_content_address(site_hash):
+            raise SiteSlugError(f"invalid site_slugs key {site_hash!r}: expected a content hash")
+        if site_hash not in declared_sites:
+            raise SiteSlugError(f"site_slugs key {site_hash!r} is not a declared type=site folio")
+        clean[site_hash] = validate_site_slug(slug)
+    return clean
+
+
+def build_site_anchor(
+    site_id: str,
+    purpose: str,
+    created_at: Any,
+    created_by: str,
+) -> Dict[str, Any]:
+    """Build the stable local/public anchor for a legacy workbench site.
+
+    The immutable fields come only from persisted site metadata, so preview and send
+    compute the same content hash and repeated sends converge. ``folio_id`` is a
+    deterministic local ref handle; it is not part of the federated identity.
+    """
+    row: Dict[str, Any] = {
+        "type": "site",
+        "title": f"{site_id} public site",
+        "content": purpose,
+        "created_at": created_at,
+        "created_by": created_by,
+    }
+    row["content_hash"] = compute_folio_hash(row)
+    row["folio_id"] = f"site-{_bare(row['content_hash'])}"
+    row["site_id"] = site_id
+    return row
+
+
+def build_within_membership(member_hash: str, site_hash: str, created_at: Any) -> Dict[str, Any]:
+    """Build one stable ``member -> site`` membership edge.
+
+    The member's persisted creation time is the edge time. It is stable across
+    previews, retries, and workbench restarts, while the endpoints make membership in
+    different sites distinct. ``thread_id`` is a deterministic local audit handle;
+    ``thread_hash`` remains the canonical federated identity.
+    """
+    normalized = canon.normalize_created_at(created_at)
+    thread_hash = compute_thread_hash(member_hash, site_hash, "within", None, normalized, None)
+    return {
+        "thread_id": f"within-{_bare(thread_hash)}",
+        "thread_hash": thread_hash,
+        "from_id": member_hash,
+        "to_id": site_hash,
+        "type": "within",
+        "weaver": None,
+        "created_at": normalized,
+        "content": None,
+    }
 
 
 # --- the proposer (reachability SUGGESTION, gate §5.2) ----------------------
@@ -365,13 +458,17 @@ def thread_to_wire(row: Mapping[str, Any]) -> Dict[str, Any]:
     return d
 
 
-def build_batch(folios: Sequence[Mapping[str, Any]], threads: Sequence[Mapping[str, Any]],
-                site_slugs: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+def build_batch(
+    folios: Sequence[Mapping[str, Any]],
+    threads: Sequence[Mapping[str, Any]],
+    site_slugs: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Any]:
+    clean_site_slugs = validate_site_slugs(folios, site_slugs)
     return {
         "protocol": PROTOCOL,
         "folios": [folio_to_wire(f) for f in folios],
         "threads": [thread_to_wire(t) for t in threads],
-        "site_slugs": dict(site_slugs or {}),
+        "site_slugs": clean_site_slugs,
     }
 
 
@@ -510,9 +607,13 @@ def assemble_signed_batch(
     raises PhysicsError BEFORE the signer's irreversible Sigstore ceremony), and the
     returned batch always carries ``manifest_signature``."""
     physics_check(folios, threads)
+    # Claims are author input too. Validate them before the irreversible ceremony,
+    # then hand the already-clean mapping to build_batch (which keeps the same guard
+    # for direct callers).
+    clean_site_slugs = validate_site_slugs(folios, site_slugs)
     leaves = manifest_leaf_addresses(folios, threads)
     manifest_signature = sign_manifest(leaves, signer)
-    batch = build_batch(folios, threads, site_slugs)
+    batch = build_batch(folios, threads, clean_site_slugs)
     batch["manifest_signature"] = manifest_signature
     return batch
 

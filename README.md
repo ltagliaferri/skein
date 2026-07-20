@@ -158,12 +158,26 @@ Preview a publish without sending anything:
 skein publish "$FOLIO" --to https://ingress.interskein.com --dry-run
 ```
 
+Publish a workbench site as a named public station site. With no positional refs,
+every current non-site folio head in `gnomon` is declared as a member; pass refs to
+publish an exact subset. The preview shows the stable site anchor, each `within`
+membership, and the `/site/gnomon` slug claim without writing local state:
+
+```bash
+skein publish --site gnomon --to https://ingress.interskein.com --dry-run
+skein publish --site gnomon --to https://ingress.interskein.com --login
+```
+
+Use `--slug public-name` when the public slug should differ from the local workbench
+site id. Public slugs are 1–32 lowercase letters, digits, or interior hyphens.
+
 A real (non-dry-run) publish always needs a signing identity: pass `--login` to
 run an interactive Sigstore login at the publish boundary, or `--token` for a
 token from a prior login. `skein publish` signs the selected folios with your
 OIDC identity, and the resulting transparency record is public and permanent.
-The verified email from the Sigstore certificate is recorded as the author
-identity for that publish.
+The verified email from the Sigstore certificate is recorded as the identity that
+vouched for that publish; a folio's `created_by` field remains an unverified content
+claim.
 
 The collaborator invite flow also signs at the boundary. Redeeming an invite
 (`skein station redeem-invite`) binds your Sigstore identity as an author for

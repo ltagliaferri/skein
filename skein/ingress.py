@@ -46,6 +46,7 @@ from . import canon, wire
 from . import sign as _sign
 from . import redeem as _redeem
 from .authorization import Principal, default_bindings
+from .address import AddressError, Ref
 from .identity import content_hash_for_bytes
 from .thread_authz import (
     AuthzReject,
@@ -77,6 +78,7 @@ def _constituent_manifest_reject_reason(m_reason: str) -> str:
     if m_reason in _BARE_MANIFEST_REASONS:
         return m_reason
     return f"manifest signature {m_reason}"
+
 
 DEFAULT_PORT = 9101  # read web app is 9001; ingress is a distinct write surface
 # Env reads resolve through station_env: the SKEIN_STATION_* canonical name.
@@ -142,12 +144,17 @@ def _validate_shape(batch: Dict[str, Any]) -> None:
     site_slugs = batch.get("site_slugs", {})
     if not isinstance(site_slugs, dict):
         raise BatchShapeError("'site_slugs' must be an object")
-    # The VALUES must be strings (slug names) — a list/dict/int value is valid JSON but
-    # binds nowhere in SQLite (raises ProgrammingError), which the slug-claim pass would
-    # otherwise let escape as an uncaught 500 per request (the log-amplification-DoS class
-    # this surface hardens against). Reject the malformed batch cleanly as a 400 here.
-    if not all(isinstance(v, str) for v in site_slugs.values()):
-        raise BatchShapeError("'site_slugs' values must be strings")
+    # Validate hostile direct-ingress claims with the same public ref grammar used by
+    # the workbench. Besides rejecting non-strings before SQLite binding, this prevents
+    # bypassing publish-side validation with uppercase, slash-containing, or overlong
+    # names. Ingress is an independent trust boundary, not merely a publish client peer.
+    try:
+        for slug in site_slugs.values():
+            Ref(slug)
+    except AddressError:
+        raise BatchShapeError(
+            "'site_slugs' values must be 1-32 lowercase letters, digits, or interior hyphens"
+        ) from None
 
 
 def ingest(

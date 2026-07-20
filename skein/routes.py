@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .models import (
     AgentRegistration,
@@ -2166,14 +2166,23 @@ async def hypothesis_verdict(
 # ── Phase 4: author-declared publish (docs/PHASE_4_DESIGN.md §4) ─────────────
 class PublishManifest(BaseModel):
     """The author-DECLARED set: exact content hashes to publish (§5.1)."""
-    folios: List[str] = []      # folio content_hashes
-    threads: List[str] = []     # thread_hashes
+
+    folios: List[str] = Field(default_factory=list)  # folio content_hashes
+    threads: List[str] = Field(default_factory=list)  # thread_hashes
 
 
 class PublishRequest(BaseModel):
-    to: str                              # target station publish URL
-    manifest: PublishManifest
-    token: Optional[str] = None          # OIDC token from a prior 1-click login (§6)
+    to: str  # target station publish URL
+    manifest: PublishManifest = Field(default_factory=PublishManifest)
+    # First-class site declaration: the named local workbench site is the selection
+    # boundary. An empty manifest.folios means every current non-site head in it;
+    # a non-empty list is an exact subset. site_slug defaults to the local site id.
+    site: Optional[str] = None
+    site_slug: Optional[str] = None
+    # Ordinary explicit manifests can carry site claims directly. The first-class
+    # site path synthesizes its one exact claim and rejects a second mapping.
+    site_slugs: Dict[str, str] = Field(default_factory=dict)
+    token: Optional[str] = None  # OIDC token from a prior 1-click login (§6)
     dry_run: bool = False
 
 
@@ -2182,51 +2191,228 @@ def _folio_wire_from_version(vv: VersionView) -> Dict[str, Any]:
     type is coerced to its raw string so it re-hashes to the same content hash."""
     ttype = vv.type.value if hasattr(vv.type, "value") else vv.type
     return {
-        "content_hash": vv.content_hash, "type": ttype, "title": vv.title,
-        "content": vv.content, "created_at": vv.created_at, "created_by": vv.created_by,
+        "content_hash": vv.content_hash,
+        "type": ttype,
+        "title": vv.title,
+        "content": vv.content,
+        "created_at": vv.created_at,
+        "created_by": vv.created_by,
     }
+
+
+def _folio_wire_from_folio(folio: Folio) -> Dict[str, Any]:
+    """Map a workbench head folio to the same canonical publish row."""
+    ttype = folio.type.value if hasattr(folio.type, "value") else folio.type
+    return {
+        "content_hash": folio.content_hash,
+        "type": ttype,
+        "title": folio.title,
+        "content": folio.content,
+        "created_at": folio.created_at,
+        "created_by": folio.created_by,
+    }
+
+
+def _persist_site_publish_plan(
+    store: JSONStore,
+    anchor: Dict[str, Any],
+    memberships: List[Dict[str, Any]],
+) -> None:
+    """Persist generated authoring state through the normal workbench writers."""
+    folio = Folio(
+        folio_id=anchor["folio_id"],
+        type="site",
+        site_id=anchor["site_id"],
+        created_at=anchor["created_at"],
+        created_by=anchor["created_by"],
+        title=anchor["title"],
+        content=anchor["content"],
+        metadata={"publish_anchor": True},
+    )
+    if not store.save_folio(folio):
+        raise RuntimeError("failed to save the local site anchor")
+    saved_anchor = store.get_version_by_hash(anchor["content_hash"])
+    if saved_anchor is None:
+        raise RuntimeError("local site anchor was not persisted")
+
+    for row in memberships:
+        thread = Thread(
+            thread_id=row["thread_id"],
+            from_id=row["from_id"],
+            to_id=row["to_id"],
+            type="within",
+            content=None,
+            weaver=None,
+            created_at=ensure_aware(row["created_at"]),
+        )
+        if not store.save_thread(thread):
+            raise RuntimeError(f"failed to save membership {row['thread_hash']}")
+        if store.get_thread_by_hash(row["thread_hash"]) is None:
+            raise RuntimeError(f"membership {row['thread_hash']} was not persisted")
 
 
 @router.post("/publish")
 def publish_folios(
     body: PublishRequest,
-    log_db: LogDatabase = Depends(get_project_log_db),
+    store: JSONStore = Depends(get_project_store),
 ) -> Dict[str, Any]:
     """Sign an author-declared manifest of content hashes and POST it to a remote
     station's ingress (curlable; the thin CLI wraps this). Declarative: the author
     names exact hashes; the server resolves each from its own store, lints (advisory),
     then physics→sign→post via the un-forgettable orchestrator. ``dry_run`` returns the
     resolved set + warnings without signing or sending (no Rekor entry)."""
+    # MAX_LEAVES caps only Merkle constituents. Slug claims are sideband mappings
+    # validated against declared site folios, not additional manifest leaves.
     declared_count = len(body.manifest.folios) + len(body.manifest.threads)
     if declared_count > _pub.MAX_LEAVES:
         raise HTTPException(
             status_code=400,
-            detail=f"declared set exceeds MAX_LEAVES ({_pub.MAX_LEAVES}): {declared_count}")
+            detail=f"declared set exceeds MAX_LEAVES ({_pub.MAX_LEAVES}): {declared_count}",
+        )
+
+    if body.site_slug is not None and body.site is None:
+        raise HTTPException(status_code=400, detail="site_slug requires a site selection")
+    if body.site is not None and body.site_slugs:
+        raise HTTPException(
+            status_code=400,
+            detail="site selection creates its slug claim; do not also pass site_slugs",
+        )
 
     folios: List[Dict[str, Any]] = []
-    for h in body.manifest.folios:
-        vv = log_db.get_version_by_hash(h)
-        if vv is None:
-            raise HTTPException(status_code=404, detail=f"unknown folio hash: {h}")
-        folios.append(_folio_wire_from_version(vv))
+    generated_anchor: Optional[Dict[str, Any]] = None
+    generated_memberships: List[Dict[str, Any]] = []
+    site_thread_endpoints: Optional[set[str]] = None
+    site_slugs: Dict[str, str] = dict(body.site_slugs)
+
+    if body.site is not None:
+        source_site = body.site.strip()
+        if not source_site:
+            raise HTTPException(status_code=400, detail="site cannot be empty")
+        local_site = store.get_site(source_site)
+        if local_site is None:
+            raise HTTPException(status_code=404, detail=f"unknown workbench site: {source_site}")
+
+        try:
+            public_slug = _pub.validate_site_slug(body.site_slug or source_site)
+        except _pub.SiteSlugError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        generated_anchor = _pub.build_site_anchor(
+            local_site.site_id,
+            local_site.purpose,
+            local_site.created_at,
+            local_site.created_by,
+        )
+        existing_anchor = store.get_folio(generated_anchor["folio_id"])
+        if (
+            existing_anchor is not None
+            and existing_anchor.content_hash != generated_anchor["content_hash"]
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"local site anchor id collision: {generated_anchor['folio_id']}",
+            )
+
+        # Local site membership is the selection boundary. Never scan or infer from
+        # the project at large, and never make an older/generated site anchor a member.
+        member_heads = {
+            f.content_hash: f
+            for f in store.get_folios(site_id=source_site)
+            if f.type != "site" and f.content_hash
+        }
+        if body.manifest.folios:
+            selected = []
+            seen = set()
+            for h in body.manifest.folios:
+                if h in seen:
+                    continue
+                seen.add(h)
+                member = member_heads.get(h)
+                if member is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"folio {h!r} is not a current non-site head in "
+                            f"workbench site {source_site!r}"
+                        ),
+                    )
+                selected.append(member)
+        else:
+            selected = [member_heads[h] for h in sorted(member_heads)]
+
+        folios = [dict(generated_anchor)] + [_folio_wire_from_folio(f) for f in selected]
+        site_thread_endpoints = {
+            endpoint for member in selected for endpoint in (member.folio_id, member.content_hash)
+        }
+        site_thread_endpoints.update(
+            (generated_anchor["folio_id"], generated_anchor["content_hash"])
+        )
+        generated_memberships = [
+            _pub.build_within_membership(
+                member.content_hash,
+                generated_anchor["content_hash"],
+                member.created_at,
+            )
+            for member in selected
+        ]
+        site_slugs = {generated_anchor["content_hash"]: public_slug}
+    else:
+        for h in body.manifest.folios:
+            vv = store.get_version_by_hash(h)
+            if vv is None:
+                raise HTTPException(status_code=404, detail=f"unknown folio hash: {h}")
+            folios.append(_folio_wire_from_version(vv))
+
     threads: List[Dict[str, Any]] = []
     for th in body.manifest.threads:
-        row = log_db.get_thread_by_hash(th)
+        row = store.get_thread_by_hash(th)
         if row is None:
             raise HTTPException(status_code=404, detail=f"unknown thread hash: {th}")
+        if site_thread_endpoints is not None and (
+            row["from_id"] not in site_thread_endpoints or row["to_id"] not in site_thread_endpoints
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"thread {th!r} has an endpoint outside the selected workbench "
+                    f"site {body.site!r}"
+                ),
+            )
         threads.append(row)
 
+    if generated_memberships:
+        # Generated membership is part of the author declaration. De-duplicate an
+        # explicitly named copy by identity, while preserving the stable generated order.
+        by_hash = {row["thread_hash"]: row for row in generated_memberships}
+        for row in threads:
+            by_hash.setdefault(row["thread_hash"], row)
+        threads = list(by_hash.values())
+
+    exact_count = len(folios) + len(threads)
+    if exact_count > _pub.MAX_LEAVES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"declared set exceeds MAX_LEAVES ({_pub.MAX_LEAVES}): {exact_count}",
+        )
+
     warnings = _pub.lint_declared_set(folios, threads)  # total, advisory, never blocks
-    declared = {"folios": [f["content_hash"] for f in folios],
-                "threads": [t["thread_hash"] for t in threads]}
+    declared = {
+        "folios": [f["content_hash"] for f in folios],
+        "threads": [t["thread_hash"] for t in threads],
+        "site_slugs": site_slugs,
+    }
+
+    # Physics and claim validation are identical for preview and send, and both run
+    # before any site authoring write or signing ceremony.
+    try:
+        _pub.physics_check(folios, threads)
+        site_slugs = _pub.validate_site_slugs(folios, site_slugs)
+    except _pub.PhysicsError as e:
+        raise HTTPException(status_code=400, detail=f"physics rejected: {e}")
+    except _pub.SiteSlugError as e:
+        raise HTTPException(status_code=400, detail=f"site slug rejected: {e}")
 
     if body.dry_run:
-        # Physics floor (§4.3 step 3, §5.5) runs on the preview too — a dry_run that
-        # previews clean but then 400s on the real send is a misleading preview.
-        try:
-            _pub.physics_check(folios, threads)
-        except _pub.PhysicsError as e:
-            raise HTTPException(status_code=400, detail=f"physics rejected: {e}")
         return {"declared": declared, "warnings": warnings, "signed": False, "sent": False}
 
     # Cheap input validation BEFORE the irreversible Sigstore ceremony — fail closed
@@ -2237,15 +2423,32 @@ def publish_folios(
     _parts = urlsplit(target)
     if _parts.scheme not in ("http", "https") or not _parts.netloc:
         raise HTTPException(
-            status_code=400,
-            detail=f"invalid target url (need http(s):// with a host): {body.to!r}")
+            status_code=400, detail=f"invalid target url (need http(s):// with a host): {body.to!r}"
+        )
     if not body.token:
-        raise HTTPException(status_code=400,
-                            detail="publish requires a token (run login) — refusing to sign")
+        raise HTTPException(
+            status_code=400, detail="publish requires a token (run login) — refusing to sign"
+        )
 
     try:
         signer = _pub.signer_from_token(body.token)  # issuer derived from the token only
-        ack = _pub.publish(target, folios, threads, signer)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"publish rejected: {e}")
+
+    # A real, authenticated site send materializes exactly the state previewed above,
+    # using the ordinary versions/refs and threads writers. This local authoring state is
+    # intentionally durable even if the remote POST fails: its identities are stable, so
+    # a retry converges on the same declaration instead of minting replacements. Explicit-
+    # manifest publishing remains read-only locally, as before.
+    if generated_anchor is not None:
+        try:
+            _persist_site_publish_plan(store, generated_anchor, generated_memberships)
+        except Exception as e:
+            logger.exception("publish route: failed to persist site authoring state")
+            raise HTTPException(status_code=500, detail=f"site authoring failed: {e}")
+
+    try:
+        ack = _pub.publish(target, folios, threads, signer, site_slugs=site_slugs)
     except _pub.PhysicsError as e:
         raise HTTPException(status_code=400, detail=f"physics rejected: {e}")
     except _pub.PublishError as e:

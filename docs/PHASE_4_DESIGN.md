@@ -520,11 +520,14 @@ skips are load-bearing bugs.
   verb, the additive `get_thread_by_hash`, and the ingress accept-and-flag relaxation
   (`skein_next/ingress.py`). Additive (new files + additive methods + one route + the
   ingress widening); full suites green.
-  **Deliberately deferred (conscious follow-on, NOT built):** the `select` → reachability
-  **proposer** (§4.2/§5.2) — the route implements the DECLARATIVE path only (the author
-  names exact hashes), and `dry_run` returns the declared echo (`declared`), not a
-  `proposed` reachability set; `propose_reachable` exists + is unit-tested but is not
-  wired to the route yet. Also deferred: the display-phase `created_by` relabel (§6.1),
-  and a real-store F1 round-trip test (the datetime wire path IS covered by a route test
-  with datetime fixtures + a JSON-dump post).
+  The general `select` → arbitrary reachability proposer (§4.2/§5.2) remains deferred;
+  `propose_reachable` exists + is unit-tested but is not wired to the route. The named
+  site case is now first-class (issue-20260720-wvvk): `skein publish --site SITE`
+  declares that workbench site's current non-site heads (or an explicit subset), adds a
+  stable `type=site` anchor and deterministic `within` edges, and carries the validated
+  `site_slugs` claim. Its `dry_run` returns those exact identities without persisting,
+  signing, or sending; a real authenticated send persists the anchor/memberships through
+  the normal workbench writers before signing at the boundary. Ordinary explicit
+  manifests remain supported and may carry validated `site_slugs` directly. Also
+  deferred: the display-phase `created_by` relabel (§6.1).
 - Phases 4–5 (Fell rounds + hardening: knuth / oracle / gremlin): per the RSP playbook.

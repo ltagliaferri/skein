@@ -194,15 +194,16 @@ def test_unresolvable_lineage_is_not_nameable(instance):
     assert instance.store.get_slug_claim("gapped") is None  # fail closed, no claim
 
 
-def test_ingress_non_string_slug_value_rejected_not_500(instance):
-    """fell-r5: a non-string site_slugs VALUE (list/dict — valid JSON) must be a clean
-    shape rejection (400), never an uncaught sqlite ProgrammingError -> 500 per request
-    (the ingress never-500s-over-hostile-input contract). Reproduces unauthenticated
-    under OFF."""
+@pytest.mark.parametrize("slug", [["not", "a", "string"], "Bad/Slug", "a" * 33])
+def test_ingress_malformed_slug_value_rejected_not_500(instance, slug):
+    """Malformed site_slugs values must be a clean shape rejection (400), never an
+    uncaught SQLite error or a way around the public ref grammar. Reproduces through
+    direct unauthenticated ingress under OFF, independently of the publish client."""
     from skein.ingress import BatchShapeError
+
     site = h.folio("site", "s", "b", "2026-01-01T00:00:00+00:00")
     batch = wire.build_batch([site], [], {})
-    batch["site_slugs"] = {site["content_hash"]: ["not", "a", "string"]}  # hostile value
+    batch["site_slugs"] = {site["content_hash"]: slug}
     with pytest.raises(BatchShapeError):
         ingest(instance, batch, require_signed=False)
     # a valid string slug still works (no over-rejection)

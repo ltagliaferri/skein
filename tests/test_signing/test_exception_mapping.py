@@ -514,9 +514,9 @@ def test_verify_signature_mismatch_phrasing_is_case_insensitive():
 #   - "Signature is invalid for input"   (verifier.py line 495)
 #   - "Bundle message digest mismatch"   (verifier.py line 483)
 #
-# The pyproject pin is `sigstore>=4.2,<5`, so any 4.x version is admitted at
-# install time. If a future sigstore-python 4.x release rewrites these messages
-# without bumping the major version (e.g. "Invalid signature for payload"),
+# The pyproject pin is `sigstore>=4.2,<4.4`, matching the two source-reviewed
+# verifier lines below. If a future admitted sigstore-python release rewrites
+# these messages (e.g. "Invalid signature for payload"),
 # _map_sigstore_exception silently falls through to the catch-all and
 # misclassifies SIGNATURE_MISMATCH as BUNDLE_MALFORMED — losing diagnostic
 # precision with no test signal.

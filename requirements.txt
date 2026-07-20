@@ -10,7 +10,7 @@ markdown-it-py>=3.0.0
 
 # Signing (skein/signing.py is shipped library code that imports sigstore;
 # sigstore brings cryptography transitively). Runtime dep, not test-only.
-sigstore>=4.2,<5
+sigstore>=4.2,<4.4
 
 # Testing
 pytest>=7.0.0

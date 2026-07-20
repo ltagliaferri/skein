@@ -33,7 +33,8 @@ dependencies = [
     # canonical bytes, so it stays out until a deliberate re-review + a regen of
     # the skein.folio.canon/v1 conformance vectors (test_canon_conformance.py).
     "knurl>=0.3.0,<0.4.0",
-    "sigstore>=4.2,<5",
+    # Exception mapping is source-reviewed for the 4.2/4.3 verifier lines.
+    "sigstore>=4.2,<4.4",
     # signing.py imports cryptography directly (was riding in transitively via
     # sigstore); declared explicitly now that signing lives in this package.
     "cryptography>=42,<47",
@@ -48,6 +49,8 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
     "aiohttp>=3.9.0",
+    # Starlette's TestClient imports the separately distributed httpx2 package.
+    "httpx2>=2.0.0",
     "black>=24.0.0",
     "flake8>=7.0.0",
     "isort>=5.13.0",

@@ -93,7 +93,7 @@ The true end-to-end round-trip requires a real OIDC token:
 
 ## Sigstore-python corpus location
 
-After `pip install "sigstore>=4.2,<5"`, corpus files are NOT included in the
+After `pip install "sigstore>=4.2,<4.4"`, corpus files are NOT included in the
 wheel. Obtain from source: `github.com/sigstore/sigstore-python/test/assets/`.
 A copy is committed to `tests/conformance/corpus/` in this repository.
 

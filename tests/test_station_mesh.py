@@ -138,6 +138,102 @@ def test_signed_unverifiable_is_unverified(monkeypatch):
     assert state == "unverified" and code == EXIT_UNVERIFIED
 
 
+def _manifest_envelope(*, leaf=None):
+    from skein import canon
+    from skein.identity import content_hash_for_bytes
+
+    body = {
+        "type": "finding",
+        "title": "t",
+        "content": "manifest-covered",
+        "created_at": "2026-01-01T00:00:00Z",
+        "created_by": "alice",
+    }
+    actual = content_hash_for_bytes(canon.folio_canonical_bytes(body))
+    leaf_list = [leaf or actual]
+    return {
+        "kind": "folio",
+        "body": body,
+        "proof": {
+            "content_hash": actual,
+            "signature_bundle": {"bundle": "wire-object"},
+            "manifest": {
+                "descriptor": {
+                    "root": canon.merkle_root_for_addresses(leaf_list),
+                    "leaf_count": 1,
+                },
+                "leaf_list": leaf_list,
+            },
+        },
+    }, actual
+
+
+def test_manifest_signed_envelope_verifies_membership(monkeypatch):
+    env, actual = _manifest_envelope()
+    seen = {}
+
+    def verify_manifest(wire):
+        seen.update(wire)
+        return True, "verified", {"issuer": "iss", "subject": "alice@example.com"}
+
+    monkeypatch.setattr(sign_mod, "verify_wire_manifest", verify_manifest)
+    state, code, reason, identity, verified_hash = verify_envelope(env)
+    assert (state, code, reason, verified_hash) == ("verified", EXIT_OK, "verified", actual)
+    assert identity["subject"] == "alice@example.com"
+    assert seen["descriptor"] == env["proof"]["manifest"]["descriptor"]
+    assert seen["leaf_list"] == [actual]
+
+
+def test_manifest_signature_failure_is_invalid(monkeypatch):
+    env, _actual = _manifest_envelope()
+    monkeypatch.setattr(
+        sign_mod, "verify_wire_manifest", lambda wire: (False, "SIGNATURE_MISMATCH", None)
+    )
+    state, code, reason, identity, verified_hash = verify_envelope(env)
+    assert (state, code, reason, identity, verified_hash) == (
+        "invalid",
+        EXIT_SIGNATURE_INVALID,
+        "SIGNATURE_MISMATCH",
+        None,
+        None,
+    )
+
+
+def test_valid_manifest_not_covering_body_is_invalid(monkeypatch):
+    other = "sha256::" + "a" * 64
+    env, _actual = _manifest_envelope(leaf=other)
+    monkeypatch.setattr(
+        sign_mod,
+        "verify_wire_manifest",
+        lambda wire: (True, "verified", {"issuer": "iss", "subject": "alice@example.com"}),
+    )
+    state, code, reason, identity, verified_hash = verify_envelope(env)
+    assert (state, code, reason, identity, verified_hash) == (
+        "invalid",
+        EXIT_SIGNATURE_INVALID,
+        "not in manifest",
+        None,
+        None,
+    )
+
+
+def test_manifest_verifier_unavailable_preserves_integrity_hash(monkeypatch):
+    env, actual = _manifest_envelope()
+    monkeypatch.setattr(
+        sign_mod,
+        "verify_wire_manifest",
+        lambda wire: (False, "OFFLINE_NO_TRUSTED_ROOT", None),
+    )
+    state, code, reason, identity, verified_hash = verify_envelope(env)
+    assert (state, code, reason, identity, verified_hash) == (
+        "unverified",
+        EXIT_UNVERIFIED,
+        "OFFLINE_NO_TRUSTED_ROOT",
+        None,
+        actual,
+    )
+
+
 # --- fetch (over the wire) --------------------------------------------------
 
 

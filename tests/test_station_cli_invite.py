@@ -45,13 +45,25 @@ def _init_op(tmp_path):
 def test_mint_prints_token_and_records_hash(tmp_path):
     _init_op(tmp_path)
     r = _run(
-        tmp_path, "invite", "mint", "--note", "Alice", "--origin", "https://interskein.com"
+        tmp_path,
+        "invite",
+        "mint",
+        "--note",
+        "Alice",
+        "--origin",
+        "https://ingress.interskein.com",
+        "--onboarding-origin",
+        "https://interskein.com",
     )
     assert r.exit_code == 0, r.output
     assert "redeem-invite" in r.output and "interskein.com" in r.output
     # the blurb instructs the NEW verb surface, not the retired interskein CLI
     assert "skein station redeem-invite" in r.output
     assert "interskein redeem-invite" not in r.output
+    assert "https://interskein.com/onboarding" in r.output
+    assert "--to https://ingress.interskein.com" in r.output
+    assert "https://ingress.interskein.com/onboarding" not in r.output
+    assert "Bootstrap freshness SHA256" in r.output
     # the printed token redeems to the stored hash
     with _open(tmp_path) as st:
         rows = st.store.list_invites()
@@ -84,12 +96,66 @@ def test_mint_without_operator_errors(tmp_path):
 
 
 def test_mint_origin_defaults_from_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("SKEIN_STATION_ORIGIN", "https://interskein.com")
+    monkeypatch.setenv("SKEIN_STATION_ORIGIN", "https://ingress.interskein.com")
+    monkeypatch.setenv("SKEIN_STATION_BASE_URL", "https://interskein.com")
     _init_op(tmp_path)
     r = _run(tmp_path, "invite", "mint")
     assert r.exit_code == 0
     assert "https://interskein.com" in r.output
     assert "placeholder" not in r.output
+
+
+def test_mint_rejects_malformed_origins(tmp_path):
+    _init_op(tmp_path)
+    r = _run(tmp_path, "invite", "mint", "--origin", "not-a-url")
+    assert r.exit_code != 0 and "invalid publish origin" in r.output
+    r = _run(
+        tmp_path,
+        "invite",
+        "mint",
+        "--onboarding-origin",
+        "https://user:pass@example.com/?q=bad",
+    )
+    assert r.exit_code != 0 and "invalid onboarding origin" in r.output
+
+
+def test_minted_onboarding_url_resolves_on_read_surface(tmp_path, monkeypatch):
+    import re
+
+    from fastapi.testclient import TestClient
+
+    from skein.web.app import create_app
+
+    _init_op(tmp_path)
+    data_dir = tmp_path / ".skein-station"
+    bootstrap = data_dir / "bootstrap"
+    bootstrap.mkdir()
+    for raw in ("sigstore-pinned.txt", "interskein-pinned.txt", "interskein-primer.txt"):
+        (bootstrap / raw).write_text(f"pinned {raw}\n")
+        (bootstrap / f"{raw}.sigstore.json").write_text("{}\n")
+
+    r = _run(
+        tmp_path,
+        "invite",
+        "mint",
+        "--origin",
+        "https://ingress.example.test",
+        "--onboarding-origin",
+        "https://read.example.test",
+    )
+    assert r.exit_code == 0, r.output
+    onboarding_url = re.search(r"https://read\.example\.test/onboarding", r.output).group(0)
+    assert "https://ingress.example.test/onboarding" not in r.output
+    for raw in ("sigstore-pinned.txt", "interskein-pinned.txt", "interskein-primer.txt"):
+        from hashlib import sha256
+
+        assert sha256((bootstrap / raw).read_bytes()).hexdigest() in r.output
+
+    monkeypatch.setenv("SKEIN_STATION_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("SKEIN_STATION_NAME", "test station")
+    page = TestClient(create_app()).get(onboarding_url.removeprefix("https://read.example.test"))
+    assert page.status_code == 200
+    assert "Install the pinned verifier" in page.text
 
 
 def test_list_shows_outstanding_then_revoked(tmp_path):

@@ -97,6 +97,44 @@ def test_public_base_url_request_fallback(monkeypatch):
     assert public_base_url(_FakeRequest("https://host.test/")) == "https://host.test"
 
 
+def test_onboarding_incomplete_pack_fails_closed(client):
+    r = client.get("/onboarding")
+    assert r.status_code == 503
+    assert "signed onboarding pack is not available" in r.text
+    assert "pip install" not in r.text
+
+
+def test_onboarding_complete_pack_and_artifacts(client, seeded):
+    from hashlib import sha256
+
+    bootstrap = seeded["data_dir"] / "bootstrap"
+    bootstrap.mkdir()
+    names = (
+        "sigstore-pinned.txt",
+        "sigstore-pinned.txt.sigstore.json",
+        "interskein-pinned.txt",
+        "interskein-pinned.txt.sigstore.json",
+        "interskein-primer.txt",
+        "interskein-primer.txt.sigstore.json",
+    )
+    for name in names:
+        (bootstrap / name).write_text(f"payload for {name}\n")
+
+    r = client.get("/onboarding")
+    assert r.status_code == 200
+    assert "--require-hashes --only-binary=:all:" in r.text
+    assert "patricksmyth01@gmail.com" in r.text
+    assert "https://accounts.google.com" in r.text
+    for name in names:
+        payload = (bootstrap / name).read_bytes()
+        assert name in r.text
+        assert sha256(payload).hexdigest() in r.text
+        artifact = client.get(f"/onboarding/{name}")
+        assert artifact.status_code == 200 and artifact.content == payload
+        assert artifact.headers["cache-control"] == "no-cache"
+    assert client.get("/onboarding/../skein.db").status_code == 404
+
+
 # --- folio representations --------------------------------------------------
 
 
@@ -285,8 +323,8 @@ def test_bundle_unsigned_is_404(client, seeded):
 
 
 def test_bundle_served_when_signed(seeded, monkeypatch):
-    # Cover the folio with a manifest; the bundle route returns the covering
-    # manifest's bundle verbatim (per-folio bundles no longer exist).
+    # Cover the folio with a manifest; the bundle route returns the complete
+    # covering proof (per-folio bundles no longer exist).
     import json as _json
 
     from skein import profile, sign as sign_mod
@@ -316,7 +354,15 @@ def test_bundle_served_when_signed(seeded, monkeypatch):
     client = TestClient(create_app())
     r = client.get(f"/folio/{seeded['a']}/bundle")
     assert r.status_code == 200
-    assert r.json()["identity_scheme"] == "sigstore-public-v1"
+    payload = r.json()
+    assert payload["signature_bundle"]["identity_scheme"] == "sigstore-public-v1"
+    assert payload["descriptor"] == ms["descriptor"]
+    assert payload["leaf_list"] == ms["leaf_list"]
+    env = client.get(f"/folio/{seeded['a']}.json").json()
+    assert env["proof"]["manifest"] == {
+        "descriptor": ms["descriptor"],
+        "leaf_list": ms["leaf_list"],
+    }
     # The bundle is re-signable for an unchanged hash (slice 2), so it revalidates.
     assert r.headers["cache-control"] == "no-cache"
 

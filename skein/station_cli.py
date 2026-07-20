@@ -514,7 +514,14 @@ def invite() -> None:
 @click.option("--expires", default="7d", help="Validity window (e.g. 30m, 24h, 7d). Default 7d.")
 @click.option("--note", default=None, help="Operator note (who this invite is for).")
 @click.option(
-    "--origin", default=None, help="Station origin for the blurb (default: $SKEIN_STATION_ORIGIN)."
+    "--origin",
+    default=None,
+    help="Publish-ingress origin used by redeem (default: $SKEIN_STATION_ORIGIN).",
+)
+@click.option(
+    "--onboarding-origin",
+    default=None,
+    help="Read-surface origin hosting /onboarding (default: $SKEIN_STATION_BASE_URL).",
 )
 @click.option("--json", "output_json", is_flag=True)
 @click.pass_context
@@ -524,19 +531,47 @@ def invite_mint(
     expires: str,
     note: Optional[str],
     origin: Optional[str],
+    onboarding_origin: Optional[str],
     output_json: bool,
 ) -> None:
     """Mint a one-time invite; print the token + a ready-to-send blurb (token shown ONCE)."""
     import secrets
     from datetime import datetime, timezone
 
+    from urllib.parse import urlsplit
+
+    from . import bootstrap_pack
     from .identity import hash_token
+    from .publish import canonical_instance
 
     delta = _parse_duration(expires)
     try:
         origin = origin or station_env("ORIGIN")
+        onboarding_origin = onboarding_origin or station_env("BASE_URL")
     except StationEnvError as e:
         raise click.ClickException(str(e))
+    def clean_origin(value: Optional[str], label: str) -> Optional[str]:
+        if not value:
+            return None
+        try:
+            parts = urlsplit(value.strip())
+            if (
+                parts.scheme.lower() not in {"http", "https"}
+                or not parts.hostname
+                or parts.username is not None
+                or parts.password is not None
+                or parts.query
+                or parts.fragment
+            ):
+                raise ValueError("need an http(s) scheme and host, without credentials/query/fragment")
+            return canonical_instance(value)
+        except ValueError as e:
+            raise click.ClickException(f"invalid {label} {value!r}: {e}")
+
+    origin = clean_origin(origin, "publish origin")
+    onboarding_origin = clean_origin(onboarding_origin, "onboarding origin")
+    pack_inventory = bootstrap_pack.inventory(_data_dir(ctx))
+    pack_ready = bootstrap_pack.is_complete(pack_inventory)
     token = secrets.token_urlsafe(32)  # 32 bytes = 256-bit CSPRNG token
     token_h = hash_token(token)
     expires_at = datetime.now(timezone.utc) + delta
@@ -564,15 +599,27 @@ def invite_mint(
                 "expires_at": expires_iso,
                 "note": note,
                 "origin": origin,
+                "onboarding_origin": onboarding_origin,
+                "bootstrap_ready": pack_ready,
+                "bootstrap_sha256": {
+                    name: pack_inventory[name] for name in bootstrap_pack.RAW_FILES
+                },
             }
         )
         return
-    origin_display = origin or "<your-station-origin>"
+    origin_display = origin or "<your-station-ingress-origin>"
+    onboarding_display = onboarding_origin or "<your-station-read-origin>"
     blurb = (
         f"You're invited to publish on {origin_display}. Hand this entire message to "
         f"your coding agent.\n\n"
         f"One-time invite token (expires {expires_iso}):\n  {token}\n\n"
-        f"Your agent: follow the bootstrap pack at {origin_display}/onboarding to install "
+        "Bootstrap freshness SHA256 (confirm through a Patrick-controlled channel):\n"
+        + "".join(
+            f"  {name} {pack_inventory[name] or '<unavailable>'}\n"
+            for name in bootstrap_pack.RAW_FILES
+        )
+        + "\n"
+        f"Your agent: follow the bootstrap pack at {onboarding_display}/onboarding to install "
         f"the verified station CLI (verify the signed install spec FIRST), then redeem:\n\n"
         f"  skein station redeem-invite {token} --to {origin_display} --login\n\n"
         f"Redeeming runs a Sigstore login and writes a record to the PUBLIC Rekor "
@@ -586,6 +633,20 @@ def invite_mint(
         click.echo(
             "warning: no origin (set $SKEIN_STATION_ORIGIN or pass --origin) — the blurb "
             "below has a placeholder; fill it in before sending.",
+            err=True,
+        )
+    if not onboarding_origin:
+        click.echo(
+            "warning: no onboarding origin (set $SKEIN_STATION_BASE_URL or pass "
+            "--onboarding-origin) — the blurb below has a placeholder; fill it in "
+            "before sending.",
+            err=True,
+        )
+    if not pack_ready:
+        click.echo(
+            "warning: the local bootstrap pack is incomplete — the onboarding page will "
+            "fail closed with 503; do not send this invitation until all three raw files "
+            "and their .sigstore.json bundles are deployed.",
             err=True,
         )
     click.echo("\n--- send this to the collaborator (out of band) ---")

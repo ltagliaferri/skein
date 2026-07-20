@@ -124,7 +124,9 @@ Publishing runs over 443 (works regardless of the SSH VPN state).
 ### 8. Onboarding (collaborator stations) — AFTER the security prereq is deployed
 ```
 # operator mints ON THE BOX — no host CLI, so via the image (like init-operator):
-docker run --rm -v {{DATA_DIR}}:/data -e SKEIN_STATION_DATA_DIR=/data {{IMAGE_TAG}} \
+docker run --rm -v {{DATA_DIR}}:/data -e SKEIN_STATION_DATA_DIR=/data \
+  -e SKEIN_STATION_ORIGIN=https://{{INGRESS_DOMAIN}} \
+  -e SKEIN_STATION_BASE_URL=https://{{READ_DOMAIN}} {{IMAGE_TAG}} \
   skein station invite mint --role originator            # token shown ONCE
 # --role takes the WIRE-REDEEMABLE tiers only: originator (default) or steward.
 # administrator/operator are never wire-redeemable — bind those locally with
@@ -157,6 +159,8 @@ freely; a signed station's ingress is forward-only once the first live write lan
 - `SKEIN_STATION_ORIGIN` MUST equal the public ingress host collaborators pass as `--to` — it's
   both the POST endpoint and the signed-origin the redeem ceremony reconstructs. A host mismatch
   fails closed, never silently. Unset → `/publish` works but `/invite/redeem` returns 503.
+- `SKEIN_STATION_BASE_URL` is the separate public read host. Invite minting uses it for
+  `/onboarding`; never point collaborators at the POST-only ingress vhost for bootstrap files.
 - A station MUST be named: set `SKEIN_STATION_NAME` (or a stationfile `name`) or `create_app` refuses.
 - Env keys are `SKEIN_STATION_*` ONLY. The `SKEIN_NEXT_*` aliases were deleted at Stage 8 and no
   longer resolve.

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Collaborator onboarding — {{ station.name }}{% endblock %}
+{% block content %}
+<main id="main" class="skein-page">
+  <h1>Collaborator onboarding</h1>
+
+  {% if not ready %}
+  <p><strong>The signed onboarding pack is not available.</strong></p>
+  <p>This station will not print installation commands from a partial pack. Ask the
+     operator for a fresh invitation after the release artifacts have been signed
+     and deployed.</p>
+  {% else %}
+  <p>Your invitation came from an out-of-band channel and is not, by itself, a
+     software trust root. Before running anything, confirm independently that the
+     expected signer is <code>patricksmyth01@gmail.com</code> with certificate OIDC
+     issuer <code>https://accounts.google.com</code>. Stop for any other identity.</p>
+
+  <h2>1. Download the complete pack</h2>
+  <ul>
+    {% for name, digest in inventory | dictsort %}
+    <li><a href="/onboarding/{{ name }}">{{ name }}</a>
+        <span class="cryptography">sha256 {{ digest }}</span></li>
+    {% endfor %}
+  </ul>
+  <p>Compare the three raw-file SHA256 values with the values in the invitation or
+     another Patrick-controlled channel. The values printed by this page are a
+     convenience, not an independent trust root.</p>
+
+  <h2>2. Install the pinned verifier</h2>
+  <pre><code>python -m pip install --require-hashes --only-binary=:all: \
+  --index-url https://pypi.org/simple -r sigstore-pinned.txt</code></pre>
+
+  <h2>3. Verify every raw file against the operator identity</h2>
+  <p>Each command must exit zero. Any failure, unavailable verifier, or identity
+     mismatch is a hard stop.</p>
+  {% for name in ["sigstore-pinned.txt", "interskein-pinned.txt", "interskein-primer.txt"] %}
+  <pre><code>python -m sigstore verify identity \
+  --cert-identity patricksmyth01@gmail.com \
+  --cert-oidc-issuer https://accounts.google.com \
+  --bundle {{ name }}.sigstore.json \
+  --offline {{ name }}</code></pre>
+  {% endfor %}
+
+  <h2>4. Install interskein, wheels only</h2>
+  <pre><code>python -m pip install --require-hashes --only-binary=:all: \
+  --index-url https://pypi.org/simple -r interskein-pinned.txt</code></pre>
+  <p>Confirm the installed distribution version:</p>
+  <pre><code>python -c "from importlib.metadata import version; print(version('interskein'))"</code></pre>
+
+  <h2>5. Append the primer</h2>
+  <p>Append the verified <code>interskein-primer.txt</code> bytes verbatim to the
+     repository's agent instruction file. Detect and append; never overwrite the
+     file and never generate replacement text from the invitation.</p>
+
+  <h2>6. Redeem</h2>
+  <p>Return to the exact <code>skein station redeem-invite</code> command in your
+     invitation. Redeeming opens an interactive Sigstore login and permanently
+     records your invite-token hash and verified email in the public Rekor log.
+     Confirm that consequence before proceeding.</p>
+  {% endif %}
+</main>
+{% endblock %}

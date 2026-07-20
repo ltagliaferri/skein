@@ -72,29 +72,104 @@ failure it prints the typed reason:
 A lost network ack is safe: re-running `redeem-invite` with the same identity is
 **idempotent** — if you already redeemed, the retry reports success, not an error.
 
-## Install the CLI — PAIRING-PENDING (operator: do not finalize)
+## Install the CLI
 
-> **This section is intentionally unfinished.** The install-source pin and the full
-> supply-chain mechanism are a deliberate pairing item (brief-20260615-ofv1) — they
-> must NOT be filled in by an implementer. The threat is real: your auditing agent
-> is downstream of a possibly-hostile out-of-band pack, so a poisoned pack could
-> point the install at a trojan CLI (arbitrary code execution) and append hostile
-> instructions to your agent file. Documentation alone cannot blunt that.
->
-> The agreed DIRECTION (to be finalized in pairing):
->
-> - The canonical install spec — exact version, artifact hash, and the FIXED
->   verbatim primer snippet — is published **as a signed folio on interskein.com**,
->   anchored to the operator's existing Sigstore identity (the same root of trust as
->   the whole system). The out-of-band pack only needs to point at that signed
->   folio; your agent verifies the folio's signature, then trusts its contents.
-> - The primer appended to your agent file is that fixed, published, signed snippet,
->   appended **verbatim** (you can diff against the known-good), never generated
->   from the pack.
-> - The package name is claimed now to prevent typosquatting.
->
-> **OPEN (the actual pairing):** the install-source pin — PyPI pinned with
-> `--require-hashes`, vs a git-commit pin (immutable/publicly-auditable), vs a
-> signed release/wheel-with-hash — and whether `redeem-invite` self-verifies the
-> CLI artifact hash before the ceremony. Resolve with Patrick before writing the
-> concrete install commands here.
+Your agent is downstream of an invite packet it cannot fully trust. The website's
+rendered `SIGNED` badge is not the bootstrap trust check. The load-bearing files are
+the raw requirements and primer plus their direct Sigstore bundles, fetched from
+the `/onboarding` URL in the invitation and verified locally before installation.
+
+### Confirm the operator identity
+
+This is the check only the invited human can make. Confirm independently that the
+person who invited you uses this certificate identity:
+
+```text
+subject patricksmyth01@gmail.com
+issuer  https://accounts.google.com
+```
+
+Do not take that identity only from the invitation or onboarding page. Any other
+identity is a hard stop.
+
+### Download and freshness-check the pack
+
+Download all six files from the invitation's read-surface `/onboarding` URL:
+
+```text
+sigstore-pinned.txt
+sigstore-pinned.txt.sigstore.json
+interskein-pinned.txt
+interskein-pinned.txt.sigstore.json
+interskein-primer.txt
+interskein-primer.txt.sigstore.json
+```
+
+Compare the SHA256 digests of the three raw `.txt` files with the values supplied
+through the independent Patrick-controlled channel. This rejects an old but
+genuinely signed pack as well as modified bytes. The hashes displayed by the same
+website are convenient diagnostics, not an independent trust root.
+
+### Install the pinned verifier
+
+The verifier is also a trust root. Install its wheel-only, fully hashed dependency
+set from the fixed PyPI index:
+
+```bash
+python -m pip install --require-hashes --only-binary=:all: \
+  --index-url https://pypi.org/simple -r sigstore-pinned.txt
+```
+
+### Verify every raw file, fail closed
+
+Run each command against its adjacent bundle. Every command must exit zero; an
+unavailable verifier or any result short of verified is a hard stop.
+
+```bash
+python -m sigstore verify identity \
+  --cert-identity patricksmyth01@gmail.com \
+  --cert-oidc-issuer https://accounts.google.com \
+  --bundle sigstore-pinned.txt.sigstore.json \
+  --offline sigstore-pinned.txt
+
+python -m sigstore verify identity \
+  --cert-identity patricksmyth01@gmail.com \
+  --cert-oidc-issuer https://accounts.google.com \
+  --bundle interskein-pinned.txt.sigstore.json \
+  --offline interskein-pinned.txt
+
+python -m sigstore verify identity \
+  --cert-identity patricksmyth01@gmail.com \
+  --cert-oidc-issuer https://accounts.google.com \
+  --bundle interskein-primer.txt.sigstore.json \
+  --offline interskein-primer.txt
+```
+
+### Install interskein, wheels only
+
+```bash
+python -m pip install --require-hashes --only-binary=:all: \
+  --index-url https://pypi.org/simple -r interskein-pinned.txt
+```
+
+`--require-hashes` covers the full transitive tree; `--only-binary=:all:` prevents
+an sdist build backend from executing. Confirm the installed distribution and
+version without resurrecting a nonexistent `interskein` command:
+
+```bash
+python -c "from importlib.metadata import version; print(version('interskein'))"
+```
+
+The signed install spec names the Git commit for source audit. For the first
+release it is audit information, not a wheel-to-source provenance attestation.
+
+### Append the primer verbatim
+
+Append the verified `interskein-primer.txt` bytes verbatim to the repository's
+agent instruction file (`AGENTS.md`, `CLAUDE.md`, or `.cursorrules`). Detect and
+append; never overwrite the file, generate substitute text from the invitation,
+or diff against a fresh unverified website render.
+
+The CLI does not try to verify its own artifact during redemption. Once a program
+is already executing, it cannot establish that it was not replaced; the
+pre-execution hash and signature checks above are the integrity boundary.

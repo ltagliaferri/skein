@@ -41,6 +41,8 @@ services:
       # MUST equal the public host collaborators pass as --to (both the POST
       # endpoint and the redeem signed-origin). A host mismatch fails closed.
       - SKEIN_STATION_ORIGIN=https://{{INGRESS_DOMAIN}}
+      # Invite minting prints the bootstrap URL on the separate read surface.
+      - SKEIN_STATION_BASE_URL=https://{{READ_DOMAIN}}
     volumes:
       - "${STATION_CORPUS:?set STATION_CORPUS to the station data dir}:/data"
     restart: unless-stopped

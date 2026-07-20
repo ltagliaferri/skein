@@ -252,10 +252,32 @@ def verify_envelope(env: dict) -> Tuple[str, int, Optional[str], Optional[dict],
         return "invalid", EXIT_SIGNATURE_INVALID, "hash mismatch", None, None
 
     if bundle:
-        from ..sign import verify_wire_folio  # lazy: keep Sigstore off unsigned reads
+        # Current stations sign one manifest over the whole publish. The folio
+        # proof staples its descriptor + leaf list so the client can verify both
+        # the signature and this folio's Merkle membership. Retain the legacy
+        # per-folio path for older stations whose proof has no manifest material.
+        manifest = proof.get("manifest")
+        if manifest is not None:
+            from ..sign import verify_wire_manifest
 
-        wire["signature_bundle"] = json.dumps(bundle)
-        verified, reason, identity = verify_wire_folio(wire)
+            if not isinstance(manifest, dict):
+                return "invalid", EXIT_SIGNATURE_INVALID, "manifest malformed", None, None
+            manifest_signature = {
+                "descriptor": manifest.get("descriptor"),
+                "leaf_list": manifest.get("leaf_list"),
+                "signature_bundle": json.dumps(bundle),
+            }
+            verified, reason, identity = verify_wire_manifest(manifest_signature)
+            if verified:
+                descriptor = manifest_signature["descriptor"]
+                leaf_list = manifest_signature["leaf_list"]
+                if not canon.manifest_membership(leaf_list, descriptor["root"], actual):
+                    return "invalid", EXIT_SIGNATURE_INVALID, "not in manifest", None, None
+        else:
+            from ..sign import verify_wire_folio
+
+            wire["signature_bundle"] = json.dumps(bundle)
+            verified, reason, identity = verify_wire_folio(wire)
         if verified:
             return "verified", EXIT_OK, "verified", identity, actual
         if reason in _VERIFIER_UNAVAILABLE:

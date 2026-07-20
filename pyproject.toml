@@ -3,7 +3,8 @@ name = "interskein"
 version = "0.2.0"
 description = "Agent knowledge management: local folios with a signed publish-to-mesh boundary"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     {name = "Patrick Smyth", email = "website@pbsmyth.com"},
@@ -12,7 +13,6 @@ keywords = ["ai", "agents", "knowledge-management", "folios", "sigstore", "mesh"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -67,12 +67,13 @@ Repository = "https://github.com/spiritengine/skein"
 Documentation = "https://github.com/spiritengine/skein/blob/main/README.md"
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["skein*", "client*"]
+exclude = ["skein.tests*"]
 
 [tool.setuptools.package-data]
 skein = [

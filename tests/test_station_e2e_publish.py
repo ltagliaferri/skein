@@ -101,6 +101,29 @@ def test_e2e_bound_signed_publish_accepted(instance, provider, monkeypatch):  # 
     finally:
         ro.close()
 
+    # The public wire carries the covering manifest proof and mesh verifies it
+    # locally. This is the regression that the old mock-only mesh tests missed:
+    # routing the manifest bundle through verify_wire_folio returned "wrong kind".
+    from fastapi.testclient import TestClient
+    from urllib.parse import urlparse
+
+    from skein.mesh import client as mesh_client
+    from skein.web.app import create_app as create_read_app
+
+    monkeypatch.setenv("SKEIN_STATION_DATA_DIR", str(instance.store.db_path.parent))
+    monkeypatch.setenv("SKEIN_STATION_NAME", "roundtrip")
+    read_client = TestClient(create_read_app())
+
+    def read_get(url, timeout=None):
+        parsed = urlparse(url)
+        return read_client.get(parsed.path)
+
+    monkeypatch.setattr(mesh_client.requests, "get", read_get)
+    fetched = mesh_client.fetch("https://station.example", _finding_hash({"folios": folios}))
+    assert fetched.exit_code == mesh_client.EXIT_OK
+    assert fetched.state == "verified"
+    assert fetched.identity["subject"] == probe["subject"]
+
 
 # --- E2-E5: the gate logic end-to-end ---------------------------------------
 

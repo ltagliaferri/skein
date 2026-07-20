@@ -39,7 +39,7 @@ model (claim 3 is unfalsifiable while §9's Q5 is open).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 import pytest
 

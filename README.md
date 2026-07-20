@@ -17,23 +17,23 @@ surface is <https://interskein.com>. The public publish ingress is
 
 ## Install
 
-Install the published package:
+The distribution is named `interskein` on PyPI, but trusted collaborator
+onboarding does not use a bare `pip install`. Use the `/onboarding` URL in the
+operator's invitation: it provides wheel-only, fully hashed requirements plus
+direct Sigstore signatures over the raw requirements and collaboration primer.
+Verify those files against the expected operator identity before installation.
 
-```bash
-python -m pip install interskein
-```
-
-The distribution is named `interskein` on PyPI, but it installs two console
-scripts, and there is no `interskein` command:
+The distribution installs two console scripts, and there is no `interskein`
+command:
 
 - `skein`, the local workbench CLI (sites, folios, publish) — also home to the
   `skein station` subcommand group, which runs and operates a public station.
 - `mesh`, the HTTP read client for mesh stations.
 
-Check the installed metadata with:
+After a verified install, check the installed distribution version with:
 
 ```bash
-python -m pip show interskein
+python -c "from importlib.metadata import version; print(version('interskein'))"
 ```
 
 ## Local Workbench

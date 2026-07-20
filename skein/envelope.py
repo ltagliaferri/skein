@@ -15,7 +15,7 @@ The frame (§2)::
       "stability": "stable | derived",
       "as_of":     "<iso8601>",          # required for derived; null for stable
       "body":      <kind-specific>,
-      "proof":     {profile, content_hash, signature_bundle} | null,
+      "proof":     {profile, content_hash, signature_bundle, manifest} | null,
       "asserted":  {...station claims...},
       "links":     {...control-frame breadcrumbs...},
       "next":      "<address> | null"
@@ -32,9 +32,8 @@ unsigned by design (§4).
 
 Phase 1 builds against the existing, mostly-unsigned corpus at the ``integrity``
 proof level: ``content_hash`` binds the body, ``signature_bundle`` is ``null``
-for unsigned folios. The two live signed docs carry their bundle and the
-station's display verdict; the strict, domain-separated verification path and
-re-signing under the profile are slice 2.
+for unsigned folios. Signed folios carry the covering manifest bundle plus the
+manifest descriptor and leaf list needed for a client to verify membership.
 
 Station re-home: ``folio_verdict`` and ``build_folio_envelope`` call federation
 store accessors — ``get_constituent_proof``, ``verify_cache_get``, ``get_binding``
@@ -451,6 +450,7 @@ def build_folio_envelope(
     proof = store.get_constituent_proof(content_hash)
     has_proof = proof is not None and not proof.get("proof_missing")
     signature_bundle = _bundle_object(proof["bundle_json"]) if has_proof else None
+    manifest = _manifest_object(proof) if signature_bundle is not None else None
     verdict, identity = folio_verdict(store, content_hash, row, proof=proof)
 
     # One query per direction; the cross-reference (threads) and lineage subsets are
@@ -484,6 +484,7 @@ def build_folio_envelope(
             "profile": CANON_PROFILE,
             "content_hash": content_hash,
             "signature_bundle": signature_bundle,
+            "manifest": manifest,
         },
         "asserted": {
             "verdict": verdict,
@@ -523,6 +524,31 @@ def _bundle_object(bundle_json: Optional[str]) -> Optional[Dict[str, Any]]:
         return json.loads(bundle_json)
     except (ValueError, TypeError):
         return None
+
+
+def _manifest_object(proof: Mapping[str, Any]) -> Dict[str, Any]:
+    """Inflate the stored covering-manifest membership material for the wire.
+
+    The signature bundle alone proves only a manifest descriptor. A strict client
+    also needs the descriptor and leaf list to recompute the root and prove that
+    this folio is one of the signed constituents.
+    """
+    import json
+
+    try:
+        descriptor = json.loads(proof["descriptor_json"])
+    except (KeyError, ValueError, TypeError):
+        descriptor = None
+    try:
+        leaf_list = json.loads(proof["leaf_list_json"])
+    except (KeyError, ValueError, TypeError):
+        leaf_list = None
+    # Keep the manifest marker on the wire even when stored material is corrupt.
+    # Omitting it would make a strict client misclassify the covering-manifest
+    # bundle as a legacy per-folio bundle and report the misleading "wrong kind".
+    # verify_wire_manifest is total over these hostile shapes and returns the
+    # truthful "manifest malformed" instead.
+    return {"descriptor": descriptor, "leaf_list": leaf_list}
 
 
 # --- collections (catalog / site / search) ----------------------------------

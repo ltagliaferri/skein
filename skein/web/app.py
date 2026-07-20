@@ -42,6 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 
+from .. import bootstrap_pack
 from .. import envelope as envelope_mod
 from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
@@ -623,6 +624,37 @@ def create_app() -> FastAPI:
             return html(request, "index.html", {"env": env})
         return _collection_response(request, env, repr_, title=f"Catalog — {config.name}")
 
+    # --- collaborator onboarding -------------------------------------------
+
+    @app.get("/onboarding", response_class=HTMLResponse)
+    def onboarding(request: Request):
+        items = bootstrap_pack.inventory(get_data_dir() or "")
+        ready = bootstrap_pack.is_complete(items)
+        return html(
+            request,
+            "onboarding.html",
+            {"ready": ready, "inventory": items},
+            status=200 if ready else 503,
+        )
+
+    @app.get("/onboarding/{artifact}")
+    def onboarding_artifact(artifact: str) -> Response:
+        if artifact not in bootstrap_pack.FILES:
+            raise HTTPException(status_code=404, detail="unknown onboarding artifact")
+        try:
+            payload = (bootstrap_pack.pack_dir(get_data_dir() or "") / artifact).read_bytes()
+        except OSError:
+            raise HTTPException(status_code=404, detail="onboarding artifact unavailable")
+        media_type = "application/json" if artifact.endswith(".json") else "text/plain"
+        return Response(
+            payload,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "no-cache",
+                "Content-Disposition": f'attachment; filename="{artifact}"',
+            },
+        )
+
     @app.get("/.json")
     def index_json(request: Request, store: StationStore = Depends(get_store)):
         return _collection_response(request, _catalog_envelope(store), "json", title="Catalog")
@@ -704,7 +736,22 @@ def create_app() -> FastAPI:
         proof = store.get_constituent_proof(content_hash)
         if proof is None or proof.get("proof_missing") or not proof.get("bundle_json"):
             return _error_response(request, "not_found", f"{address}/bundle", "json", vary=False)
-        payload = proof["bundle_json"].encode()
+        import json
+
+        try:
+            payload = json.dumps(
+                {
+                    "descriptor": json.loads(proof["descriptor_json"]),
+                    "leaf_list": json.loads(proof["leaf_list_json"]),
+                    "signature_bundle": json.loads(proof["bundle_json"]),
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode()
+        except (KeyError, TypeError, ValueError):
+            return _error_response(
+                request, "not_found", f"{address}/bundle", "json", vary=False
+            )
         etag = _payload_etag(payload)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
         not_modified = _conditional(request, etag, headers)

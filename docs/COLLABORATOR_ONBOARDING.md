@@ -163,6 +163,17 @@ python -c "from importlib.metadata import version; print(version('interskein'))"
 The signed install spec names the Git commit for source audit. For the first
 release it is audit information, not a wheel-to-source provenance attestation.
 
+Redeeming and publishing talk to the station over HTTPS and need nothing else
+running. The *local* workbench (`skein init`, `skein post`, `skein find`) is a
+client of a local API service, so start `skein-server` before using it, then:
+
+```bash
+skein doctor
+```
+
+It exits non-zero if anything about the install is wrong, including a CLI and
+service that report different versions.
+
 ### Append the primer verbatim
 
 Append the verified `interskein-primer.txt` bytes verbatim to the repository's

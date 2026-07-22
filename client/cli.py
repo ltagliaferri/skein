@@ -28,6 +28,7 @@ except ImportError:
 
 from skein.address_legacy import parse as parse_address
 from skein.storage import skein_home, save_project_registry
+from skein.version import package_version as _package_version
 
 
 def parse_post_site_id(site_id_arg: str) -> tuple:
@@ -346,12 +347,18 @@ def make_title_from_content(content: str, max_length: int = 100) -> str:
     envvar="SKEIN_PROJECT",
     help="Project to operate on (overrides cwd .skein/ discovery; or set SKEIN_PROJECT)",
 )
+@click.version_option(
+    version=_package_version(),
+    package_name="interskein",
+    message="%(prog)s (interskein) %(version)s",
+)
 @click.pass_context
 def cli(ctx, agent, url, project):
     """SKEIN CLI - Agent collaboration system.
 
     Getting started: skein info quickstart
     Full guide: skein info guide
+    Check the install: skein doctor
     """
     ctx.ensure_object(dict)
     ctx.obj["agent"] = agent
@@ -618,6 +625,366 @@ def health(ctx, output_json):
         click.echo(f"\nSKEIN is {'healthy' if all_ok else 'unhealthy'}")
 
     raise SystemExit(0 if all_ok else 1)
+
+
+# ============================================================================
+# Doctor - Installation Diagnosis
+# ============================================================================
+
+
+def packaged_docs_dir() -> Path:
+    """Directory holding the docs `skein info` serves, inside the package."""
+    import skein
+
+    return Path(skein.__file__).parent / "docs"
+
+
+# The topics `skein info` serves, mapped to their packaged filenames.
+INFO_TOPICS = {
+    "quickstart": "SKEIN_QUICK_START.md",
+    "guide": "SKEIN_AGENT_GUIDE.md",
+    "implementation": "ARCHITECTURE.md",
+}
+
+# A document that survived a build without symlink support is a one-line
+# relative path, not a document. Length is the cheapest way to tell them apart.
+MIN_DOC_BYTES = 500
+
+
+def resolve_doc(topic: str) -> Optional[Path]:
+    """Locate a `skein info` document: packaged copy first, checkout second."""
+    filename = INFO_TOPICS.get(topic)
+    if not filename:
+        return None
+
+    packaged = packaged_docs_dir() / filename
+    if packaged.exists():
+        return packaged
+
+    # Source checkout that was never installed: fall back to the repo layout.
+    repo_root = Path(__file__).resolve().parent.parent
+    for candidate in (repo_root / "docs" / filename, repo_root / filename):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _check(name, ok, detail, level="error", hint=None):
+    return {"name": name, "ok": bool(ok), "detail": detail, "level": level, "hint": hint}
+
+
+def start_service_hint() -> str:
+    """How to get the API service running. There is no `skein` command that
+    supervises processes — that is the platform's job (systemd, launchd), and
+    `skein-server` is the entrypoint either drives."""
+    return "Run the service: skein-server  (or install it under systemd; see the README)"
+
+
+def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
+    """Diagnose this SKEIN install. Returns one mapping per check.
+
+    A check with ``ok`` false and ``level`` "error" means SKEIN will not work as
+    installed; "warn" means it works but something is off; "info" never fails.
+    """
+    import platform
+    import shutil
+
+    import requests
+
+    from skein.storage import skein_home
+    from skein.version import distribution_location, package_version, source_version
+
+    checks: List[Dict[str, Any]] = []
+    cli_version = package_version()
+
+    install_detail = (
+        f"interskein {cli_version} · python {platform.python_version()} · "
+        f"{distribution_location() or 'unknown location'}"
+    )
+    # Distribution metadata can describe a different install than the code that
+    # actually got imported — a source checkout on the path with an older wheel
+    # installed beside it. Report both so the disagreement is visible rather
+    # than silently making every version comparison agree on the wrong number.
+    if source_version() != cli_version:
+        checks.append(
+            _check(
+                "install",
+                False,
+                f"{install_detail} · imported source says {source_version()}",
+                level="warn",
+                hint="Two installs are in play. Reinstall, or drop the source "
+                "checkout off PYTHONPATH.",
+            )
+        )
+    else:
+        checks.append(_check("install", True, install_detail, level="info"))
+
+    # SKEIN home must exist and be writable — the project registry lives there.
+    home = skein_home()
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        writable = os.access(home, os.W_OK)
+        home_detail = str(home) if writable else f"{home} is not writable"
+    except OSError as e:
+        writable = False
+        home_detail = f"{home}: {e}"
+    checks.append(
+        _check(
+            "skein home",
+            writable,
+            home_detail,
+            hint="Set SKEIN_HOME to a writable directory.",
+        )
+    )
+
+    # The project registry: the map from project id to data directory. Losing it
+    # strands every project while their data sits intact on disk, so an absent
+    # registry is only benign when this directory is not a project either.
+    registry_file = home / "projects.json"
+    registry: Dict[str, Any] = {}
+    registry_readable = True
+    if registry_file.exists():
+        try:
+            with open(registry_file) as f:
+                registry = json.load(f).get("projects", {})
+        except Exception as e:
+            registry_readable = False
+            checks.append(
+                _check("project registry", False, f"{registry_file} is unreadable: {e}")
+            )
+
+    project_root = find_project_root()
+    project_config = get_project_config() or {}
+    project_id = project_config.get("project_id")
+
+    if registry_readable:
+        if not registry_file.exists():
+            if project_id:
+                # Standing in an initialized project the registry has never heard
+                # of. This is what a destroyed registry looks like, and it must
+                # not read as "new install".
+                checks.append(
+                    _check(
+                        "project registry",
+                        False,
+                        f"no registry at {registry_file}, but {project_root} is an "
+                        f"initialized project ('{project_id}')",
+                        hint="The registry is missing or was deleted. Restore it from a "
+                        f"{registry_file.name}.bak-* backup in {home}.",
+                    )
+                )
+            else:
+                checks.append(
+                    _check(
+                        "project registry",
+                        True,
+                        "no projects registered yet",
+                        level="info",
+                        hint="Run `skein init --project NAME` in a project directory.",
+                    )
+                )
+        else:
+            missing = [
+                name
+                for name, info in registry.items()
+                if not Path(info.get("data_dir", "")).exists()
+            ]
+            if missing:
+                checks.append(
+                    _check(
+                        "project registry",
+                        False,
+                        f"{len(registry)} registered, data directory missing for: "
+                        + ", ".join(sorted(missing)),
+                        level="warn",
+                        hint="Re-run `skein init` in those projects, or remove the stale entries.",
+                    )
+                )
+            else:
+                checks.append(
+                    _check(
+                        "project registry",
+                        True,
+                        f"{len(registry)} project(s) registered",
+                        level="info",
+                    )
+                )
+
+    # The service the CLI actually talks to.
+    health: Optional[Dict[str, Any]] = None
+    try:
+        response = requests.get(base_url.rstrip("/") + "/health", timeout=3)
+        if response.status_code == 200:
+            body = response.json()
+            health = body if isinstance(body, dict) else None
+    except Exception:
+        health = None
+
+    if health is None:
+        checks.append(
+            _check(
+                "api service",
+                False,
+                f"nothing responding at {base_url}",
+                hint=start_service_hint(),
+            )
+        )
+    else:
+        checks.append(
+            _check("api service", True, f"responding at {base_url}", level="info")
+        )
+
+    # CLI/service version skew: the two halves ship in one distribution, so a
+    # mismatch means the running service came from a different install.
+    if health is None:
+        checks.append(
+            _check("version match", True, "skipped, no service to compare", level="info")
+        )
+    else:
+        server_version = health.get("version")
+        if not server_version:
+            checks.append(
+                _check(
+                    "version match",
+                    False,
+                    "the running service does not report its version, so it predates "
+                    f"this CLI ({cli_version})",
+                    level="warn",
+                    hint="Restart the service so both halves come from this install.",
+                )
+            )
+        elif server_version != cli_version:
+            checks.append(
+                _check(
+                    "version match",
+                    False,
+                    f"CLI is {cli_version}, service is {server_version}",
+                    hint="Restart the service so both halves come from this install.",
+                )
+            )
+        else:
+            checks.append(
+                _check("version match", True, f"CLI and service both {cli_version}", level="info")
+            )
+
+    # Documentation shipped in the wheel.
+    quickstart = resolve_doc("quickstart")
+    if quickstart is None:
+        checks.append(
+            _check(
+                "packaged docs",
+                False,
+                "SKEIN_QUICK_START.md is not installed",
+                hint="Reinstall the package; `skein info quickstart` needs it.",
+            )
+        )
+    elif quickstart.stat().st_size < MIN_DOC_BYTES:
+        # Built from a checkout without symlink support: the file is the link
+        # target's path, not the document. It exists, so only its size tells you.
+        checks.append(
+            _check(
+                "packaged docs",
+                False,
+                f"{quickstart} is {quickstart.stat().st_size} bytes — a path, not a document",
+                hint="This install was built from a checkout without symlink support. "
+                "Reinstall from a wheel built on a symlink-capable checkout.",
+            )
+        )
+    else:
+        checks.append(_check("packaged docs", True, str(quickstart), level="info"))
+
+    # Current directory: is this a SKEIN project?
+    if project_root is None:
+        checks.append(
+            _check(
+                "current project",
+                False,
+                "not inside a SKEIN project",
+                level="warn",
+                hint="Run `skein init --project NAME` in your project directory.",
+            )
+        )
+    elif project_id and project_id in registry:
+        checks.append(
+            _check("current project", True, f"'{project_id}' at {project_root}", level="info")
+        )
+    else:
+        checks.append(
+            _check(
+                "current project",
+                False,
+                f"{project_root} has .skein/ but "
+                + (
+                    f"'{project_id}' is not in the registry"
+                    if project_id
+                    else "no project id in .skein/config.json"
+                ),
+                hint="Re-register it with `skein init --project NAME`, "
+                "or remove .skein/ and start over.",
+            )
+        )
+
+    # git is not required by SKEIN itself, but agents work in repos.
+    git_path = shutil.which("git")
+    checks.append(
+        _check(
+            "git",
+            git_path is not None,
+            git_path or "git is not on PATH",
+            level="warn",
+            hint="Install git; SKEIN projects normally live in repositories.",
+        )
+    )
+
+    return checks
+
+
+@cli.command()
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.pass_context
+def doctor(ctx, output_json):
+    """Diagnose this SKEIN installation.
+
+    Checks the install itself, the SKEIN home, the project registry, the API
+    service, whether the CLI and service versions agree, the packaged docs, and
+    the current project.
+
+    Exit codes:
+    - 0: no failing checks (warnings are reported but do not fail)
+    - 1: at least one failing check
+    """
+    base_url = get_base_url(ctx.obj.get("url"))
+    checks = doctor_checks(base_url)
+    failed = [c for c in checks if not c["ok"] and c["level"] == "error"]
+    warned = [c for c in checks if not c["ok"] and c["level"] == "warn"]
+
+    if output_json:
+        click.echo(
+            json.dumps(
+                {"healthy": not failed, "checks": checks, "server_url": base_url},
+                indent=2,
+            )
+        )
+    else:
+        for check in checks:
+            if check["ok"]:
+                mark = "✓"
+            elif check["level"] == "warn":
+                mark = "!"
+            else:
+                mark = "✗"
+            click.echo(f"{mark} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("hint"):
+                click.echo(f"  → {check['hint']}")
+        click.echo()
+        if failed:
+            click.echo(f"{len(failed)} check(s) failed.")
+        elif warned:
+            click.echo("SKEIN is working. Some checks reported warnings.")
+        else:
+            click.echo("SKEIN is healthy.")
+
+    raise SystemExit(1 if failed else 0)
 
 
 # ============================================================================
@@ -5403,49 +5770,32 @@ def whoami(ctx):
 
 
 @cli.command()
-@click.argument(
-    "topic", type=click.Choice(["quickstart", "guide", "threads", "implementation"])
-)
+@click.argument("topic", type=click.Choice(sorted(INFO_TOPICS)))
 @click.pass_context
 def info(ctx, topic):
     """Display SKEIN documentation.
 
     Available topics:
-        quickstart      - Quick start guide for SKEIN
         guide           - Comprehensive SKEIN agent guide
-        threads         - Conceptual overview of threads system
         implementation  - Architecture and implementation details
+        quickstart      - Quick start guide for SKEIN
+
+    The documents ship inside the package, so these work from a plain install
+    with no source checkout.
 
     Examples:
         skein info quickstart
         skein info guide
-        skein info threads
     """
-    from pathlib import Path
+    doc_file = resolve_doc(topic)
 
-    # Find docs directory
-    # Docs are in ~/projects/skein/docs/
-    current_file = Path(__file__)
-    project_root = current_file.parent.parent  # client/cli.py -> skein root
-    docs_dir = project_root / "docs"
+    if doc_file is None:
+        raise click.ClickException(
+            f"Documentation for '{topic}' is not installed "
+            f"(looked in {packaged_docs_dir()}). Reinstall the interskein package."
+        )
 
-    doc_map = {
-        "quickstart": docs_dir / "SKEIN_QUICK_START.md",
-        "guide": docs_dir / "SKEIN_AGENT_GUIDE.md",
-        "threads": docs_dir / "THREADS_PHILOSOPHY.md",
-        "implementation": docs_dir / "ARCHITECTURE.md",
-    }
-
-    doc_file = doc_map.get(topic)
-
-    if not doc_file or not doc_file.exists():
-        click.echo(f"Documentation file not found: {doc_file}")
-        click.echo(f"Expected location: {doc_file}")
-        return
-
-    with open(doc_file, "r") as f:
-        content = f.read()
-        click.echo(content)
+    click.echo(doc_file.read_text())
 
 
 # ============================================================================

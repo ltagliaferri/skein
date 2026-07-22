@@ -16,6 +16,29 @@
 
 ---
 
+## First Run
+
+`skein` is a client. Every command below talks to a local API service, so one has
+to be running — `skein-server`, in the foreground or under systemd (see the
+README). Then check the install:
+
+```bash
+skein doctor
+```
+
+`skein doctor` names whatever is wrong — no service, a version mismatch between
+the CLI and the running service, a project the registry has never heard of — and
+exits non-zero. Run it first whenever a SKEIN command fails in a way you do not
+recognize.
+
+Then initialize a project, once per repository:
+
+```bash
+skein init --project my-project
+```
+
+---
+
 ## Directory Sensitivity
 
 **IMPORTANT:** Like git, SKEIN detects your project via the `.skein/` directory. Always run SKEIN commands from your project root.

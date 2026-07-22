@@ -63,6 +63,10 @@ dev = [
 [project.scripts]
 skein = "client.cli:main"
 mesh = "skein.mesh.cli:main"
+# The local API service the `skein` CLI talks to. A wheel install has no repo
+# and no Makefile, so this is how the service gets run at all — directly, or as
+# the ExecStart of a systemd unit (see systemd/skein.service.template).
+skein-server = "skein.server:main"
 
 [project.urls]
 Homepage = "https://github.com/spiritengine/skein"
@@ -81,6 +85,10 @@ exclude = ["skein.tests*"]
 [tool.setuptools.package-data]
 skein = [
     "templates/*.md",
+    # The docs `skein info` serves. They ship inside the package because a wheel
+    # install has no checkout to read them from; skein/docs/ holds symlinks to
+    # the repo-canonical files and the build copies their content.
+    "docs/*.md",
     "web/templates/*.html",
     "web/static/*.css",
     "web/static/themes/*.css",
@@ -99,6 +107,7 @@ markers = [
     "staging: live Sigstore staging integration (skipped unless SKEIN_TEST_SIGSTORE_LIVE=1)",
     "interactive: requires --run-interactive (human-in-the-loop browser-driven OAuth2 handshake; never CI)",
     "phase3a_pending: Phase 3a test-first specs that are RED until their A1-A5 implementation lands (turn green as each step lands; remove the marker per-test then). Exclude from a regression health check with -m 'not phase3a_pending'.",
+    "slow_build: builds a wheel with `python -m build` (tens of seconds); the only place a packaging regression in the built artifact is visible. Exclude with -m 'not slow_build'.",
     "phase3b_pending: Phase 3b test-first specs (thread_hash PK swap + Class B structural DAG) that are RED until their implementation lands (turn green as each step lands; remove the marker per-test then). Exclude from a regression health check with -m 'not phase3b_pending'.",
 ]
 filterwarnings = [

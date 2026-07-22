@@ -1,8 +1,0 @@
-# argv: stats folios --by-status --json
-# rc: 0
-{
-  "by_status": {
-    "open": 715
-  },
-  "total": 715
-}

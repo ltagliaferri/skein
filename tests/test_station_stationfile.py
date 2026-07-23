@@ -222,14 +222,26 @@ def test_onboarding_site_slug_stripped(data_dir):
 @pytest.mark.parametrize(
     "onboarding",
     [
+        None,                                    # explicit null is not "absent"
         "collaborator",                          # not an object
         ["site"],                                # not an object
+        5,                                       # not an object
+        True,                                    # not an object
         {},                                      # no kind
         {"kind": "portal"},                      # unknown kind
+        {"kind": None},                          # non-string kind
+        {"kind": 5},                             # non-string kind
+        {"kind": True},                          # non-string kind
+        {"kind": []},                            # unhashable kind (list)
+        {"kind": {}},                            # unhashable kind (object)
         {"kind": "site"},                        # site without slug
         {"kind": "site", "slug": ""},            # empty slug
         {"kind": "site", "slug": "   "},         # whitespace slug
         {"kind": "site", "slug": 5},             # non-string slug
+        {"kind": "site", "slug": None},          # non-string slug (null)
+        {"kind": "site", "slug": True},          # non-string slug (bool)
+        {"kind": "site", "slug": ["welcome"]},   # non-string slug (list)
+        {"kind": "site", "slug": {"s": 1}},      # non-string slug (object)
         {"kind": "site", "slug": "Not A Slug!"}, # fails the public-site-slug grammar
         {"kind": "site", "slug": "-leading"},    # grammar: ends must be alphanumeric
     ],

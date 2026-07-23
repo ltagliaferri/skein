@@ -9,22 +9,23 @@ alongside the corpus, so a config or theme change rides the LIGHT deploy path
 
 Validation posture is **ease, not enforcement** (§ "Validation posture"):
 
-- ``name`` is the ONLY hard requirement. No name from anywhere — no stationfile,
+- ``name`` is the only REQUIRED field. No name from anywhere — no stationfile,
   empty ``name``, and no ``SKEIN_STATION_NAME`` bootstrap env — is a hard error
   (:class:`StationfileError`); the station refuses to start rather than silently
   inherit a blank or invented label. Naming a station is basic, not a11y-policing.
-- Everything else degrades and logs a warning: a bad ``theme`` path falls back to
-  the default, an unknown/bad token is dropped. No contrast or a11y gating —
-  owners own their station's look.
+- The presentation fields degrade and log a warning: a bad ``theme`` path falls
+  back to the default, an unknown/bad token is dropped. No contrast or a11y
+  gating — owners own their station's look.
 - ``schema_version`` drives forward migration. A version we don't know how to read
   is a loud error, never a silent misread.
 - The optional ``onboarding`` key routes ``GET /onboarding``: kind
   ``collaborator`` (the default, the signed bootstrap-pack ceremony) or kind
   ``site`` with a ``slug`` (redirect to that public site). Unlike the
-  presentation fields this is ROUTING, so a malformed value (unknown kind, bad
-  types, site without a slug) is a hard error, not a degrade — silently serving
-  the collaborator ceremony to a station that pointed visitors at a site would
-  be the wrong page, not a degraded look.
+  presentation fields this is ROUTING: any present-but-malformed value — an
+  explicit ``null``, a non-object, an unknown or mistyped kind, a missing or
+  invalid slug — is a hard error, never a degrade. Silently serving the
+  collaborator ceremony to a station that pointed visitors at a site would be
+  the wrong page, not a degraded look. Only an ABSENT key means the default.
 
 **Name precedence.** ``stationfile.name`` wins; the ``SKEIN_STATION_NAME`` env var
 is a bootstrap that supplies the name *until a stationfile exists*, then steps
@@ -84,8 +85,9 @@ class StationfileError(RuntimeError):
     """A stationfile problem that must stop the station from starting.
 
     Raised only for the hard failures: a missing/empty ``name`` with no env
-    bootstrap, malformed JSON, or an unreadable future ``schema_version``.
-    Everything else degrades with a warning instead.
+    bootstrap, malformed JSON, an unreadable future ``schema_version``, or a
+    present-but-malformed ``onboarding`` value (routing fails loudly). The
+    presentation fields degrade with a warning instead.
     """
 
 
@@ -264,16 +266,16 @@ def _resolve_onboarding(raw: Mapping[str, Any], path: Optional[Path]) -> Onboard
     visitors to the wrong page, so it fails loudly like ``name`` and
     ``schema_version`` instead.
     """
-    value = raw.get("onboarding")
-    if value is None:
+    if "onboarding" not in raw:
         return OnboardingConfig()
+    value = raw["onboarding"]
     if not isinstance(value, Mapping):
         raise StationfileError(
             f"stationfile at {path}: onboarding must be an object, "
             f"got {type(value).__name__}"
         )
     kind = value.get("kind")
-    if kind not in _ONBOARDING_KINDS:
+    if not isinstance(kind, str) or kind not in _ONBOARDING_KINDS:
         raise StationfileError(
             f"stationfile at {path}: onboarding.kind must be one of "
             f"{sorted(_ONBOARDING_KINDS)}, got {kind!r}"

@@ -59,19 +59,20 @@ def find_project_root() -> Optional[Path]:
 def get_project_config() -> Optional[Dict[str, Any]]:
     """Get project config from .skein/config.json if in a project.
 
-    A config that cannot even be probed — an unsearchable .skein/ left behind by
-    a stray sudo, a deleted cwd — is treated like an absent one: `skein doctor`
-    runs before any of that is repaired, so none of these probes may raise.
+    Raises OSError when the directory walk or the config probe cannot run at
+    all (an unsearchable ancestor or .skein/): a command must fail loudly on a
+    config it cannot evaluate, not silently fall through to the global URL.
+    `skein doctor` guards its own calls and reports that state as a check.
     """
+    project_root = find_project_root()
+    if not project_root:
+        return None
+
+    config_file = project_root / ".skein" / "config.json"
+    if not config_file.exists():
+        return None
+
     try:
-        project_root = find_project_root()
-        if not project_root:
-            return None
-
-        config_file = project_root / ".skein" / "config.json"
-        if not config_file.exists():
-            return None
-
         with open(config_file) as f:
             return json.load(f)
     except Exception:
@@ -81,16 +82,16 @@ def get_project_config() -> Optional[Dict[str, Any]]:
 def get_global_config() -> Dict[str, Any]:
     """Get global SKEIN config from ~/.skein/config.json.
 
-    The exists() probe stays inside the try: on a ~/.skein that denies search
-    (root-owned after a stray sudo) it raises PermissionError rather than
-    returning False, and `skein doctor` reaches here before printing a single
-    check. An unprobeable config gets the defaults, like an unreadable one.
+    Raises OSError when ~/.skein cannot even be probed (root-owned after a
+    stray sudo): answering with the defaults would silently reroute every
+    command to localhost. `skein doctor` guards its own call and reports that
+    state as a failing check.
     """
     config_file = Path.home() / ".skein" / "config.json"
-    try:
-        if not config_file.exists():
-            return {"server_url": "http://localhost:8001"}
+    if not config_file.exists():
+        return {"server_url": "http://localhost:8001"}
 
+    try:
         with open(config_file) as f:
             return json.load(f)
     except Exception:
@@ -771,51 +772,78 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
             checks.append(_check("project registry", False, f"{registry_file} is unreadable: {e}"))
 
     # The cwd walk stats entries under every ancestor: a deleted cwd or an
-    # ancestor with search revoked raises mid-walk. Unprobeable means "not in a
-    # project" here — the config read guards itself the same way.
+    # ancestor with search revoked raises mid-walk. That is not "not in a
+    # project" — doctor cannot tell — so the failure is carried to the current
+    # project check rather than passed off as a clean answer.
+    project_root: Optional[Path] = None
+    project_root_error: Optional[OSError] = None
     try:
         project_root = find_project_root()
-    except OSError:
-        project_root = None
-    project_config = get_project_config() or {}
+    except OSError as e:
+        project_root_error = e
+
+    # get_project_config re-walks the cwd, so probe it only when the walk
+    # succeeded; it raises its own OSError on a .skein/ that denies search.
+    project_config: Dict[str, Any] = {}
+    project_config_error: Optional[OSError] = None
+    if project_root_error is None:
+        try:
+            project_config = get_project_config() or {}
+        except OSError as e:
+            project_config_error = e
     project_id = project_config.get("project_id")
 
-    # Rotating backups exist only if the registry was written at least once; a
-    # fresh install has none. So backups present with the live file gone is the
-    # fingerprint of a deleted registry, wherever doctor happens to run.
-    # exists() raises when the home's parent denies search; no backups are
-    # findable through that either.
-    try:
-        backups = sorted(home.glob("projects.json.bak-*")) if home.exists() else []
-    except OSError:
-        backups = []
-
     if registry_readable and not registry_present:
-        if project_id or backups:
-            evidence = []
-            if project_id:
-                evidence.append(f"{project_root} is an initialized project ('{project_id}')")
-            if backups:
-                evidence.append(f"{len(backups)} registry backup(s) present in {home}")
+        # Rotating backups exist only if the registry was written at least once;
+        # a fresh install has none. So backups present with the live file gone is
+        # the fingerprint of a deleted registry, wherever doctor happens to run.
+        # listdir, not glob: glob swallows PermissionError by design and returns
+        # [] for a home that denies listing (mode 0333) — backups it cannot see.
+        # Evidence doctor could not collect makes the failed probe the verdict;
+        # "no projects registered yet" would claim it collected some.
+        try:
+            backups = (
+                sorted(n for n in os.listdir(home) if n.startswith("projects.json.bak-"))
+                if home.exists()
+                else []
+            )
+        except OSError as e:
             checks.append(
                 _check(
                     "project registry",
                     False,
-                    f"no registry at {registry_file}, but " + ", and ".join(evidence),
-                    hint="The registry is missing or was deleted. Restore it from a "
-                    f"{registry_file.name}.bak-* backup in {home}.",
+                    f"no registry at {registry_file}, and cannot enumerate backups: {e}",
+                    hint="The SKEIN home denies listing, so a deleted registry and a "
+                    "fresh install look alike. Fix the home's mode (chmod u+r), or "
+                    "set SKEIN_HOME to a readable directory.",
                 )
             )
         else:
-            checks.append(
-                _check(
-                    "project registry",
-                    True,
-                    "no projects registered yet",
-                    level="info",
-                    hint="Run `skein init --project NAME` in a project directory.",
+            if project_id or backups:
+                evidence = []
+                if project_id:
+                    evidence.append(f"{project_root} is an initialized project ('{project_id}')")
+                if backups:
+                    evidence.append(f"{len(backups)} registry backup(s) present in {home}")
+                checks.append(
+                    _check(
+                        "project registry",
+                        False,
+                        f"no registry at {registry_file}, but " + ", and ".join(evidence),
+                        hint="The registry is missing or was deleted. Restore it from a "
+                        f"{registry_file.name}.bak-* backup in {home}.",
+                    )
                 )
-            )
+            else:
+                checks.append(
+                    _check(
+                        "project registry",
+                        True,
+                        "no projects registered yet",
+                        level="info",
+                        hint="Run `skein init --project NAME` in a project directory.",
+                    )
+                )
     elif registry_readable:
         # A registered entry is usable only if it points at a data directory that
         # exists. An absent or empty data_dir is not "present as the cwd" — Path("")
@@ -855,6 +883,23 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
                     level="info",
                 )
             )
+
+    # The global config routes every command that runs without SKEIN_URL. The
+    # shared helper keeps master's loud failure for those commands — a ~/.skein
+    # that denies search must not silently reroute them to the default URL — so
+    # doctor probes it here itself, and the raise becomes a failing check.
+    try:
+        get_global_config()
+    except OSError as e:
+        checks.append(
+            _check(
+                "global config",
+                False,
+                f"cannot probe {Path.home() / '.skein' / 'config.json'}: {e}",
+                hint="Fix the ownership/mode of ~/.skein (left behind by a stray "
+                "sudo?) so the CLI can resolve its server URL.",
+            )
+        )
 
     # The service the CLI actually talks to. A 200 alone is not enough — anything
     # can be listening on a fixed localhost port — so it must identify as a healthy
@@ -986,8 +1031,21 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
             _check("packaged docs", True, f"{len(INFO_TOPICS)} topic(s) installed", level="info")
         )
 
-    # Current directory: is this a SKEIN project?
-    if project_root is None:
+    # Current directory: is this a SKEIN project? "Cannot tell" is not "no" —
+    # a walk or probe that raised is a failing check that names its error, never
+    # the benign warning below.
+    if project_root_error is not None:
+        checks.append(
+            _check(
+                "current project",
+                False,
+                f"cannot tell whether this is a SKEIN project: {project_root_error}",
+                hint="An ancestor of the current directory denies search, so the "
+                ".skein/ walk cannot run. Fix that directory's mode, or run doctor "
+                "from a readable directory.",
+            )
+        )
+    elif project_root is None:
         checks.append(
             _check(
                 "current project",
@@ -995,6 +1053,16 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
                 "not inside a SKEIN project",
                 level="warn",
                 hint="Run `skein init --project NAME` in your project directory.",
+            )
+        )
+    elif project_config_error is not None:
+        checks.append(
+            _check(
+                "current project",
+                False,
+                f"{project_root} has .skein/ but it cannot be probed: {project_config_error}",
+                hint="Fix the ownership/mode of .skein/ (left behind by a stray "
+                "sudo?), or remove it and re-run `skein init`.",
             )
         )
     elif project_id and project_id in registry:
@@ -1032,6 +1100,38 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
     return checks
 
 
+def doctor_base_url(ctx_url: Optional[str] = None) -> str:
+    """get_base_url for `skein doctor`: same priority order, but a config that
+    cannot even be probed resolves on to the next source instead of raising.
+
+    Doctor runs before a broken install is repaired, so it must reach its
+    checks; doctor_checks reports the unprobeable config as a failing check.
+    Every other command resolves through get_base_url and fails loudly.
+    """
+    if ctx_url:
+        return ctx_url.rstrip("/")
+
+    env_url = os.getenv("SKEIN_URL")
+    if env_url:
+        return env_url.rstrip("/")
+
+    try:
+        project_config = get_project_config()
+    except OSError:
+        project_config = None
+    if project_config and project_config.get("server_url"):
+        return project_config["server_url"].rstrip("/")
+
+    try:
+        global_config = get_global_config()
+    except OSError:
+        global_config = {}
+    if global_config.get("server_url"):
+        return global_config["server_url"].rstrip("/")
+
+    return "http://localhost:8001"
+
+
 @cli.command()
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
@@ -1046,7 +1146,7 @@ def doctor(ctx, output_json):
     - 0: no failing checks (warnings are reported but do not fail)
     - 1: at least one failing check
     """
-    base_url = get_base_url(ctx.obj.get("url"))
+    base_url = doctor_base_url(ctx.obj.get("url"))
     checks = doctor_checks(base_url)
     failed = [c for c in checks if not c["ok"] and c["level"] == "error"]
     warned = [c for c in checks if not c["ok"] and c["level"] == "warn"]

@@ -109,6 +109,56 @@ class TestSupervisorUnit:
         assert "ExecStart=" in result.stdout
         assert "__SKEIN_SERVER__" not in result.stdout
 
+    def test_module_invocation_renders_this_interpreter_not_a_path_skein_server(self, tmp_path):
+        # Run as `python -m skein.server` with a DIFFERENT skein-server first on
+        # PATH. The rendered ExecStart must launch this interpreter's module, not
+        # the unrelated PATH entry — PATH is not the anchor for "this install".
+        import os
+
+        decoy_dir = tmp_path / "decoy"
+        decoy_dir.mkdir()
+        decoy = decoy_dir / "skein-server"
+        decoy.write_text("#!/bin/sh\necho wrong\n")
+        decoy.chmod(0o755)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "skein.server", "--print-unit"],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+            env={**os.environ, "PATH": f"{decoy_dir}:{os.environ.get('PATH', '')}"},
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr
+        exec_line = next(ln for ln in result.stdout.splitlines() if ln.startswith("ExecStart="))
+        assert str(decoy) not in exec_line, exec_line
+        assert "-m skein.server" in exec_line, exec_line
+
+    def test_execstart_quotes_a_path_with_spaces(self):
+        # systemd splits ExecStart on whitespace; an install path with a space
+        # (macOS "Application Support", a home dir with a space) must be quoted or
+        # systemd execs a truncated path.
+        from skein import server
+
+        cmd = server._systemd_quote("/opt/my apps/bin/skein-server")
+        assert cmd == '"/opt/my apps/bin/skein-server"'
+        # A plain path is left bare.
+        assert server._systemd_quote("/opt/bin/skein-server") == "/opt/bin/skein-server"
+
+    def test_server_command_ignores_a_nonexecutable_argv0(self, tmp_path, monkeypatch):
+        # An argv[0] named skein-server that is not executable must not become the
+        # ExecStart; fall back to the always-valid `<python> -m` form.
+        from skein import server
+
+        fake = tmp_path / "skein-server"
+        fake.write_text("not executable")
+        fake.chmod(0o644)
+        monkeypatch.setattr("sys.argv", [str(fake)])
+
+        cmd = server.server_command()
+        assert cmd[0] != str(fake)
+        assert cmd[-2:] == ["-m", "skein.server"]
+
     def test_package_data_declares_the_unit(self):
         package_data = _read_pyproject()["tool"]["setuptools"]["package-data"]["skein"]
         assert "units/*" in package_data

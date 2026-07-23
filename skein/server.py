@@ -34,9 +34,12 @@ from skein.version import package_version
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
 # Config file in a source checkout: <repo>/config/config.json, i.e. the sibling
-# of the package directory. Absent in a wheel install (site-packages has no
-# repo root), which is why it is only one entry in the search order below.
-REPO_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "config.json"
+# of the package directory. In a wheel install that same relative spot is
+# site-packages/config/config.json — which another installed package could
+# create — so it is only consulted when it is genuinely a checkout (a sibling
+# pyproject.toml proves that), never in an install. See is_source_checkout().
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_CONFIG_PATH = REPO_ROOT / "config" / "config.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "host": "127.0.0.1",
@@ -45,19 +48,31 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
+def is_source_checkout() -> bool:
+    """Whether the package is running from a source tree rather than an install.
+
+    A checkout has a pyproject.toml beside the package directory; site-packages
+    does not. This is what keeps a wheel install from reading an unrelated
+    ``site-packages/config/config.json`` as SKEIN's server config.
+    """
+    return (REPO_ROOT / "pyproject.toml").is_file()
+
+
 def config_search_paths() -> List[Path]:
     """Config files to try, most specific first; the first that exists wins.
 
     ``SKEIN_SERVER_CONFIG`` is the explicit override. ``<SKEIN_HOME>/server.json``
-    is the install-independent location a wheel user can write. The repo path is
-    last so a source checkout keeps its existing behaviour.
+    is the install-independent location a wheel user can write. The repo config is
+    consulted only from an actual checkout, so an install cannot pick up a config
+    file that merely happens to sit at the same relative path in site-packages.
     """
     paths: List[Path] = []
     override = os.getenv("SKEIN_SERVER_CONFIG")
     if override:
         paths.append(Path(override).expanduser())
     paths.append(skein_home() / "server.json")
-    paths.append(REPO_CONFIG_PATH)
+    if is_source_checkout():
+        paths.append(REPO_CONFIG_PATH)
     return paths
 
 
@@ -233,26 +248,42 @@ def unit_template_path() -> Path:
     return Path(__file__).resolve().parent / "units" / "skein.service"
 
 
-def server_executable() -> str:
-    """Absolute path to invoke for the service in a rendered supervisor unit.
+def _systemd_quote(token: str) -> str:
+    """Quote one ExecStart token for systemd if it needs it.
 
-    Prefers this process's own entrypoint (``sys.argv[0]`` when run as the
-    ``skein-server`` console script), because that is unambiguously the install
-    the caller is holding. Falls back to ``skein-server`` on PATH, then to the
-    module form, so ``--print-unit`` always yields something runnable.
+    systemd splits ExecStart on whitespace, so a path containing a space (a
+    macOS "Application Support" tree, a home directory with a space) must be
+    double-quoted or systemd execs a truncated path. Double quotes and
+    backslashes inside the token are backslash-escaped, per systemd.exec(5).
     """
-    import shutil
+    if token and not any(c in token for c in ' \t"\\'):
+        return token
+    escaped = token.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def server_command() -> List[str]:
+    """The argv that launches THIS install's service, for a supervisor unit.
+
+    The invariant is "launch the exact install doing the rendering." That is
+    this process's own ``skein-server`` console script when it was run as one
+    (``sys.argv[0]``, executable), and otherwise ``<this python> -m
+    skein.server`` — which always runs this package under this interpreter with
+    no PATH lookup. PATH is deliberately never searched: a ``skein-server`` on
+    PATH can be a different, stale install than the one rendering the unit.
+    """
+    import os
     import sys
 
     argv0 = Path(sys.argv[0])
-    if argv0.name == "skein-server" and argv0.exists():
-        return str(argv0.resolve())
-    found = shutil.which("skein-server")
-    if found:
-        return str(Path(found).resolve())
-    # Last resort: the module form under the running interpreter. Always valid,
-    # just longer than a bare console-script path.
-    return f"{sys.executable} -m skein.server"
+    if argv0.name == "skein-server" and argv0.is_file() and os.access(argv0, os.X_OK):
+        return [str(argv0.resolve())]
+    return [str(Path(sys.executable).resolve()), "-m", "skein.server"]
+
+
+def server_execstart() -> str:
+    """The ExecStart value for the rendered unit: this install's argv, quoted."""
+    return " ".join(_systemd_quote(t) for t in server_command())
 
 
 def render_unit() -> str:
@@ -260,10 +291,10 @@ def render_unit() -> str:
 
     Printed by ``skein-server --print-unit``; the caller redirects it into
     ``~/.config/systemd/user/skein.service``. Runs inside the service's own
-    environment, so it resolves the right path even for an isolated
+    environment, so it resolves the right command even for an isolated
     ``uv tool`` / ``pipx`` install a bare ``python`` could not import.
     """
-    return unit_template_path().read_text().replace("__SKEIN_SERVER__", server_executable())
+    return unit_template_path().read_text().replace("__SKEIN_SERVER__", server_execstart())
 
 
 def main(argv: Optional[List[str]] = None) -> None:

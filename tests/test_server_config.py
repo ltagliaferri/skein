@@ -119,6 +119,43 @@ class TestConfigSearchOrder:
         assert config["port"] == 8222
         assert "nonsense" not in config
 
+    def test_an_install_does_not_read_a_squatting_repo_config(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        """In a wheel, skein/ sits in site-packages and the repo config path points
+        at site-packages/config/config.json — which another package could create.
+        It must be consulted only from a genuine checkout (a sibling pyproject.toml)."""
+        from skein import server
+
+        rogue_root = tmp_path / "site-packages"
+        (rogue_root / "config").mkdir(parents=True)
+        (rogue_root / "config" / "config.json").write_text(
+            json.dumps({"server": {"host": "0.0.0.0", "port": 45678}})
+        )
+        # No pyproject.toml beside it -> not a checkout.
+        monkeypatch.setattr("skein.server.REPO_ROOT", rogue_root)
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", rogue_root / "config" / "config.json")
+
+        assert server.is_source_checkout() is False
+        config = get_config()
+        assert config["host"] == "127.0.0.1"
+        assert config["port"] == 8001
+
+    def test_a_checkout_still_reads_its_repo_config(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        from skein import server
+
+        root = tmp_path / "checkout"
+        (root / "config").mkdir(parents=True)
+        (root / "pyproject.toml").write_text("[project]\nname='interskein'\n")
+        (root / "config" / "config.json").write_text(json.dumps({"server": {"port": 8321}}))
+        monkeypatch.setattr("skein.server.REPO_ROOT", root)
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", root / "config" / "config.json")
+
+        assert server.is_source_checkout() is True
+        assert get_config()["port"] == 8321
+
 
 class TestLauncherShim:
     """The repo-root launcher keeps working for systemd and the fidelity harness."""

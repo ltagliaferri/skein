@@ -86,8 +86,46 @@ class TestRegistryDamage:
         assert check["ok"] is False
         assert check["level"] == "error"
 
+    def test_absent_registry_with_a_backup_is_damage_even_outside_a_project(
+        self, skein_home, outside_a_project
+    ):
+        """Backups exist only after the registry was written at least once. So a
+        backup present with no live file is a deletion, wherever doctor runs — the
+        exact situation the check was added for, missed when outside a project."""
+        (skein_home / "projects.json.bak-20260101-000000-000000").write_text(
+            json.dumps({"projects": {"real": {"data_dir": "/x"}}})
+        )
+        check = checks_by_name()["project registry"]
+        assert check["ok"] is False
+        assert check["level"] == "error"
+        assert "backup" in check["detail"]
+
+    def test_projects_as_a_list_does_not_crash_and_is_an_error(self, skein_home, outside_a_project):
+        """A malformed registry must fail the check, not raise out of doctor."""
+        (skein_home / "projects.json").write_text(json.dumps({"projects": []}))
+        check = checks_by_name()["project registry"]
+        assert check["ok"] is False
+        assert check["level"] == "error"
+
+    def test_entry_without_a_data_dir_is_not_a_clean_pass(self, skein_home, outside_a_project):
+        """An empty/absent data_dir is Path('') which tests as the cwd — that must
+        not pass a broken entry as a registered project."""
+        (skein_home / "projects.json").write_text(json.dumps({"projects": {"broken": {}}}))
+        check = checks_by_name()["project registry"]
+        assert check["ok"] is False
+        assert "broken" in check["detail"]
+
 
 class TestService:
+    def _with_health(self, monkeypatch, body):
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return body
+
+        monkeypatch.setattr("requests.get", lambda *a, **k: FakeResponse())
+
     def test_absent_service_is_an_error_that_says_how_to_start_one(
         self, skein_home, outside_a_project
     ):
@@ -102,6 +140,64 @@ class TestService:
         check = checks_by_name()["version match"]
         assert check["ok"] is True
         assert check["level"] == "info"
+
+    def test_an_unhealthy_200_is_not_a_healthy_service(
+        self, skein_home, outside_a_project, monkeypatch
+    ):
+        """A 200 is not proof: anything can hold a fixed localhost port."""
+        self._with_health(monkeypatch, {"status": "unhealthy"})
+        check = checks_by_name()["api service"]
+        assert check["ok"] is False
+        assert "not a healthy SKEIN service" in check["detail"]
+
+    def test_a_foreign_distribution_is_not_a_skein_service(
+        self, skein_home, outside_a_project, monkeypatch
+    ):
+        from skein.version import package_version
+
+        self._with_health(
+            monkeypatch,
+            {"status": "healthy", "distribution": "not-skein", "version": package_version()},
+        )
+        check = checks_by_name()["api service"]
+        assert check["ok"] is False
+
+    def test_a_service_serving_a_different_home_is_flagged(
+        self, skein_home, outside_a_project, monkeypatch
+    ):
+        """Healthy and same version, but a different SKEIN_HOME: the CLI's projects
+        are invisible to it, so `skein sites` would fail. Doctor must not say ok."""
+        from skein.version import package_version
+
+        self._with_health(
+            monkeypatch,
+            {
+                "status": "healthy",
+                "distribution": "interskein",
+                "version": package_version(),
+                "skein_home": "/some/other/home",
+            },
+        )
+        check = checks_by_name()["api service"]
+        assert check["ok"] is False
+        assert "SKEIN_HOME" in check["detail"]
+
+    def test_a_matching_home_healthy_service_passes(
+        self, skein_home, outside_a_project, monkeypatch
+    ):
+        from skein.version import package_version
+
+        self._with_health(
+            monkeypatch,
+            {
+                "status": "healthy",
+                "distribution": "interskein",
+                "version": package_version(),
+                "skein_home": str(skein_home),
+            },
+        )
+        check = checks_by_name()["api service"]
+        assert check["ok"] is True
 
 
 class TestVersionSkew:
@@ -164,6 +260,24 @@ class TestPackagedDocs:
 
         assert check["ok"] is False
         assert "not a document" in check["detail"]
+
+    def test_a_missing_non_quickstart_topic_is_caught(
+        self, skein_home, outside_a_project, monkeypatch
+    ):
+        """The check is plural — every topic `skein info` serves must resolve, not
+        just quickstart. A guide/implementation that is gone must fail the check."""
+        from client import cli
+
+        real = cli.resolve_doc
+        monkeypatch.setattr(
+            "client.cli.resolve_doc",
+            lambda topic: None if topic != "quickstart" else real("quickstart"),
+        )
+
+        check = checks_by_name()["packaged docs"]
+
+        assert check["ok"] is False
+        assert "guide" in check["detail"] or "implementation" in check["detail"]
 
 
 def test_exit_code_and_json_shape(skein_home, tmp_path):

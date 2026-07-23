@@ -9,15 +9,23 @@ alongside the corpus, so a config or theme change rides the LIGHT deploy path
 
 Validation posture is **ease, not enforcement** (§ "Validation posture"):
 
-- ``name`` is the ONLY hard requirement. No name from anywhere — no stationfile,
+- ``name`` is the only REQUIRED field. No name from anywhere — no stationfile,
   empty ``name``, and no ``SKEIN_STATION_NAME`` bootstrap env — is a hard error
   (:class:`StationfileError`); the station refuses to start rather than silently
   inherit a blank or invented label. Naming a station is basic, not a11y-policing.
-- Everything else degrades and logs a warning: a bad ``theme`` path falls back to
-  the default, an unknown/bad token is dropped. No contrast or a11y gating —
-  owners own their station's look.
+- The presentation fields degrade and log a warning: a bad ``theme`` path falls
+  back to the default, an unknown/bad token is dropped. No contrast or a11y
+  gating — owners own their station's look.
 - ``schema_version`` drives forward migration. A version we don't know how to read
   is a loud error, never a silent misread.
+- The optional ``onboarding`` key routes ``GET /onboarding``: kind
+  ``collaborator`` (the default, the signed bootstrap-pack ceremony) or kind
+  ``site`` with a ``slug`` (redirect to that public site). Unlike the
+  presentation fields this is ROUTING: any present-but-malformed value — an
+  explicit ``null``, a non-object, an unknown or mistyped kind, a missing or
+  invalid slug — is a hard error, never a degrade. Silently serving the
+  collaborator ceremony to a station that pointed visitors at a site would be
+  the wrong page, not a degraded look. Only an ABSENT key means the default.
 
 **Name precedence.** ``stationfile.name`` wins; the ``SKEIN_STATION_NAME`` env var
 is a bootstrap that supplies the name *until a stationfile exists*, then steps
@@ -35,6 +43,8 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Union
+
+from .publish import SiteSlugError, validate_site_slug
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +67,11 @@ SHIPPED_THEMES = frozenset({"ulm", "classic"})
 KNOWN_TOKENS = frozenset({"accent", "font_body", "font_mono", "default_theme"})
 _VALID_DEFAULT_THEME = frozenset({"light", "dark"})
 
+# The `onboarding` kinds: what GET /onboarding serves.
+ONBOARDING_KIND_COLLABORATOR = "collaborator"
+ONBOARDING_KIND_SITE = "site"
+_ONBOARDING_KINDS = frozenset({ONBOARDING_KIND_COLLABORATOR, ONBOARDING_KIND_SITE})
+
 # Token values are written into a `<style>` block as CSS custom-property values.
 # These characters would let a value escape its declaration (`;`/`{`/`}`) or the
 # style element itself (`<`/`>`) — so a value carrying any of them is dropped.
@@ -70,9 +85,24 @@ class StationfileError(RuntimeError):
     """A stationfile problem that must stop the station from starting.
 
     Raised only for the hard failures: a missing/empty ``name`` with no env
-    bootstrap, malformed JSON, or an unreadable future ``schema_version``.
-    Everything else degrades with a warning instead.
+    bootstrap, malformed JSON, an unreadable future ``schema_version``, or a
+    present-but-malformed ``onboarding`` value (routing fails loudly). The
+    presentation fields degrade with a warning instead.
     """
+
+
+@dataclass(frozen=True)
+class OnboardingConfig:
+    """Where ``GET /onboarding`` sends a visitor.
+
+    ``kind`` is :data:`ONBOARDING_KIND_COLLABORATOR` (the signed bootstrap-pack
+    ceremony, the default) or :data:`ONBOARDING_KIND_SITE` (a redirect to the
+    public site named by ``site_slug``). ``site_slug`` is a validated public-site
+    slug iff ``kind == "site"``, else ``None``.
+    """
+
+    kind: str = ONBOARDING_KIND_COLLABORATOR
+    site_slug: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +120,7 @@ class StationConfig:
     logo: Optional[str] = None
     theme: str = DEFAULT_THEME
     tokens: Dict[str, str] = field(default_factory=dict)
+    onboarding: OnboardingConfig = field(default_factory=OnboardingConfig)
     schema_version: int = SCHEMA_VERSION
 
     @property
@@ -226,6 +257,45 @@ def _resolve_tokens(raw: Mapping[str, Any]) -> Dict[str, str]:
     return out
 
 
+def _resolve_onboarding(raw: Mapping[str, Any], path: Optional[Path]) -> OnboardingConfig:
+    """Validate the optional ``onboarding`` key; misconfiguration is a hard error.
+
+    This deliberately breaks from the degrade-with-warning posture of the
+    presentation fields: onboarding is routing, not look. A typo'd kind or a
+    missing slug that quietly fell back to the collaborator ceremony would send
+    visitors to the wrong page, so it fails loudly like ``name`` and
+    ``schema_version`` instead.
+    """
+    if "onboarding" not in raw:
+        return OnboardingConfig()
+    value = raw["onboarding"]
+    if not isinstance(value, Mapping):
+        raise StationfileError(
+            f"stationfile at {path}: onboarding must be an object, "
+            f"got {type(value).__name__}"
+        )
+    kind = value.get("kind")
+    if not isinstance(kind, str) or kind not in _ONBOARDING_KINDS:
+        raise StationfileError(
+            f"stationfile at {path}: onboarding.kind must be one of "
+            f"{sorted(_ONBOARDING_KINDS)}, got {kind!r}"
+        )
+    if kind == ONBOARDING_KIND_COLLABORATOR:
+        return OnboardingConfig()
+    slug = value.get("slug")
+    if not isinstance(slug, str) or not slug.strip():
+        raise StationfileError(
+            f"stationfile at {path}: onboarding.kind 'site' requires a non-empty "
+            "string 'slug' naming the public site to send visitors to"
+        )
+    slug = slug.strip()
+    try:
+        validate_site_slug(slug)
+    except SiteSlugError as e:
+        raise StationfileError(f"stationfile at {path}: onboarding.slug: {e}") from e
+    return OnboardingConfig(kind=ONBOARDING_KIND_SITE, site_slug=slug)
+
+
 def _optional_str(raw: Mapping[str, Any], key: str) -> Optional[str]:
     value = raw.get(key)
     if value is None:
@@ -247,8 +317,8 @@ def load_station_config(
     ``SKEIN_STATION_NAME`` bootstrap value (the caller reads the env).
 
     Raises :class:`StationfileError` for the hard failures (no resolvable name,
-    malformed JSON, unreadable future schema). Soft problems (bad theme path,
-    junk tokens) degrade with a logged warning.
+    malformed JSON, unreadable future schema, malformed ``onboarding`` routing).
+    Soft problems (bad theme path, junk tokens) degrade with a logged warning.
     """
     path = _stationfile_path(data_dir)
     raw = _read_raw(path)
@@ -265,5 +335,6 @@ def load_station_config(
         logo=_optional_str(raw, "logo"),
         theme=_resolve_theme(raw, data_dir),
         tokens=_resolve_tokens(raw),
+        onboarding=_resolve_onboarding(raw, path),
         schema_version=SCHEMA_VERSION,
     )

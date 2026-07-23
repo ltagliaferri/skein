@@ -37,7 +37,13 @@ from urllib.parse import quote
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
@@ -48,7 +54,12 @@ from .. import render as render_mod
 from ..resolve import ResolveError, resolve_to_hash
 from ..station import StationBootError
 from ..station_env import station_env
-from ..stationfile import StationConfig, StationfileError, load_station_config
+from ..stationfile import (
+    ONBOARDING_KIND_SITE,
+    StationConfig,
+    StationfileError,
+    load_station_config,
+)
 from ..station_store import DB_FILENAME, StationStore, make_snippet
 
 logger = logging.getLogger(__name__)
@@ -628,6 +639,13 @@ def create_app() -> FastAPI:
 
     @app.get("/onboarding", response_class=HTMLResponse)
     def onboarding(request: Request):
+        # Per-station routing (stationfile `onboarding`): site mode points
+        # visitors at a public site; collaborator mode (the default) serves the
+        # signed bootstrap-pack ceremony.
+        if config.onboarding.kind == ONBOARDING_KIND_SITE:
+            slug = config.onboarding.site_slug
+            assert slug is not None  # the loader sets it for kind "site"
+            return RedirectResponse(f"/site/{quote(slug, safe='')}", status_code=302)
         items = bootstrap_pack.inventory(get_data_dir() or "")
         ready = bootstrap_pack.is_complete(items)
         return html(
@@ -637,6 +655,8 @@ def create_app() -> FastAPI:
             status=200 if ready else 503,
         )
 
+    # Serves the pack files in BOTH onboarding modes: whether a site-mode
+    # station retires or relocates these artifacts is an open product decision.
     @app.get("/onboarding/{artifact}")
     def onboarding_artifact(artifact: str) -> Response:
         if artifact not in bootstrap_pack.FILES:

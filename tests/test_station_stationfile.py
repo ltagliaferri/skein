@@ -14,6 +14,7 @@ import pytest
 from skein.stationfile import (
     DEFAULT_THEME,
     SCHEMA_VERSION,
+    OnboardingConfig,
     StationConfig,
     StationfileError,
     load_station_config,
@@ -183,6 +184,72 @@ def test_legit_font_stack_token_kept(data_dir):
 def test_tokens_not_object_ignored(data_dir):
     _write(data_dir, {"name": "X", "tokens": "not-an-object"})
     assert load_station_config(data_dir).tokens == {}
+
+
+# --- onboarding: routing, so fail-loud (not degrade) -------------------------
+
+
+def test_onboarding_absent_defaults_to_collaborator(data_dir):
+    _write(data_dir, {"name": "X"})
+    cfg = load_station_config(data_dir)
+    assert cfg.onboarding == OnboardingConfig()
+    assert cfg.onboarding.kind == "collaborator"
+    assert cfg.onboarding.site_slug is None
+
+
+def test_onboarding_no_stationfile_defaults_to_collaborator(data_dir):
+    cfg = load_station_config(data_dir, env_name="interskein")
+    assert cfg.onboarding == OnboardingConfig()
+
+
+def test_onboarding_explicit_collaborator(data_dir):
+    _write(data_dir, {"name": "X", "onboarding": {"kind": "collaborator"}})
+    cfg = load_station_config(data_dir)
+    assert cfg.onboarding == OnboardingConfig()
+
+
+def test_onboarding_site_mode(data_dir):
+    _write(data_dir, {"name": "X", "onboarding": {"kind": "site", "slug": "onboarding"}})
+    ob = load_station_config(data_dir).onboarding
+    assert ob.kind == "site" and ob.site_slug == "onboarding"
+
+
+def test_onboarding_site_slug_stripped(data_dir):
+    _write(data_dir, {"name": "X", "onboarding": {"kind": "site", "slug": "  welcome  "}})
+    assert load_station_config(data_dir).onboarding.site_slug == "welcome"
+
+
+@pytest.mark.parametrize(
+    "onboarding",
+    [
+        None,                                    # explicit null is not "absent"
+        "collaborator",                          # not an object
+        ["site"],                                # not an object
+        5,                                       # not an object
+        True,                                    # not an object
+        {},                                      # no kind
+        {"kind": "portal"},                      # unknown kind
+        {"kind": None},                          # non-string kind
+        {"kind": 5},                             # non-string kind
+        {"kind": True},                          # non-string kind
+        {"kind": []},                            # unhashable kind (list)
+        {"kind": {}},                            # unhashable kind (object)
+        {"kind": "site"},                        # site without slug
+        {"kind": "site", "slug": ""},            # empty slug
+        {"kind": "site", "slug": "   "},         # whitespace slug
+        {"kind": "site", "slug": 5},             # non-string slug
+        {"kind": "site", "slug": None},          # non-string slug (null)
+        {"kind": "site", "slug": True},          # non-string slug (bool)
+        {"kind": "site", "slug": ["welcome"]},   # non-string slug (list)
+        {"kind": "site", "slug": {"s": 1}},      # non-string slug (object)
+        {"kind": "site", "slug": "Not A Slug!"}, # fails the public-site-slug grammar
+        {"kind": "site", "slug": "-leading"},    # grammar: ends must be alphanumeric
+    ],
+)
+def test_onboarding_misconfig_is_hard_error(data_dir, onboarding):
+    _write(data_dir, {"name": "X", "onboarding": onboarding})
+    with pytest.raises(StationfileError):
+        load_station_config(data_dir)
 
 
 # --- optional fields --------------------------------------------------------

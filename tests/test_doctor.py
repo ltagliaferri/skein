@@ -7,8 +7,9 @@ reported "no projects registered yet" while the operator's registry had just
 been deleted out from under 55 projects, and it reported the packaged docs fine
 when the installed file was a 31-byte path string.
 
-Every test redirects SKEIN_HOME into tmp_path, so none can read or write a real
-``~/.skein``.
+Every test redirects SKEIN_HOME into tmp_path, and HOME along with it (the
+global config check probes ~/.skein/config.json), so none can read or write a
+real ``~/.skein``.
 """
 
 import json
@@ -18,11 +19,27 @@ import sys
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
-from client.cli import doctor_checks
+from client.cli import cli, doctor_checks
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 UNREACHABLE = "http://127.0.0.1:1"
+
+# Every test that seals a path with chmod 0 needs real mode-bit enforcement;
+# root passes any permission check, so the sealed state cannot be built.
+needs_mode_bits = pytest.mark.skipif(
+    os.geteuid() == 0, reason="root ignores mode bits, so nothing can be made unsearchable"
+)
+
+
+@pytest.fixture(autouse=True)
+def isolated_user_home(tmp_path, monkeypatch):
+    """The global config check probes ~/.skein/config.json, so every test gets
+    a HOME with no .skein in it — in-process and subprocess alike, since the
+    subprocess envs start from os.environ. Tests that need a broken ~/.skein
+    build their own and override this."""
+    monkeypatch.setenv("HOME", str(tmp_path / "user-home"))
 
 
 @pytest.fixture
@@ -31,6 +48,19 @@ def skein_home(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("SKEIN_HOME", str(home))
     return home
+
+
+@pytest.fixture
+def sealed_home(tmp_path, monkeypatch):
+    """A SKEIN_HOME that exists but denies search — what a stray `sudo skein`
+    leaves behind as a root-owned ~/.skein. Every stat through it raises
+    PermissionError instead of answering."""
+    home = tmp_path / "sealed-home"
+    home.mkdir()
+    home.chmod(0)
+    monkeypatch.setenv("SKEIN_HOME", str(home))
+    yield home
+    home.chmod(0o700)  # so tmp_path cleanup can remove it
 
 
 @pytest.fixture
@@ -123,6 +153,286 @@ class TestRegistryDamage:
         check = checks_by_name()["project registry"]
         assert check["ok"] is False
         assert "broken" in check["detail"]
+
+    @needs_mode_bits
+    def test_a_data_dir_behind_an_unsearchable_directory_is_flagged_not_a_crash(
+        self, skein_home, tmp_path, outside_a_project
+    ):
+        """exists() on a path under a directory that denies search raises rather
+        than returning False; the entry is as unusable as a missing one."""
+        sealed = tmp_path / "sealed-parent"
+        sealed.mkdir()
+        (skein_home / "projects.json").write_text(
+            json.dumps({"projects": {"walled": {"data_dir": str(sealed / "data")}}})
+        )
+        sealed.chmod(0)
+        try:
+            check = checks_by_name()["project registry"]
+        finally:
+            sealed.chmod(0o700)
+        assert check["ok"] is False
+        assert "walled" in check["detail"]
+
+
+@needs_mode_bits
+class TestUnsearchableHome:
+    """SKEIN_HOME exists but cannot be searched — the first-contact state doctor
+    exists for. Every probe into it must come back as a failing check with an
+    honest exit code, never a traceback, in text and --json alike."""
+
+    def _run_doctor(self, sealed_home, tmp_path, *flags):
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        return subprocess.run(
+            [sys.executable, "-m", "client.cli", "doctor", *flags],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env={
+                **os.environ,
+                "SKEIN_HOME": str(sealed_home),
+                "SKEIN_URL": UNREACHABLE,
+                "PYTHONPATH": str(REPO_ROOT),
+            },
+            timeout=120,
+        )
+
+    def test_probes_become_failing_checks_not_a_crash(self, sealed_home, outside_a_project):
+        checks = checks_by_name()
+        assert checks["skein home"]["ok"] is False
+        registry = checks["project registry"]
+        assert registry["ok"] is False
+        assert registry["level"] == "error"
+        assert str(sealed_home) in registry["detail"]
+
+    def test_text_mode_reports_and_exits_nonzero(self, sealed_home, tmp_path):
+        result = self._run_doctor(sealed_home, tmp_path)
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "Traceback" not in result.stderr
+        assert "skein home" in result.stdout
+        assert "project registry" in result.stdout
+        assert "check(s) failed" in result.stdout
+
+    def test_json_mode_stays_parseable(self, sealed_home, tmp_path):
+        result = self._run_doctor(sealed_home, tmp_path, "--json")
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "Traceback" not in result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["healthy"] is False
+        by_name = {c["name"]: c for c in payload["checks"]}
+        assert by_name["skein home"]["ok"] is False
+        assert by_name["project registry"]["ok"] is False
+
+
+@needs_mode_bits
+class TestUnlistableHome:
+    """SKEIN_HOME mode 0333: writable and searchable, but not listable. The home
+    check passes and projects.json stats as absent — but the backup glob raises,
+    so doctor cannot tell a fresh install from a deleted registry. Swallowing
+    that glob into backups=[] once turned this into "no projects registered
+    yet", a clean bill of health built on evidence doctor could not collect."""
+
+    @pytest.fixture
+    def write_only_home(self, tmp_path, monkeypatch):
+        home = tmp_path / "write-only-home"
+        home.mkdir()
+        home.chmod(0o333)
+        monkeypatch.setenv("SKEIN_HOME", str(home))
+        yield home
+        home.chmod(0o700)
+
+    def test_backup_enumeration_failure_is_a_failing_check(
+        self, write_only_home, outside_a_project
+    ):
+        check = checks_by_name()["project registry"]
+        assert check["ok"] is False
+        assert check["level"] == "error"
+        assert "cannot enumerate backups" in check["detail"]
+
+    def test_doctor_exits_nonzero_with_unhealthy_json(self, write_only_home, tmp_path):
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        result = subprocess.run(
+            [sys.executable, "-m", "client.cli", "doctor", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env={
+                **os.environ,
+                "SKEIN_HOME": str(write_only_home),
+                "SKEIN_URL": UNREACHABLE,
+                "PYTHONPATH": str(REPO_ROOT),
+            },
+            timeout=120,
+        )
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "Traceback" not in result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["healthy"] is False
+        by_name = {c["name"]: c for c in payload["checks"]}
+        registry = by_name["project registry"]
+        assert registry["ok"] is False
+        assert "cannot enumerate backups" in registry["detail"]
+
+
+@needs_mode_bits
+class TestSealedCwdAncestor:
+    """An ancestor of the cwd denies search, so the .skein/ walk raises before
+    its first probe answers. Mapping that to "not inside a SKEIN project" — a
+    warning — once let doctor exit 0 healthy. Cannot-determine is a failing
+    check that names its error, distinct from genuinely being outside."""
+
+    @pytest.fixture
+    def sealed_ancestor_cwd(self, tmp_path, monkeypatch):
+        parent = tmp_path / "sealed-parent"
+        child = parent / "child"
+        child.mkdir(parents=True)
+        monkeypatch.chdir(child)  # chdir while the parent is still searchable
+        parent.chmod(0)
+        yield child
+        parent.chmod(0o700)
+
+    def test_cannot_determine_is_a_failing_check_naming_the_error(
+        self, skein_home, sealed_ancestor_cwd
+    ):
+        check = checks_by_name()["current project"]
+        assert check["ok"] is False
+        assert check["level"] == "error"
+        assert "Errno" in check["detail"]
+        assert "not inside a SKEIN project" not in check["detail"]
+
+    def test_doctor_exits_nonzero_with_unhealthy_json(
+        self, skein_home, sealed_ancestor_cwd, monkeypatch
+    ):
+        """A subprocess cannot chdir into a directory behind a sealed ancestor,
+        so the full command runs in-process through click's runner. A crash
+        would leave no JSON to parse."""
+        monkeypatch.setenv("SKEIN_URL", UNREACHABLE)
+        result = CliRunner().invoke(cli, ["doctor", "--json"])
+        assert result.exit_code == 1
+        payload = json.loads(result.output)
+        assert payload["healthy"] is False
+        by_name = {c["name"]: c for c in payload["checks"]}
+        current = by_name["current project"]
+        assert current["ok"] is False
+        assert current["level"] == "error"
+        assert "Errno" in current["detail"]
+
+
+@needs_mode_bits
+class TestSealedGlobalConfig:
+    """~/.skein denies search — what a stray `sudo skein` leaves behind. The
+    shared helper raises, as on master: a command must not be silently rerouted
+    to a default URL by a config it cannot evaluate. Doctor alone survives,
+    through its own guarded route, and reports the state as a failing check."""
+
+    @pytest.fixture
+    def sealed_user_home(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "sealed-user-home"
+        dot_skein = fake_home / ".skein"
+        dot_skein.mkdir(parents=True)
+        dot_skein.chmod(0)
+        monkeypatch.setenv("HOME", str(fake_home))
+        yield fake_home
+        dot_skein.chmod(0o700)
+
+    def test_the_shared_helper_fails_loudly(self, sealed_user_home):
+        from client.cli import get_global_config
+
+        with pytest.raises(PermissionError):
+            get_global_config()
+
+    def test_a_non_doctor_command_fails_loudly(self, sealed_user_home, skein_home, tmp_path):
+        """With no SKEIN_URL, `skein sites` resolves its URL through the global
+        config and must raise out of it, not silently talk to localhost."""
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        env = {k: v for k, v in os.environ.items() if k != "SKEIN_URL"}
+        env.update({"SKEIN_HOME": str(skein_home), "PYTHONPATH": str(REPO_ROOT)})
+        result = subprocess.run(
+            [sys.executable, "-m", "client.cli", "sites"],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env=env,
+            timeout=120,
+        )
+        assert result.returncode != 0
+        assert "PermissionError" in result.stderr
+
+    def test_doctor_reports_it_as_a_failing_check(self, sealed_user_home, skein_home, tmp_path):
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        result = subprocess.run(
+            [sys.executable, "-m", "client.cli", "doctor", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env={
+                **os.environ,
+                "SKEIN_HOME": str(skein_home),
+                "SKEIN_URL": UNREACHABLE,
+                "PYTHONPATH": str(REPO_ROOT),
+            },
+            timeout=120,
+        )
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "Traceback" not in result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["healthy"] is False
+        by_name = {c["name"]: c for c in payload["checks"]}
+        assert by_name["global config"]["ok"] is False
+        assert "config.json" in by_name["global config"]["detail"]
+
+    def test_doctor_resolves_its_url_without_crashing(
+        self, sealed_user_home, tmp_path, monkeypatch
+    ):
+        """Doctor resolves its base URL before printing a single check — the
+        crash that motivated round 1. It must fall through to the default,
+        while the failing global config check reports why."""
+        from client.cli import doctor_base_url
+
+        monkeypatch.delenv("SKEIN_URL", raising=False)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        assert doctor_base_url() == "http://localhost:8001"
+
+
+@needs_mode_bits
+def test_a_sealed_project_dot_skein_raises_for_shared_helpers(tmp_path, monkeypatch):
+    """Master behavior: a command must not silently fall through to the global
+    URL when the project config cannot be evaluated."""
+    from client.cli import get_project_config
+
+    project = tmp_path / "proj"
+    (project / ".skein").mkdir(parents=True)
+    (project / ".skein").chmod(0)
+    monkeypatch.chdir(project)
+    try:
+        with pytest.raises(PermissionError):
+            get_project_config()
+    finally:
+        (project / ".skein").chmod(0o700)
+
+
+@needs_mode_bits
+def test_an_unsearchable_project_dot_skein_is_a_failed_check_not_a_crash(
+    skein_home, tmp_path, monkeypatch
+):
+    """A project whose .skein/ denies search: the config probe raises where the
+    directory walk succeeded. Doctor must report the project as broken."""
+    project = tmp_path / "proj"
+    (project / ".skein").mkdir(parents=True)
+    (project / ".skein").chmod(0)
+    monkeypatch.chdir(project)
+    try:
+        check = checks_by_name()["current project"]
+    finally:
+        (project / ".skein").chmod(0o700)
+    assert check["ok"] is False
+    assert check["level"] == "error"
+    assert "cannot be probed" in check["detail"]
 
 
 class TestService:
@@ -308,6 +618,22 @@ class TestPackagedDocs:
 
         assert check["ok"] is False
         assert "guide" in check["detail"] or "implementation" in check["detail"]
+
+    @needs_mode_bits
+    def test_an_unreadable_doc_is_reported_not_a_crash(
+        self, skein_home, outside_a_project, monkeypatch, tmp_path
+    ):
+        """A doc whose mode denies reading (a sudo'd install): stat succeeds,
+        read_text raises. That is a failed check, not a traceback."""
+        locked = tmp_path / "SKEIN_QUICK_START.md"
+        locked.write_text("# real enough\n" + "x" * 600)
+        locked.chmod(0)
+        monkeypatch.setattr("client.cli.resolve_doc", lambda topic: locked)
+
+        check = checks_by_name()["packaged docs"]
+
+        assert check["ok"] is False
+        assert "unreadable" in check["detail"]
 
 
 def test_exit_code_and_json_shape(skein_home, tmp_path):

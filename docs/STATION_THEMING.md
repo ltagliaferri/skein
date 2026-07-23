@@ -38,9 +38,10 @@ docker build).
   empty `name`, and no `SKEIN_STATION_NAME` bootstrap env — and the station
   **refuses to start** (`StationfileError`). Naming a station is basic identity;
   we never invent or blank a name.
-- **Everything else degrades with a logged warning.** A bad `theme` path falls
-  back to the default; an unknown or malformed token is dropped; a junk optional
-  field becomes empty. The page always renders.
+- **Everything else presentational degrades with a logged warning.** A bad
+  `theme` path falls back to the default; an unknown or malformed token is
+  dropped; a junk optional field becomes empty. The page always renders.
+  (`onboarding` is routing, not presentation, and fails hard — see below.)
 - **`schema_version` is a forward-migration guard.** A version newer than the
   running build understands is a loud error, never a silent misread.
 - **Malformed JSON is a hard error** — a station configured with broken JSON
@@ -55,6 +56,26 @@ the stationfile's whole purpose is to be changed via the light deploy path, so a
 baked-in compose env var must not override it.) To rename a live station: add or
 edit the stationfile and force-recreate — no code deploy, and the compose env var
 can stay as a harmless fallback.
+
+### Onboarding routing
+
+The optional `onboarding` key picks what `GET /onboarding` serves:
+
+```json
+{ "onboarding": { "kind": "site", "slug": "onboarding" } }
+```
+
+- **Absent, or `{"kind": "collaborator"}`** — the signed bootstrap-pack
+  invitation/verification ceremony (the default; existing stations are
+  unaffected).
+- **`{"kind": "site", "slug": "<public-site-slug>"}`** — a 302 redirect to
+  `/site/<slug>`. The slug is validated with the same grammar as any public
+  site slug (1–32 lowercase letters, digits, interior hyphens).
+
+Because this is routing rather than presentation, misconfiguration (an unknown
+`kind`, wrong types, `site` without a `slug`) is a **hard error** at startup,
+not a degrade. `/onboarding/<artifact>` keeps serving the bootstrap-pack files
+in both modes.
 
 ## The theming ladder
 

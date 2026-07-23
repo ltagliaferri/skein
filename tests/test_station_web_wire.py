@@ -3,6 +3,8 @@ HTTP, caching headers, structured errors, and the bundle sub-resource."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -132,6 +134,54 @@ def test_onboarding_complete_pack_and_artifacts(client, seeded):
         artifact = client.get(f"/onboarding/{name}")
         assert artifact.status_code == 200 and artifact.content == payload
         assert artifact.headers["cache-control"] == "no-cache"
+    assert client.get("/onboarding/../skein.db").status_code == 404
+
+
+def _stationfile_client(seeded, monkeypatch, stationfile):
+    """A client whose station has the given stationfile (create_app reads it once
+    at startup, so it must exist before the app is built)."""
+    (seeded["data_dir"] / "stationfile.json").write_text(
+        json.dumps(stationfile), encoding="utf-8"
+    )
+    monkeypatch.setenv(ENV_DATA_DIR, str(seeded["data_dir"]))
+    monkeypatch.delenv(ENV_NAME, raising=False)
+    return TestClient(create_app())
+
+
+def test_onboarding_explicit_collaborator_serves_ceremony(seeded, monkeypatch):
+    # {"kind": "collaborator"} spelled out behaves exactly like the absent key:
+    # the ceremony page, failing closed on an incomplete pack.
+    client = _stationfile_client(
+        seeded, monkeypatch,
+        {"name": "interskein", "onboarding": {"kind": "collaborator"}},
+    )
+    r = client.get("/onboarding")
+    assert r.status_code == 503
+    assert "signed onboarding pack is not available" in r.text
+
+
+def test_onboarding_site_mode_redirects(seeded, monkeypatch):
+    client = _stationfile_client(
+        seeded, monkeypatch,
+        {"name": "interskein", "onboarding": {"kind": "site", "slug": "onboarding"}},
+    )
+    r = client.get("/onboarding", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/site/onboarding"
+
+
+def test_onboarding_artifacts_still_served_in_site_mode(seeded, monkeypatch):
+    # The pack files stay downloadable while /onboarding redirects — retiring
+    # them for site-mode stations is an open product decision.
+    bootstrap = seeded["data_dir"] / "bootstrap"
+    bootstrap.mkdir()
+    (bootstrap / "sigstore-pinned.txt").write_text("pinned payload\n")
+    client = _stationfile_client(
+        seeded, monkeypatch,
+        {"name": "interskein", "onboarding": {"kind": "site", "slug": "onboarding"}},
+    )
+    r = client.get("/onboarding/sigstore-pinned.txt")
+    assert r.status_code == 200 and r.content == b"pinned payload\n"
     assert client.get("/onboarding/../skein.db").status_code == 404
 
 

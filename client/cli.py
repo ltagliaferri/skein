@@ -57,16 +57,21 @@ def find_project_root() -> Optional[Path]:
 
 
 def get_project_config() -> Optional[Dict[str, Any]]:
-    """Get project config from .skein/config.json if in a project."""
-    project_root = find_project_root()
-    if not project_root:
-        return None
+    """Get project config from .skein/config.json if in a project.
 
-    config_file = project_root / ".skein" / "config.json"
-    if not config_file.exists():
-        return None
-
+    A config that cannot even be probed — an unsearchable .skein/ left behind by
+    a stray sudo, a deleted cwd — is treated like an absent one: `skein doctor`
+    runs before any of that is repaired, so none of these probes may raise.
+    """
     try:
+        project_root = find_project_root()
+        if not project_root:
+            return None
+
+        config_file = project_root / ".skein" / "config.json"
+        if not config_file.exists():
+            return None
+
         with open(config_file) as f:
             return json.load(f)
     except Exception:
@@ -74,12 +79,18 @@ def get_project_config() -> Optional[Dict[str, Any]]:
 
 
 def get_global_config() -> Dict[str, Any]:
-    """Get global SKEIN config from ~/.skein/config.json."""
-    config_file = Path.home() / ".skein" / "config.json"
-    if not config_file.exists():
-        return {"server_url": "http://localhost:8001"}
+    """Get global SKEIN config from ~/.skein/config.json.
 
+    The exists() probe stays inside the try: on a ~/.skein that denies search
+    (root-owned after a stray sudo) it raises PermissionError rather than
+    returning False, and `skein doctor` reaches here before printing a single
+    check. An unprobeable config gets the defaults, like an unreadable one.
+    """
+    config_file = Path.home() / ".skein" / "config.json"
     try:
+        if not config_file.exists():
+            return {"server_url": "http://localhost:8001"}
+
         with open(config_file) as f:
             return json.load(f)
     except Exception:
@@ -731,7 +742,23 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
     registry_file = home / "projects.json"
     registry: Dict[str, Any] = {}
     registry_readable = True
-    registry_present = registry_file.exists()
+    # exists() raises rather than returning False when the home denies search
+    # (a root-owned ~/.skein after a stray sudo) — the exact broken install
+    # doctor is run to diagnose, so the probe itself must become a check result.
+    try:
+        registry_present = registry_file.exists()
+    except OSError as e:
+        registry_present = False
+        registry_readable = False
+        checks.append(
+            _check(
+                "project registry",
+                False,
+                f"cannot look for {registry_file}: {e}",
+                hint="The SKEIN home is not searchable. Fix its ownership and mode "
+                "(chown/chmod), or set SKEIN_HOME to a readable directory.",
+            )
+        )
     if registry_present:
         try:
             with open(registry_file) as f:
@@ -743,14 +770,25 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
             registry_readable = False
             checks.append(_check("project registry", False, f"{registry_file} is unreadable: {e}"))
 
-    project_root = find_project_root()
+    # The cwd walk stats entries under every ancestor: a deleted cwd or an
+    # ancestor with search revoked raises mid-walk. Unprobeable means "not in a
+    # project" here — the config read guards itself the same way.
+    try:
+        project_root = find_project_root()
+    except OSError:
+        project_root = None
     project_config = get_project_config() or {}
     project_id = project_config.get("project_id")
 
     # Rotating backups exist only if the registry was written at least once; a
     # fresh install has none. So backups present with the live file gone is the
     # fingerprint of a deleted registry, wherever doctor happens to run.
-    backups = sorted(home.glob("projects.json.bak-*")) if home.exists() else []
+    # exists() raises when the home's parent denies search; no backups are
+    # findable through that either.
+    try:
+        backups = sorted(home.glob("projects.json.bak-*")) if home.exists() else []
+    except OSError:
+        backups = []
 
     if registry_readable and not registry_present:
         if project_id or backups:
@@ -781,17 +819,22 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
     elif registry_readable:
         # A registered entry is usable only if it points at a data directory that
         # exists. An absent or empty data_dir is not "present as the cwd" — Path("")
-        # tests as the current directory, which would pass a broken entry.
-        missing = [
-            name
-            for name, info in registry.items()
+        # tests as the current directory, which would pass a broken entry. And a
+        # data_dir behind a directory that denies search makes exists() raise;
+        # unreachable is as unusable as missing.
+        def _data_dir_exists(info: Any) -> bool:
             if not (
                 isinstance(info, dict)
                 and isinstance(info.get("data_dir"), str)
                 and info["data_dir"]
-                and Path(info["data_dir"]).exists()
-            )
-        ]
+            ):
+                return False
+            try:
+                return Path(info["data_dir"]).exists()
+            except OSError:
+                return False
+
+        missing = [name for name, info in registry.items() if not _data_dir_exists(info)]
         if missing:
             checks.append(
                 _check(
@@ -914,13 +957,19 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
     # each doc must be both large enough and shaped like markdown.
     doc_problems = []
     for topic in sorted(INFO_TOPICS):
-        resolved = resolve_doc(topic)
-        if resolved is None:
-            doc_problems.append(f"{topic} not installed")
-        elif resolved.stat().st_size < MIN_DOC_BYTES or not resolved.read_text(
-            errors="replace"
-        ).lstrip().startswith("#"):
-            doc_problems.append(f"{topic} is a path, not a document ({resolved})")
+        # resolve_doc probes with exists(), then the doc is statted and read —
+        # any of which raises on an install with broken ownership or modes. A
+        # doc that cannot be read is a failed check, not a crash.
+        try:
+            resolved = resolve_doc(topic)
+            if resolved is None:
+                doc_problems.append(f"{topic} not installed")
+            elif resolved.stat().st_size < MIN_DOC_BYTES or not resolved.read_text(
+                errors="replace"
+            ).lstrip().startswith("#"):
+                doc_problems.append(f"{topic} is a path, not a document ({resolved})")
+        except OSError as e:
+            doc_problems.append(f"{topic} is unreadable: {e}")
     if doc_problems:
         checks.append(
             _check(

@@ -17,26 +17,88 @@ surface is <https://interskein.com>. The public publish ingress is
 
 ## Install
 
-The distribution is named `interskein` on PyPI, but trusted collaborator
-onboarding does not use a bare `pip install`. Use the `/onboarding` URL in the
-operator's invitation: it provides wheel-only, fully hashed requirements plus
-direct Sigstore signatures over the raw requirements and collaboration primer.
-Verify those files against the expected operator identity before installation.
+The distribution is named `interskein`. Install it as a tool, so the CLI and the
+API service share one isolated environment:
 
-The distribution installs two console scripts, and there is no `interskein`
+```bash
+uv tool install interskein
+```
+
+`pipx install interskein` and `pip install interskein` work the same way; `uv
+tool` is the path this project tests.
+
+Trusted collaborator onboarding is a separate, stricter route: use the
+`/onboarding` URL in the operator's invitation, which provides wheel-only, fully
+hashed requirements plus direct Sigstore signatures over the raw requirements and
+collaboration primer. Verify those files against the expected operator identity
+before installing. Use that route when an operator invited you to publish to
+their mesh; use the plain install above for a local workbench.
+
+The distribution installs three console scripts, and there is no `interskein`
 command:
 
 - `skein`, the local workbench CLI (sites, folios, publish) — also home to the
   `skein station` subcommand group, which runs and operates a public station.
 - `mesh`, the HTTP read client for mesh stations.
+- `skein-server`, the local API service. See below.
 
-After a verified install, check the installed distribution version with:
+Check the installed version with `skein --version`.
+
+## Run The Service
+
+The `skein` CLI is a client. Every workbench command talks to a local API
+service on `127.0.0.1:8001`, so one has to be running:
 
 ```bash
-python -c "from importlib.metadata import version; print(version('interskein'))"
+skein-server
 ```
 
+That runs in the foreground. To keep it running, hand it to whatever supervises
+processes on your machine — `skein` deliberately does not supervise it itself.
+On Linux with systemd, `skein-server` prints a ready user unit for this install
+(its ExecStart already resolved to the installed path, since a systemd user
+unit's PATH does not reliably include `~/.local/bin`):
+
+```bash
+mkdir -p ~/.config/systemd/user
+skein-server --print-unit > ~/.config/systemd/user/skein.service
+systemctl --user enable --now skein
+systemctl --user status skein          # journalctl --user -u skein -f for logs
+```
+
+From a checkout, `make install-service` does the same. Run `loginctl
+enable-linger` if you want the service up when you are not logged in. On macOS,
+or a system without systemd, run `skein-server` under whatever supervises
+processes there (launchd, a process manager, or a terminal).
+
+Then confirm the install is sound:
+
+```bash
+skein doctor
+```
+
+`skein doctor` checks the install, the SKEIN home, the project registry, the
+service, whether the CLI and service report the same version, the packaged
+documentation, and the current project. It exits non-zero when something is
+actually broken, so it works in a script. Run it first whenever a `skein` command
+fails in a way you do not recognize.
+
+Data lives under `~/.skein` (override with `SKEIN_HOME`), never in the directory
+the service was started from. `SKEIN_URL` points the CLI at a different service;
+`SKEIN_HOST` and `SKEIN_PORT` change where the service binds. Those resolve
+independently, so if you move one, move the other — `skein doctor` reports when
+nothing is answering where the CLI is looking.
+
+After upgrading the package, restart the service. Otherwise the old one keeps
+serving and `skein doctor` reports the version mismatch.
+
 ## Local Workbench
+
+Read the built-in quick start at any time — it ships inside the package:
+
+```bash
+skein info quickstart
+```
 
 Initialize a project (like `git init`):
 

@@ -1,4 +1,10 @@
-"""Tests for SKEIN server configuration loading."""
+"""Tests for SKEIN service configuration loading.
+
+The service moved into the package (skein.server) so a wheel install can run it;
+`skein_server.py` at the repo root is now a launcher that re-exports it. These
+tests target the package module and cover the search order a wheel user depends
+on: an explicit override, then <SKEIN_HOME>/server.json, then the repo config.
+"""
 
 import json
 import sys
@@ -8,15 +14,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from skein_server import get_config
+from skein.server import get_config
 
 
 @pytest.fixture
 def no_config_file(monkeypatch, tmp_path):
-    """Point get_config at a directory with no config.json so file lookup misses."""
-    fake_module_file = tmp_path / "skein_server.py"
-    fake_module_file.write_text("")
-    monkeypatch.setattr("skein_server.__file__", str(fake_module_file))
+    """Remove every config source so the built-in defaults are observable."""
+    monkeypatch.setenv("SKEIN_HOME", str(tmp_path / "skein-home"))
+    monkeypatch.delenv("SKEIN_SERVER_CONFIG", raising=False)
+    monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", tmp_path / "absent" / "config.json")
 
 
 @pytest.fixture
@@ -34,6 +40,11 @@ class TestServerHostDefault:
         config = get_config()
         assert config["host"] == "127.0.0.1"
 
+    def test_default_port_and_log_level(self, clean_env, no_config_file):
+        config = get_config()
+        assert config["port"] == 8001
+        assert config["log_level"] == "info"
+
     def test_skein_host_env_overrides_to_all_interfaces(
         self, clean_env, no_config_file, monkeypatch
     ):
@@ -42,31 +53,138 @@ class TestServerHostDefault:
         config = get_config()
         assert config["host"] == "0.0.0.0"
 
-    def test_config_file_overrides_default(self, clean_env, monkeypatch, tmp_path):
+    def test_config_file_overrides_default(self, clean_env, no_config_file, monkeypatch, tmp_path):
         """A config.json with a server.host value takes precedence over the default."""
-        config_dir = tmp_path / "config"
-        config_dir.mkdir()
-        (config_dir / "config.json").write_text(
-            json.dumps({"server": {"host": "0.0.0.0"}})
-        )
-        fake_module_file = tmp_path / "skein_server.py"
-        fake_module_file.write_text("")
-        monkeypatch.setattr("skein_server.__file__", str(fake_module_file))
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"server": {"host": "0.0.0.0"}}))
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", config_file)
 
         config = get_config()
         assert config["host"] == "0.0.0.0"
 
-    def test_env_var_beats_config_file(self, clean_env, monkeypatch, tmp_path):
+    def test_env_var_beats_config_file(self, clean_env, no_config_file, monkeypatch, tmp_path):
         """SKEIN_HOST takes precedence over a config.json value."""
-        config_dir = tmp_path / "config"
-        config_dir.mkdir()
-        (config_dir / "config.json").write_text(
-            json.dumps({"server": {"host": "10.0.0.5"}})
-        )
-        fake_module_file = tmp_path / "skein_server.py"
-        fake_module_file.write_text("")
-        monkeypatch.setattr("skein_server.__file__", str(fake_module_file))
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"server": {"host": "10.0.0.5"}}))
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", config_file)
         monkeypatch.setenv("SKEIN_HOST", "192.168.1.10")
 
         config = get_config()
         assert config["host"] == "192.168.1.10"
+
+
+class TestConfigSearchOrder:
+    """A wheel install has no repo config, so the other sources have to work."""
+
+    def test_skein_home_server_json_is_read(self, clean_env, no_config_file, tmp_path, monkeypatch):
+        home = tmp_path / "skein-home"
+        home.mkdir(parents=True, exist_ok=True)
+        # A bare mapping, so a user does not have to know about the "server" key.
+        (home / "server.json").write_text(json.dumps({"port": 8123}))
+
+        config = get_config()
+        assert config["port"] == 8123
+
+    def test_explicit_override_wins_over_skein_home(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        home = tmp_path / "skein-home"
+        home.mkdir(parents=True, exist_ok=True)
+        (home / "server.json").write_text(json.dumps({"port": 8123}))
+        override = tmp_path / "elsewhere.json"
+        override.write_text(json.dumps({"port": 9999}))
+        monkeypatch.setenv("SKEIN_SERVER_CONFIG", str(override))
+
+        config = get_config()
+        assert config["port"] == 9999
+
+    def test_a_malformed_config_falls_back_to_defaults(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        """A broken config file must not keep the service from booting."""
+        override = tmp_path / "broken.json"
+        override.write_text("{ not json")
+        monkeypatch.setenv("SKEIN_SERVER_CONFIG", str(override))
+
+        config = get_config()
+        assert config["host"] == "127.0.0.1"
+        assert config["port"] == 8001
+
+    def test_unknown_keys_are_ignored(self, clean_env, no_config_file, tmp_path, monkeypatch):
+        override = tmp_path / "extra.json"
+        override.write_text(json.dumps({"server": {"port": 8222, "nonsense": True}}))
+        monkeypatch.setenv("SKEIN_SERVER_CONFIG", str(override))
+
+        config = get_config()
+        assert config["port"] == 8222
+        assert "nonsense" not in config
+
+    def test_an_install_does_not_read_a_squatting_repo_config(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        """In a wheel, skein/ sits in site-packages and the repo config path points
+        at site-packages/config/config.json — which another package could create.
+        It must be consulted only from a genuine checkout (a sibling pyproject.toml)."""
+        from skein import server
+
+        rogue_root = tmp_path / "site-packages"
+        (rogue_root / "config").mkdir(parents=True)
+        (rogue_root / "config" / "config.json").write_text(
+            json.dumps({"server": {"host": "0.0.0.0", "port": 45678}})
+        )
+        # No pyproject.toml beside it -> not a checkout.
+        monkeypatch.setattr("skein.server.REPO_ROOT", rogue_root)
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", rogue_root / "config" / "config.json")
+
+        assert server.is_source_checkout() is False
+        config = get_config()
+        assert config["host"] == "127.0.0.1"
+        assert config["port"] == 8001
+
+    def test_an_installed_package_ignores_the_repo_config_even_with_a_planted_pyproject(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        """A site-packages layout is an install however many files are planted
+        beside the package — a stray pyproject.toml there does not make it a
+        checkout, so the rogue config stays ignored."""
+        from skein import server
+
+        rogue_root = tmp_path / "env" / "lib" / "python3.12" / "site-packages"
+        (rogue_root / "config").mkdir(parents=True)
+        (rogue_root / "config" / "config.json").write_text(
+            json.dumps({"server": {"host": "0.0.0.0", "port": 45678}})
+        )
+        (rogue_root / "pyproject.toml").write_text("[project]\nname='squatter'\n")
+        monkeypatch.setattr("skein.server.REPO_ROOT", rogue_root)
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", rogue_root / "config" / "config.json")
+
+        assert server.is_source_checkout() is False
+        config = get_config()
+        assert config["host"] == "127.0.0.1"
+        assert config["port"] == 8001
+
+    def test_a_checkout_still_reads_its_repo_config(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        from skein import server
+
+        root = tmp_path / "checkout"
+        (root / "config").mkdir(parents=True)
+        (root / "pyproject.toml").write_text("[project]\nname='interskein'\n")
+        (root / "config" / "config.json").write_text(json.dumps({"server": {"port": 8321}}))
+        monkeypatch.setattr("skein.server.REPO_ROOT", root)
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", root / "config" / "config.json")
+
+        assert server.is_source_checkout() is True
+        assert get_config()["port"] == 8321
+
+
+class TestLauncherShim:
+    """The repo-root launcher keeps working for systemd and the fidelity harness."""
+
+    def test_shim_reexports_the_packaged_service(self):
+        import skein_server
+        from skein.server import app, get_config as packaged_get_config
+
+        assert skein_server.app is app
+        assert skein_server.get_config is packaged_get_config

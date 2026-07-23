@@ -1,0 +1,27 @@
+[Unit]
+Description=SKEIN Server (Structured Knowledge Exchange & Integration Nexus)
+After=network.target
+
+[Service]
+Type=simple
+Environment="PYTHONUNBUFFERED=1"
+# The packaged console script. It resolves project data through the registry at
+# <SKEIN_HOME>/projects.json, never relative to a working directory, so there is
+# nothing here that has to point at a source checkout. This is what makes the
+# unit usable from a plain `uv tool install interskein`.
+ExecStart=__SKEIN_SERVER__
+# Uncomment to bind somewhere other than 127.0.0.1:8001. Whatever you set, point
+# the CLI at it too (SKEIN_URL, or server_url in ~/.skein/config.json) — the two
+# resolve independently, and `skein doctor` reports when they disagree.
+#Environment="SKEIN_HOST=127.0.0.1"
+#Environment="SKEIN_PORT=8001"
+#Environment="SKEIN_HOME=%h/.skein"
+Restart=on-failure
+RestartSec=5
+
+KillMode=control-group
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

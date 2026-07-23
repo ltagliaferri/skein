@@ -23,10 +23,9 @@ reinstall:  ## Reinstall SKEIN package and restart server
 install-service:  ## Install systemd user service
 	@echo "Installing SKEIN systemd user service..."
 	@mkdir -p ~/.config/systemd/user
-	@sed -e 's|__WORKING_DIR__|$(PWD)|g' \
-	     -e 's|__PYTHON__|$(shell which python)|g' \
-	     -e 's|__PYTHON_BIN_DIR__|$(dir $(shell which python))|g' \
-	     systemd/skein.service.template > ~/.config/systemd/user/skein.service
+	@test -n "$(shell command -v skein-server)" || \
+	    (echo "skein-server not on PATH — install the package first (pip install . / uv tool install interskein)"; exit 1)
+	@skein-server --print-unit > ~/.config/systemd/user/skein.service
 	@systemctl --user daemon-reload
 	@systemctl --user enable skein
 	@echo "Service installed. Use 'make start' to start SKEIN."

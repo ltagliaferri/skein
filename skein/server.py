@@ -228,6 +228,44 @@ async def health():
     }
 
 
+def unit_template_path() -> Path:
+    """Path to the packaged systemd unit template (with the ExecStart placeholder)."""
+    return Path(__file__).resolve().parent / "units" / "skein.service"
+
+
+def server_executable() -> str:
+    """Absolute path to invoke for the service in a rendered supervisor unit.
+
+    Prefers this process's own entrypoint (``sys.argv[0]`` when run as the
+    ``skein-server`` console script), because that is unambiguously the install
+    the caller is holding. Falls back to ``skein-server`` on PATH, then to the
+    module form, so ``--print-unit`` always yields something runnable.
+    """
+    import shutil
+    import sys
+
+    argv0 = Path(sys.argv[0])
+    if argv0.name == "skein-server" and argv0.exists():
+        return str(argv0.resolve())
+    found = shutil.which("skein-server")
+    if found:
+        return str(Path(found).resolve())
+    # Last resort: the module form under the running interpreter. Always valid,
+    # just longer than a bare console-script path.
+    return f"{sys.executable} -m skein.server"
+
+
+def render_unit() -> str:
+    """The packaged unit with its ExecStart placeholder resolved to this install.
+
+    Printed by ``skein-server --print-unit``; the caller redirects it into
+    ``~/.config/systemd/user/skein.service``. Runs inside the service's own
+    environment, so it resolves the right path even for an isolated
+    ``uv tool`` / ``pipx`` install a bare ``python`` could not import.
+    """
+    return unit_template_path().read_text().replace("__SKEIN_SERVER__", server_executable())
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     """Console-script entrypoint (``skein-server``) and ``python -m skein.server``."""
     config = get_config()
@@ -239,10 +277,21 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--port", type=int, default=None, help="Bind port (default: 8001)")
     parser.add_argument("--log-level", default=None, help="uvicorn log level")
     parser.add_argument("--version", action="store_true", help="Print the service version and exit")
+    parser.add_argument(
+        "--print-unit",
+        action="store_true",
+        help="Print a systemd user unit for this install (redirect into "
+        "~/.config/systemd/user/skein.service) and exit",
+    )
     args = parser.parse_args(argv)
 
     if args.version:
         print(SERVICE_VERSION)
+        return
+
+    if args.print_unit:
+        # No trailing newline munging: the template already ends with one.
+        print(render_unit(), end="")
         return
 
     host = args.host or config["host"]

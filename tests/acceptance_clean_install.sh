@@ -108,6 +108,19 @@ step "packaged docs"
 skein info guide >/dev/null || fail "skein info guide"
 skein info implementation >/dev/null || fail "skein info implementation"
 
+step "packaged systemd unit renders for this install"
+# The persistence path a wheel user follows. No systemctl — CI and this sandbox
+# have no user bus — but this proves the installed artifact prints a unit whose
+# ExecStart resolves to this install, which is the whole reason it ships. The
+# `python3 -c 'import skein'` approach does NOT work here: uv tool isolates the
+# package, so a bare python either cannot import it or finds a different one.
+RENDERED="$(skein-server --print-unit)" || fail "skein-server --print-unit"
+echo "$RENDERED" | grep -qE '^ExecStart=/' || fail "rendered unit has no absolute ExecStart"
+echo "$RENDERED" | grep -q "__SKEIN_SERVER__" && fail "unit still has an unrendered placeholder"
+EXEC="$(echo "$RENDERED" | grep '^ExecStart=')"
+case "$EXEC" in *"$UV_TOOL_DIR"*) ;; *) fail "ExecStart points outside the install under test: $EXEC" ;; esac
+echo "unit renders to: $EXEC"
+
 step "disposable git project"
 mkdir -p "$RUN/work/demo-project"
 cd "$RUN/work/demo-project" || fail "cd project"

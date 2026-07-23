@@ -58,23 +58,64 @@ class TestConsoleScripts:
 
 
 class TestSupervisorUnit:
-    """The systemd template is how a service stays up. It broke the wheel case
-    by hardcoding a checkout path, which is the defect that made someone write
-    a process supervisor in Python instead of fixing one line of ini."""
+    """The systemd unit is how a service stays up. It broke the wheel case twice:
+    first by hardcoding a checkout path (the defect that made someone write a
+    process supervisor in Python instead of fixing one line of ini), then by
+    living in systemd/ — not package data — so a wheel user had no copy to render.
+    It now ships under skein/units/."""
 
-    def test_unit_template_invokes_the_console_script(self):
-        template = (REPO_ROOT / "systemd" / "skein.service.template").read_text()
-        assert "ExecStart=__SKEIN_SERVER__" in template
+    UNIT = PACKAGE_ROOT / "units" / "skein.service"
 
-    def test_unit_template_does_not_depend_on_a_checkout(self):
-        template = (REPO_ROOT / "systemd" / "skein.service.template").read_text()
-        assert "WorkingDirectory" not in template
-        assert "skein_server.py" not in template
-        assert "__PYTHON__" not in template
+    def test_unit_is_under_the_package(self):
+        # If it is not under skein/, it is not in the wheel, and a wheel user is
+        # back to "copy it from a repository you do not have".
+        assert self.UNIT.exists(), f"{self.UNIT} is missing"
 
-    def test_makefile_renders_the_console_script_path(self):
+    def test_unit_invokes_the_console_script(self):
+        assert "ExecStart=__SKEIN_SERVER__" in self.UNIT.read_text()
+
+    def test_unit_does_not_depend_on_a_checkout(self):
+        body = self.UNIT.read_text()
+        assert "WorkingDirectory" not in body
+        assert "skein_server.py" not in body
+        assert "__PYTHON__" not in body
+
+    def test_print_unit_resolves_the_placeholder_to_an_absolute_execstart(self):
+        # `skein-server --print-unit` is how the unit gets rendered — by the
+        # service itself, so it works for an isolated uv-tool/pipx install a
+        # bare `python -c "import skein"` could not import. A bare `skein-server`
+        # ExecStart would not resolve under a systemd user unit's PATH on older
+        # systemd, so the rendered path must be absolute.
+        import re
+
+        from skein.server import render_unit
+
+        rendered = render_unit()
+        assert "__SKEIN_SERVER__" not in rendered
+        exec_line = next(ln for ln in rendered.splitlines() if ln.startswith("ExecStart="))
+        # Either an absolute console-script path, or the `<python> -m` fallback,
+        # which is also absolute.
+        assert re.match(r"^ExecStart=(/|\S+/python)", exec_line), exec_line
+
+    def test_print_unit_cli_prints_the_rendered_unit(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "skein.server", "--print-unit"],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "ExecStart=" in result.stdout
+        assert "__SKEIN_SERVER__" not in result.stdout
+
+    def test_package_data_declares_the_unit(self):
+        package_data = _read_pyproject()["tool"]["setuptools"]["package-data"]["skein"]
+        assert "units/*" in package_data
+
+    def test_makefile_renders_via_print_unit(self):
         makefile = (REPO_ROOT / "Makefile").read_text()
-        assert "__SKEIN_SERVER__|$(shell command -v skein-server)" in makefile
+        assert "skein-server --print-unit" in makefile
 
 
 class TestPackagedDocs:
@@ -184,3 +225,11 @@ class TestBuiltWheel:
             )
         assert "skein = client.cli:main" in entry_points
         assert "skein-server = skein.server:main" in entry_points
+
+    def test_wheel_contains_the_systemd_unit(self, wheel):
+        """A wheel user has no repo to copy the unit from, so it has to be here —
+        with its placeholder intact, since rendering happens at install."""
+        with zipfile.ZipFile(wheel) as zf:
+            assert "skein/units/skein.service" in zf.namelist()
+            unit = zf.read("skein/units/skein.service").decode()
+        assert "ExecStart=__SKEIN_SERVER__" in unit

@@ -65,7 +65,7 @@ skein = "client.cli:main"
 mesh = "skein.mesh.cli:main"
 # The local API service the `skein` CLI talks to. A wheel install has no repo
 # and no Makefile, so this is how the service gets run at all — directly, or as
-# the ExecStart of a systemd unit (see systemd/skein.service.template).
+# the ExecStart of a systemd unit (see skein/units/skein.service).
 skein-server = "skein.server:main"
 
 [project.urls]
@@ -89,6 +89,11 @@ skein = [
     # install has no checkout to read them from; skein/docs/ holds symlinks to
     # the repo-canonical files and the build copies their content.
     "docs/*.md",
+    # The systemd unit template. A wheel user has no repo to copy it from, so it
+    # ships here; the __SKEIN_SERVER__ placeholder is rendered at install time
+    # (systemd's user PATH does not reliably include ~/.local/bin, so the unit
+    # needs an absolute ExecStart).
+    "units/*",
     "web/templates/*.html",
     "web/static/*.css",
     "web/static/themes/*.css",

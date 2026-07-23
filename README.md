@@ -55,20 +55,21 @@ skein-server
 
 That runs in the foreground. To keep it running, hand it to whatever supervises
 processes on your machine — `skein` deliberately does not supervise it itself.
-On Linux with systemd, from a checkout:
+On Linux with systemd, `skein-server` prints a ready user unit for this install
+(its ExecStart already resolved to the installed path, since a systemd user
+unit's PATH does not reliably include `~/.local/bin`):
 
 ```bash
-make install-service     # renders systemd/skein.service.template to ~/.config/systemd/user/
-systemctl --user start skein
-systemctl --user status skein
-journalctl --user -u skein -f
+mkdir -p ~/.config/systemd/user
+skein-server --print-unit > ~/.config/systemd/user/skein.service
+systemctl --user enable --now skein
+systemctl --user status skein          # journalctl --user -u skein -f for logs
 ```
 
-Without a checkout, copy `systemd/skein.service.template` from the repository,
-replace `__SKEIN_SERVER__` with the output of `command -v skein-server`, and drop
-it in `~/.config/systemd/user/skein.service`. Run `loginctl enable-linger` if you
-want it up when you are not logged in. On macOS the equivalent is a launchd
-plist; on systems without either, run `skein-server` under whatever you use.
+From a checkout, `make install-service` does the same. Run `loginctl
+enable-linger` if you want the service up when you are not logged in. On macOS,
+or a system without systemd, run `skein-server` under whatever supervises
+processes there (launchd, a process manager, or a terminal).
 
 Then confirm the install is sound:
 

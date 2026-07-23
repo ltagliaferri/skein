@@ -1,6 +1,6 @@
 [project]
 name = "interskein"
-version = "0.2.0"
+version = "0.3.0"
 description = "Agent knowledge management: local folios with a signed publish-to-mesh boundary"
 readme = "README.md"
 license = "MIT"

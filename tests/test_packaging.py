@@ -45,7 +45,7 @@ class TestConsoleScripts:
         assert callable(server.main)
 
     def test_service_module_runs_as_a_module(self):
-        """`skein service start` launches `python -m skein.server`."""
+        """The service runs as `python -m skein.server` (the print-unit fallback)."""
         result = subprocess.run(
             [sys.executable, "-m", "skein.server", "--version"],
             capture_output=True,
@@ -144,6 +144,30 @@ class TestSupervisorUnit:
         assert cmd == '"/opt/my apps/bin/skein-server"'
         # A plain path is left bare.
         assert server._systemd_quote("/opt/bin/skein-server") == "/opt/bin/skein-server"
+
+    def test_execstart_quoting_handles_apostrophe_and_percent(self):
+        # systemd treats ' as a quote char (bare -> "unbalanced quoting") and
+        # expands % specifiers even inside quotes (a literal % must be doubled).
+        from skein import server
+
+        assert (
+            server._systemd_quote("/home/o'brien/skein-server") == '"/home/o\'brien/skein-server"'
+        )
+        assert server._systemd_quote("/opt/100%/skein-server") == "/opt/100%%/skein-server"
+
+    def test_module_fallback_keeps_the_venv_interpreter(self, tmp_path, monkeypatch):
+        # sys.executable is left unresolved: resolving a venv python symlink to
+        # the base interpreter would lose the venv and break `-m skein.server`.
+        from skein import server
+
+        venv_python = tmp_path / "venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.symlink_to(sys.executable)
+        monkeypatch.setattr("sys.argv", ["/some/module/entry.py"])
+        monkeypatch.setattr("sys.executable", str(venv_python))
+
+        cmd = server.server_command()
+        assert cmd == [str(venv_python), "-m", "skein.server"]
 
     def test_server_command_ignores_a_nonexecutable_argv0(self, tmp_path, monkeypatch):
         # An argv[0] named skein-server that is not executable must not become the

@@ -786,7 +786,10 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
             name
             for name, info in registry.items()
             if not (
-                isinstance(info, dict) and info.get("data_dir") and Path(info["data_dir"]).exists()
+                isinstance(info, dict)
+                and isinstance(info.get("data_dir"), str)
+                and info["data_dir"]
+                and Path(info["data_dir"]).exists()
             )
         ]
         if missing:
@@ -851,8 +854,15 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
             )
         )
     else:
+        # A real interskein service reports skein_home as a string. Only compare
+        # when it is one; a missing or malformed value is left uncompared (like an
+        # older service) rather than crashing this diagnostic on it.
         service_home = health.get("skein_home")
-        if service_home and Path(service_home).resolve() != skein_home().resolve():
+        if (
+            isinstance(service_home, str)
+            and service_home
+            and Path(service_home).resolve() != skein_home().resolve()
+        ):
             checks.append(
                 _check(
                     "api service",

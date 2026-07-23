@@ -2,10 +2,9 @@
 """Source-checkout launcher for the SKEIN API service.
 
 The service itself now lives in the package at :mod:`skein.server`, so a wheel
-install has a real entrypoint (``skein-server``, ``python -m skein.server``,
-``skein service start``). This file stays because the systemd unit template and
-the fidelity harness both boot the service as ``python skein_server.py`` from
-the repo root.
+install has a real entrypoint (``skein-server`` and ``python -m skein.server``).
+This file stays because the Makefile dev target boots the service through it
+(``uvicorn skein_server:app``).
 """
 
 from skein.server import app, get_config, main  # noqa: F401  (re-exported)

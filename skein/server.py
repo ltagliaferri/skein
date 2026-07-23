@@ -4,11 +4,11 @@ SKEIN API service - Structured Knowledge Exchange & Integration Nexus
 
 The local API service the ``skein`` CLI talks to. It lives inside the package
 (rather than as a loose script at the repo root) so a plain wheel install has a
-runnable service: ``skein-server``, ``python -m skein.server``, and
-``skein service start`` all land here. Nothing in this module resolves anything
-relative to the working directory — project data comes from the
-``<SKEIN_HOME>/projects.json`` registry — so the service runs correctly from any
-cwd, including one with no source checkout in sight.
+runnable service: ``skein-server`` and ``python -m skein.server`` both land here.
+Nothing in this module resolves anything relative to the working directory —
+project data comes from the ``<SKEIN_HOME>/projects.json`` registry — so the
+service runs correctly from any cwd, including one with no source checkout in
+sight.
 """
 
 import argparse
@@ -51,10 +51,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 def is_source_checkout() -> bool:
     """Whether the package is running from a source tree rather than an install.
 
-    A checkout has a pyproject.toml beside the package directory; site-packages
-    does not. This is what keeps a wheel install from reading an unrelated
+    An installed package lives under a ``site-packages`` / ``dist-packages``
+    tree; that is the reliable signal, and it cannot be defeated by files planted
+    beside the package (a stray ``pyproject.toml`` there does not make it a
+    checkout). A checkout is then confirmed by a sibling ``pyproject.toml``. This
+    is what keeps a wheel install from reading an unrelated
     ``site-packages/config/config.json`` as SKEIN's server config.
     """
+    if {"site-packages", "dist-packages"} & set(REPO_ROOT.parts):
+        return False
     return (REPO_ROOT / "pyproject.toml").is_file()
 
 
@@ -251,12 +256,18 @@ def unit_template_path() -> Path:
 def _systemd_quote(token: str) -> str:
     """Quote one ExecStart token for systemd if it needs it.
 
-    systemd splits ExecStart on whitespace, so a path containing a space (a
-    macOS "Application Support" tree, a home directory with a space) must be
-    double-quoted or systemd execs a truncated path. Double quotes and
-    backslashes inside the token are backslash-escaped, per systemd.exec(5).
+    Three systemd rules, per systemd.exec(5) / systemd.unit(5):
+    - It splits ExecStart on whitespace, so a token with a space (a macOS
+      "Application Support" tree, a home directory with a space) must be quoted
+      or systemd execs a truncated path.
+    - It treats both ``'`` and ``"`` as quote characters, so a bare token
+      containing either is "unbalanced quoting"; double-quoting the whole token
+      makes an apostrophe literal.
+    - It expands ``%`` specifiers even inside quotes, so a literal ``%`` in the
+      path must be doubled to ``%%``.
     """
-    if token and not any(c in token for c in ' \t"\\'):
+    token = token.replace("%", "%%")
+    if token and not any(c in token for c in " \t'\"\\"):
         return token
     escaped = token.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
@@ -278,7 +289,10 @@ def server_command() -> List[str]:
     argv0 = Path(sys.argv[0])
     if argv0.name == "skein-server" and argv0.is_file() and os.access(argv0, os.X_OK):
         return [str(argv0.resolve())]
-    return [str(Path(sys.executable).resolve()), "-m", "skein.server"]
+    # Fallback: this interpreter running the module. sys.executable is left
+    # unresolved on purpose — resolving a venv's python symlink to the base
+    # interpreter loses the venv, and the base python cannot import skein.server.
+    return [sys.executable, "-m", "skein.server"]
 
 
 def server_execstart() -> str:

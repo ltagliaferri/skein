@@ -115,6 +115,15 @@ class TestRegistryDamage:
         assert check["ok"] is False
         assert "broken" in check["detail"]
 
+    def test_a_non_string_data_dir_does_not_crash(self, skein_home, outside_a_project):
+        """Path(7) raises; doctor must report the entry as broken, not traceback."""
+        (skein_home / "projects.json").write_text(
+            json.dumps({"projects": {"broken": {"data_dir": 7}}})
+        )
+        check = checks_by_name()["project registry"]
+        assert check["ok"] is False
+        assert "broken" in check["detail"]
+
 
 class TestService:
     def _with_health(self, monkeypatch, body):
@@ -181,6 +190,27 @@ class TestService:
         check = checks_by_name()["api service"]
         assert check["ok"] is False
         assert "SKEIN_HOME" in check["detail"]
+
+    def test_a_malformed_home_does_not_crash_or_false_fail(
+        self, skein_home, outside_a_project, monkeypatch
+    ):
+        """A non-string skein_home (a broken/impostor body) must not crash doctor;
+        it is left uncompared, like a service that omits the field."""
+        from skein.version import package_version
+
+        self._with_health(
+            monkeypatch,
+            {
+                "status": "healthy",
+                "distribution": "interskein",
+                "version": package_version(),
+                "skein_home": 42,
+            },
+        )
+        check = checks_by_name()["api service"]
+        # Did not raise; treated as uncomparable, so the service check passes and
+        # the overall verdict rests on the version check (which matches here).
+        assert check["ok"] is True
 
     def test_a_matching_home_healthy_service_passes(
         self, skein_home, outside_a_project, monkeypatch

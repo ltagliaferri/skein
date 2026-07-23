@@ -141,6 +141,28 @@ class TestConfigSearchOrder:
         assert config["host"] == "127.0.0.1"
         assert config["port"] == 8001
 
+    def test_an_installed_package_ignores_the_repo_config_even_with_a_planted_pyproject(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        """A site-packages layout is an install however many files are planted
+        beside the package — a stray pyproject.toml there does not make it a
+        checkout, so the rogue config stays ignored."""
+        from skein import server
+
+        rogue_root = tmp_path / "env" / "lib" / "python3.12" / "site-packages"
+        (rogue_root / "config").mkdir(parents=True)
+        (rogue_root / "config" / "config.json").write_text(
+            json.dumps({"server": {"host": "0.0.0.0", "port": 45678}})
+        )
+        (rogue_root / "pyproject.toml").write_text("[project]\nname='squatter'\n")
+        monkeypatch.setattr("skein.server.REPO_ROOT", rogue_root)
+        monkeypatch.setattr("skein.server.REPO_CONFIG_PATH", rogue_root / "config" / "config.json")
+
+        assert server.is_source_checkout() is False
+        config = get_config()
+        assert config["host"] == "127.0.0.1"
+        assert config["port"] == 8001
+
     def test_a_checkout_still_reads_its_repo_config(
         self, clean_env, no_config_file, tmp_path, monkeypatch
     ):

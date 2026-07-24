@@ -84,10 +84,13 @@ actually broken, so it works in a script. Run it first whenever a `skein` comman
 fails in a way you do not recognize.
 
 Data lives under `~/.skein` (override with `SKEIN_HOME`), never in the directory
-the service was started from. `SKEIN_URL` points the CLI at a different service;
-`SKEIN_HOST` and `SKEIN_PORT` change where the service binds. Those resolve
-independently, so if you move one, move the other — `skein doctor` reports when
-nothing is answering where the CLI is looking.
+the service was started from. `SKEIN_HOST` and `SKEIN_PORT` (or a
+`<SKEIN_HOME>/server.json` with `{"host": ..., "port": ...}`) move where the
+service binds, and the CLI follows automatically — its URL resolution bottoms
+out on the same machine-level address the service binds. `SKEIN_URL` points the
+CLI somewhere else entirely (a remote service, a second instance). `skein
+doctor` names which source its URL came from and reports when nothing is
+answering there.
 
 After upgrading the package, restart the service. Otherwise the old one keeps
 serving and `skein doctor` reports the version mismatch.

@@ -388,15 +388,18 @@ class TestSealedGlobalConfig:
         self, sealed_user_home, tmp_path, monkeypatch
     ):
         """Doctor resolves its base URL before printing a single check — the
-        crash that motivated round 1. It must fall through to the default,
-        while the failing global config check reports why."""
+        crash that motivated round 1. It must fall through to the machine's
+        service address, while the failing global config check reports why."""
         from client.cli import doctor_base_url
 
         monkeypatch.delenv("SKEIN_URL", raising=False)
+        monkeypatch.delenv("SKEIN_PORT", raising=False)
+        monkeypatch.delenv("SKEIN_SERVER_CONFIG", raising=False)
+        monkeypatch.setenv("SKEIN_HOME", str(tmp_path / "empty-skein-home"))
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
         monkeypatch.chdir(elsewhere)
-        assert doctor_base_url() == "http://localhost:8001"
+        assert doctor_base_url() == "http://127.0.0.1:8001"
 
 
 @needs_mode_bits
@@ -569,7 +572,11 @@ class TestMalformedConfigFiles:
     configs, so a JSON array in ~/.skein/config.json crashed every command, not
     just doctor (issue-20260723-ai23)."""
 
-    def test_global_config_array_falls_back_to_default(self, tmp_path, monkeypatch):
+    def test_global_config_array_reads_as_empty(self, tmp_path, monkeypatch):
+        """An unusable global config is empty, never a fabricated default —
+        fabricating {"server_url": ...} made every rung below the global
+        config dead code (notion-20260722-95kl). Still a dict, so the
+        config.get(...) callers that crashed on an array stay guarded."""
         from client import cli
 
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -577,8 +584,7 @@ class TestMalformedConfigFiles:
         (tmp_path / ".skein" / "config.json").write_text(json.dumps(["not", "an", "object"]))
 
         cfg = cli.get_global_config()
-        assert isinstance(cfg, dict)
-        assert cfg.get("server_url")
+        assert cfg == {}
 
     def test_project_config_array_reads_as_absent(self, tmp_path, monkeypatch):
         from client import cli

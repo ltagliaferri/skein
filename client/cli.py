@@ -17,7 +17,7 @@ import click
 import requests
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any, Set, List
+from typing import Optional, Dict, Any, NamedTuple, Set, List
 
 # Import name generator from skein package
 try:
@@ -27,6 +27,7 @@ except ImportError:
     generate_agent_name = None
 
 from skein.address_legacy import parse as parse_address
+from skein.service_address import local_service_url
 from skein.storage import skein_home, save_project_registry
 from skein.version import package_version as _package_version
 
@@ -85,24 +86,29 @@ def get_project_config() -> Optional[Dict[str, Any]]:
 def get_global_config() -> Dict[str, Any]:
     """Get global SKEIN config from ~/.skein/config.json.
 
+    An absent or unusable file reads as empty — never as a fabricated
+    default. Fabricating {"server_url": ...} here once made every rung below
+    the global config dead code (notion-20260722-95kl); resolution falls
+    through to the machine's service address instead.
+
     Raises OSError when ~/.skein cannot even be probed (root-owned after a
-    stray sudo): answering with the defaults would silently reroute every
-    command to localhost. `skein doctor` guards its own call and reports that
-    state as a failing check.
+    stray sudo): answering with nothing would silently reroute every
+    command to the local default. `skein doctor` guards its own call and
+    reports that state as a failing check.
     """
     config_file = Path.home() / ".skein" / "config.json"
     if not config_file.exists():
-        return {"server_url": "http://localhost:8001"}
+        return {}
 
     try:
         with open(config_file) as f:
             data = json.load(f)
         # Only an object is usable — callers do config.get(...). A JSON array or
-        # other shape falls back to the default rather than crashing every command
+        # other shape reads as empty rather than crashing every command
         # (get_base_url reads this).
-        return data if isinstance(data, dict) else {"server_url": "http://localhost:8001"}
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return {"server_url": "http://localhost:8001"}
+        return {}
 
 
 def get_agent_id(ctx_agent: Optional[str] = None, base_url: Optional[str] = None) -> Optional[str]:
@@ -120,34 +126,107 @@ def get_agent_id(ctx_agent: Optional[str] = None, base_url: Optional[str] = None
     return os.getenv("SKEIN_AGENT_ID")
 
 
-def get_base_url(ctx_url: Optional[str] = None) -> str:
+# The exact literals `skein init` used to write into every project's
+# .skein/config.json (and only ever these — it took no other value). A config
+# holding one is pinning the machine default, not expressing a choice, so
+# resolution reads it as absent; otherwise every pre-existing project would
+# shadow the machine's service address forever. A deliberately different
+# server_url is honored. Configs are never rewritten — ignoring at read is
+# reversible, a migration over ~55 registries is not.
+_LEGACY_DEFAULT_URLS = {"http://localhost:8001", "http://127.0.0.1:8001"}
+
+
+class BaseURLResolution(NamedTuple):
+    """A resolved base URL, the rung that answered, and what was passed over.
+
+    ``ignored`` records benign skips (a legacy server_url literal) and
+    ``problems`` records invalid values (an unparseable SKEIN_PORT) — `skein
+    doctor` reports both; nothing else acts on them.
     """
-    Get SKEIN base URL in priority order:
+
+    url: str
+    source: str
+    ignored: List[str]
+    problems: List[str]
+
+
+def resolve_base_url(ctx_url: Optional[str] = None, tolerant: bool = False) -> BaseURLResolution:
+    """Resolve the URL the CLI talks to, and say which rung answered.
+
+    Priority order:
     1. --url flag
     2. SKEIN_URL env var
-    3. Project config (.skein/config.json)
-    4. Global config (~/.skein/config.json)
-    5. Default localhost:8001
-    """
-    if ctx_url:
-        return ctx_url.rstrip("/")
+    3. Project config (.skein/config.json) server_url — a legacy default
+       literal reads as absent (see _LEGACY_DEFAULT_URLS)
+    4. Global config (~/.skein/config.json) server_url — same exclusion
+    5. The machine's local service address (skein.service_address) — the same
+       ladder skein-server binds, so SKEIN_PORT or server.json moves both
+       ends together
 
-    # Check environment variable
+    With ``tolerant`` false (every normal command) a project or global config
+    that cannot even be probed raises OSError: failing loudly beats silently
+    rerouting to localhost. ``skein doctor`` passes true — it must reach its
+    checks on exactly that broken install, and reports the unprobeable config
+    as a failing check itself. Nothing else raises: rung 5 never does.
+    """
+    ignored: List[str] = []
+
+    if ctx_url:
+        return BaseURLResolution(ctx_url.rstrip("/"), "--url flag", ignored, [])
+
     env_url = os.getenv("SKEIN_URL")
     if env_url:
-        return env_url.rstrip("/")
+        return BaseURLResolution(env_url.rstrip("/"), "SKEIN_URL", ignored, [])
 
-    # Check project config
-    project_config = get_project_config()
-    if project_config and project_config.get("server_url"):
-        return project_config["server_url"].rstrip("/")
+    try:
+        project_config = get_project_config()
+    except OSError:
+        if not tolerant:
+            raise
+        project_config = None
+    url = (project_config or {}).get("server_url")
+    if isinstance(url, str) and url.strip():
+        url = url.rstrip("/")
+        if url in _LEGACY_DEFAULT_URLS:
+            ignored.append(
+                "server_url in the project .skein/config.json is the retired "
+                "default literal, read as absent"
+            )
+        else:
+            return BaseURLResolution(
+                url, "server_url in the project .skein/config.json", ignored, []
+            )
 
-    # Check global config
-    global_config = get_global_config()
-    if global_config.get("server_url"):
-        return global_config["server_url"].rstrip("/")
+    try:
+        global_config = get_global_config()
+    except OSError:
+        if not tolerant:
+            raise
+        global_config = {}
+    url = global_config.get("server_url")
+    if isinstance(url, str) and url.strip():
+        url = url.rstrip("/")
+        if url in _LEGACY_DEFAULT_URLS:
+            ignored.append(
+                "server_url in ~/.skein/config.json is the retired default "
+                "literal, read as absent"
+            )
+        else:
+            return BaseURLResolution(url, "server_url in ~/.skein/config.json", ignored, [])
 
-    return "http://localhost:8001"
+    service_url, resolved = local_service_url()
+    moved = sorted(
+        {src for key, src in resolved.sources.items() if key != "log_level" and src != "default"}
+    )
+    source = f"local service address ({', '.join(moved) if moved else 'built-in default'})"
+    return BaseURLResolution(service_url, source, ignored, list(resolved.problems))
+
+
+def get_base_url(ctx_url: Optional[str] = None) -> str:
+    """The URL every command sends requests to; see resolve_base_url for the
+    ladder. Raises OSError only for a project/global config that cannot be
+    probed — never for a bad value, which is ignored and left to doctor."""
+    return resolve_base_url(ctx_url).url
 
 
 def validate_positional_args(*args, command_name: str):
@@ -352,7 +431,11 @@ def make_title_from_content(content: str, max_length: int = 100) -> str:
     )
 )
 @click.option("--agent", envvar="SKEIN_AGENT_ID", help="Agent ID (or set SKEIN_AGENT_ID)")
-@click.option("--url", envvar="SKEIN_URL", help="SKEIN server URL (default: localhost:8001)")
+@click.option(
+    "--url",
+    envvar="SKEIN_URL",
+    help="SKEIN server URL (default: the machine's local service address)",
+)
 @click.option(
     "--project",
     envvar="SKEIN_PROJECT",
@@ -412,12 +495,15 @@ def init(project, name):
     (data_dir / "threads").mkdir()
     (data_dir / "screenshots").mkdir()
 
-    # Create project config
+    # Create project config. No server_url: a project config is shared and
+    # checked out across machines, so pinning one machine's service address
+    # into it froze that machine's port into every other's resolution
+    # (notion-20260722-95kl). The CLI resolves its URL per machine instead;
+    # a server_url someone writes here deliberately is still honored.
     project_config = {
         "project_id": project,
         "name": name or project,
         "created_at": datetime.now().isoformat(),
-        "server_url": "http://localhost:8001",
     }
 
     config_file = skein_dir / "config.json"
@@ -447,7 +533,7 @@ def init(project, name):
     click.echo("✓ Created .skein/ directory")
     click.echo("✓ Registered in ~/.skein/projects.json")
     click.echo(f"\nProject data: {data_dir}")
-    click.echo(f"Server URL: {project_config['server_url']}")
+    click.echo(f"Server URL: {get_base_url(None)} (resolved per machine, not stored)")
 
 
 @cli.group()
@@ -701,11 +787,17 @@ def start_service_hint() -> str:
     return "Run the service: skein-server  (or install it under systemd; see the README)"
 
 
-def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
+def doctor_checks(
+    base_url: str, url_resolution: Optional[BaseURLResolution] = None
+) -> List[Dict[str, Any]]:
     """Diagnose this SKEIN install. Returns one mapping per check.
 
     A check with ``ok`` false and ``level`` "error" means SKEIN will not work as
     installed; "warn" means it works but something is off; "info" never fails.
+
+    ``url_resolution`` is the provenance of ``base_url`` (which rung of
+    resolve_base_url answered, what was passed over); without it the url
+    resolution checks are simply omitted.
     """
     import platform
     import shutil
@@ -922,6 +1014,27 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
             )
         )
 
+    # Which rung of the URL ladder produced base_url — visible here so a moved
+    # port is a doctor line, not a mystery. A value resolution had to ignore
+    # (an unparseable SKEIN_PORT, an unusable config file) is a warning:
+    # commands keep working, but not where the operator pointed them.
+    if url_resolution is not None:
+        detail = f"{base_url} · {url_resolution.source}"
+        if url_resolution.ignored:
+            detail += " · " + "; ".join(url_resolution.ignored)
+        checks.append(_check("url resolution", True, detail, level="info"))
+        if url_resolution.problems:
+            checks.append(
+                _check(
+                    "url resolution",
+                    False,
+                    "; ".join(url_resolution.problems),
+                    level="warn",
+                    hint="Resolution ignored these values. Fix or unset them so "
+                    "the CLI and the service land where you intended.",
+                )
+            )
+
     # The service the CLI actually talks to. A 200 alone is not enough — anything
     # can be listening on a fixed localhost port — so it must identify as a healthy
     # SKEIN service, and it must serve the SAME home the CLI reads, or `skein`
@@ -1132,28 +1245,7 @@ def doctor_base_url(ctx_url: Optional[str] = None) -> str:
     checks; doctor_checks reports the unprobeable config as a failing check.
     Every other command resolves through get_base_url and fails loudly.
     """
-    if ctx_url:
-        return ctx_url.rstrip("/")
-
-    env_url = os.getenv("SKEIN_URL")
-    if env_url:
-        return env_url.rstrip("/")
-
-    try:
-        project_config = get_project_config()
-    except OSError:
-        project_config = None
-    if project_config and project_config.get("server_url"):
-        return project_config["server_url"].rstrip("/")
-
-    try:
-        global_config = get_global_config()
-    except OSError:
-        global_config = {}
-    if global_config.get("server_url"):
-        return global_config["server_url"].rstrip("/")
-
-    return "http://localhost:8001"
+    return resolve_base_url(ctx_url, tolerant=True).url
 
 
 @cli.command()
@@ -1170,8 +1262,9 @@ def doctor(ctx, output_json):
     - 0: no failing checks (warnings are reported but do not fail)
     - 1: at least one failing check
     """
-    base_url = doctor_base_url(ctx.obj.get("url"))
-    checks = doctor_checks(base_url)
+    url_resolution = resolve_base_url(ctx.obj.get("url"), tolerant=True)
+    base_url = url_resolution.url
+    checks = doctor_checks(base_url, url_resolution)
     failed = [c for c in checks if not c["ok"] and c["level"] == "error"]
     warned = [c for c in checks if not c["ok"] and c["level"] == "warn"]
 

@@ -13,12 +13,11 @@ sight.
 
 import argparse
 import contextvars
-import json
 import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import uvicorn
 from fastapi import FastAPI, Request, status
@@ -27,102 +26,25 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from skein.routes import router as skein_router
+
+# The bind-address ladder lives in skein.service_address (import-light, so the
+# CLI can share it as the floor of its URL resolution). Re-exported here because
+# this is where they lived first — the launcher shim and tests import them.
+from skein.service_address import (  # noqa: F401
+    DEFAULT_CONFIG,
+    REPO_CONFIG_PATH,
+    REPO_ROOT,
+    config_search_paths,
+    get_config,
+    is_source_checkout,
+    parse_port,
+    resolve_service_config,
+)
 from skein.storage import skein_home
 from skein.version import package_version
 
 # Context variable for request ID - accessible throughout the request lifecycle
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
-
-# Config file in a source checkout: <repo>/config/config.json, i.e. the sibling
-# of the package directory. In a wheel install that same relative spot is
-# site-packages/config/config.json — which another installed package could
-# create — so it is only consulted when it is genuinely a checkout (a sibling
-# pyproject.toml proves that), never in an install. See is_source_checkout().
-REPO_ROOT = Path(__file__).resolve().parent.parent
-REPO_CONFIG_PATH = REPO_ROOT / "config" / "config.json"
-
-DEFAULT_CONFIG: Dict[str, Any] = {
-    "host": "127.0.0.1",
-    "port": 8001,
-    "log_level": "info",
-}
-
-
-def is_source_checkout() -> bool:
-    """Whether the package is running from a source tree rather than an install.
-
-    An installed package lives under a ``site-packages`` / ``dist-packages``
-    tree; that is the reliable signal, and it cannot be defeated by files planted
-    beside the package (a stray ``pyproject.toml`` there does not make it a
-    checkout). A checkout is then confirmed by a sibling ``pyproject.toml``. This
-    is what keeps a wheel install from reading an unrelated
-    ``site-packages/config/config.json`` as SKEIN's server config.
-    """
-    if {"site-packages", "dist-packages"} & set(REPO_ROOT.parts):
-        return False
-    return (REPO_ROOT / "pyproject.toml").is_file()
-
-
-def config_search_paths() -> List[Path]:
-    """Config files to try, most specific first; the first that exists wins.
-
-    ``SKEIN_SERVER_CONFIG`` is the explicit override. ``<SKEIN_HOME>/server.json``
-    is the install-independent location a wheel user can write. The repo config is
-    consulted only from an actual checkout, so an install cannot pick up a config
-    file that merely happens to sit at the same relative path in site-packages.
-    """
-    paths: List[Path] = []
-    override = os.getenv("SKEIN_SERVER_CONFIG")
-    if override:
-        paths.append(Path(override).expanduser())
-    paths.append(skein_home() / "server.json")
-    if is_source_checkout():
-        paths.append(REPO_CONFIG_PATH)
-    return paths
-
-
-def get_config() -> Dict[str, Any]:
-    """Load service configuration from a config file, then environment variables.
-
-    Environment variables take precedence over the file, so ``SKEIN_PORT=8123
-    skein-server`` wins over a config file that says otherwise.
-
-    Note what this does NOT reach: the ``skein`` CLI resolves the URL it talks to
-    separately (``--url``, ``SKEIN_URL``, then ``server_url`` in the project and
-    global configs, then ``http://localhost:8001``). Bind the service somewhere
-    other than that default and you must point the CLI at it too. Reconciling the
-    two into one ladder is deliberately out of scope here; ``skein doctor``
-    reports when nothing is answering where the CLI is looking.
-    """
-    # Loopback by default; SKEIN has no auth, so opt in to network exposure via
-    # SKEIN_HOST or a config file.
-    config = dict(DEFAULT_CONFIG)
-
-    for config_file in config_search_paths():
-        try:
-            if not config_file.exists():
-                continue
-            with open(config_file) as f:
-                file_config = json.load(f)
-            # Repo config nests under "server"; a bare mapping is accepted too so
-            # <SKEIN_HOME>/server.json can just be {"port": 8123}.
-            section = file_config.get("server", file_config)
-            if isinstance(section, dict):
-                config.update({k: v for k, v in section.items() if k in DEFAULT_CONFIG})
-            break
-        except Exception:
-            # A malformed config never keeps the service from booting on defaults.
-            continue
-
-    # Environment variables take precedence
-    if os.getenv("SKEIN_HOST"):
-        config["host"] = os.getenv("SKEIN_HOST")
-    if os.getenv("SKEIN_PORT"):
-        config["port"] = int(os.getenv("SKEIN_PORT"))
-    if os.getenv("SKEIN_LOG_LEVEL"):
-        config["log_level"] = os.getenv("SKEIN_LOG_LEVEL")
-
-    return config
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -338,6 +260,30 @@ def main(argv: Optional[List[str]] = None) -> None:
         # No trailing newline munging: the template already ends with one.
         print(render_unit(), end="")
         return
+
+    # Resolution ignores an unparseable SKEIN_PORT so that the CLI (which
+    # shares it) never crashes on one — but for the service itself, silently
+    # binding a port the operator did not ask for is worse than refusing to
+    # start. An explicit --port outranks the env var, so only fail without one.
+    port_env = os.getenv("SKEIN_PORT")
+    if args.port is None and port_env and parse_port(port_env) is None:
+        raise SystemExit(f"skein-server: SKEIN_PORT={port_env!r} is not a valid port (1-65535)")
+
+    host_env = os.getenv("SKEIN_HOST")
+    if args.host is None and host_env and not host_env.strip():
+        raise SystemExit(f"skein-server: SKEIN_HOST={host_env!r} is blank")
+
+    # Same invariant for the explicit config-file override: an operator who
+    # set SKEIN_SERVER_CONFIG must not be silently served defaults because the
+    # value cannot even become a path. There is no flag override here; unset it.
+    config_override = os.getenv("SKEIN_SERVER_CONFIG")
+    if config_override:
+        try:
+            Path(config_override).expanduser()
+        except (RuntimeError, ValueError):
+            raise SystemExit(
+                f"skein-server: SKEIN_SERVER_CONFIG={config_override!r} is not a usable path"
+            )
 
     host = args.host or config["host"]
     port = args.port if args.port is not None else config["port"]

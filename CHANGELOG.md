@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed
+- The CLI's URL resolution now bottoms out on the machine's service address
+  (the same `SKEIN_HOST`/`SKEIN_PORT`/`server.json` ladder `skein-server`
+  binds), so moving the service moves every `skein` command with it. Before,
+  the two resolved independently and `SKEIN_PORT=8123 skein-server` stranded
+  the CLI on 8001.
+- A project or global `server_url` holding exactly the literal `skein init`
+  used to write (`http://localhost:8001` / `http://127.0.0.1:8001`) is read as
+  absent; a deliberately different value is honored. Configs are not rewritten.
+- `skein init` no longer writes `server_url` into project configs — a project
+  config is shared across machines, and one machine's address does not belong
+  in it.
+- `skein doctor` reports which rung the CLI's URL came from, and warns about
+  values resolution had to ignore (an unparseable `SKEIN_PORT`, an unusable
+  config file). An unparseable `SKEIN_PORT` never crashes CLI commands;
+  `skein-server` itself still refuses to start on one unless `--port` is given.
+
 ### Added
 - Top-level `--project` flag on every CLI command (overrides cwd `.skein/` discovery)
 - `project:site` colon syntax on `skein post` (issue/brief/friction/notion/finding/summary) and `skein playbook create`

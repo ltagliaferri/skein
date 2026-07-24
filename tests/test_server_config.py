@@ -327,6 +327,22 @@ class TestMainPortGuard:
         server.main(["--port", "9001"])
         assert captured["port"] == 9001
 
+    def test_main_refuses_a_blank_skein_host(self, clean_env, no_config_file, monkeypatch):
+        from skein import server
+
+        monkeypatch.setenv("SKEIN_HOST", "   ")
+        with pytest.raises(SystemExit) as excinfo:
+            server.main([])
+        assert "SKEIN_HOST" in str(excinfo.value)
+
+    def test_a_padded_skein_host_is_stripped(self, clean_env, no_config_file, monkeypatch):
+        from skein.service_address import resolve_service_config
+
+        monkeypatch.setenv("SKEIN_HOST", " 10.0.0.5 ")
+        resolved = resolve_service_config()
+        assert resolved.config["host"] == "10.0.0.5"
+        assert resolved.sources["host"] == "SKEIN_HOST"
+
     def test_main_refuses_an_unusable_skein_server_config(
         self, clean_env, no_config_file, monkeypatch
     ):

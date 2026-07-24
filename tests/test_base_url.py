@@ -209,6 +209,18 @@ class TestNoValueEverRaises:
         assert r.url == "http://127.0.0.1:8001"
         assert any("SKEIN_SERVER_CONFIG" in p for p in r.problems)
 
+    def test_a_padded_skein_host_is_stripped_in_the_floor(self, bare_machine, monkeypatch):
+        """A quoted stray space in a shell export or systemd Environment= line
+        must not ride into every command's URL as 'http:// 127.0.0.1 :8001'."""
+        monkeypatch.setenv("SKEIN_HOST", " 127.0.0.1 ")
+        assert get_base_url() == "http://127.0.0.1:8001"
+
+    def test_a_blank_skein_host_is_ignored_and_recorded(self, bare_machine, monkeypatch):
+        monkeypatch.setenv("SKEIN_HOST", "   ")
+        r = resolve_base_url()
+        assert r.url == "http://127.0.0.1:8001"
+        assert any("SKEIN_HOST" in p for p in r.problems)
+
 
 class TestDoctorReportsResolution:
     def test_doctor_names_the_winning_rung(self, bare_machine, monkeypatch):
@@ -249,6 +261,40 @@ class TestDoctorReportsResolution:
         ]
         assert len(infos) == 1
         assert "retired default" in infos[0]["detail"]
+
+    def _doctor_url_detail(self, args, env):
+        """Invoke the real CLI so click's envvar plumbing is in the loop, and
+        return the url-resolution detail from doctor's JSON."""
+        import json as json_mod
+
+        from click.testing import CliRunner
+
+        from client.cli import cli
+
+        result = CliRunner().invoke(cli, args, env=env)
+        payload = json_mod.loads(result.output)
+        details = [
+            c["detail"] for c in payload["checks"] if c["name"] == "url resolution" and c["ok"]
+        ]
+        assert len(details) == 1
+        return details[0]
+
+    def test_doctor_labels_an_environment_url_as_skein_url(self, bare_machine):
+        """click fills --url from SKEIN_URL, which mislabeled the common agent
+        override path as a flag nobody typed."""
+        detail = self._doctor_url_detail(
+            ["doctor", "--json"], {"SKEIN_URL": "http://remote-service:9000"}
+        )
+        assert "http://remote-service:9000" in detail
+        assert "SKEIN_URL" in detail
+        assert "--url flag" not in detail
+
+    def test_doctor_labels_a_real_flag_as_the_flag(self, bare_machine):
+        detail = self._doctor_url_detail(
+            ["--url", "http://flagged:9100", "doctor", "--json"], {}
+        )
+        assert "http://flagged:9100" in detail
+        assert "--url flag" in detail
 
 
 class TestInitStopsPinning:

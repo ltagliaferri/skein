@@ -463,6 +463,19 @@ def cli(ctx, agent, url, project):
     Full guide: skein info guide
     Check the install: skein doctor
     """
+    # click fills --url from SKEIN_URL (envvar=), which would make resolution
+    # label an environment-supplied URL "--url flag". When the value came from
+    # the environment, leave it unset here so resolve_base_url's own SKEIN_URL
+    # rung answers — the same URL, with honest provenance in doctor.
+    if url is not None:
+        try:
+            from click.core import ParameterSource
+
+            if ctx.get_parameter_source("url") == ParameterSource.ENVIRONMENT:
+                url = None
+        except ImportError:
+            pass
+
     ctx.ensure_object(dict)
     ctx.obj["agent"] = agent
     ctx.obj["url"] = url

@@ -198,11 +198,18 @@ def resolve_service_config() -> ServiceAddress:
             )
             continue
 
-    # Environment variables take precedence over any file.
+    # Environment variables take precedence over any file. Host gets the same
+    # usability treatment as a file host (_accept): stripped, and a value that
+    # is blank after stripping is ignored with a problem — it would otherwise
+    # ride into every CLI command's floor URL as "http://   :8001".
     host_env = os.getenv("SKEIN_HOST")
     if host_env:
-        config["host"] = host_env
-        sources["host"] = "SKEIN_HOST"
+        host = host_env.strip()
+        if host:
+            config["host"] = host
+            sources["host"] = "SKEIN_HOST"
+        else:
+            problems.append(f"SKEIN_HOST={host_env!r} is blank, ignored")
     port_env = os.getenv("SKEIN_PORT")
     if port_env:
         port = parse_port(port_env)

@@ -269,6 +269,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.port is None and port_env and parse_port(port_env) is None:
         raise SystemExit(f"skein-server: SKEIN_PORT={port_env!r} is not a valid port (1-65535)")
 
+    host_env = os.getenv("SKEIN_HOST")
+    if args.host is None and host_env and not host_env.strip():
+        raise SystemExit(f"skein-server: SKEIN_HOST={host_env!r} is blank")
+
     # Same invariant for the explicit config-file override: an operator who
     # set SKEIN_SERVER_CONFIG must not be silently served defaults because the
     # value cannot even become a path. There is no flag override here; unset it.

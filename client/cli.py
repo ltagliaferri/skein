@@ -74,7 +74,10 @@ def get_project_config() -> Optional[Dict[str, Any]]:
 
     try:
         with open(config_file) as f:
-            return json.load(f)
+            data = json.load(f)
+        # A config file that parses but is not an object (a JSON array, a bare
+        # string) is unusable; callers do config.get(...), which would raise.
+        return data if isinstance(data, dict) else None
     except Exception:
         return None
 
@@ -93,7 +96,11 @@ def get_global_config() -> Dict[str, Any]:
 
     try:
         with open(config_file) as f:
-            return json.load(f)
+            data = json.load(f)
+        # Only an object is usable — callers do config.get(...). A JSON array or
+        # other shape falls back to the default rather than crashing every command
+        # (get_base_url reads this).
+        return data if isinstance(data, dict) else {"server_url": "http://localhost:8001"}
     except Exception:
         return {"server_url": "http://localhost:8001"}
 
@@ -669,6 +676,20 @@ def resolve_doc(topic: str) -> Optional[Path]:
     return None
 
 
+def _same_dir(a: str, b) -> Optional[bool]:
+    """Whether two paths name the same directory, or None if it can't be told.
+
+    Resolves both and compares. Either side can be untrusted (a service-supplied
+    skein_home from /health), and a path that contains a symlink loop makes
+    ``Path.resolve()`` raise, so a failure returns None ("can't compare") rather
+    than crashing this diagnostic.
+    """
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
 def _check(name, ok, detail, level="error", hint=None):
     return {"name": name, "ok": bool(ok), "detail": detail, "level": level, "hint": hint}
 
@@ -946,10 +967,13 @@ def doctor_checks(base_url: str) -> List[Dict[str, Any]]:
         # when it is one; a missing or malformed value is left uncompared (like an
         # older service) rather than crashing this diagnostic on it.
         service_home = health.get("skein_home")
+        # Flag a mismatch only when both homes resolve and differ. A malformed or
+        # unresolvable service_home (missing, non-string, or a symlink loop) is
+        # left uncompared rather than crashing or false-alarming.
         if (
             isinstance(service_home, str)
             and service_home
-            and Path(service_home).resolve() != skein_home().resolve()
+            and _same_dir(service_home, skein_home()) is False
         ):
             checks.append(
                 _check(

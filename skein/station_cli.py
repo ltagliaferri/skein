@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json as _json
 import os
+import secrets
 from typing import Any, Dict, Optional
 
 import click
@@ -503,6 +504,22 @@ def invite() -> None:
     mint and never stored — only its hash."""
 
 
+def _mint_token() -> str:
+    """A 256-bit URL-safe bearer token that never starts with ``-``.
+
+    token_urlsafe's alphabet includes ``-``, and a token beginning with one
+    reads as an option on the positional revoke/redeem verbs, making ~1.6% of
+    invites fail with an opaque "No such option" (issue-20260723-rzer).
+    Rejection sampling keeps the accepted set uniform. Tokens minted before
+    this guard can still start with ``-``; the verbs accept those after a
+    ``--`` separator.
+    """
+    while True:
+        token = secrets.token_urlsafe(32)  # 32 bytes = 256-bit CSPRNG token
+        if not token.startswith("-"):
+            return token
+
+
 @invite.command("mint")
 @click.option(
     "--role",
@@ -535,7 +552,6 @@ def invite_mint(
     output_json: bool,
 ) -> None:
     """Mint a one-time invite; print the token + a ready-to-send blurb (token shown ONCE)."""
-    import secrets
     from datetime import datetime, timezone
 
     from urllib.parse import urlsplit
@@ -572,7 +588,7 @@ def invite_mint(
     onboarding_origin = clean_origin(onboarding_origin, "onboarding origin")
     pack_inventory = bootstrap_pack.inventory(_data_dir(ctx))
     pack_ready = bootstrap_pack.is_complete(pack_inventory)
-    token = secrets.token_urlsafe(32)  # 32 bytes = 256-bit CSPRNG token
+    token = _mint_token()
     token_h = hash_token(token)
     expires_at = datetime.now(timezone.utc) + delta
     with _open_station(ctx) as st:
@@ -683,7 +699,11 @@ def invite_list(ctx: click.Context, show_all: bool) -> None:
 )
 @click.pass_context
 def invite_revoke(ctx: click.Context, token_or_hash: str, is_hash: bool) -> None:
-    """Revoke an outstanding invite (by plaintext token, or --hash for a hash/prefix)."""
+    """Revoke an outstanding invite (by plaintext token, or --hash for a hash/prefix).
+
+    A token minted before the leading-dash guard can begin with ``-``, which
+    reads as an option; pass such a token after a ``--`` separator
+    (``skein station invite revoke -- -TOKEN``), or revoke by ``--hash``."""
     from .identity import hash_token
 
     with _open_station(ctx) as st:
@@ -788,6 +808,10 @@ def redeem_invite(
     On a headless box add --oob (out-of-band code flow). Redeeming writes your
     token's hash + your identity to the PUBLIC Rekor transparency log — you are
     asked to confirm first (the human-accountability stop); --yes skips the prompt.
+
+    A token minted before the leading-dash guard can begin with ``-``, which
+    reads as an option; pass options first, then the token after a ``--``
+    separator (``skein station redeem-invite --to URL --login -- -TOKEN``).
     """
     from . import profile as _profile
     from . import publish as _publish

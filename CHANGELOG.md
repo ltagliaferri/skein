@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Station invite tokens can no longer begin with `-`, which Click parsed as an
+  option on the positional `invite revoke` / `redeem-invite` verbs, making
+  ~1.6% of minted invites fail with "No such option". Tokens minted before the
+  guard stay usable after a `--` separator (documented on both verbs).
+
 ## [0.3.0] - 2026-07-24
 
 ### Added

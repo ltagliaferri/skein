@@ -539,6 +539,104 @@ class TestService:
         check = checks_by_name()["api service"]
         assert check["ok"] is True
 
+    def test_a_symlink_loop_skein_home_does_not_crash(
+        self, skein_home, outside_a_project, monkeypatch, tmp_path
+    ):
+        """A service-supplied skein_home containing a symlink loop makes
+        Path.resolve() raise. Doctor must leave it uncompared, not traceback
+        (issue-20260723-owv2)."""
+        from skein.version import package_version
+
+        loop = tmp_path / "loop"
+        loop.symlink_to(tmp_path / "loop")  # self-referential: resolve() raises
+
+        self._with_health(
+            monkeypatch,
+            {
+                "status": "healthy",
+                "distribution": "interskein",
+                "version": package_version(),
+                "skein_home": str(loop / "x"),
+            },
+        )
+        check = checks_by_name()["api service"]  # must not raise
+        assert check["ok"] is True
+
+
+class TestMalformedConfigFiles:
+    """A config file that parses but is not an object must not crash the CLI.
+    Callers do config.get(...), and get_base_url reads both the project and global
+    configs, so a JSON array in ~/.skein/config.json crashed every command, not
+    just doctor (issue-20260723-ai23)."""
+
+    def test_global_config_array_falls_back_to_default(self, tmp_path, monkeypatch):
+        from client import cli
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".skein").mkdir()
+        (tmp_path / ".skein" / "config.json").write_text(json.dumps(["not", "an", "object"]))
+
+        cfg = cli.get_global_config()
+        assert isinstance(cfg, dict)
+        assert cfg.get("server_url")
+
+    def test_project_config_array_reads_as_absent(self, tmp_path, monkeypatch):
+        from client import cli
+
+        project = tmp_path / "proj"
+        (project / ".skein").mkdir(parents=True)
+        (project / ".skein" / "config.json").write_text(json.dumps([1, 2, 3]))
+        monkeypatch.chdir(project)
+
+        assert cli.get_project_config() is None
+
+    def test_get_base_url_survives_an_array_global_config(self, tmp_path, monkeypatch):
+        from client import cli
+
+        monkeypatch.delenv("SKEIN_URL", raising=False)
+        monkeypatch.delenv("SKEIN_PROJECT", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".skein").mkdir()
+        (tmp_path / ".skein" / "config.json").write_text(json.dumps([]))
+        elsewhere = tmp_path / "no-project"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        url = cli.get_base_url(None)  # would AttributeError before the guard
+        assert url.startswith("http")
+
+    def test_doctor_json_stays_parseable_with_an_array_global_config(self, tmp_path, monkeypatch):
+        import subprocess
+        import sys
+
+        home = tmp_path / "home"
+        (home / ".skein").mkdir(parents=True)
+        (home / ".skein" / "config.json").write_text(json.dumps(["array"]))
+        elsewhere = tmp_path / "no-project"
+        elsewhere.mkdir()
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "SKEIN_HOME": str(home / ".skein"),
+            "PYTHONPATH": str(REPO_ROOT),
+        }
+        # SKEIN_URL is deliberately UNSET: get_base_url short-circuits on it before
+        # ever reading the global config, so setting it would step over the array
+        # config entirely and the test would pass even on the crashing code. With
+        # it unset, resolution falls through to the array global config — the crash
+        # path on the parent commit.
+        env.pop("SKEIN_URL", None)
+        result = subprocess.run(
+            [sys.executable, "-m", "client.cli", "doctor", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env=env,
+            timeout=120,
+        )
+        assert "Traceback" not in result.stderr, result.stderr
+        json.loads(result.stdout)  # parseable, not a crash before the checks
+
 
 class TestVersionSkew:
     def _with_health(self, monkeypatch, body):

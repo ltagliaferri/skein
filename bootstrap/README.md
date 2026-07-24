@@ -22,7 +22,7 @@ uv pip compile bootstrap/sigstore.in \
 ```
 
 Confirm `interskein-pinned.txt` contains only the approved local wheel hash for
-the root `interskein==0.2.0` line. `--only-binary=:all:` is also mandatory at
+the root `interskein==0.3.0` line. `--only-binary=:all:` is also mandatory at
 install time; hashes for index sdists may appear in generated transitive entries,
 but pip is forbidden from selecting them.
 

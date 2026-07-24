@@ -170,13 +170,14 @@ def resolve_base_url(ctx_url: Optional[str] = None, tolerant: bool = False) -> B
     as a failing check itself. Nothing else raises: rung 5 never does.
     """
     ignored: List[str] = []
+    problems: List[str] = []
 
     if ctx_url:
-        return BaseURLResolution(ctx_url.rstrip("/"), "--url flag", ignored, [])
+        return BaseURLResolution(ctx_url.rstrip("/"), "--url flag", ignored, problems)
 
     env_url = os.getenv("SKEIN_URL")
     if env_url:
-        return BaseURLResolution(env_url.rstrip("/"), "SKEIN_URL", ignored, [])
+        return BaseURLResolution(env_url.rstrip("/"), "SKEIN_URL", ignored, problems)
 
     try:
         project_config = get_project_config()
@@ -194,8 +195,12 @@ def resolve_base_url(ctx_url: Optional[str] = None, tolerant: bool = False) -> B
             )
         else:
             return BaseURLResolution(
-                url, "server_url in the project .skein/config.json", ignored, []
+                url, "server_url in the project .skein/config.json", ignored, problems
             )
+    elif url is not None and not isinstance(url, str):
+        problems.append(
+            "server_url in the project .skein/config.json is not a string, read as absent"
+        )
 
     try:
         global_config = get_global_config()
@@ -212,14 +217,18 @@ def resolve_base_url(ctx_url: Optional[str] = None, tolerant: bool = False) -> B
                 "literal, read as absent"
             )
         else:
-            return BaseURLResolution(url, "server_url in ~/.skein/config.json", ignored, [])
+            return BaseURLResolution(
+                url, "server_url in ~/.skein/config.json", ignored, problems
+            )
+    elif url is not None and not isinstance(url, str):
+        problems.append("server_url in ~/.skein/config.json is not a string, read as absent")
 
     service_url, resolved = local_service_url()
     moved = sorted(
         {src for key, src in resolved.sources.items() if key != "log_level" and src != "default"}
     )
     source = f"local service address ({', '.join(moved) if moved else 'built-in default'})"
-    return BaseURLResolution(service_url, source, ignored, list(resolved.problems))
+    return BaseURLResolution(service_url, source, ignored, problems + list(resolved.problems))
 
 
 def get_base_url(ctx_url: Optional[str] = None) -> str:

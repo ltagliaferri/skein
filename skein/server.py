@@ -269,6 +269,18 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.port is None and port_env and parse_port(port_env) is None:
         raise SystemExit(f"skein-server: SKEIN_PORT={port_env!r} is not a valid port (1-65535)")
 
+    # Same invariant for the explicit config-file override: an operator who
+    # set SKEIN_SERVER_CONFIG must not be silently served defaults because the
+    # value cannot even become a path. There is no flag override here; unset it.
+    config_override = os.getenv("SKEIN_SERVER_CONFIG")
+    if config_override:
+        try:
+            Path(config_override).expanduser()
+        except (RuntimeError, ValueError):
+            raise SystemExit(
+                f"skein-server: SKEIN_SERVER_CONFIG={config_override!r} is not a usable path"
+            )
+
     host = args.host or config["host"]
     port = args.port if args.port is not None else config["port"]
     log_level = args.log_level or config["log_level"]

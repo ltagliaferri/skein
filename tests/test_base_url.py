@@ -190,15 +190,24 @@ class TestNoValueEverRaises:
         assert r.url == "http://127.0.0.1:8001"
         assert r.problems
 
-    def test_a_non_string_server_url_in_a_config_is_skipped(
+    def test_a_non_string_server_url_in_a_config_is_skipped_and_recorded(
         self, bare_machine, in_project
     ):
         in_project.write_text(json.dumps({"project_id": "proj", "server_url": 8001}))
-        assert get_base_url() == "http://127.0.0.1:8001"
+        r = resolve_base_url()
+        assert r.url == "http://127.0.0.1:8001"
+        assert any("not a string" in p for p in r.problems)
 
-    def test_a_broken_skein_server_config_path_is_skipped(self, bare_machine, monkeypatch):
+    def test_a_broken_skein_server_config_path_is_skipped_and_recorded(
+        self, bare_machine, monkeypatch
+    ):
+        """The override is dropped before any file is read, so the recording
+        has to happen at the drop site — a doctor that stays silent here
+        leaves the operator believing the override is in effect."""
         monkeypatch.setenv("SKEIN_SERVER_CONFIG", "~nosuchuser-xyz/server.json")
-        assert get_base_url() == "http://127.0.0.1:8001"
+        r = resolve_base_url()
+        assert r.url == "http://127.0.0.1:8001"
+        assert any("SKEIN_SERVER_CONFIG" in p for p in r.problems)
 
 
 class TestDoctorReportsResolution:

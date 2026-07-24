@@ -224,6 +224,26 @@ class TestValueGuards:
         assert resolved.config["host"] == "10.0.0.5"
         assert any("port" in p for p in resolved.problems)
 
+    def test_an_unexpandable_skein_server_config_is_recorded(
+        self, clean_env, no_config_file, monkeypatch
+    ):
+        """The drop happens before any file is read (expanduser raises), so
+        the recording must happen at the drop site, not in the file loop."""
+        from skein.service_address import resolve_service_config
+
+        monkeypatch.setenv("SKEIN_SERVER_CONFIG", "~nosuchuser-xyz/server.json")
+        resolved = resolve_service_config()
+        assert resolved.config["port"] == 8001
+        assert any("SKEIN_SERVER_CONFIG" in p for p in resolved.problems)
+
+    def test_a_padded_host_in_a_config_file_is_stripped(
+        self, clean_env, no_config_file, tmp_path, monkeypatch
+    ):
+        override = tmp_path / "padded.json"
+        override.write_text(json.dumps({"host": " 10.0.0.5 "}))
+        monkeypatch.setenv("SKEIN_SERVER_CONFIG", str(override))
+        assert get_config()["host"] == "10.0.0.5"
+
     def test_resolution_never_raises_on_a_sealed_skein_home(
         self, clean_env, no_config_file, tmp_path, monkeypatch
     ):
@@ -306,6 +326,19 @@ class TestMainPortGuard:
         monkeypatch.setenv("SKEIN_PORT", "8123")
         server.main(["--port", "9001"])
         assert captured["port"] == 9001
+
+    def test_main_refuses_an_unusable_skein_server_config(
+        self, clean_env, no_config_file, monkeypatch
+    ):
+        """An operator who set the explicit override must not be silently
+        served defaults; there is no flag override, so refusing is the only
+        loud option."""
+        from skein import server
+
+        monkeypatch.setenv("SKEIN_SERVER_CONFIG", "~nosuchuser-xyz/server.json")
+        with pytest.raises(SystemExit) as excinfo:
+            server.main([])
+        assert "SKEIN_SERVER_CONFIG" in str(excinfo.value)
 
 
 class TestLauncherShim:

@@ -81,24 +81,32 @@ def is_source_checkout() -> bool:
     return (REPO_ROOT / "pyproject.toml").is_file()
 
 
-def config_search_paths() -> List[Path]:
+def config_search_paths(problems: Optional[List[str]] = None) -> List[Path]:
     """Config files to try, most specific first; the first that exists wins.
 
     ``SKEIN_SERVER_CONFIG`` is the explicit override. ``<SKEIN_HOME>/server.json``
     is the install-independent location a wheel user can write. The repo config is
     consulted only from an actual checkout, so an install cannot pick up a config
     file that merely happens to sit at the same relative path in site-packages.
+
+    An override that cannot even be turned into a path — ``~nosuchuser/...``
+    (expanduser raises), an embedded NUL — is dropped rather than raised, and
+    the drop is recorded in ``problems`` when the caller passes a list.
+    resolve_service_config does, so `skein doctor` reports the override an
+    operator believes is in effect but is not; ``skein-server`` refuses to
+    start on one (main()).
     """
     paths: List[Path] = []
     override = os.getenv("SKEIN_SERVER_CONFIG")
     if override:
         try:
             paths.append(Path(override).expanduser())
-        except (RuntimeError, ValueError):
-            # expanduser("~nosuchuser/...") raises; so does a path with an
-            # embedded NUL. Resolution must not — the value is just skipped
-            # and resolve_service_config records the problem.
-            pass
+        except (RuntimeError, ValueError) as e:
+            if problems is not None:
+                problems.append(
+                    f"SKEIN_SERVER_CONFIG={override!r} is not a usable path "
+                    f"({type(e).__name__}: {e}), ignored"
+                )
     paths.append(skein_home() / "server.json")
     if is_source_checkout():
         paths.append(REPO_CONFIG_PATH)
@@ -133,7 +141,9 @@ def _accept(key: str, value: Any) -> Optional[Any]:
     if key == "port":
         return parse_port(value)
     if key in ("host", "log_level"):
-        return value if isinstance(value, str) and value.strip() else None
+        # Stripped: an unstripped " 10.0.0.5 " is unbindable and would build
+        # exactly the garbage URL this function exists to prevent.
+        return value.strip() if isinstance(value, str) and value.strip() else None
     return None
 
 
@@ -149,9 +159,15 @@ def resolve_service_config() -> ServiceAddress:
     sources = {key: "default" for key in DEFAULT_CONFIG}
     problems: List[str] = []
 
-    for config_file in config_search_paths():
+    for config_file in config_search_paths(problems):
         try:
-            if not config_file.exists():
+            # stat, not exists(): Python 3.13's Path.exists() suppresses every
+            # OSError, which would turn an unprobeable path (a sealed
+            # SKEIN_HOME) into a silent skip instead of a recorded problem.
+            # A genuinely absent file is the silent skip.
+            try:
+                config_file.stat()
+            except (FileNotFoundError, NotADirectoryError):
                 continue
             with open(config_file) as f:
                 file_config = json.load(f)

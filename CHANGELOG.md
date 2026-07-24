@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## [0.3.0] - 2026-07-24
+
+### Added
+- The wheel now installs a complete working workbench: `skein-server` ships as
+  a console script (the service no longer needs a source checkout), the systemd
+  user unit ships inside the package and renders for the current install via
+  `skein-server --print-unit`, and the documentation behind `skein info
+  quickstart|guide|implementation` is packaged.
+- `skein doctor`: checks the install, SKEIN home, project registry, service,
+  CLI/service version agreement, packaged docs, and current project; exits
+  non-zero on real breakage. Hardened to never crash — malformed or inaccessible
+  registries, homes, configs, and docs all produce failing checks, and
+  unprobeable state is never reported as healthy.
+- Per-station onboarding routing: a stationfile `onboarding` key selects whether
+  `GET /onboarding` serves the collaborator ceremony (the default; existing
+  stations unchanged) or redirects to a named public site. Malformed values are
+  hard errors at startup.
+- First-class named site publishing: `skein publish --site` declares a
+  workbench site as a public station site with a stable anchor and slug claim.
 
 ### Changed
 - The CLI's URL resolution now bottoms out on the machine's service address

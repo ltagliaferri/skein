@@ -67,9 +67,19 @@ systemctl --user status skein          # journalctl --user -u skein -f for logs
 ```
 
 From a checkout, `make install-service` does the same. Run `loginctl
-enable-linger` if you want the service up when you are not logged in. On macOS,
-or a system without systemd, run `skein-server` under whatever supervises
-processes there (launchd, a process manager, or a terminal).
+enable-linger` if you want the service up when you are not logged in.
+
+On macOS, `skein-server` prints a launchd user agent instead:
+
+```bash
+skein-server --print-plist > ~/Library/LaunchAgents/net.interskein.skein-server.plist
+launchctl load -w ~/Library/LaunchAgents/net.interskein.skein-server.plist
+```
+
+(The plist's content is pinned by this repo's tests, but launchd itself only
+exists on macOS — the load path is exercised there, not here.) On a system with
+neither systemd nor launchd, run `skein-server` under whatever supervises
+processes there, or in a terminal.
 
 Then confirm the install is sound:
 
@@ -84,13 +94,16 @@ actually broken, so it works in a script. Run it first whenever a `skein` comman
 fails in a way you do not recognize.
 
 Data lives under `~/.skein` (override with `SKEIN_HOME`), never in the directory
-the service was started from. `SKEIN_HOST` and `SKEIN_PORT` (or a
-`<SKEIN_HOME>/server.json` with `{"host": ..., "port": ...}`) move where the
-service binds, and the CLI follows automatically — its URL resolution bottoms
-out on the same machine-level address the service binds. `SKEIN_URL` points the
-CLI somewhere else entirely (a remote service, a second instance). `skein
-doctor` names which source its URL came from and reports when nothing is
-answering there.
+the service was started from. To move where the service binds, write the
+address into `<SKEIN_HOME>/server.json` (`{"host": ..., "port": ...}`) — the
+one source both `skein-server` and the CLI's URL resolution read, so both ends
+move together under any supervisor. `SKEIN_HOST` / `SKEIN_PORT` do the same
+only when the service and the CLI share a shell environment — a supervisor's
+environment block (systemd `Environment=`, launchd `EnvironmentVariables`)
+reaches the service alone, which is why the packaged units point at
+`server.json` instead. `SKEIN_URL` points the CLI somewhere else entirely (a
+remote service, a second instance). `skein doctor` names which source its URL
+came from and reports when nothing is answering there.
 
 After upgrading the package, restart the service. Otherwise the old one keeps
 serving and `skein doctor` reports the version mismatch.

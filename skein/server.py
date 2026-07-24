@@ -233,6 +233,32 @@ def render_unit() -> str:
     return unit_template_path().read_text().replace("__SKEIN_SERVER__", server_execstart())
 
 
+def plist_template_path() -> Path:
+    """Path to the packaged launchd plist template."""
+    return Path(__file__).resolve().parent / "units" / "skein.plist"
+
+
+def render_plist() -> str:
+    """The packaged launchd plist resolved to this install, for macOS.
+
+    Printed by ``skein-server --print-plist``; the caller redirects it into
+    ``~/Library/LaunchAgents/net.interskein.skein-server.plist``. Each argv
+    token becomes one XML-escaped ``<string>`` in ProgramArguments — launchd
+    takes an argv array, so no shell quoting is involved. The log path is
+    rendered absolute because launchd does not expand ``~``.
+    """
+    from xml.sax.saxutils import escape
+
+    args = "\n".join(f"\t\t<string>{escape(token)}</string>" for token in server_command())
+    log_path = str(Path.home() / "Library" / "Logs" / "skein-server.log")
+    return (
+        plist_template_path()
+        .read_text()
+        .replace("__SKEIN_SERVER_ARGS__", args)
+        .replace("__SKEIN_LOG_PATH__", escape(log_path))
+    )
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     """Console-script entrypoint (``skein-server``) and ``python -m skein.server``."""
     config = get_config()
@@ -250,15 +276,25 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="Print a systemd user unit for this install (redirect into "
         "~/.config/systemd/user/skein.service) and exit",
     )
+    parser.add_argument(
+        "--print-plist",
+        action="store_true",
+        help="Print a macOS launchd agent plist for this install (redirect into "
+        "~/Library/LaunchAgents/net.interskein.skein-server.plist) and exit",
+    )
     args = parser.parse_args(argv)
 
     if args.version:
         print(SERVICE_VERSION)
         return
 
+    # No trailing newline munging on either: the templates end with one.
     if args.print_unit:
-        # No trailing newline munging: the template already ends with one.
         print(render_unit(), end="")
+        return
+
+    if args.print_plist:
+        print(render_plist(), end="")
         return
 
     # Resolution ignores an unparseable SKEIN_PORT so that the CLI (which

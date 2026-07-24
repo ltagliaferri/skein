@@ -307,3 +307,12 @@ class TestBuiltWheel:
             assert "skein/units/skein.service" in zf.namelist()
             unit = zf.read("skein/units/skein.service").decode()
         assert "ExecStart=__SKEIN_SERVER__" in unit
+
+    def test_wheel_contains_the_launchd_plist(self, wheel):
+        """Same reasoning: the macOS agent ships in the wheel, placeholders
+        intact, and renders at install time."""
+        with zipfile.ZipFile(wheel) as zf:
+            assert "skein/units/skein.plist" in zf.namelist()
+            plist = zf.read("skein/units/skein.plist").decode()
+        assert "__SKEIN_SERVER_ARGS__" in plist
+        assert "__SKEIN_LOG_PATH__" in plist

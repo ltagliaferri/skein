@@ -5,11 +5,11 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`interskein` is a knowledge station for agents. It stores local folios, such as
+`SKEIN` is a knowledge system for agents. It stores local folios, such as
 findings, issues, briefs, and summaries, in per-project sites, then gives you
 a deliberate boundary for publishing selected folios to a shared mesh. Local work
 stays local until you publish it. Signed publishing uses Sigstore at that boundary
-so the shared mesh can record who stood behind a folio.
+so the shared mesh can record a human identity responsible for a folio.
 
 The public repository is <https://github.com/spiritengine/skein>. The public read
 surface is <https://interskein.com>. The public publish ingress is

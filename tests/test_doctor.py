@@ -614,18 +614,24 @@ class TestMalformedConfigFiles:
         (home / ".skein" / "config.json").write_text(json.dumps(["array"]))
         elsewhere = tmp_path / "no-project"
         elsewhere.mkdir()
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "SKEIN_HOME": str(home / ".skein"),
+            "PYTHONPATH": str(REPO_ROOT),
+        }
+        # SKEIN_URL is deliberately UNSET: get_base_url short-circuits on it before
+        # ever reading the global config, so setting it would step over the array
+        # config entirely and the test would pass even on the crashing code. With
+        # it unset, resolution falls through to the array global config — the crash
+        # path on the parent commit.
+        env.pop("SKEIN_URL", None)
         result = subprocess.run(
             [sys.executable, "-m", "client.cli", "doctor", "--json"],
             capture_output=True,
             text=True,
             cwd=str(elsewhere),
-            env={
-                **os.environ,
-                "HOME": str(home),
-                "SKEIN_HOME": str(home / ".skein"),
-                "SKEIN_URL": UNREACHABLE,
-                "PYTHONPATH": str(REPO_ROOT),
-            },
+            env=env,
             timeout=120,
         )
         assert "Traceback" not in result.stderr, result.stderr

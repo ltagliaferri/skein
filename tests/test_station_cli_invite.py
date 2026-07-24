@@ -190,6 +190,65 @@ def test_revoke_unknown_errors(tmp_path):
     assert r.exit_code != 0 and "no active invite" in r.output
 
 
+def test_minted_tokens_never_start_with_a_dash(monkeypatch):
+    """token_urlsafe's alphabet includes '-', and a leading one reads as an
+    option on the positional revoke/redeem verbs (issue-20260723-rzer). The
+    mint helper re-rolls; forced dash-first draws prove the loop."""
+    from skein import station_cli
+
+    draws = iter(["-dash-first", "-dash-again", "cleanTOKEN123"])
+    monkeypatch.setattr(station_cli.secrets, "token_urlsafe", lambda n: next(draws))
+    assert station_cli._mint_token() == "cleanTOKEN123"
+
+
+def test_mint_uses_the_guarded_helper(tmp_path, monkeypatch):
+    """The command path must mint through _mint_token, not bare token_urlsafe."""
+    import json
+
+    from skein import station_cli
+
+    _init_op(tmp_path)
+    monkeypatch.setattr(station_cli, "_mint_token", lambda: "sentinel-token-xyz")
+    out = json.loads(_run(tmp_path, "invite", "mint", "--json").output)
+    assert out["token"] == "sentinel-token-xyz"
+    assert out["token_hash"] == hash_token("sentinel-token-xyz")
+
+
+def test_a_legacy_dash_token_is_revocable_after_the_separator(tmp_path):
+    """Invites minted before the guard can start with '-'. Planted directly in
+    the store (mint can no longer produce one), such a token must remain
+    revocable via `revoke -- -TOKEN`."""
+    from datetime import datetime, timedelta, timezone
+
+    _init_op(tmp_path)
+    legacy = "-LegacyDashToken123"
+    with _open(tmp_path) as st:
+        op = st.store.get_operator()
+        st.store.mint_invite(
+            hash_token(legacy),
+            "originator",
+            datetime.now(timezone.utc) + timedelta(days=1),
+            vouched_by_issuer=op.issuer,
+            vouched_by_subject=op.subject,
+            note=None,
+        )
+    bare = _run(tmp_path, "invite", "revoke", legacy)
+    assert bare.exit_code != 0 and "No such option" in bare.output
+    r = _run(tmp_path, "invite", "revoke", "--", legacy)
+    assert r.exit_code == 0, r.output
+    with _open(tmp_path) as st:
+        assert st.store.get_invite_by_token_hash(hash_token(legacy))["revoked_at"] is not None
+
+
+def test_redeem_invite_accepts_a_dash_token_after_the_separator(tmp_path):
+    """Parse-level proof for the redeem verb: after `--` the dash token binds
+    to the TOKEN argument, so the failure is the missing --to option, not
+    option-parsing on the token itself."""
+    r = CliRunner().invoke(cli, ["station", "redeem-invite", "--", "-dashTOKEN"])
+    assert "No such option" not in r.output
+    assert "Missing option '--to'" in r.output
+
+
 def test_revoke_empty_hash_prefix_refused(tmp_path):
     """`--hash ""` startswith-matches every row; with exactly one outstanding
     invite it would resolve 'unambiguously' and silently revoke it — a failed

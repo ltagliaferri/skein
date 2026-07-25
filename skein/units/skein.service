@@ -10,11 +10,14 @@ Environment="PYTHONUNBUFFERED=1"
 # nothing here that has to point at a source checkout. This is what makes the
 # unit usable from a plain `uv tool install interskein`.
 ExecStart=__SKEIN_SERVER__
-# Uncomment to bind somewhere other than 127.0.0.1:8001. Whatever you set, point
-# the CLI at it too (SKEIN_URL, or server_url in ~/.skein/config.json) — the two
-# resolve independently, and `skein doctor` reports when they disagree.
-#Environment="SKEIN_HOST=127.0.0.1"
-#Environment="SKEIN_PORT=8001"
+# To bind somewhere other than 127.0.0.1:8001, write the address into
+# <SKEIN_HOME>/server.json (e.g. {"port": 8123}) — the one source both this
+# service and the `skein` CLI read, so both ends move together.
+# An Environment= line here reaches only the service process — the CLI in
+# your shell never sees it, so it cannot move the address without stranding
+# the CLI on the old one.
+# SKEIN_HOME below must match what the CLI uses ($SKEIN_HOME or ~/.skein);
+# `skein doctor` flags a mismatch.
 #Environment="SKEIN_HOME=%h/.skein"
 Restart=on-failure
 RestartSec=5

@@ -233,6 +233,75 @@ def render_unit() -> str:
     return unit_template_path().read_text().replace("__SKEIN_SERVER__", server_execstart())
 
 
+def plist_template_path() -> Path:
+    """Path to the packaged launchd plist template."""
+    return Path(__file__).resolve().parent / "units" / "skein.plist"
+
+
+def _plist_text(value: str) -> str:
+    """``value`` as XML element content that plistlib/launchd read back
+    byte-identical, or SystemExit for a value XML 1.0 cannot carry.
+
+    saxutils handles the metacharacters; ``\\r`` must become a numeric
+    reference or the XML parser silently normalizes it to ``\\n``. What XML
+    1.0 cannot carry at all — C0 controls beyond tab/newline/CR, lone
+    surrogates (which surrogateescape puts in paths whose bytes do not
+    decode), and U+FFFE/U+FFFF — is refused in this module's idiom rather
+    than rendered as a plist launchd cannot parse.
+    """
+    import re
+    from xml.sax.saxutils import escape
+
+    if re.search("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]", value):
+        raise SystemExit(
+            f"skein-server: cannot render {value!r} into a plist "
+            "(it contains characters XML cannot represent)"
+        )
+    return escape(value).replace("\r", "&#13;")
+
+
+def render_plist() -> str:
+    """The packaged launchd plist resolved to this install, for macOS.
+
+    Printed by ``skein-server --print-plist``; the caller redirects it into
+    ``~/Library/LaunchAgents/net.interskein.skein-server.plist``. Each argv
+    token becomes one XML-escaped ``<string>`` in ProgramArguments — launchd
+    takes an argv array, so no shell quoting is involved. The log path is
+    rendered absolute because launchd does not expand ``~``.
+
+    Substitution is single-pass, so a placeholder string occurring inside a
+    substituted VALUE is emitted literally instead of being rewritten by a
+    later replacement (chained .replace() spliced the log path into an argv
+    token that contained the placeholder — finding-20260725-h08f).
+    """
+    import re
+
+    args = "\n".join(f"\t\t<string>{_plist_text(token)}</string>" for token in server_command())
+    # Path.home() raises RuntimeError when nothing yields a real path — a
+    # literal HOME='~', or no HOME and no passwd entry for this uid (some
+    # containers). Refuse in the module's idiom rather than traceback.
+    try:
+        home = Path.home()
+    except RuntimeError as e:
+        raise SystemExit(
+            f"skein-server: cannot determine a home directory for the plist "
+            f"log path ({e}); set HOME"
+        )
+    # abspath, not resolve(): a relative HOME must still yield an absolute log
+    # path (anchored where the render ran), but a normal home's symlinks are
+    # kept as the operator spelled them.
+    log_path = os.path.abspath(home / "Library" / "Logs" / "skein-server.log")
+    replacements = {
+        "__SKEIN_SERVER_ARGS__": args,
+        "__SKEIN_LOG_PATH__": _plist_text(log_path),
+    }
+    return re.sub(
+        "|".join(map(re.escape, replacements)),
+        lambda m: replacements[m.group(0)],
+        plist_template_path().read_text(),
+    )
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     """Console-script entrypoint (``skein-server``) and ``python -m skein.server``."""
     config = get_config()
@@ -250,15 +319,30 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="Print a systemd user unit for this install (redirect into "
         "~/.config/systemd/user/skein.service) and exit",
     )
+    parser.add_argument(
+        "--print-plist",
+        action="store_true",
+        help="Print a macOS launchd agent plist for this install (redirect into "
+        "~/Library/LaunchAgents/net.interskein.skein-server.plist) and exit",
+    )
     args = parser.parse_args(argv)
 
     if args.version:
         print(SERVICE_VERSION)
         return
 
+    # No trailing newline munging on either: the templates end with one.
     if args.print_unit:
-        # No trailing newline munging: the template already ends with one.
         print(render_unit(), end="")
+        return
+
+    if args.print_plist:
+        # The document declares UTF-8, so it must BE UTF-8 regardless of the
+        # locale/PYTHONIOENCODING stdout encoding — write bytes, not text.
+        import sys
+
+        sys.stdout.buffer.write(render_plist().encode("utf-8"))
+        sys.stdout.buffer.flush()
         return
 
     # Resolution ignores an unparseable SKEIN_PORT so that the CLI (which

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+- macOS launchd support: `skein-server --print-plist` renders a launchd user
+  agent plist for this install (ProgramArguments resolved like the systemd
+  unit's ExecStart). The rendered content is pinned by tests on Linux via
+  plistlib; loading under launchd is exercised on a real Mac, not by this
+  repo's suite.
+
+### Changed
+- The packaged systemd unit's config guidance now points at
+  `<SKEIN_HOME>/server.json` as the way to move the service address — an
+  `Environment=` line reaches only the service process, so the old comment's
+  suggestion stranded the CLI on the previous address. (Socket activation was
+  evaluated and closed do-not-implement: notion-20260723-477x.)
+
 ### Fixed
 - Station invite tokens can no longer begin with `-`, which Click parsed as an
   option on the positional `invite revoke` / `redeem-invite` verbs, making

@@ -19,7 +19,9 @@
       "Bash(do echo -n \"$name: \" pip index versions \"$name\")",
       "Bash(pip index:*)",
       "mcp__spindle__spool_dashboard",
-      "Read(//home/patrick/projects/horizon/**)"
+      "Read(//home/patrick/projects/horizon/**)",
+      "Read(//home/patrick/.local/bin/**)",
+      "Read(//home/patrick/projects/shuttle/**)"
     ],
     "deny": [],
     "ask": []

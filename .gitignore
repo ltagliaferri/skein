@@ -70,3 +70,6 @@ Thumbs.db
 
 # Operator runbook — box IP / root SSH; keep private (lives in ~/production/digitalocean/interskein/)
 docs/PUBLIC_INGRESS_OPERATIONS.md
+
+# uv project-mode artifact; this repo pins via pyproject/requirements/bootstrap
+uv.lock

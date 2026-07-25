@@ -277,10 +277,20 @@ def render_plist() -> str:
     import re
 
     args = "\n".join(f"\t\t<string>{_plist_text(token)}</string>" for token in server_command())
+    # Path.home() raises RuntimeError when nothing yields a real path — a
+    # literal HOME='~', or no HOME and no passwd entry for this uid (some
+    # containers). Refuse in the module's idiom rather than traceback.
+    try:
+        home = Path.home()
+    except RuntimeError as e:
+        raise SystemExit(
+            f"skein-server: cannot determine a home directory for the plist "
+            f"log path ({e}); set HOME"
+        )
     # abspath, not resolve(): a relative HOME must still yield an absolute log
     # path (anchored where the render ran), but a normal home's symlinks are
     # kept as the operator spelled them.
-    log_path = os.path.abspath(Path.home() / "Library" / "Logs" / "skein-server.log")
+    log_path = os.path.abspath(home / "Library" / "Logs" / "skein-server.log")
     replacements = {
         "__SKEIN_SERVER_ARGS__": args,
         "__SKEIN_LOG_PATH__": _plist_text(log_path),

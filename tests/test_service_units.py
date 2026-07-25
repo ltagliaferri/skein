@@ -93,6 +93,29 @@ class TestPlist:
         assert Path(parsed["StandardOutPath"]).is_absolute()
         assert parsed["StandardOutPath"].startswith(str(tmp_path))
 
+    def test_an_undeterminable_home_is_refused_not_a_traceback(self, monkeypatch):
+        """HOME='~' (or no HOME and no passwd entry) makes Path.home() raise
+        RuntimeError; the renderer must refuse in the module's idiom
+        (finding-20260725-4c8b)."""
+        monkeypatch.setenv("HOME", "~")
+        with pytest.raises(SystemExit) as excinfo:
+            render_plist()
+        assert "home directory" in str(excinfo.value)
+
+    def test_main_print_plist_refuses_cleanly_on_an_undeterminable_home(
+        self, tmp_path, monkeypatch
+    ):
+        """Through the real entrypoint: SKEIN_HOME set (so the pre-existing
+        get_config path is bypassed — that crash exists on master), HOME='~',
+        and --print-plist must exit via the clean message, not a traceback."""
+        from skein import server
+
+        monkeypatch.setenv("SKEIN_HOME", str(tmp_path / "skein-home"))
+        monkeypatch.setenv("HOME", "~")
+        with pytest.raises(SystemExit) as excinfo:
+            server.main(["--print-plist"])
+        assert "home directory" in str(excinfo.value)
+
     def test_print_plist_output_is_utf8_regardless_of_stdout_encoding(self, tmp_path):
         """The document declares UTF-8, so the bytes on stdout must BE UTF-8
         even when the locale says otherwise — a cp1252 stdout wrote cp1252

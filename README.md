@@ -72,6 +72,7 @@ enable-linger` if you want the service up when you are not logged in.
 On macOS, `skein-server` prints a launchd user agent instead:
 
 ```bash
+mkdir -p ~/Library/LaunchAgents
 skein-server --print-plist > ~/Library/LaunchAgents/net.interskein.skein-server.plist
 launchctl load -w ~/Library/LaunchAgents/net.interskein.skein-server.plist
 ```

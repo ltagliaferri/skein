@@ -9,7 +9,7 @@
   (An XML comment cannot contain a double hyphen, hence the flag spellings.)
 
   To bind somewhere other than 127.0.0.1:8001, write the address into
-  SKEIN_HOME/server.json (for example {"port": 8123}), the one source both
+  <SKEIN_HOME>/server.json (for example {"port": 8123}), the one source both
   this service and the skein CLI read, so both ends move together. An entry
   in EnvironmentVariables below reaches only the service process; the CLI in
   your shell never sees it, so it cannot move the address without stranding

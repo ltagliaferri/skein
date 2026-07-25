@@ -238,6 +238,27 @@ def plist_template_path() -> Path:
     return Path(__file__).resolve().parent / "units" / "skein.plist"
 
 
+def _plist_text(value: str) -> str:
+    """``value`` as XML element content that plistlib/launchd read back
+    byte-identical, or SystemExit for a value XML 1.0 cannot carry.
+
+    saxutils handles the metacharacters; ``\\r`` must become a numeric
+    reference or the XML parser silently normalizes it to ``\\n``; the
+    remaining C0 controls are unrepresentable in XML 1.0 even escaped, so a
+    path containing one is refused in this module's idiom rather than
+    rendered as a plist launchd cannot parse.
+    """
+    import re
+    from xml.sax.saxutils import escape
+
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", value):
+        raise SystemExit(
+            f"skein-server: cannot render {value!r} into a plist "
+            "(control characters are unrepresentable in XML)"
+        )
+    return escape(value).replace("\r", "&#13;")
+
+
 def render_plist() -> str:
     """The packaged launchd plist resolved to this install, for macOS.
 
@@ -246,16 +267,24 @@ def render_plist() -> str:
     token becomes one XML-escaped ``<string>`` in ProgramArguments — launchd
     takes an argv array, so no shell quoting is involved. The log path is
     rendered absolute because launchd does not expand ``~``.
-    """
-    from xml.sax.saxutils import escape
 
-    args = "\n".join(f"\t\t<string>{escape(token)}</string>" for token in server_command())
+    Substitution is single-pass, so a placeholder string occurring inside a
+    substituted VALUE is emitted literally instead of being rewritten by a
+    later replacement (chained .replace() spliced the log path into an argv
+    token that contained the placeholder — finding-20260725-h08f).
+    """
+    import re
+
+    args = "\n".join(f"\t\t<string>{_plist_text(token)}</string>" for token in server_command())
     log_path = str(Path.home() / "Library" / "Logs" / "skein-server.log")
-    return (
-        plist_template_path()
-        .read_text()
-        .replace("__SKEIN_SERVER_ARGS__", args)
-        .replace("__SKEIN_LOG_PATH__", escape(log_path))
+    replacements = {
+        "__SKEIN_SERVER_ARGS__": args,
+        "__SKEIN_LOG_PATH__": _plist_text(log_path),
+    }
+    return re.sub(
+        "|".join(map(re.escape, replacements)),
+        lambda m: replacements[m.group(0)],
+        plist_template_path().read_text(),
     )
 
 

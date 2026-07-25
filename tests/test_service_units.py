@@ -83,6 +83,16 @@ class TestPlist:
         monkeypatch.setattr("skein.server.server_command", lambda: weird)
         assert plistlib.loads(render_plist().encode())["ProgramArguments"] == weird
 
+    def test_a_relative_home_still_yields_absolute_log_paths(self, tmp_path, monkeypatch):
+        """HOME=relative-home makes Path.home() relative; the log paths must
+        come out absolute anyway, anchored where the render ran
+        (finding-20260725-qn1j)."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HOME", "relative-home")
+        parsed = plistlib.loads(render_plist().encode())
+        assert Path(parsed["StandardOutPath"]).is_absolute()
+        assert parsed["StandardOutPath"].startswith(str(tmp_path))
+
     def test_print_plist_output_is_utf8_regardless_of_stdout_encoding(self, tmp_path):
         """The document declares UTF-8, so the bytes on stdout must BE UTF-8
         even when the locale says otherwise — a cp1252 stdout wrote cp1252

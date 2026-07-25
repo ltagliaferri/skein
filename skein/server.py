@@ -243,18 +243,19 @@ def _plist_text(value: str) -> str:
     byte-identical, or SystemExit for a value XML 1.0 cannot carry.
 
     saxutils handles the metacharacters; ``\\r`` must become a numeric
-    reference or the XML parser silently normalizes it to ``\\n``; the
-    remaining C0 controls are unrepresentable in XML 1.0 even escaped, so a
-    path containing one is refused in this module's idiom rather than
-    rendered as a plist launchd cannot parse.
+    reference or the XML parser silently normalizes it to ``\\n``. What XML
+    1.0 cannot carry at all — C0 controls beyond tab/newline/CR, lone
+    surrogates (which surrogateescape puts in paths whose bytes do not
+    decode), and U+FFFE/U+FFFF — is refused in this module's idiom rather
+    than rendered as a plist launchd cannot parse.
     """
     import re
     from xml.sax.saxutils import escape
 
-    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", value):
+    if re.search("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]", value):
         raise SystemExit(
             f"skein-server: cannot render {value!r} into a plist "
-            "(control characters are unrepresentable in XML)"
+            "(it contains characters XML cannot represent)"
         )
     return escape(value).replace("\r", "&#13;")
 
@@ -323,7 +324,12 @@ def main(argv: Optional[List[str]] = None) -> None:
         return
 
     if args.print_plist:
-        print(render_plist(), end="")
+        # The document declares UTF-8, so it must BE UTF-8 regardless of the
+        # locale/PYTHONIOENCODING stdout encoding — write bytes, not text.
+        import sys
+
+        sys.stdout.buffer.write(render_plist().encode("utf-8"))
+        sys.stdout.buffer.flush()
         return
 
     # Resolution ignores an unparseable SKEIN_PORT so that the CLI (which

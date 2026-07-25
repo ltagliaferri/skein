@@ -61,14 +61,51 @@ class TestPlist:
         parsed = plistlib.loads(render_plist().encode())
         assert parsed["ProgramArguments"] == weird
 
-    def test_an_xml_unrepresentable_token_is_refused_not_mangled(self, monkeypatch):
-        """C0 controls (other than tab/newline/CR) cannot be carried in XML
-        1.0 at all; rendering must refuse in the module's idiom rather than
-        print a plist launchd cannot parse."""
-        monkeypatch.setattr("skein.server.server_command", lambda: ["/bad\x01path"])
+    @pytest.mark.parametrize(
+        "bad_char",
+        ["\x01", "\x0b", "\ud800", "\udfff", "\ufffe", "\uffff"],
+        ids=["C0-SOH", "C0-VT", "lone-high-surrogate", "lone-low-surrogate", "FFFE", "FFFF"],
+    )
+    def test_an_xml_unrepresentable_token_is_refused_not_mangled(self, monkeypatch, bad_char):
+        """XML 1.0 cannot carry C0 controls (beyond tab/newline/CR), lone
+        surrogates (which surrogateescape puts in undecodable paths), or
+        U+FFFE/U+FFFF; rendering must refuse in the module's idiom rather
+        than emit a plist launchd cannot parse."""
+        monkeypatch.setattr("skein.server.server_command", lambda: [f"/bad{bad_char}path"])
         with pytest.raises(SystemExit) as excinfo:
             render_plist()
-        assert "control characters" in str(excinfo.value)
+        assert "XML" in str(excinfo.value)
+
+    def test_tab_and_newline_in_tokens_still_round_trip(self, monkeypatch):
+        """The refusal is exactly the unrepresentable set — tab and newline
+        are legal XML and must keep round-tripping byte-identical."""
+        weird = ["/odd\tpath/with\nnewline"]
+        monkeypatch.setattr("skein.server.server_command", lambda: weird)
+        assert plistlib.loads(render_plist().encode())["ProgramArguments"] == weird
+
+    def test_print_plist_output_is_utf8_regardless_of_stdout_encoding(self, tmp_path):
+        """The document declares UTF-8, so the bytes on stdout must BE UTF-8
+        even when the locale says otherwise — a cp1252 stdout wrote cp1252
+        bytes under a UTF-8 declaration (finding-20260725-yd47). Subprocess,
+        because the boundary is the real stdout encoding."""
+        import os
+        import subprocess
+
+        home = tmp_path / "casa-española"
+        home.mkdir()
+        out = subprocess.run(
+            [sys.executable, "-m", "skein.server", "--print-plist"],
+            capture_output=True,
+            env={
+                **os.environ,
+                "HOME": str(home),
+                "PYTHONIOENCODING": "cp1252",
+                "PYTHONPATH": str(Path(__file__).resolve().parent.parent),
+            },
+        )
+        assert out.returncode == 0, out.stderr.decode(errors="replace")
+        parsed = plistlib.loads(out.stdout)  # rejects non-UTF-8 bytes under the header
+        assert str(home) in parsed["StandardOutPath"]
 
     def test_print_plist_flag_prints_it_and_exits(self, capsys):
         from skein import server

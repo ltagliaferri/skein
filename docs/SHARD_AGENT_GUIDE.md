@@ -7,7 +7,7 @@
 ## What Are Shards?
 
 Shards provide isolated git worktrees for agents to work in parallel without conflicts. Each shard is:
-- A separate working directory (`worktrees/<shard-name>/`)
+- A separate working directory, living OUTSIDE the project tree (see below)
 - An isolated git branch (`shard-<shard-name>`)
 - Tracked in SQLite with metadata (base commit, creation time, etc.)
 
@@ -16,6 +16,15 @@ Shards provide isolated git worktrees for agents to work in parallel without con
 - Master branch stays clean until work is reviewed
 - Easy to abandon work that doesn't pan out
 - Built-in drift detection shows when your work diverged from master
+
+**Where shard worktrees live:** under `<SKEIN_HOME>/worktrees/<project>-<hash>/<shard-name>/`
+(default `~/.skein/worktrees/...`), not inside your project directory. This is deliberate — a
+shard is where an agent actively edits files, and nesting that inside the project meant any
+consuming app's own file watcher (dev-server hot-reload, build tooling, etc.) would see shard
+activity as changes to the host project itself. Set `SKEIN_WORKTREES_DIR` to override the
+location explicitly. Examples below show `cd worktrees/<name>/` as shorthand for "cd into the
+shard's directory" — always use the actual path printed by `skein shard spawn`/`skein shard
+list`, not a literal relative `worktrees/` path.
 
 ---
 
@@ -66,7 +75,7 @@ skein shard spawn implement-spec --brief brief-20260113-xyz
 ```
 
 **What it does:**
-- Creates `worktrees/<name>-YYYYMMDD-NNN/` directory
+- Creates a `<name>-YYYYMMDD-NNN/` worktree directory under `<SKEIN_HOME>/worktrees/<project>-<hash>/`
 - Creates `shard-<name>-YYYYMMDD-NNN` branch from current master
 - Records base commit in SQLite for drift tracking
 - Returns path to new worktree
@@ -74,7 +83,7 @@ skein shard spawn implement-spec --brief brief-20260113-xyz
 **Output:**
 ```
 Spawned SHARD: fix-bug-20260113-001
-  Path: /home/patrick/projects/skein/worktrees/fix-bug-20260113-001
+  Path: /home/patrick/.skein/worktrees/skein-3f9a2b1c/fix-bug-20260113-001
   Branch: shard-fix-bug-20260113-001
 ```
 
@@ -690,10 +699,10 @@ Worktree was deleted manually. Clean up branch:
 git branch -D shard-my-feature-20260113-001
 ```
 
-Or recreate worktree (if work is valuable):
+Or recreate worktree (if work is valuable), under your SKEIN_HOME worktrees dir:
 
 ```bash
-git worktree add worktrees/my-feature-20260113-001 shard-my-feature-20260113-001
+git worktree add ~/.skein/worktrees/<project>-<hash>/my-feature-20260113-001 shard-my-feature-20260113-001
 ```
 
 ---

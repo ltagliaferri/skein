@@ -6,6 +6,7 @@ Manages git worktrees for SHARD agent coordination workflow.
 Provides core functions for creating, cleaning up, and listing SHARDs.
 """
 
+import hashlib
 import os
 import re
 import json
@@ -18,6 +19,8 @@ try:
     import git
 except ImportError:
     git = None
+
+from skein.storage import skein_home
 
 
 class ShardError(Exception):
@@ -298,6 +301,26 @@ def _find_project_root() -> Path:
     )
 
 
+def _default_worktrees_dir(project_root: Path) -> Path:
+    """Compute where shard worktrees live for a given project.
+
+    Worktrees deliberately live OUTSIDE the project's own directory tree
+    (under SKEIN_HOME, keyed by project name + a short hash of the resolved
+    project path to avoid collisions between same-named repos in different
+    locations). A shard worktree is where an agent actively edits files —
+    nesting that inside the project meant every consuming app's own file
+    watcher (dev-server hot-reload, build tooling, etc.) would see shard
+    activity as changes to the host project itself. Set SKEIN_WORKTREES_DIR
+    to override this location explicitly.
+    """
+    override = os.environ.get("SKEIN_WORKTREES_DIR")
+    if override:
+        return Path(override).resolve()
+    resolved = project_root.resolve()
+    digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:8]
+    return skein_home() / "worktrees" / f"{resolved.name}-{digest}"
+
+
 # Lazy-initialized project root. None means not yet resolved.
 # Use get_project_root() to access - never access directly.
 _PROJECT_ROOT: Optional[Path] = None
@@ -309,7 +332,7 @@ def get_project_root() -> Path:
     global _PROJECT_ROOT, _WORKTREES_DIR
     if _PROJECT_ROOT is None:
         _PROJECT_ROOT = _find_project_root()
-        _WORKTREES_DIR = _PROJECT_ROOT / "worktrees"
+        _WORKTREES_DIR = _default_worktrees_dir(_PROJECT_ROOT)
     return _PROJECT_ROOT
 
 
@@ -337,7 +360,7 @@ def set_project_root(path: str) -> None:
         raise ShardError(f"Not a git repository: {path}")
 
     _PROJECT_ROOT = project_path
-    _WORKTREES_DIR = _PROJECT_ROOT / "worktrees"
+    _WORKTREES_DIR = _default_worktrees_dir(_PROJECT_ROOT)
 
 
 def _get_repo() -> "git.Repo":
@@ -615,8 +638,9 @@ def spawn_shard(
         )
 
     worktrees_dir = get_worktrees_dir()
-    # Ensure worktrees directory exists
-    worktrees_dir.mkdir(exist_ok=True)
+    # Ensure worktrees directory exists (now outside the project tree, so
+    # intermediate SKEIN_HOME/worktrees/ parents may not exist yet either)
+    worktrees_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate date and sequence
     date = datetime.now(timezone.utc).strftime("%Y%m%d")

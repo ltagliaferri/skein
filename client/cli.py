@@ -6845,7 +6845,7 @@ def shard_graft(ctx, worktree_name):
         skein shard graft my-shard-001
 
     After resolving conflicts (if any):
-        cd worktrees/my-shard-001-graft/
+        cd <graft worktree path, printed above>
         git add <resolved files>
         git commit
         skein shard merge my-shard-001-graft
@@ -7032,8 +7032,9 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
                     click.echo("\nCleanup worktree chain:")
                     click.echo(f"  → skein shard cleanup {root} --chain")
                     click.echo("\nThis will remove:")
+                    worktrees_dir = shard_worktree.get_worktrees_dir()
                     for wt in chain:
-                        click.echo(f"  - worktrees/{wt}/")
+                        click.echo(f"  - {worktrees_dir / wt}/")
             else:
                 click.echo("\nCleanup worktree:")
                 click.echo(f"  → skein shard cleanup {worktree_name}")

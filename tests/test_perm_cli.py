@@ -180,12 +180,20 @@ def test_slug_override_on_a_defective_lineage_names_the_recovery(tmp_path):
 
 def test_the_named_recovery_command_actually_recovers(tmp_path):
     """The command the refusal NAMES must exist and actually clear the defect — the test
-    above only pins the STRING. Runs the migration module as a subprocess (as an operator
-    would) against a self-edged corpus, then confirms slug-override, which failed closed
-    before, now succeeds. Guards against the string and its target drifting apart (rename
-    the module and the message above still passes while operators get a dead command)."""
+    above only pins the STRING. Runs the EXACT command the message printed against a
+    self-edged corpus, then confirms slug-override, which failed closed before, now
+    succeeds.
+
+    Runs the printed command rather than a hand-built one, so BOTH parts that could drift
+    from the message — the module name and the interpolated db path — are pinned by
+    execution: a wrong module fails to import, a wrong path recovers nothing. cwd is the
+    tree under test so `-m skein` resolves THIS worktree's package, not another checkout
+    that happens to be editable-installed on sys.path."""
+    import re
+    import shlex
     import subprocess
     import sys
+    from pathlib import Path
 
     _init_op(tmp_path)
     with _open(tmp_path) as st:
@@ -199,10 +207,14 @@ def test_the_named_recovery_command_actually_recovers(tmp_path):
     before = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", anchor)
     assert before.exit_code != 0, before.output   # fails closed before recovery
 
-    db = str(tmp_path / ".skein-station" / "skein.db")
-    r = subprocess.run([sys.executable, "-m", "skein.migrations.perm_model_rev6", db],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
+    printed = re.search(r"`([^`]+)`", before.output)   # the backticked command
+    assert printed, before.output
+    cmd = shlex.split(printed.group(1))
+    assert cmd[1] == "-m", cmd                          # a `python -m <module>` invocation
+    cmd[0] = sys.executable                             # this interpreter, not PATH's python
+    repo_root = str(Path(__file__).resolve().parents[1])
+    r = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+    assert r.returncode == 0, (r.stdout, r.stderr)
 
     after = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", anchor)
     assert after.exit_code == 0, after.output     # recovered, now nameable

@@ -28,6 +28,7 @@ from __future__ import annotations
 import json as _json
 import os
 import secrets
+import shlex
 from typing import Any, Dict, Optional
 
 import click
@@ -426,7 +427,7 @@ def slug_override(ctx: click.Context, slug: str, anchor: str) -> None:
             raise click.ClickException(
                 f"anchor {anchor} has no single lineage genesis ({e}); "
                 "repair the lineage before naming it: stop the station and run "
-                f"`python -m skein.migrations.perm_model_rev6 {db_path}`, "
+                f"`python -m skein.migrations.perm_model_rev6 {shlex.quote(db_path)}`, "
                 "which quarantines the offending supersedes rows atomically"
             )
         status = st.store.claim_slug(slug, genesis, op.issuer, op.subject, override=True)

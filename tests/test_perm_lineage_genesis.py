@@ -112,9 +112,11 @@ def test_supersedes_dedupes_so_an_idempotent_republish_does_not_brick(store):
     The dedupe is defense-in-depth, not the sole guard, and NOT the PK: a re-publish with
     a different created_at hashes differently, so INSERT-OR-IGNORE does not drop it — the
     partial-unique index on threads(from_id) does. That index is deliberately skipped on a
-    merge-containing pre-rev6 corpus (see test_merge_two_parents_fails_closed), which is
-    exactly the corpus this recovery targets, so there the dedupe bites on stored+stored
-    too. This test drives the stored+pending path, which is reachable on any corpus."""
+    merge-containing pre-rev6 corpus (storage.py catches the IntegrityError and warns
+    rather than failing; test_merge_two_parents_fails_closed simulates that state by
+    dropping the index), which is exactly the corpus this recovery targets, so there the
+    dedupe bites on stored+stored too. This test drives the stored+pending path, reachable
+    on any corpus."""
     from skein.thread_authz import _supersedes_parents
 
     g = _folio(store, "v1")

@@ -151,3 +151,60 @@ def test_slug_override_refuses_unheld_anchor(tmp_path):
     _init_op(tmp_path)
     r = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", "sha256::" + "c" * 64)
     assert r.exit_code != 0 and "not a held folio" in r.output
+
+
+def test_slug_override_on_a_defective_lineage_names_the_recovery(tmp_path):
+    """A structurally-broken anchor fails closed AND names the atomic recovery command
+    (the migration module), not the unsafe `_repair_supersedes` helper. This is the
+    operator's dead end: without the command they know the name is unusable but not how
+    to fix it."""
+    _init_op(tmp_path)
+    with _open(tmp_path) as st:
+        anchor = st.store.create_folio({
+            "type": "site", "title": "defective site", "content": "b",
+            "created_at": "2026-07-16T00:00:00+00:00", "created_by": "op",
+        })
+        # a self-edge: the genesis resolver fails closed on it forever
+        st.store.save_thread(from_id=anchor, to_id=anchor, type="supersedes",
+                             created_at="2026-07-16T01:00:00+00:00")
+
+    r = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", anchor)
+
+    assert r.exit_code != 0, r.output
+    assert "no single lineage genesis" in r.output, r.output
+    assert "python -m skein.migrations.perm_model_rev6" in r.output, r.output
+    assert "_repair_supersedes" not in r.output, r.output
+    with _open(tmp_path) as st:
+        assert st.store.get_slug_claim("specs") is None   # still fails closed
+
+
+def test_supersedes_dedupes_so_an_idempotent_republish_does_not_brick(tmp_path):
+    """A re-published supersedes edge the station ALREADY holds must NOT read as a merge.
+
+    The realistic idempotent re-publish is a batch re-sending an edge already stored: it
+    authorizes, enters the pending/staged set, and `_supersedes_parents` then sees the
+    SAME parent from two sources — the stored row and the pending copy. Without the
+    distinct-parents dedupe those are `[g, g]`, the >1-parent check fires, and the whole
+    lineage bricks (every op on it refused until an offline migration). Pins that the
+    stored+pending duplicate collapses to one parent and the lineage still resolves.
+
+    (Note: two STORED copies cannot arise — `save_thread` is INSERT-OR-IGNORE — so the
+    dedupe only bites on the stored+pending path, which is what this drives.)"""
+    from skein.thread_authz import _supersedes_parents, lineage_genesis_for
+
+    with _open(tmp_path) as st:
+        g = st.store.create_folio({
+            "type": "site", "title": "site v1", "content": "b",
+            "created_at": "2026-07-16T00:00:00+00:00", "created_by": "op",
+        })
+        v2 = st.store.create_folio({
+            "type": "site", "title": "site v2", "content": "b",
+            "created_at": "2026-07-16T01:00:00+00:00", "created_by": "op",
+        })
+        st.store.save_thread(from_id=v2, to_id=g, type="supersedes",
+                             created_at="2026-07-16T02:00:00+00:00")
+        # the batch re-sends the edge it already holds: same parent, now also pending
+        pending = [(v2, g)]
+
+        assert _supersedes_parents(st.store, v2, pending) == [g]        # not [g, g]
+        assert lineage_genesis_for(st.store, v2, pending).hash == g     # resolves

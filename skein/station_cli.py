@@ -413,9 +413,17 @@ def slug_override(ctx: click.Context, slug: str, anchor: str) -> None:
         try:
             genesis = lineage_genesis_for(st.store, anchor).hash
         except LineageReject as e:
+            # Name the recovery, not just the dead end. This is an operator-local
+            # surface, and the public entry is the migration MODULE, not the
+            # `_repair_supersedes` helper the earlier brief named — that helper takes an
+            # open connection with no transaction, so running it directly is an unguarded
+            # partial migration. `migrate()` (which the module entry calls) wraps the same
+            # repair in one BEGIN IMMEDIATE and is idempotent.
             raise click.ClickException(
                 f"anchor {anchor} has no single lineage genesis ({e}); "
-                "repair the lineage before naming it"
+                "repair the lineage before naming it: stop the station and run "
+                "`python -m skein.migrations.perm_model_rev6 <station-db-path>`, "
+                "which quarantines the offending supersedes rows atomically"
             )
         status = st.store.claim_slug(slug, genesis, op.issuer, op.subject, override=True)
     click.echo(f"slug {slug} -> {genesis} ({status})")

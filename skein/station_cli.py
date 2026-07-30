@@ -28,6 +28,7 @@ from __future__ import annotations
 import json as _json
 import os
 import secrets
+import shlex
 from typing import Any, Dict, Optional
 
 import click
@@ -413,9 +414,21 @@ def slug_override(ctx: click.Context, slug: str, anchor: str) -> None:
         try:
             genesis = lineage_genesis_for(st.store, anchor).hash
         except LineageReject as e:
+            # Name the recovery, not just the dead end. This is an operator-local
+            # surface, and the public entry is the migration MODULE, not the
+            # `_repair_supersedes` helper the earlier brief named — that helper takes an
+            # open connection with no transaction, so running it directly is an unguarded
+            # partial migration. `migrate()` (which the module entry calls) wraps the same
+            # repair in one BEGIN IMMEDIATE and is idempotent. Interpolate the station's
+            # own db path so the command is copy-pasteable, not a placeholder to guess.
+            from .station_store import DB_FILENAME
+
+            db_path = os.path.abspath(os.path.join(_data_dir(ctx), DB_FILENAME))
             raise click.ClickException(
                 f"anchor {anchor} has no single lineage genesis ({e}); "
-                "repair the lineage before naming it"
+                "repair the lineage before naming it: stop the station and run "
+                f"`python -m skein.migrations.perm_model_rev6 {shlex.quote(db_path)}`, "
+                "which quarantines the offending supersedes rows atomically"
             )
         status = st.store.claim_slug(slug, genesis, op.issuer, op.subject, override=True)
     click.echo(f"slug {slug} -> {genesis} ({status})")

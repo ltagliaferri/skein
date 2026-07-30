@@ -100,6 +100,34 @@ def test_merge_two_parents_fails_closed(store):
         lineage_genesis_for(store, child)
 
 
+def test_supersedes_dedupes_so_an_idempotent_republish_does_not_brick(store):
+    """A re-published supersedes edge the station ALREADY holds must NOT read as a merge.
+
+    A batch may re-send an edge already stored; ingress authorizes it and it enters the
+    pending/staged set, so `_supersedes_parents` sees the SAME parent twice — the stored
+    row and the pending copy. Without the distinct-parents dedupe those are `[g, g]`, the
+    >1-parent check above fires, and the whole lineage bricks (every op refused until an
+    offline migration). Pins that the duplicate collapses to one parent and it resolves.
+
+    The dedupe is defense-in-depth, not the sole guard, and NOT the PK: a re-publish with
+    a different created_at hashes differently, so INSERT-OR-IGNORE does not drop it — the
+    partial-unique index on threads(from_id) does. That index is deliberately skipped on a
+    merge-containing pre-rev6 corpus (storage.py catches the IntegrityError and warns
+    rather than failing; test_merge_two_parents_fails_closed simulates that state by
+    dropping the index), which is exactly the corpus this recovery targets, so there the
+    dedupe bites on stored+stored too. This test drives the stored+pending path, reachable
+    on any corpus."""
+    from skein.thread_authz import _supersedes_parents
+
+    g = _folio(store, "v1")
+    v2 = _folio(store, "v2")
+    _supersede(store, v2, g)          # stored edge v2 -> g
+    pending = [(v2, g)]               # the batch re-sends the edge it already holds
+
+    assert _supersedes_parents(store, v2, pending) == [g]                  # not [g, g]
+    assert lineage_genesis_for(store, v2, pending) == Genesis(g, resolved=True)
+
+
 def test_self_edge_fails_closed(store):
     v = _folio(store, "v")
     _supersede(store, v, v)  # from == to

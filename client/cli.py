@@ -7876,6 +7876,233 @@ def shard_triage(ctx, output_json):
         raise click.ClickException(f"Failed to triage SHARDs: {e}")
 
 
+def _load_xgun_api():
+    """Load xgun only when shard inspection asks for a quality reading.
+
+    xgun is optional for SKEIN, so importing client.cli must not depend on it.
+    Keeping this boundary small also gives tests one place to substitute the
+    typed library API without recreating an installed xgun package.
+    """
+    from xgun.artifact import ArtifactError, resolve_diff
+    from xgun.qgun import scan as qgun_scan
+    from xgun.qgun.tool_run import check_did_not_run
+    from xgun.sgun import sniff as sgun_sniff
+
+    return resolve_diff, ArtifactError, qgun_scan, sgun_sniff, check_did_not_run
+
+
+def _xgun_not_run(status, message):
+    """Return one visible shape for every xgun scan that did not complete."""
+    return {
+        "status": status,
+        "message": (
+            f"{message} Quality reading is incomplete. "
+            "Raise this before merge and rerun `skein shard inspect`."
+        ),
+    }
+
+
+def _serialize_shard_xgun(
+    worktree_path,
+    base_branch,
+    reading,
+    smells,
+    check_did_not_run,
+):
+    """Translate xgun's typed reading into shard inspect's public JSON shape."""
+    failed_checks = []
+    signals = []
+    for signal in reading.signals:
+        level = signal.level.value if hasattr(signal.level, "value") else str(signal.level)
+        signal_data = {
+            "check": signal.check,
+            "level": level,
+            "message": signal.message,
+        }
+        if check_did_not_run(signal):
+            signal_data["did_not_run"] = True
+            if signal.check not in failed_checks:
+                failed_checks.append(signal.check)
+        signals.append(signal_data)
+
+    flags = [
+        {
+            "check": flag.check,
+            "file": flag.file,
+            "line": flag.line,
+            "message": flag.message,
+            "severity": getattr(flag, "severity", "high"),
+        }
+        for flag in reading.flags
+    ]
+    smell_data = [
+        {
+            "kind": smell.kind,
+            "file": smell.file,
+            "line": smell.line,
+            "severity": smell.severity,
+            "reason": smell.reason,
+        }
+        for smell in smells
+    ]
+
+    result = {
+        "status": "incomplete" if failed_checks else "completed",
+        "artifact": worktree_path,
+        "artifact_type": "refs",
+        "comparison": f"{base_branch}...HEAD",
+        "qgun": {
+            "passed": reading.passed,
+            "flags": flags,
+            "signals": signals,
+            "stats": reading.stats,
+        },
+        "sgun": {"smells": smell_data},
+        "summary": {
+            "passed": reading.passed and not smell_data and not failed_checks,
+            "checks_failed": failed_checks,
+            "flags": len(flags),
+            "signals": len(signals),
+            "smells": len(smell_data),
+        },
+    }
+    if failed_checks:
+        count = len(failed_checks)
+        result["message"] = (
+            f"{count} xgun check(s) could not run: {', '.join(failed_checks)}. "
+            "Quality reading is incomplete. "
+            "Raise this before merge and rerun `skein shard inspect`."
+        )
+    return result
+
+
+def _run_shard_xgun(worktree_path, base_branch):
+    """Run xgun in-process for a shard's explicit base...HEAD diff.
+
+    The library owns diff resolution, governed external-tool execution, and the
+    structured did-not-run marker. SKEIN owns only its inspect-specific result
+    shape and presentation.
+    """
+    try:
+        (
+            resolve_diff,
+            artifact_error,
+            qgun_scan,
+            sgun_sniff,
+            check_did_not_run,
+        ) = _load_xgun_api()
+    except ImportError as exc:
+        return _xgun_not_run(
+            "unavailable",
+            f"xgun is unavailable to {sys.executable}: {exc}.",
+        )
+
+    if not base_branch:
+        return _xgun_not_run(
+            "not_run",
+            "xgun did not run because the shard base branch could not be determined.",
+        )
+
+    try:
+        diff_text, changed_files, content_map = resolve_diff(
+            worktree_path,
+            base_branch,
+            "HEAD",
+            None,
+        )
+        reading = qgun_scan(diff_text, content_map)
+        smells = sgun_sniff(changed_files) if changed_files else []
+    except artifact_error as exc:
+        return _xgun_not_run("error", f"xgun could not resolve the shard diff: {exc}.")
+    except Exception as exc:
+        return _xgun_not_run(
+            "error",
+            f"xgun failed with {type(exc).__name__}: {exc}.",
+        )
+
+    try:
+        return _serialize_shard_xgun(
+            worktree_path,
+            base_branch,
+            reading,
+            smells,
+            check_did_not_run,
+        )
+    except Exception as exc:
+        return _xgun_not_run(
+            "error",
+            f"xgun returned an unusable result ({type(exc).__name__}: {exc}).",
+        )
+
+
+def _render_shard_xgun(xgun_result):
+    """Render the xgun portion of human shard-inspect output."""
+    click.echo("=== Code Quality (xgun) ===")
+    click.echo()
+
+    status = xgun_result["status"]
+    if status in {"unavailable", "not_run", "error"}:
+        click.echo(f"! {xgun_result['message']}")
+        click.echo()
+        return
+
+    summary = xgun_result["summary"]
+    flags_count = summary["flags"]
+    signals_count = summary["signals"]
+    smells_count = summary["smells"]
+    counts = f"{signals_count} signals, {flags_count} flags, {smells_count} smells"
+
+    if status == "incomplete":
+        click.echo(f"! Quality: Incomplete ({counts})")
+        click.echo(f"  {xgun_result['message']}")
+    elif summary["passed"]:
+        click.echo(f"✓ Quality: Passed ({counts})")
+    else:
+        click.echo(f"✗ Quality: Issues detected ({counts})")
+
+    flags = xgun_result["qgun"]["flags"]
+    if flags:
+        click.echo()
+        click.echo(f"Flags ({len(flags)}):")
+        for flag in flags[:10]:
+            loc = (
+                f"{flag.get('file', '?')}:{flag['line']}"
+                if flag.get("line")
+                else flag.get("file", "?")
+            )
+            click.echo(f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}")
+        if len(flags) > 10:
+            click.echo(f"  ... and {len(flags) - 10} more")
+
+    signals = xgun_result["qgun"]["signals"]
+    if signals:
+        click.echo()
+        click.echo(f"Signals ({len(signals)}):")
+        for signal in signals[:5]:
+            level = signal.get("level", "?")
+            marker = " did-not-run" if signal.get("did_not_run") else ""
+            label = f"[{level}{marker}] [{signal.get('check', '?')}]"
+            click.echo(f"  {label} {signal.get('message', '')}")
+        if len(signals) > 5:
+            click.echo(f"  ... and {len(signals) - 5} more")
+
+    smells = xgun_result["sgun"]["smells"]
+    if smells:
+        click.echo()
+        click.echo(f"Smells ({len(smells)}):")
+        for smell in smells[:5]:
+            loc = (
+                f"{smell.get('file', '?')}:{smell['line']}"
+                if smell.get("line")
+                else smell.get("file", "?")
+            )
+            click.echo(f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}")
+        if len(smells) > 5:
+            click.echo(f"  ... and {len(smells) - 5} more")
+
+    click.echo()
+
+
 @shard.command("inspect")
 @click.argument("worktree_name")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
@@ -7959,57 +8186,17 @@ def shard_inspect(ctx, worktree_name, output_json):
             "work_diff_stat": drift_info.get("work_diff_stat"),
         }
 
-        # Run xgun scan if available (silent degradation if not)
-        xgun_result = None
-        import shutil
-        import json as json_mod
+        base_branch = drift_info.get("base_branch")
+        if not base_branch:
+            try:
+                from skein import shard as shard_module
 
-        if shutil.which("xgun"):
-            import subprocess
+                base_branch = shard_module._get_shard_base_branch(worktree_name)
+            except Exception:
+                base_branch = None
 
-            worktree_path = shard_info["worktree_path"]
-            # xgun takes an explicit diff now: review what the shard changed
-            # since its base (base...HEAD, three-dot). Base from stored metadata,
-            # falling back to detection; if it can't be determined, skip xgun.
-            base_branch = drift_info.get("base_branch")
-            if not base_branch:
-                try:
-                    from skein import shard as shard_module
-
-                    base_branch = shard_module._get_shard_base_branch(worktree_name)
-                except Exception:
-                    base_branch = None
-            if base_branch:
-                try:
-                    result = subprocess.run(
-                        [
-                            "xgun",
-                            "scan",
-                            "--repo",
-                            worktree_path,
-                            "--old",
-                            base_branch,
-                            "--new",
-                            "HEAD",
-                            "--output",
-                            "json",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                        cwd=worktree_path,
-                    )
-                    if result.returncode in (0, 1):  # 0=passed, 1=issues found
-                        xgun_result = json_mod.loads(result.stdout)
-                except (
-                    subprocess.TimeoutExpired,
-                    subprocess.SubprocessError,
-                    json_mod.JSONDecodeError,
-                ):
-                    pass  # Silent degradation
-
-        if xgun_result:
-            review_data["xgun"] = xgun_result
+        xgun_result = _run_shard_xgun(shard_info["worktree_path"], base_branch)
+        review_data["xgun"] = xgun_result
 
         if output_json:
             import json as json_module
@@ -8137,68 +8324,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                     click.echo(f"  {tender_info['summary']}")
                 click.echo()
 
-            # Show xgun quality check results
-            if xgun_result:
-                click.echo("=== Code Quality (xgun) ===")
-                click.echo()
-                summary = xgun_result.get("summary", {})
-                flags_count = summary.get("flags", 0)
-                signals_count = summary.get("signals", 0)
-                smells_count = summary.get("smells", 0)
-                passed = summary.get("passed", True)
-
-                if passed:
-                    click.echo(
-                        f"✓ Quality: Passed ({signals_count} signals, {flags_count} flags, {smells_count} smells)"
-                    )
-                else:
-                    click.echo(
-                        f"✗ Quality: Issues detected ({signals_count} signals, {flags_count} flags, {smells_count} smells)"
-                    )
-
-                # Show flags (specific line issues)
-                qgun_data = xgun_result.get("qgun", {})
-                flags = qgun_data.get("flags", [])
-                if flags:
-                    click.echo()
-                    click.echo(f"Flags ({len(flags)}):")
-                    for flag in flags[:10]:
-                        loc = (
-                            f"{flag.get('file', '?')}:{flag['line']}"
-                            if flag.get("line")
-                            else flag.get("file", "?")
-                        )
-                        click.echo(f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}")
-                    if len(flags) > 10:
-                        click.echo(f"  ... and {len(flags) - 10} more")
-
-                # Show signals (repo-wide observations)
-                signals = qgun_data.get("signals", [])
-                if signals:
-                    click.echo()
-                    click.echo(f"Signals ({len(signals)}):")
-                    for signal in signals[:5]:
-                        click.echo(f"  [{signal.get('check', '?')}] {signal.get('message', '')}")
-                    if len(signals) > 5:
-                        click.echo(f"  ... and {len(signals) - 5} more")
-
-                # Show smells
-                sgun_data = xgun_result.get("sgun", {})
-                smells = sgun_data.get("smells", [])
-                if smells:
-                    click.echo()
-                    click.echo(f"Smells ({len(smells)}):")
-                    for smell in smells[:5]:
-                        loc = (
-                            f"{smell.get('file', '?')}:{smell['line']}"
-                            if smell.get("line")
-                            else smell.get("file", "?")
-                        )
-                        click.echo(f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}")
-                    if len(smells) > 5:
-                        click.echo(f"  ... and {len(smells) - 5} more")
-
-                click.echo()
+            _render_shard_xgun(xgun_result)
 
             # Actions
             if uncommitted:

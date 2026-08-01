@@ -1,14 +1,16 @@
 """CLI tests for SHARD commands."""
 
+import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from client.cli import cli
+from client.cli import _run_shard_xgun, cli
 
 
 class _MockShardModule:
@@ -66,6 +68,304 @@ class TestShardReviewCli:
         assert result.output == "No SHARDs found\n"
         shard_module.get_review_queue.assert_called_once_with(stale_days=7)
         shard_module.get_shard_status.assert_not_called()
+
+
+def _xgun_api(resolve_diff, qgun_scan, sgun_sniff, check_did_not_run):
+    class FakeArtifactError(Exception):
+        pass
+
+    return (
+        resolve_diff,
+        FakeArtifactError,
+        qgun_scan,
+        sgun_sniff,
+        check_did_not_run,
+    )
+
+
+def _reading(*, passed=True, flags=None, signals=None):
+    return SimpleNamespace(
+        passed=passed,
+        flags=flags or [],
+        signals=signals or [],
+        stats={"files_changed": 1},
+    )
+
+
+class TestShardXgunScan:
+    def test_uses_typed_xgun_api_for_explicit_shard_diff(self):
+        resolve_diff = MagicMock(
+            return_value=("diff text", ["/repo/changed.py"], {"changed.py": "new content"})
+        )
+        qgun_scan = MagicMock(
+            return_value=_reading(
+                passed=False,
+                flags=[
+                    SimpleNamespace(
+                        check="ruff_quick",
+                        file="changed.py",
+                        line=4,
+                        message="undefined name",
+                        severity="medium",
+                    )
+                ],
+                signals=[
+                    SimpleNamespace(
+                        check="size_gate",
+                        level=SimpleNamespace(value="yellow"),
+                        message="large diff",
+                    )
+                ],
+            )
+        )
+        sgun_sniff = MagicMock(
+            return_value=[
+                SimpleNamespace(
+                    kind="broad-except",
+                    file="/repo/changed.py",
+                    line=8,
+                    severity=6,
+                    reason="broad exception handler",
+                )
+            ]
+        )
+        check_did_not_run = MagicMock(return_value=False)
+
+        with patch(
+            "client.cli._load_xgun_api",
+            return_value=_xgun_api(
+                resolve_diff,
+                qgun_scan,
+                sgun_sniff,
+                check_did_not_run,
+            ),
+        ):
+            result = _run_shard_xgun("/repo", "master")
+
+        resolve_diff.assert_called_once_with("/repo", "master", "HEAD", None)
+        qgun_scan.assert_called_once_with("diff text", {"changed.py": "new content"})
+        sgun_sniff.assert_called_once_with(["/repo/changed.py"])
+        assert result["status"] == "completed"
+        assert result["summary"] == {
+            "passed": False,
+            "checks_failed": [],
+            "flags": 1,
+            "signals": 1,
+            "smells": 1,
+        }
+        assert result["qgun"]["flags"][0]["severity"] == "medium"
+
+    def test_missing_xgun_is_visible_but_does_not_raise(self):
+        with patch(
+            "client.cli._load_xgun_api",
+            side_effect=ImportError("No module named 'xgun.artifact'"),
+        ):
+            result = _run_shard_xgun("/repo", "master")
+
+        assert result["status"] == "unavailable"
+        assert "xgun is unavailable" in result["message"]
+        assert "Quality reading is incomplete" in result["message"]
+        assert "Raise this before merge" in result["message"]
+
+    def test_unresolvable_base_is_visible_and_does_not_scan(self):
+        resolve_diff = MagicMock()
+        api = _xgun_api(resolve_diff, MagicMock(), MagicMock(), MagicMock())
+
+        with patch("client.cli._load_xgun_api", return_value=api):
+            result = _run_shard_xgun("/repo", None)
+
+        assert result["status"] == "not_run"
+        assert "base branch could not be determined" in result["message"]
+        assert "Raise this before merge" in result["message"]
+        resolve_diff.assert_not_called()
+
+    def test_artifact_error_is_visible_but_does_not_raise(self):
+        class FakeArtifactError(Exception):
+            pass
+
+        resolve_diff = MagicMock(side_effect=FakeArtifactError("bad ref master"))
+        api = (resolve_diff, FakeArtifactError, MagicMock(), MagicMock(), MagicMock())
+
+        with patch("client.cli._load_xgun_api", return_value=api):
+            result = _run_shard_xgun("/repo", "master")
+
+        assert result["status"] == "error"
+        assert "could not resolve the shard diff" in result["message"]
+        assert "bad ref master" in result["message"]
+        assert "Quality reading is incomplete" in result["message"]
+
+    def test_tool_did_not_run_makes_result_incomplete_not_passed(self):
+        failed_signal = SimpleNamespace(
+            check="ast_grep",
+            level=SimpleNamespace(value="red"),
+            message="ast-grep exited 8; security scan did not run",
+        )
+        resolve_diff = MagicMock(return_value=("diff text", [], {}))
+        qgun_scan = MagicMock(return_value=_reading(signals=[failed_signal]))
+        sgun_sniff = MagicMock()
+        check_did_not_run = MagicMock(side_effect=lambda signal: signal is failed_signal)
+
+        with patch(
+            "client.cli._load_xgun_api",
+            return_value=_xgun_api(
+                resolve_diff,
+                qgun_scan,
+                sgun_sniff,
+                check_did_not_run,
+            ),
+        ):
+            result = _run_shard_xgun("/repo", "master")
+
+        assert result["status"] == "incomplete"
+        assert result["summary"]["passed"] is False
+        assert result["summary"]["checks_failed"] == ["ast_grep"]
+        assert result["qgun"]["signals"][0]["did_not_run"] is True
+        assert "Raise this before merge" in result["message"]
+        sgun_sniff.assert_not_called()
+
+    def test_unusable_typed_result_is_visible_but_does_not_raise(self):
+        signal = SimpleNamespace(
+            check="ast_grep",
+            level=SimpleNamespace(value="red"),
+            message="failed",
+        )
+        resolve_diff = MagicMock(return_value=("diff text", [], {}))
+        qgun_scan = MagicMock(return_value=_reading(signals=[signal]))
+        check_did_not_run = MagicMock(side_effect=TypeError("incompatible xgun API"))
+
+        with patch(
+            "client.cli._load_xgun_api",
+            return_value=_xgun_api(
+                resolve_diff,
+                qgun_scan,
+                MagicMock(),
+                check_did_not_run,
+            ),
+        ):
+            result = _run_shard_xgun("/repo", "master")
+
+        assert result["status"] == "error"
+        assert "returned an unusable result" in result["message"]
+        assert "incompatible xgun API" in result["message"]
+        assert "Raise this before merge" in result["message"]
+
+
+def _make_inspect_shard_module():
+    shard_module = MagicMock()
+    shard_module.ShardError = _MockShardModule.ShardError
+    shard_module.get_shard_status.return_value = {
+        "branch_name": "shard-demo-shard",
+        "worktree_path": "/repo/worktrees/demo-shard",
+    }
+    shard_module.get_shard_git_info.return_value = {
+        "commits_ahead": 1,
+        "uncommitted": [],
+        "commit_log": [],
+        "diffstat": "",
+    }
+    shard_module.get_shard_drift_info.return_value = {
+        "base_branch": "master",
+        "base_commit_short": "abc1234",
+        "base_commit_date": "2026-08-01",
+        "base_commits_ahead": 0,
+        "base_notable_changes": [],
+        "conflict_status": "clean",
+        "conflict_files": [],
+        "is_nested": False,
+        "work_diff_stat": None,
+    }
+    shard_module.is_graft.return_value = False
+    return shard_module
+
+
+class TestShardInspectXgunOutput:
+    def test_human_output_tells_agents_to_raise_unavailable_xgun(self):
+        runner = CliRunner()
+        shard_module = _make_inspect_shard_module()
+        unavailable = {
+            "status": "unavailable",
+            "message": (
+                "xgun is unavailable to /python: missing package. "
+                "Quality reading is incomplete. Raise this before merge and rerun "
+                "`skein shard inspect`."
+            ),
+        }
+
+        with (
+            patch("client.cli.get_shard_worktree_module", return_value=shard_module),
+            patch("client.cli.make_request", return_value=[]),
+            patch("client.cli._run_shard_xgun", return_value=unavailable),
+        ):
+            result = runner.invoke(cli, ["shard", "inspect", "demo-shard"])
+
+        assert result.exit_code == 0, result.output
+        assert "=== Code Quality (xgun) ===" in result.output
+        assert "xgun is unavailable" in result.output
+        assert "Quality reading is incomplete" in result.output
+        assert "Raise this before merge" in result.output
+
+    def test_human_output_marks_failed_check_and_result_incomplete(self):
+        runner = CliRunner()
+        shard_module = _make_inspect_shard_module()
+        incomplete = {
+            "status": "incomplete",
+            "message": (
+                "1 xgun check(s) could not run: ast_grep. Quality reading is incomplete. "
+                "Raise this before merge and rerun `skein shard inspect`."
+            ),
+            "qgun": {
+                "passed": True,
+                "flags": [],
+                "signals": [
+                    {
+                        "check": "ast_grep",
+                        "level": "red",
+                        "message": "ast-grep exited 8; security scan did not run",
+                        "did_not_run": True,
+                    }
+                ],
+                "stats": {},
+            },
+            "sgun": {"smells": []},
+            "summary": {
+                "passed": False,
+                "checks_failed": ["ast_grep"],
+                "flags": 0,
+                "signals": 1,
+                "smells": 0,
+            },
+        }
+
+        with (
+            patch("client.cli.get_shard_worktree_module", return_value=shard_module),
+            patch("client.cli.make_request", return_value=[]),
+            patch("client.cli._run_shard_xgun", return_value=incomplete),
+        ):
+            result = runner.invoke(cli, ["shard", "inspect", "demo-shard"])
+
+        assert result.exit_code == 0, result.output
+        assert "! Quality: Incomplete" in result.output
+        assert "[red did-not-run] [ast_grep]" in result.output
+        assert "Raise this before merge" in result.output
+        assert "Quality: Passed" not in result.output
+
+    def test_json_always_contains_xgun_status(self):
+        runner = CliRunner()
+        shard_module = _make_inspect_shard_module()
+        unavailable = {
+            "status": "unavailable",
+            "message": "xgun unavailable; quality reading incomplete",
+        }
+
+        with (
+            patch("client.cli.get_shard_worktree_module", return_value=shard_module),
+            patch("client.cli.make_request", return_value=[]),
+            patch("client.cli._run_shard_xgun", return_value=unavailable),
+        ):
+            result = runner.invoke(cli, ["shard", "inspect", "demo-shard", "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["xgun"] == unavailable
 
 
 class TestShardCleanupCli:

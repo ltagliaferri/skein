@@ -7991,10 +7991,11 @@ def _run_shard_xgun(worktree_path, base_branch):
             sgun_sniff,
             check_did_not_run,
         ) = _load_xgun_api()
-    except ImportError as exc:
+    except Exception as exc:
         return _xgun_not_run(
             "unavailable",
-            f"xgun is unavailable to {sys.executable}: {exc}.",
+            f"xgun is unavailable to {sys.executable} "
+            f"({type(exc).__name__}: {exc}).",
         )
 
     if not base_branch:
@@ -8078,13 +8079,20 @@ def _render_shard_xgun(xgun_result):
     if signals:
         click.echo()
         click.echo(f"Signals ({len(signals)}):")
-        for signal in signals[:5]:
+        did_not_run = [signal for signal in signals if signal.get("did_not_run")]
+        ordinary = [signal for signal in signals if not signal.get("did_not_run")]
+        # A display cap may hide routine signals, never the explanation for a
+        # check that did not execute. Show every such failure first, then fill
+        # the ordinary five-signal budget when room remains.
+        shown_signals = did_not_run + ordinary[: max(0, 5 - len(did_not_run))]
+        for signal in shown_signals:
             level = signal.get("level", "?")
             marker = " did-not-run" if signal.get("did_not_run") else ""
             label = f"[{level}{marker}] [{signal.get('check', '?')}]"
             click.echo(f"  {label} {signal.get('message', '')}")
-        if len(signals) > 5:
-            click.echo(f"  ... and {len(signals) - 5} more")
+        hidden_count = len(signals) - len(shown_signals)
+        if hidden_count:
+            click.echo(f"  ... and {hidden_count} more")
 
     smells = xgun_result["sgun"]["smells"]
     if smells:

@@ -167,6 +167,18 @@ class TestShardXgunScan:
         assert "Quality reading is incomplete" in result["message"]
         assert "Raise this before merge" in result["message"]
 
+    def test_broken_xgun_module_is_visible_but_does_not_raise(self):
+        with patch(
+            "client.cli._load_xgun_api",
+            side_effect=SyntaxError("invalid syntax", ("xgun/artifact.py", 12, 1, "bad")),
+        ):
+            result = _run_shard_xgun("/repo", "master")
+
+        assert result["status"] == "unavailable"
+        assert "SyntaxError" in result["message"]
+        assert "xgun is unavailable" in result["message"]
+        assert "Raise this before merge" in result["message"]
+
     def test_unresolvable_base_is_visible_and_does_not_scan(self):
         resolve_diff = MagicMock()
         api = _xgun_api(resolve_diff, MagicMock(), MagicMock(), MagicMock())
@@ -318,6 +330,14 @@ class TestShardInspectXgunOutput:
                 "flags": [],
                 "signals": [
                     {
+                        "check": f"green_{index}",
+                        "level": "green",
+                        "message": "check passed",
+                    }
+                    for index in range(6)
+                ]
+                + [
+                    {
                         "check": "ast_grep",
                         "level": "red",
                         "message": "ast-grep exited 8; security scan did not run",
@@ -331,7 +351,7 @@ class TestShardInspectXgunOutput:
                 "passed": False,
                 "checks_failed": ["ast_grep"],
                 "flags": 0,
-                "signals": 1,
+                "signals": 7,
                 "smells": 0,
             },
         }
@@ -346,6 +366,8 @@ class TestShardInspectXgunOutput:
         assert result.exit_code == 0, result.output
         assert "! Quality: Incomplete" in result.output
         assert "[red did-not-run] [ast_grep]" in result.output
+        assert "ast-grep exited 8; security scan did not run" in result.output
+        assert "... and 2 more" in result.output
         assert "Raise this before merge" in result.output
         assert "Quality: Passed" not in result.output
 

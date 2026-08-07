@@ -148,6 +148,11 @@ def shard_env(temp_git_repo: Path, monkeypatch):
     shard_module._PROJECT_ROOT = None
     shard_module._WORKTREES_DIR = None
 
+    # Worktrees now live under SKEIN_HOME rather than nested in the project
+    # (see _default_worktrees_dir) -- point SKEIN_HOME at an isolated temp
+    # dir so tests never touch the real ~/.skein.
+    monkeypatch.setenv("SKEIN_HOME", str(temp_git_repo.parent / "skein_home_test"))
+
     # Set up the project root
     set_project_root(str(temp_git_repo))
 
@@ -219,6 +224,8 @@ def shard_env_main(temp_git_repo_main: Path, monkeypatch):
 
     shard_module._PROJECT_ROOT = None
     shard_module._WORKTREES_DIR = None
+
+    monkeypatch.setenv("SKEIN_HOME", str(temp_git_repo_main.parent / "skein_home_test"))
 
     set_project_root(str(temp_git_repo_main))
 
@@ -361,7 +368,7 @@ class TestCleanupNeverAffectsMaster:
         cleanup_shard(worktree_path)  # Pass full path, not just name
 
         # Parent directories must remain
-        assert worktrees_dir.parent.exists(), "Project root should exist"
+        assert worktrees_dir.parent.exists(), "SKEIN_HOME worktrees/ dir should exist"
         assert shard_env.exists(), "Repo should exist"
 
 
@@ -551,7 +558,7 @@ class TestSequenceCap:
     def test_sequence_cap_enforced(self, shard_env: Path):
         """WHY: Prevent sequence overflow beyond 3 digits (001-999)."""
         worktrees_dir = get_worktrees_dir()
-        worktrees_dir.mkdir(exist_ok=True)
+        worktrees_dir.mkdir(parents=True, exist_ok=True)
 
         # Create a fake worktree at sequence 999 to simulate limit
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -577,7 +584,7 @@ class TestSequenceCap:
     def test_sequence_under_cap_succeeds(self, shard_env: Path):
         """WHY: Sequences under cap should work normally."""
         worktrees_dir = get_worktrees_dir()
-        worktrees_dir.mkdir(exist_ok=True)
+        worktrees_dir.mkdir(parents=True, exist_ok=True)
 
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
@@ -1326,7 +1333,7 @@ class TestRegressions:
         Regression: Ensure we can't accidentally delete worktrees/ directory itself.
         """
         worktrees_dir = get_worktrees_dir()
-        worktrees_dir.mkdir(exist_ok=True)
+        worktrees_dir.mkdir(parents=True, exist_ok=True)
 
         with pytest.raises(ShardError):
             # Try to cleanup with just the worktrees directory name
@@ -1667,7 +1674,7 @@ class TestSpawnSequenceCapIntegration:
         from _get_next_sequence() to the caller.
         """
         worktrees_dir = get_worktrees_dir()
-        worktrees_dir.mkdir(exist_ok=True)
+        worktrees_dir.mkdir(parents=True, exist_ok=True)
 
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
@@ -1782,7 +1789,7 @@ class TestBugFixRegressions:
         Valid sequences are 1-999.
         """
         worktrees_dir = get_worktrees_dir()
-        worktrees_dir.mkdir(exist_ok=True)
+        worktrees_dir.mkdir(parents=True, exist_ok=True)
 
         from datetime import datetime
 
@@ -1807,7 +1814,7 @@ class TestBugFixRegressions:
         Bug: Parser accepted 1000+ sequences.
         """
         worktrees_dir = get_worktrees_dir()
-        worktrees_dir.mkdir(exist_ok=True)
+        worktrees_dir.mkdir(parents=True, exist_ok=True)
 
         from datetime import datetime
 

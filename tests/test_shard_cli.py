@@ -31,6 +31,43 @@ class _MockShardModule:
         return False
 
 
+class TestShardReviewCli:
+    def test_worktree_name_dispatches_to_inspect(self):
+        runner = CliRunner()
+        shard_module = MagicMock()
+        shard_module.ShardError = _MockShardModule.ShardError
+        shard_module.get_shard_status.return_value = None
+
+        with patch("client.cli.get_shard_worktree_module", return_value=shard_module):
+            result = runner.invoke(
+                cli,
+                ["--agent", "reviewer", "shard", "review", "demo-shard"],
+            )
+
+        assert result.exit_code != 0
+        assert "SHARD not found: demo-shard" in result.output
+        shard_module.get_shard_status.assert_called_once_with("demo-shard")
+        shard_module.get_review_queue.assert_not_called()
+
+    def test_no_worktree_name_keeps_review_queue_behavior(self):
+        runner = CliRunner()
+        shard_module = MagicMock()
+        shard_module.get_review_queue.return_value = {
+            "ready": [],
+            "needs_commit": [],
+            "conflicts": [],
+            "stale": [],
+        }
+
+        with patch("client.cli.get_shard_worktree_module", return_value=shard_module):
+            result = runner.invoke(cli, ["shard", "review"])
+
+        assert result.exit_code == 0, result.output
+        assert result.output == "No SHARDs found\n"
+        shard_module.get_review_queue.assert_called_once_with(stale_days=7)
+        shard_module.get_shard_status.assert_not_called()
+
+
 class TestShardCleanupCli:
     def test_cleanup_yes_skips_prompt_and_proceeds(self):
         runner = CliRunner()

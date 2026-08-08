@@ -7280,23 +7280,35 @@ def shard_resume(ctx, worktree_name, message):
     type=int,
     help="Days without commits to consider stale (default: 7)",
 )
+@click.argument("worktree_name", required=False)
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def shard_review(ctx, stale_days, output_json):
+def shard_review(ctx, stale_days, worktree_name, output_json):
     """
-    Show SHARD review queue for QM visibility.
+    Show the SHARD review queue, or inspect one SHARD by name.
 
-    Groups shards by status:
+    With no name, groups shards by status:
     - READY: Has commits, clean working tree, no conflicts (merge candidates)
     - NEEDS_COMMIT: Has uncommitted changes
     - CONFLICTS: Would have merge conflicts with master
     - STALE: No commits and older than --stale-days
 
+    With a worktree name, this is an alias for `shard inspect`.
+
     Examples:
         skein shard review
         skein shard review --stale-days 3
+        skein shard review my-feature-20260113-001
         skein shard review --json
     """
+    if worktree_name:
+        ctx.invoke(
+            shard_inspect,
+            worktree_name=worktree_name,
+            output_json=output_json,
+        )
+        return
+
     shard_worktree = get_shard_worktree_module()
 
     try:

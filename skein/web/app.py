@@ -205,7 +205,8 @@ def public_base_url(request: Request) -> str:
         )
     try:
         return str(request.base_url).rstrip("/")
-    except Exception:
+    except Exception as exc:
+        logger.warning("could not determine base URL from request: %s", exc)
         return ""
 
 

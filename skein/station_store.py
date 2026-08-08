@@ -42,6 +42,7 @@ ride with their servers in later stages.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -53,6 +54,8 @@ from .authorization import WIRE_REDEEMABLE_ROLES
 from .identity import compute_folio_hash, compute_thread_hash, normalize_created_at
 from .storage import LogDatabase
 from .utils import generate_thread_id
+
+logger = logging.getLogger(__name__)
 
 # The station corpus filename under a data directory. skein_next used ``store.db``; the
 # re-homed station runs on skein, so it is ``skein.db`` (revisited at Stage 6 config).
@@ -376,8 +379,8 @@ class StationStore:
                 if conn is not None:
                     try:
                         conn.close()
-                    except Exception:
-                        pass
+                    except Exception as close_err:
+                        logger.warning("Failed to close connection after open error: %s", close_err)
         raise sqlite3.OperationalError(
             f"could not open {p} read-only (mode=ro or immutable=1): {last_err}"
         )

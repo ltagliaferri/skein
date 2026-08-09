@@ -1,7 +1,7 @@
 # interskein
 
-[![Tests](https://github.com/spiritengine/skein/actions/workflows/test.yml/badge.svg)](https://github.com/spiritengine/skein/actions/workflows/test.yml)
-[![Lint](https://github.com/spiritengine/skein/actions/workflows/lint.yml/badge.svg)](https://github.com/spiritengine/skein/actions/workflows/lint.yml)
+[![Tests](https://github.com/ltagliaferri/skein/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/ltagliaferri/skein/actions/workflows/test.yml)
+[![Lint](https://github.com/ltagliaferri/skein/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/ltagliaferri/skein/actions/workflows/lint.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 

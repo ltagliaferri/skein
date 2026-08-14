@@ -45,6 +45,7 @@ dependencies = [
 # and `mesh fetch` stay lean — instances are HTTP-only and never run MCP.
 mesh-mcp = ["mcp>=1.2"]  # FastMCP (mcp.server.fastmcp) lands in the SDK at 1.2
 dev = [
+    "build>=1.2.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
@@ -153,6 +154,11 @@ skip = [".git", "__pycache__", ".venv", "build", "dist"]
 line-length = 100
 # docs/emoji-codec holds a standalone alphabet-generator script, not package source.
 extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+# Ruff 0.16 expanded its implicit default rule set. Keep the established CI
+# gate explicit so an unbounded tool upgrade cannot silently redefine it.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]
 # The signing bit-flip probe deliberately imports after an explanatory setup

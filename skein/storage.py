@@ -2219,11 +2219,11 @@ class LogDatabase:
 
         # Collect all folio JSON files
         folio_files = []
-        for site_dir in sites_dir.iterdir():
+        for site_dir in sorted(sites_dir.iterdir()):
             if site_dir.is_dir():
                 folios_dir = site_dir / "folios"
                 if folios_dir.exists():
-                    folio_files.extend(folios_dir.glob("*.json"))
+                    folio_files.extend(sorted(folios_dir.glob("*.json")))
 
         if not folio_files:
             return 0

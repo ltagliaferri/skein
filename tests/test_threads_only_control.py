@@ -280,7 +280,7 @@ class TestAuditRound2Regressions:
             [sys.executable, "-m", "skein.migrations.verify_threads_control",
              str(tmp_dir / "post.db")],
             capture_output=True, text=True,
-            cwd="/home/patrick/projects/skein")
+            cwd=Path(__file__).resolve().parents[1])
         out = proc.stdout
         assert "SKIP" in out and "oracle inapplicable" in out, out
         assert "NOTHING VERIFIED" in out, out
@@ -336,9 +336,11 @@ class TestAuditRound2Regressions:
         import sqlite3
         from skein.storage import LogDatabase
         db = LogDatabase(tmp_dir / "collide.db")
+        # Create the lexically later site first: filesystem iteration order must
+        # not decide which colliding file wins.
         for site, body, extra in (
-                ("site-one", "first body", {}),
-                ("site-two", "second body", {"status": "closed"})):
+                ("site-z", "second body", {"status": "closed"}),
+                ("site-a", "first body", {})):
             d = tmp_dir / "sites" / site / "folios"
             d.mkdir(parents=True)
             (d / "issue-20260101-dupe.json").write_text(jsonlib.dumps({

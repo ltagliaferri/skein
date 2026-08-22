@@ -98,7 +98,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
         # A config file that parses but is not an object (a JSON array, a bare
         # string) is unusable; callers do config.get(...), which would raise.
         return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, UnicodeError):
+    except (json.JSONDecodeError, UnicodeError, RecursionError):
         return None
 
 
@@ -126,7 +126,7 @@ def get_global_config() -> Dict[str, Any]:
         # other shape reads as empty rather than crashing every command
         # (get_base_url reads this).
         return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, UnicodeError):
+    except (json.JSONDecodeError, UnicodeError, RecursionError):
         return {}
 
 

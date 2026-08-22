@@ -572,6 +572,13 @@ class TestMalformedConfigFiles:
     configs, so a JSON array in ~/.skein/config.json crashed every command, not
     just doctor (issue-20260723-ai23)."""
 
+    @staticmethod
+    def _depth_bomb() -> str:
+        # CPython's accelerated decoder can descend far beyond the Python
+        # recursion limit before it raises RecursionError.
+        depth = 200_000
+        return "[" * depth + "]" * depth
+
     def test_global_config_array_reads_as_empty(self, tmp_path, monkeypatch):
         """An unusable global config is empty, never a fabricated default —
         fabricating {"server_url": ...} made every rung below the global
@@ -592,6 +599,25 @@ class TestMalformedConfigFiles:
         project = tmp_path / "proj"
         (project / ".skein").mkdir(parents=True)
         (project / ".skein" / "config.json").write_text(json.dumps([1, 2, 3]))
+        monkeypatch.chdir(project)
+
+        assert cli.get_project_config() is None
+
+    def test_global_config_excessive_nesting_reads_as_empty(self, tmp_path, monkeypatch):
+        from client import cli
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".skein").mkdir()
+        (tmp_path / ".skein" / "config.json").write_text(self._depth_bomb())
+
+        assert cli.get_global_config() == {}
+
+    def test_project_config_excessive_nesting_reads_as_absent(self, tmp_path, monkeypatch):
+        from client import cli
+
+        project = tmp_path / "proj"
+        (project / ".skein").mkdir(parents=True)
+        (project / ".skein" / "config.json").write_text(self._depth_bomb())
         monkeypatch.chdir(project)
 
         assert cli.get_project_config() is None
@@ -642,6 +668,32 @@ class TestMalformedConfigFiles:
         )
         assert "Traceback" not in result.stderr, result.stderr
         json.loads(result.stdout)  # parseable, not a crash before the checks
+
+    def test_doctor_json_stays_parseable_with_excessive_nesting(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".skein").mkdir(parents=True)
+        (home / ".skein" / "config.json").write_text(self._depth_bomb())
+        elsewhere = tmp_path / "no-project"
+        elsewhere.mkdir()
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "SKEIN_HOME": str(home / ".skein"),
+            "PYTHONPATH": str(REPO_ROOT),
+        }
+        env.pop("SKEIN_URL", None)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "client.cli", "doctor", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env=env,
+            timeout=120,
+        )
+
+        assert "Traceback" not in result.stderr, result.stderr
+        json.loads(result.stdout)
 
 
 class TestVersionSkew:

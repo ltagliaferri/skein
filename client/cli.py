@@ -34,7 +34,11 @@ from skein.version import package_version as _package_version
 
 
 def _path_exists_strict(path: Path) -> bool:
-    """Test existence without Python 3.14's OSError-suppressing Path.exists()."""
+    """Test existence without Python 3.14's OSError-suppressing Path.exists().
+
+    Only a missing leaf is absent. Broken traversal such as a non-directory
+    parent is a repository/configuration fault that callers must surface.
+    """
     try:
         path.stat()
     except FileNotFoundError:
@@ -98,7 +102,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
         # A config file that parses but is not an object (a JSON array, a bare
         # string) is unusable; callers do config.get(...), which would raise.
         return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, UnicodeError, RecursionError):
+    except (ValueError, RecursionError):
         return None
 
 
@@ -126,7 +130,7 @@ def get_global_config() -> Dict[str, Any]:
         # other shape reads as empty rather than crashing every command
         # (get_base_url reads this).
         return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, UnicodeError, RecursionError):
+    except (ValueError, RecursionError):
         return {}
 
 
@@ -815,10 +819,11 @@ def _same_dir(a: str, b) -> Optional[bool]:
         path = Path(value)
         try:
             return path.resolve(strict=True)
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             # A service can report a legitimate but currently absent home. It
-            # is still comparable as a normalized path and should mismatch a
-            # different live home rather than becoming "unknown".
+            # or a not-yet-materializable child path. It is still comparable
+            # as a normalized path and should mismatch a different live home
+            # rather than becoming "unknown".
             try:
                 return path.resolve(strict=False)
             except (OSError, RuntimeError, ValueError):

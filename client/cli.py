@@ -820,8 +820,8 @@ def _same_dir(a: str, b) -> Optional[bool]:
         try:
             return path.resolve(strict=True)
         except (FileNotFoundError, NotADirectoryError):
-            # A service can report a legitimate but currently absent home. It
-            # or a not-yet-materializable child path. It is still comparable
+            # A service can report a legitimate but currently absent home or
+            # a not-yet-materializable child path. It is still comparable
             # as a normalized path and should mismatch a different live home
             # rather than becoming "unknown".
             try:

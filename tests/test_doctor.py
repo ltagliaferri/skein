@@ -402,6 +402,28 @@ class TestSealedGlobalConfig:
         assert doctor_base_url() == "http://127.0.0.1:8001"
 
 
+class TestBlockedGlobalConfigPath:
+    """A non-directory ~/.skein is broken, not equivalent to no config."""
+
+    def test_the_shared_helper_fails_loudly(self, tmp_path, monkeypatch):
+        from client.cli import get_global_config
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".skein").write_text("not a directory")
+
+        with pytest.raises(NotADirectoryError):
+            get_global_config()
+
+    def test_doctor_reports_the_broken_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".skein").write_text("not a directory")
+
+        check = checks_by_name()["global config"]
+        assert check["ok"] is False
+        assert check["level"] == "error"
+        assert "cannot probe" in check["detail"]
+
+
 @needs_mode_bits
 def test_a_sealed_project_dot_skein_raises_for_shared_helpers(tmp_path, monkeypatch):
     """Master behavior: a command must not silently fall through to the global
@@ -565,12 +587,44 @@ class TestService:
         check = checks_by_name()["api service"]  # must not raise
         assert check["ok"] is True
 
+    def test_a_home_behind_a_file_is_still_compared(
+        self, skein_home, outside_a_project, monkeypatch, tmp_path
+    ):
+        from skein.version import package_version
+
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("file")
+        self._with_health(
+            monkeypatch,
+            {
+                "status": "healthy",
+                "distribution": "interskein",
+                "version": package_version(),
+                "skein_home": str(blocker / "reported-home"),
+            },
+        )
+
+        check = checks_by_name()["api service"]
+        assert check["ok"] is False
+        assert "SKEIN_HOME" in check["detail"]
+
 
 class TestMalformedConfigFiles:
     """A config file that parses but is not an object must not crash the CLI.
     Callers do config.get(...), and get_base_url reads both the project and global
     configs, so a JSON array in ~/.skein/config.json crashed every command, not
     just doctor (issue-20260723-ai23)."""
+
+    @staticmethod
+    def _depth_bomb() -> str:
+        # CPython's accelerated decoder can descend far beyond the Python
+        # recursion limit before it raises RecursionError.
+        depth = 200_000
+        return "[" * depth + "]" * depth
+
+    @staticmethod
+    def _integer_bomb() -> str:
+        return "1" * 5_000
 
     def test_global_config_array_reads_as_empty(self, tmp_path, monkeypatch):
         """An unusable global config is empty, never a fabricated default —
@@ -592,6 +646,44 @@ class TestMalformedConfigFiles:
         project = tmp_path / "proj"
         (project / ".skein").mkdir(parents=True)
         (project / ".skein" / "config.json").write_text(json.dumps([1, 2, 3]))
+        monkeypatch.chdir(project)
+
+        assert cli.get_project_config() is None
+
+    def test_global_config_excessive_nesting_reads_as_empty(self, tmp_path, monkeypatch):
+        from client import cli
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".skein").mkdir()
+        (tmp_path / ".skein" / "config.json").write_text(self._depth_bomb())
+
+        assert cli.get_global_config() == {}
+
+    def test_project_config_excessive_nesting_reads_as_absent(self, tmp_path, monkeypatch):
+        from client import cli
+
+        project = tmp_path / "proj"
+        (project / ".skein").mkdir(parents=True)
+        (project / ".skein" / "config.json").write_text(self._depth_bomb())
+        monkeypatch.chdir(project)
+
+        assert cli.get_project_config() is None
+
+    def test_global_config_oversized_integer_reads_as_empty(self, tmp_path, monkeypatch):
+        from client import cli
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".skein").mkdir()
+        (tmp_path / ".skein" / "config.json").write_text(self._integer_bomb())
+
+        assert cli.get_global_config() == {}
+
+    def test_project_config_oversized_integer_reads_as_absent(self, tmp_path, monkeypatch):
+        from client import cli
+
+        project = tmp_path / "proj"
+        (project / ".skein").mkdir(parents=True)
+        (project / ".skein" / "config.json").write_text(self._integer_bomb())
         monkeypatch.chdir(project)
 
         assert cli.get_project_config() is None
@@ -642,6 +734,60 @@ class TestMalformedConfigFiles:
         )
         assert "Traceback" not in result.stderr, result.stderr
         json.loads(result.stdout)  # parseable, not a crash before the checks
+
+    def test_doctor_json_stays_parseable_with_excessive_nesting(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".skein").mkdir(parents=True)
+        (home / ".skein" / "config.json").write_text(self._depth_bomb())
+        elsewhere = tmp_path / "no-project"
+        elsewhere.mkdir()
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "SKEIN_HOME": str(home / ".skein"),
+            "PYTHONPATH": str(REPO_ROOT),
+        }
+        env.pop("SKEIN_URL", None)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "client.cli", "doctor", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env=env,
+            timeout=120,
+        )
+
+        assert "Traceback" not in result.stderr, result.stderr
+        json.loads(result.stdout)
+
+    def test_doctor_json_stays_parseable_with_an_oversized_integer(
+        self, tmp_path, monkeypatch
+    ):
+        home = tmp_path / "home"
+        (home / ".skein").mkdir(parents=True)
+        (home / ".skein" / "config.json").write_text(self._integer_bomb())
+        elsewhere = tmp_path / "no-project"
+        elsewhere.mkdir()
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "SKEIN_HOME": str(home / ".skein"),
+            "PYTHONPATH": str(REPO_ROOT),
+        }
+        env.pop("SKEIN_URL", None)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "client.cli", "doctor", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=str(elsewhere),
+            env=env,
+            timeout=120,
+        )
+
+        assert "Traceback" not in result.stderr, result.stderr
+        json.loads(result.stdout)
 
 
 class TestVersionSkew:

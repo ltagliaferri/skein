@@ -13,6 +13,7 @@ import os
 import sys
 import re
 import json
+import stat
 import click
 import requests
 from pathlib import Path
@@ -30,6 +31,28 @@ from skein.address_legacy import parse as parse_address
 from skein.service_address import local_service_url
 from skein.storage import skein_home, save_project_registry
 from skein.version import package_version as _package_version
+
+
+def _path_exists_strict(path: Path) -> bool:
+    """Test existence without Python 3.14's OSError-suppressing Path.exists().
+
+    Only a missing leaf is absent. Broken traversal such as a non-directory
+    parent is a repository/configuration fault that callers must surface.
+    """
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _path_is_dir_strict(path: Path) -> bool:
+    """Test directory type while preserving permission and traversal errors."""
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        return False
+    return stat.S_ISDIR(mode)
 
 
 def parse_post_site_id(site_id_arg: str) -> tuple:
@@ -51,7 +74,7 @@ def find_project_root() -> Optional[Path]:
     current = Path.cwd()
     while current != current.parent:
         skein_dir = current / ".skein"
-        if skein_dir.exists() and skein_dir.is_dir():
+        if _path_is_dir_strict(skein_dir):
             return current
         current = current.parent
     return None
@@ -70,7 +93,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
         return None
 
     config_file = project_root / ".skein" / "config.json"
-    if not config_file.exists():
+    if not _path_exists_strict(config_file):
         return None
 
     try:
@@ -79,7 +102,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
         # A config file that parses but is not an object (a JSON array, a bare
         # string) is unusable; callers do config.get(...), which would raise.
         return data if isinstance(data, dict) else None
-    except Exception:
+    except (ValueError, RecursionError):
         return None
 
 
@@ -97,7 +120,7 @@ def get_global_config() -> Dict[str, Any]:
     reports that state as a failing check.
     """
     config_file = Path.home() / ".skein" / "config.json"
-    if not config_file.exists():
+    if not _path_exists_strict(config_file):
         return {}
 
     try:
@@ -107,7 +130,7 @@ def get_global_config() -> Dict[str, Any]:
         # other shape reads as empty rather than crashing every command
         # (get_base_url reads this).
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except (ValueError, RecursionError):
         return {}
 
 
@@ -792,10 +815,29 @@ def _same_dir(a: str, b) -> Optional[bool]:
     ``Path.resolve()`` raise, so a failure returns None ("can't compare") rather
     than crashing this diagnostic.
     """
-    try:
-        return Path(a).resolve() == Path(b).resolve()
-    except (OSError, RuntimeError, ValueError):
+    def _resolve(value) -> Optional[Path]:
+        path = Path(value)
+        try:
+            return path.resolve(strict=True)
+        except (FileNotFoundError, NotADirectoryError):
+            # A service can report a legitimate but currently absent home or
+            # a not-yet-materializable child path. It is still comparable
+            # as a normalized path and should mismatch a different live home
+            # rather than becoming "unknown".
+            try:
+                return path.resolve(strict=False)
+            except (OSError, RuntimeError, ValueError):
+                return None
+        except (OSError, RuntimeError, ValueError):
+            # ELOOP (and pathlib's older RuntimeError form) is not a path that
+            # can be compared safely.
+            return None
+
+    resolved_a = _resolve(a)
+    resolved_b = _resolve(b)
+    if resolved_a is None or resolved_b is None:
         return None
+    return resolved_a == resolved_b
 
 
 def _check(name, ok, detail, level="error", hint=None):
@@ -882,7 +924,7 @@ def doctor_checks(
     # (a root-owned ~/.skein after a stray sudo) — the exact broken install
     # doctor is run to diagnose, so the probe itself must become a check result.
     try:
-        registry_present = registry_file.exists()
+        registry_present = _path_exists_strict(registry_file)
     except OSError as e:
         registry_present = False
         registry_readable = False
@@ -937,11 +979,7 @@ def doctor_checks(
         # Evidence doctor could not collect makes the failed probe the verdict;
         # "no projects registered yet" would claim it collected some.
         try:
-            backups = (
-                sorted(n for n in os.listdir(home) if n.startswith("projects.json.bak-"))
-                if home.exists()
-                else []
-            )
+            backups = sorted(n for n in os.listdir(home) if n.startswith("projects.json.bak-"))
         except OSError as e:
             checks.append(
                 _check(

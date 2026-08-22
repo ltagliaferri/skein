@@ -79,9 +79,8 @@ VECTORS = {
         ),
         content_hash="sha256::b277b28b1e291d7c04e8e42f5d902f53a523d05adfc9cac045863452739f49d4",
     ),
-    # A sub-6-digit fractional second (".1") pads to 6 digits. Before Python 3.11
-    # fromisoformat rejected ".1" outright; the parser normalizes it so the
-    # canonical bytes — and this frozen hash — are identical across 3.10-3.12.
+    # A sub-6-digit fractional second (".1") pads to 6 digits so the canonical
+    # bytes and this frozen hash stay identical across supported interpreters.
     "subsecond_short_ts": dict(
         fields={
             "type": "note",

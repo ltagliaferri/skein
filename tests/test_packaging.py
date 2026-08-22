@@ -9,6 +9,7 @@ packaging change cannot quietly ship a wheel that installs but does not work.
 
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -19,11 +20,6 @@ PACKAGE_ROOT = REPO_ROOT / "skein"
 
 
 def _read_pyproject() -> dict:
-    try:
-        import tomllib
-    except ModuleNotFoundError:  # Python 3.10 has no tomllib
-        tomllib = pytest.importorskip("tomli", reason="no TOML parser on this Python")
-
     with open(REPO_ROOT / "pyproject.toml", "rb") as f:
         return tomllib.load(f)
 

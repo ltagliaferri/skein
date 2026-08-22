@@ -96,9 +96,9 @@ def _now_micros() -> str:
     return _iso_micros(datetime.now(timezone.utc))
 
 
-# sqlite3.SQLITE_BUSY / SQLITE_LOCKED module constants exist only on Python
-# >= 3.11; fall back to the stable SQLite primary result codes on 3.10
-# (requires-python is >=3.10).
+# sqlite3.SQLITE_BUSY / SQLITE_LOCKED exist on every supported interpreter.
+# Keep the stable numeric fallback for hand-built test exceptions and unusual
+# sqlite3 builds that omit the symbolic module constants.
 _SQLITE_BUSY = getattr(sqlite3, "SQLITE_BUSY", 5)
 _SQLITE_LOCKED = getattr(sqlite3, "SQLITE_LOCKED", 6)
 

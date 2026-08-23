@@ -154,6 +154,8 @@ class TestShardXgunScan:
             "smells": 1,
         }
         assert result["qgun"]["flags"][0]["severity"] == "medium"
+        assert result["timestamp"].endswith("Z")
+        assert result["sgun"]["files_checked"] == []
 
     def test_missing_xgun_is_visible_but_does_not_raise(self):
         with patch(

@@ -17,7 +17,7 @@ import stat
 import click
 import requests
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, NamedTuple, Set, List
 
 # Import name generator from skein package
@@ -7951,13 +7951,16 @@ def _serialize_shard_xgun(
         "artifact": worktree_path,
         "artifact_type": "refs",
         "comparison": f"{base_branch}...HEAD",
+        # Preserve the successful subprocess integration's public JSON fields
+        # while adding the explicit status used by the typed integration.
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "qgun": {
             "passed": reading.passed,
             "flags": flags,
             "signals": signals,
             "stats": reading.stats,
         },
-        "sgun": {"smells": smell_data},
+        "sgun": {"smells": smell_data, "files_checked": []},
         "summary": {
             "passed": reading.passed and not smell_data and not failed_checks,
             "checks_failed": failed_checks,

@@ -4,6 +4,8 @@ SKEIN storage layer: SQLite for logs/threads/versions/refs, JSON for roster/site
 Multi-project support via ~/.skein/projects.json registry.
 """
 
+import base64
+import binascii
 import sqlite3
 import json
 import fcntl
@@ -138,6 +140,28 @@ def _folio_from_head_row(row: "sqlite3.Row") -> Folio:
 
 
 PROJECT_DATA_DIR_HEADER = "X-Skein-Project-Data-Dir"
+PROJECT_DATA_DIR_CLAIM_PREFIX = "b64:"
+
+
+def encode_project_data_dir_claim(path: Path) -> str:
+    """Encode a local filesystem path as an ASCII-safe HTTP header value."""
+    encoded = base64.urlsafe_b64encode(os.fsencode(path)).decode("ascii")
+    return PROJECT_DATA_DIR_CLAIM_PREFIX + encoded
+
+
+def decode_project_data_dir_claim(value: str) -> Path:
+    """Decode a CLI origin claim, retaining compatibility with raw paths."""
+    if not value.startswith(PROJECT_DATA_DIR_CLAIM_PREFIX):
+        return Path(value)
+
+    payload = value.removeprefix(PROJECT_DATA_DIR_CLAIM_PREFIX)
+    try:
+        raw = base64.b64decode(payload, altchars=b"-_", validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise ProjectDataDirClaimError(
+            "Implicit data-directory claim has invalid base64 encoding"
+        ) from e
+    return Path(os.fsdecode(raw))
 
 
 class ProjectRegistryError(ValueError):
@@ -350,7 +374,7 @@ def load_project_registry() -> Dict[str, Dict[str, Any]]:
 def project_data_dirs_match(registered: Path, claimed: Path) -> bool:
     """Compare filesystem locations, accepting symlink aliases.
 
-    ``samefile`` gives the strongest answer when both locations exist.  The
+    ``stat`` plus ``samestat`` gives the strongest answer when both locations exist.  The
     resolved-path fallback also covers an intentionally registered directory
     that has not been created yet.  Any filesystem error is a mismatch: an
     origin claim is a safety assertion, so an uncheckable claim cannot pass.
@@ -375,7 +399,7 @@ def project_data_dirs_match(registered: Path, claimed: Path) -> bool:
         return False
 
 
-def _project_data_dir_from_entry(
+def project_data_dir_from_registry_entry(
     project_id: str, project_info: Any
 ) -> Path:
     """Validate one registry entry and return its absolute data directory."""
@@ -405,7 +429,7 @@ def get_registered_project_data_dir(project_id: str) -> Optional[Path]:
     project_info = projects.get(project_id)
     if project_info is None:
         return None
-    return _project_data_dir_from_entry(project_id, project_info)
+    return project_data_dir_from_registry_entry(project_id, project_info)
 
 
 def register_project(
@@ -420,20 +444,18 @@ def register_project(
     save.  ``allow_same_data_dir`` supports repairing an owner whose local
     ``.skein`` tree was deleted; it never permits rebinding the id elsewhere.
     """
-    candidate = _project_data_dir_from_entry(project_id, project_info)
+    candidate = project_data_dir_from_registry_entry(project_id, project_info)
 
     with _project_registry_lock():
         document = load_project_registry_document()
         existing = document["projects"].get(project_id)
         if existing is not None:
-            existing_value = (
-                existing.get("data_dir") if isinstance(existing, dict) else None
+            existing_data_dir = project_data_dir_from_registry_entry(
+                project_id, existing
             )
             same_owner = (
                 allow_same_data_dir
-                and isinstance(existing_value, str)
-                and bool(existing_value)
-                and project_data_dirs_match(Path(existing_value), candidate)
+                and project_data_dirs_match(existing_data_dir, candidate)
             )
             if not same_owner:
                 owner = (
@@ -468,7 +490,7 @@ def get_data_dir_for_project(
         data_dir = get_registered_project_data_dir(project_id)
         if data_dir is not None:
             if claimed_data_dir is not None:
-                claimed = Path(claimed_data_dir)
+                claimed = decode_project_data_dir_claim(claimed_data_dir)
                 if not claimed.is_absolute():
                     raise ProjectDataDirClaimError(
                         f"Implicit data-directory claim for project '{project_id}' "
@@ -504,7 +526,9 @@ def search_folio_across_projects(
         if project_name == current_project_id:
             continue
         try:
-            data_dir = _project_data_dir_from_entry(project_name, project_info)
+            data_dir = project_data_dir_from_registry_entry(
+                project_name, project_info
+            )
             db_path = data_dir / "skein.db"
             if not db_path.exists():
                 continue
@@ -553,7 +577,9 @@ def get_project_last_activity_timestamps() -> Dict[str, int]:
     result: Dict[str, int] = {}
     for project_name, project_info in registry.items():
         try:
-            data_dir = _project_data_dir_from_entry(project_name, project_info)
+            data_dir = project_data_dir_from_registry_entry(
+                project_name, project_info
+            )
             db_path = data_dir / "skein.db"
             if not db_path.exists():
                 continue
@@ -600,7 +626,9 @@ def resolve_folio_across_projects(
         if project_name == current_project_id:
             continue
         try:
-            data_dir = _project_data_dir_from_entry(project_name, project_info)
+            data_dir = project_data_dir_from_registry_entry(
+                project_name, project_info
+            )
             db_path = data_dir / "skein.db"
             if not db_path.exists():
                 continue

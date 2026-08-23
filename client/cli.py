@@ -34,8 +34,10 @@ from skein.storage import (
     PROJECT_DATA_DIR_HEADER,
     ProjectAlreadyRegistered,
     ProjectRegistryError,
+    encode_project_data_dir_claim,
     load_project_registry_document,
     project_data_dirs_match,
+    project_data_dir_from_registry_entry,
     register_project,
     skein_home,
 )
@@ -312,6 +314,8 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
     url = f"{base_url}/skein{endpoint}"
     headers = kwargs.pop("headers", {})
     project_id = kwargs.pop("project_id", None)
+    fallback_project_id = kwargs.pop("fallback_project_id", None)
+    qualified_address = kwargs.pop("qualified_address", False)
 
     if agent_id is not None:
         headers["X-Agent-Id"] = agent_id
@@ -327,14 +331,16 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
             project_id = project_config.get("project_id")
             if project_id:
                 implicit_project_root = find_project_root()
+    if not project_id:
+        project_id = fallback_project_id
     if project_id:
         headers["X-Project-Id"] = project_id
-        if implicit_project_root is not None:
+        if implicit_project_root is not None and not qualified_address:
             # A project id alone cannot distinguish a copied .skein/config.json
             # from its registered owner.  Send the cwd-discovered data directory
             # so the service can compare it with its own registry before opening
             # a store.  Explicit cross-project selections intentionally omit it.
-            headers[PROJECT_DATA_DIR_HEADER] = str(
+            headers[PROJECT_DATA_DIR_HEADER] = encode_project_data_dir_claim(
                 (implicit_project_root / ".skein" / "data").resolve()
             )
 
@@ -365,6 +371,28 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
             except Exception:
                 raise click.ClickException(f"API error: {e.response.text or str(e)}")
         raise click.ClickException(f"Connection error: {str(e)}")
+
+
+def make_folio_request(
+    method: str,
+    folio_address: str,
+    base_url: str,
+    agent_id: str,
+    *,
+    suffix: str = "",
+    **kwargs,
+):
+    """Request a folio address without treating a qualified address as cwd-based."""
+    qualified_project = parse_folio_project_override(folio_address)
+    return make_request(
+        method,
+        f"/folios/{folio_address}{suffix}",
+        base_url,
+        agent_id,
+        fallback_project_id=qualified_project,
+        qualified_address=qualified_project is not None,
+        **kwargs,
+    )
 
 
 # Breadcrumb hints — one-line footers pointing at cross-project layer.
@@ -578,14 +606,16 @@ def init(project, name):
     data_dir = skein_dir / "data"
     existing = projects_data["projects"].get(project)
     if existing is not None:
-        existing_data = (
-            existing.get("data_dir") if isinstance(existing, dict) else None
-        )
-        same_owner = (
-            isinstance(existing_data, str)
-            and bool(existing_data)
-            and project_data_dirs_match(Path(existing_data), data_dir)
-        )
+        try:
+            existing_data_dir = project_data_dir_from_registry_entry(
+                project, existing
+            )
+        except ProjectRegistryError as e:
+            raise click.ClickException(
+                f"Cannot initialize while the project registry is unsafe: {e}. "
+                "No project files were created."
+            ) from e
+        same_owner = project_data_dirs_match(existing_data_dir, data_dir)
         if not same_owner:
             if isinstance(existing, dict):
                 owner = (
@@ -2045,7 +2075,7 @@ def brief_get(ctx, brief_id, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+    brief_data = make_folio_request("GET", brief_id, base_url, agent_id)
 
     if output_json:
         click.echo(json.dumps(brief_data, indent=2))
@@ -2127,7 +2157,7 @@ def playbook_get(ctx, playbook_id, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    playbook_data = make_request("GET", f"/folios/{playbook_id}", base_url, agent_id)
+    playbook_data = make_folio_request("GET", playbook_id, base_url, agent_id)
 
     if output_json:
         click.echo(json.dumps(playbook_data, indent=2))
@@ -2161,7 +2191,7 @@ def ignite(ctx, brief_id):
         raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to ignite work")
 
     # Get the brief
-    brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+    brief_data = make_folio_request("GET", brief_id, base_url, agent_id)
 
     if brief_data.get("type") != "brief":
         raise click.ClickException(f"Resource {brief_id} is not a brief")
@@ -3677,13 +3707,7 @@ def folio(ctx, folio_id, no_pager, all_projects, output_json, raw):
         return
 
     try:
-        folio_data = make_request(
-            "GET",
-            f"/folios/{folio_id}",
-            base_url,
-            agent_id,
-            project_id=parse_folio_project_override(folio_id),
-        )
+        folio_data = make_folio_request("GET", folio_id, base_url, agent_id)
     except click.ClickException as e:
         msg = str(e)
         if not output_json and ("404" in msg or "not found" in msg.lower()):
@@ -3815,7 +3839,7 @@ def export(ctx, folio_id, output_format, output):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     # Fetch the folio
-    folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+    folio_data = make_folio_request("GET", folio_id, base_url, agent_id)
 
     title = folio_data.get("title", folio_data.get("folio_id", "Untitled"))
     content = folio_data.get("content", "")
@@ -4131,7 +4155,13 @@ def edit(ctx, folio_id, title, content, status, output_json):
     if status is not None:
         update_data["status"] = status
 
-    result = make_request("PATCH", f"/folios/{folio_id}", base_url, agent_id, json=update_data)
+    result = make_folio_request(
+        "PATCH",
+        folio_id,
+        base_url,
+        agent_id,
+        json=update_data,
+    )
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))
@@ -4173,7 +4203,14 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
     if note:
         move_data["note"] = note
 
-    result = make_request("POST", f"/folios/{folio_id}/move", base_url, agent_id, json=move_data)
+    result = make_folio_request(
+        "POST",
+        folio_id,
+        base_url,
+        agent_id,
+        suffix="/move",
+        json=move_data,
+    )
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))

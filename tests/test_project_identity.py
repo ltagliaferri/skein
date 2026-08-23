@@ -7,7 +7,9 @@ from the copy must not silently operate on the source.
 """
 
 import json
+import threading
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +22,12 @@ from client.cli import cli, doctor_checks, make_request
 from skein.models import Folio, Site
 from skein.routes import router
 from skein.storage import JSONStore, project_data_dirs_match, save_project_registry
+from skein.storage import (
+    ProjectRegistryError,
+    decode_project_data_dir_claim,
+    encode_project_data_dir_claim,
+    register_project,
+)
 
 
 def _write_project(project_root: Path, project_id: str) -> Path:
@@ -72,7 +80,51 @@ class TestClientOriginClaim:
 
         headers = request.call_args.kwargs["headers"]
         assert headers["X-Project-Id"] == "alpha"
-        assert headers["X-Skein-Project-Data-Dir"] == str(data_dir.resolve())
+        claim = headers["X-Skein-Project-Data-Dir"]
+        assert claim.encode("ascii")
+        assert decode_project_data_dir_claim(claim) == data_dir.resolve()
+
+    @pytest.mark.parametrize("name", ["プロジェクト", "bad-\udcff-byte"])
+    def test_implicit_origin_claim_is_ascii_safe_and_reversible(
+        self, tmp_path, monkeypatch, name
+    ):
+        project_root = tmp_path / name
+        data_dir = _write_project(project_root, "alpha")
+        monkeypatch.chdir(project_root)
+        monkeypatch.delenv("SKEIN_PROJECT", raising=False)
+        captured = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                captured["claim"] = self.headers["X-Skein-Project-Data-Dir"]
+                body = b"[]"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            make_request(
+                "GET",
+                "/sites",
+                f"http://127.0.0.1:{server.server_port}",
+                "agent",
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+            server.server_close()
+
+        claim = captured["claim"]
+        assert claim.isascii()
+        assert decode_project_data_dir_claim(claim) == data_dir.resolve()
 
     def test_explicit_project_kwarg_does_not_claim_the_cwd(
         self, tmp_path, monkeypatch
@@ -93,6 +145,57 @@ class TestClientOriginClaim:
 
         headers = request.call_args.kwargs["headers"]
         assert headers["X-Project-Id"] == "canonical"
+        assert "X-Skein-Project-Data-Dir" not in headers
+
+    @pytest.mark.parametrize(
+        "command", ["brief", "playbook", "export", "edit", "move"]
+    )
+    def test_project_qualified_folio_commands_omit_cwd_claim(
+        self, tmp_path, monkeypatch, command
+    ):
+        project_root = tmp_path / "copy"
+        _write_project(project_root, "copy-id")
+        monkeypatch.chdir(project_root)
+        monkeypatch.delenv("SKEIN_PROJECT", raising=False)
+        payload = {
+            "folio_id": "brief-20260725-test",
+            "type": "brief",
+            "title": "Test",
+            "content": "content",
+            "created_at": "2026-08-23T00:00:00Z",
+            "created_by": "test",
+            "success": True,
+            "folio": {"title": "Test"},
+        }
+        response = MagicMock()
+        response.text = json.dumps(payload)
+        response.json.return_value = payload
+        response.ok = True
+        response.raise_for_status.return_value = None
+        address = "canonical:brief-20260725-test"
+        args = {
+            "brief": ["brief", "get", address, "--json"],
+            "playbook": ["playbook", "get", address, "--json"],
+            "export": [
+                "export",
+                address,
+                "--format",
+                "json",
+                "--output",
+                str(tmp_path / "out.json"),
+            ],
+            "edit": ["edit", address, "--title", "Updated"],
+            "move": ["move", address, "destination"],
+        }[command]
+
+        with patch("client.cli.requests.request", return_value=response) as request:
+            result = CliRunner().invoke(
+                cli, ["--url", "http://service", "--agent", "agent", *args]
+            )
+
+        assert result.exit_code == 0, result.output
+        headers = request.call_args.kwargs["headers"]
+        assert headers["X-Project-Id"] == "copy-id"
         assert "X-Skein-Project-Data-Dir" not in headers
 
     def test_skein_project_override_does_not_claim_the_cwd(
@@ -116,6 +219,33 @@ class TestClientOriginClaim:
         project_root = tmp_path / "copy"
         _write_project(project_root, "copy-id")
         monkeypatch.chdir(project_root)
+        monkeypatch.delenv("SKEIN_PROJECT", raising=False)
+
+        with patch(
+            "client.cli.requests.request", return_value=_successful_response()
+        ) as request:
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "--url",
+                    "http://service",
+                    "--agent",
+                    "agent",
+                    "folio",
+                    "canonical:brief-20260725-test",
+                    "--json",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        headers = request.call_args.kwargs["headers"]
+        assert headers["X-Project-Id"] == "copy-id"
+        assert "X-Skein-Project-Data-Dir" not in headers
+
+    def test_qualified_folio_outside_a_project_uses_target_as_fallback(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("SKEIN_PROJECT", raising=False)
 
         with patch(
@@ -225,6 +355,50 @@ class TestInitOwnership:
         assert not (project_root / ".skein").exists()
         assert registry.read_bytes() == before
         assert list(home.glob("projects.json.bak-*")) == []
+
+    def test_relative_existing_owner_refuses_without_rewriting_registry(
+        self, tmp_path, monkeypatch
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        registry = home / "projects.json"
+        before = b'{"projects":{"alpha":{"path":".","data_dir":".skein/data"}}}\n'
+        registry.write_bytes(before)
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        monkeypatch.setenv("SKEIN_HOME", str(home))
+        monkeypatch.chdir(project_root)
+
+        result = CliRunner().invoke(cli, ["init", "--project", "alpha"])
+
+        assert result.exit_code != 0
+        assert "non-absolute" in result.output
+        assert not (project_root / ".skein").exists()
+        assert registry.read_bytes() == before
+
+    def test_locked_registration_refuses_relative_existing_owner(
+        self, tmp_path, monkeypatch
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        registry = home / "projects.json"
+        before = b'{"projects":{"alpha":{"path":".","data_dir":".skein/data"}}}\n'
+        registry.write_bytes(before)
+        candidate = tmp_path / "project"
+        monkeypatch.setenv("SKEIN_HOME", str(home))
+
+        with pytest.raises(ProjectRegistryError, match="non-absolute"):
+            register_project(
+                "alpha",
+                {
+                    "path": str(candidate),
+                    "data_dir": str(candidate / ".skein" / "data"),
+                    "name": "alpha",
+                },
+                allow_same_data_dir=True,
+            )
+
+        assert registry.read_bytes() == before
 
     def test_late_competing_owner_wins_and_local_state_is_rolled_back(
         self, tmp_path, monkeypatch
@@ -337,6 +511,43 @@ class TestServiceOriginValidation:
         assert response.status_code == 200
         assert response.json() == []
 
+    def test_encoded_unicode_origin_is_accepted(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        canonical = tmp_path / "プロジェクト"
+        canonical_data = canonical / ".skein" / "data"
+        _write_registry(home, "alpha", canonical)
+        monkeypatch.setenv("SKEIN_HOME", str(home))
+
+        response = self._client().get(
+            "/sites",
+            headers={
+                "X-Project-Id": "alpha",
+                "X-Skein-Project-Data-Dir": encode_project_data_dir_claim(
+                    canonical_data
+                ),
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_malformed_encoded_origin_is_refused(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        canonical = tmp_path / "canonical"
+        _write_registry(home, "alpha", canonical)
+        monkeypatch.setenv("SKEIN_HOME", str(home))
+
+        response = self._client().get(
+            "/sites",
+            headers={
+                "X-Project-Id": "alpha",
+                "X-Skein-Project-Data-Dir": "b64:not-valid!",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "invalid base64" in response.json()["detail"]
+
     def test_symlink_alias_to_registered_data_dir_is_accepted(
         self, tmp_path, monkeypatch
     ):
@@ -435,21 +646,73 @@ class TestServiceOriginValidation:
     ):
         home = tmp_path / "home"
         current = tmp_path / "current"
-        current_data = _write_project(current, "current")
+        _write_project(current, "current")
         _write_registry(home, "current", current)
         monkeypatch.setenv("SKEIN_HOME", str(home))
-        before = sorted(current_data.iterdir())
-
         response = self._client().get(
             "/folios/missing:brief-missing",
-            headers={"X-Project-Id": "missing"},
+            headers={"X-Project-Id": "current"},
         )
 
         assert response.status_code == 404
         assert response.json()["detail"] == (
             "Project 'missing' not found in registry"
         )
-        assert sorted(current_data.iterdir()) == before
+        assert not (tmp_path / "missing").exists()
+
+    def test_project_qualified_read_preserves_source_project(
+        self, tmp_path, monkeypatch
+    ):
+        home = tmp_path / "home"
+        current = tmp_path / "current"
+        target = tmp_path / "target"
+        _write_project(current, "current")
+        target_data = _write_project(target, "target")
+        payload = {
+            "projects": {
+                "current": {
+                    "path": str(current),
+                    "data_dir": str(current / ".skein" / "data"),
+                    "name": "current",
+                },
+                "target": {
+                    "path": str(target),
+                    "data_dir": str(target_data),
+                    "name": "target",
+                },
+            }
+        }
+        home.mkdir()
+        (home / "projects.json").write_text(json.dumps(payload))
+        monkeypatch.setenv("SKEIN_HOME", str(home))
+        target_store = JSONStore(target_data)
+        target_store.save_site(
+            Site(
+                site_id="target-site",
+                created_at=datetime.now(timezone.utc),
+                created_by="test",
+                purpose="target",
+            )
+        )
+        target_store.save_folio(
+            Folio(
+                folio_id="brief-target",
+                type="brief",
+                site_id="target-site",
+                created_at=datetime.now(timezone.utc),
+                created_by="test",
+                title="Target",
+                content="target content",
+            )
+        )
+
+        response = self._client().get(
+            "/folios/target:brief-target",
+            headers={"X-Project-Id": "current"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["source_project"] == "target"
 
     @pytest.mark.parametrize(
         "entry",

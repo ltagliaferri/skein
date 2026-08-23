@@ -2,6 +2,7 @@
 
 import json
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
@@ -10,7 +11,7 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from client.cli import _run_shard_xgun, cli
+from client.cli import _run_shard_xgun, _run_shard_xgun_in_process, cli
 
 
 class _MockShardModule:
@@ -140,7 +141,7 @@ class TestShardXgunScan:
                 check_did_not_run,
             ),
         ):
-            result = _run_shard_xgun("/repo", "master")
+            result = _run_shard_xgun_in_process("/repo", "master")
 
         resolve_diff.assert_called_once_with("/repo", "master", "HEAD", None)
         qgun_scan.assert_called_once_with("diff text", {"changed.py": "new content"})
@@ -162,7 +163,7 @@ class TestShardXgunScan:
             "client.cli._load_xgun_api",
             side_effect=ImportError("No module named 'xgun.artifact'"),
         ):
-            result = _run_shard_xgun("/repo", "master")
+            result = _run_shard_xgun_in_process("/repo", "master")
 
         assert result["status"] == "unavailable"
         assert "xgun is unavailable" in result["message"]
@@ -174,7 +175,7 @@ class TestShardXgunScan:
             "client.cli._load_xgun_api",
             side_effect=SyntaxError("invalid syntax", ("xgun/artifact.py", 12, 1, "bad")),
         ):
-            result = _run_shard_xgun("/repo", "master")
+            result = _run_shard_xgun_in_process("/repo", "master")
 
         assert result["status"] == "unavailable"
         assert "SyntaxError" in result["message"]
@@ -186,7 +187,7 @@ class TestShardXgunScan:
         api = _xgun_api(resolve_diff, MagicMock(), MagicMock(), MagicMock())
 
         with patch("client.cli._load_xgun_api", return_value=api):
-            result = _run_shard_xgun("/repo", None)
+            result = _run_shard_xgun_in_process("/repo", None)
 
         assert result["status"] == "not_run"
         assert "base branch could not be determined" in result["message"]
@@ -201,7 +202,7 @@ class TestShardXgunScan:
         api = (resolve_diff, FakeArtifactError, MagicMock(), MagicMock(), MagicMock())
 
         with patch("client.cli._load_xgun_api", return_value=api):
-            result = _run_shard_xgun("/repo", "master")
+            result = _run_shard_xgun_in_process("/repo", "master")
 
         assert result["status"] == "error"
         assert "could not resolve the shard diff" in result["message"]
@@ -228,7 +229,7 @@ class TestShardXgunScan:
                 check_did_not_run,
             ),
         ):
-            result = _run_shard_xgun("/repo", "master")
+            result = _run_shard_xgun_in_process("/repo", "master")
 
         assert result["status"] == "incomplete"
         assert result["summary"]["passed"] is False
@@ -256,12 +257,37 @@ class TestShardXgunScan:
                 check_did_not_run,
             ),
         ):
-            result = _run_shard_xgun("/repo", "master")
+            result = _run_shard_xgun_in_process("/repo", "master")
 
         assert result["status"] == "error"
         assert "returned an unusable result" in result["message"]
         assert "incompatible xgun API" in result["message"]
         assert "Raise this before merge" in result["message"]
+
+    def test_owned_worker_returns_typed_result(self):
+        expected = {"status": "completed", "summary": {"passed": True}}
+
+        with patch(
+            "client.cli._run_shard_xgun_in_process",
+            return_value=expected,
+        ):
+            result = _run_shard_xgun("/repo", "master", timeout=1)
+
+        assert result == expected
+
+    def test_total_timeout_is_visible_and_stops_waiting(self):
+        def hang(*_args):
+            time.sleep(5)
+
+        started = time.monotonic()
+        with patch("client.cli._run_shard_xgun_in_process", side_effect=hang):
+            result = _run_shard_xgun("/repo", "master", timeout=0.05)
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 2
+        assert result["status"] == "error"
+        assert "timed out after 0.05 seconds" in result["message"]
+        assert "Quality reading is incomplete" in result["message"]
 
 
 def _make_inspect_shard_module():

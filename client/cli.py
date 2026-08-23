@@ -14,6 +14,8 @@ import sys
 import re
 import json
 import stat
+import multiprocessing
+import signal as signal_module
 import click
 import requests
 from pathlib import Path
@@ -7979,7 +7981,7 @@ def _serialize_shard_xgun(
     return result
 
 
-def _run_shard_xgun(worktree_path, base_branch):
+def _run_shard_xgun_in_process(worktree_path, base_branch):
     """Run xgun in-process for a shard's explicit base...HEAD diff.
 
     The library owns diff resolution, governed external-tool execution, and the
@@ -8037,6 +8039,115 @@ def _run_shard_xgun(worktree_path, base_branch):
             "error",
             f"xgun returned an unusable result ({type(exc).__name__}: {exc}).",
         )
+
+
+_XGUN_TOTAL_TIMEOUT_SECONDS = 60.0
+
+
+def _xgun_worker(send_conn, worktree_path, base_branch):
+    """Run one typed scan in an owned process and return its public result."""
+    try:
+        # Give external tools launched by xgun an owned process group so a total
+        # timeout can stop the worker and any still-running checker together.
+        os.setsid()
+    except OSError:
+        pass
+
+    try:
+        result = _run_shard_xgun_in_process(worktree_path, base_branch)
+    except BaseException as exc:
+        result = _xgun_not_run(
+            "error",
+            f"xgun worker failed with {type(exc).__name__}: {exc}.",
+        )
+
+    try:
+        send_conn.send(result)
+    except (BrokenPipeError, EOFError, OSError):
+        pass
+    finally:
+        send_conn.close()
+
+
+def _stop_xgun_worker(process):
+    """Stop an owned xgun worker and its checker process group."""
+    if process.pid is None:
+        return
+    try:
+        os.killpg(process.pid, signal_module.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        process.terminate()
+    except OSError:
+        process.terminate()
+
+    process.join(timeout=1)
+    if not process.is_alive():
+        return
+
+    try:
+        os.killpg(process.pid, signal_module.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        process.kill()
+    except OSError:
+        process.kill()
+    process.join(timeout=1)
+
+
+def _run_shard_xgun(
+    worktree_path,
+    base_branch,
+    timeout=_XGUN_TOTAL_TIMEOUT_SECONDS,
+):
+    """Run typed xgun integration with one total wall-clock deadline."""
+    receive_conn = None
+    send_conn = None
+    process = None
+    try:
+        context = multiprocessing.get_context("fork")
+        receive_conn, send_conn = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_xgun_worker,
+            args=(send_conn, worktree_path, base_branch),
+            daemon=True,
+        )
+        process.start()
+    except (OSError, RuntimeError, ValueError) as exc:
+        if receive_conn is not None:
+            receive_conn.close()
+        if send_conn is not None:
+            send_conn.close()
+        if process is not None and process.pid is not None and process.is_alive():
+            _stop_xgun_worker(process)
+        return _xgun_not_run(
+            "error",
+            f"xgun worker could not start ({type(exc).__name__}: {exc}).",
+        )
+
+    send_conn.close()
+    try:
+        if not receive_conn.poll(timeout):
+            _stop_xgun_worker(process)
+            return _xgun_not_run(
+                "error",
+                f"xgun timed out after {timeout:g} seconds.",
+            )
+
+        try:
+            result = receive_conn.recv()
+        except (EOFError, OSError) as exc:
+            return _xgun_not_run(
+                "error",
+                f"xgun worker returned no result ({type(exc).__name__}: {exc}).",
+            )
+
+        process.join(timeout=1)
+        if process.is_alive():
+            _stop_xgun_worker(process)
+        return result
+    finally:
+        receive_conn.close()
+        if process.is_alive():
+            _stop_xgun_worker(process)
 
 
 def _render_shard_xgun(xgun_result):

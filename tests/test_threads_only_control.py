@@ -247,8 +247,8 @@ class TestResponsePathsCarryControl:
 
         registry = {"px": {"path": str(tmp_dir / "px"),
                            "data_dir": str(px_data), "name": "px"}}
-        monkeypatch.setattr(storage_mod, "load_project_registry",
-                            lambda: registry)
+        monkeypatch.setenv("SKEIN_HOME", str(tmp_dir / "skein-home"))
+        storage_mod.save_project_registry({"projects": registry})
 
         client, store, app, dep = _client_store(tmp_dir)
         try:

@@ -16,6 +16,7 @@ import json
 import stat
 import multiprocessing
 import signal as signal_module
+import shutil
 import click
 import requests
 from pathlib import Path
@@ -31,7 +32,17 @@ except ImportError:
 
 from skein.address_legacy import parse as parse_address
 from skein.service_address import local_service_url
-from skein.storage import skein_home, save_project_registry
+from skein.storage import (
+    PROJECT_DATA_DIR_HEADER,
+    ProjectAlreadyRegistered,
+    ProjectRegistryError,
+    encode_project_data_dir_claim,
+    load_project_registry_document,
+    project_data_dirs_match,
+    project_data_dir_from_registry_entry,
+    register_project,
+    skein_home,
+)
 from skein.version import package_version as _package_version
 
 
@@ -66,6 +77,19 @@ def parse_post_site_id(site_id_arg: str) -> tuple:
     if parsed.is_qualified:
         return parsed.folio_id, parsed.project
     return parsed.folio_id, None
+
+
+def parse_folio_project_override(folio_address: str) -> Optional[str]:
+    """Return the explicit project in a legacy ``project:folio`` read address.
+
+    Rev-3 ``::`` addresses are content addresses, not project qualifiers.  A
+    verifier fragment also does not participate in project selection.
+    """
+    body = folio_address.partition("#")[0]
+    if "::" in body:
+        return None
+    parsed = parse_address(body)
+    return parsed.project if parsed.is_qualified else None
 
 
 def find_project_root() -> Optional[Path]:
@@ -292,20 +316,42 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
     url = f"{base_url}/skein{endpoint}"
     headers = kwargs.pop("headers", {})
     project_id = kwargs.pop("project_id", None)
+    fallback_project_id = kwargs.pop("fallback_project_id", None)
+    qualified_address = kwargs.pop("qualified_address", False)
+    folio_address_request = kwargs.pop("_folio_address_request", False)
+
+    if endpoint.startswith("/folios/") and not folio_address_request:
+        raise ValueError(
+            "Addressed folio requests must use make_folio_request so qualified "
+            "project selection cannot retain an implicit cwd claim"
+        )
 
     if agent_id is not None:
         headers["X-Agent-Id"] = agent_id
 
     # Resolve project: explicit kwarg > SKEIN_PROJECT env > cwd .skein/ config.
     # The top-level --project flag is pushed into SKEIN_PROJECT by the cli group.
+    implicit_project_root: Optional[Path] = None
     if not project_id:
         project_id = os.environ.get("SKEIN_PROJECT")
     if not project_id:
         project_config = get_project_config()
         if project_config:
             project_id = project_config.get("project_id")
+            if project_id:
+                implicit_project_root = find_project_root()
+    if not project_id:
+        project_id = fallback_project_id
     if project_id:
         headers["X-Project-Id"] = project_id
+        if implicit_project_root is not None and not qualified_address:
+            # A project id alone cannot distinguish a copied .skein/config.json
+            # from its registered owner.  Send the cwd-discovered data directory
+            # so the service can compare it with its own registry before opening
+            # a store.  Explicit cross-project selections intentionally omit it.
+            headers[PROJECT_DATA_DIR_HEADER] = encode_project_data_dir_claim(
+                (implicit_project_root / ".skein" / "data").resolve()
+            )
 
     # Warn if agent is still orienting when posting folios
     if method == "POST" and endpoint == "/folios" and agent_id is not None:
@@ -334,6 +380,29 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
             except Exception:
                 raise click.ClickException(f"API error: {e.response.text or str(e)}")
         raise click.ClickException(f"Connection error: {str(e)}")
+
+
+def make_folio_request(
+    method: str,
+    folio_address: str,
+    base_url: str,
+    agent_id: str,
+    *,
+    suffix: str = "",
+    **kwargs,
+):
+    """Request a folio address without treating a qualified address as cwd-based."""
+    qualified_project = parse_folio_project_override(folio_address)
+    return make_request(
+        method,
+        f"/folios/{folio_address}{suffix}",
+        base_url,
+        agent_id,
+        fallback_project_id=qualified_project,
+        qualified_address=qualified_project is not None,
+        _folio_address_request=True,
+        **kwargs,
+    )
 
 
 # Breadcrumb hints — one-line footers pointing at cross-project layer.
@@ -533,48 +602,83 @@ def init(project, name):
     if skein_dir.exists():
         raise click.ClickException(f"SKEIN already initialized in {project_root}")
 
-    # Create .skein directory structure
-    skein_dir.mkdir()
+    # Read and validate the registry before creating any local state.  A damaged
+    # registry is not an empty registry, and an existing project id has one
+    # owner: neither condition may be overwritten by `skein init`.
+    try:
+        projects_data = load_project_registry_document()
+    except ProjectRegistryError as e:
+        raise click.ClickException(
+            f"Cannot initialize while the project registry is unsafe: {e}. "
+            "No project files were created."
+        ) from e
+
     data_dir = skein_dir / "data"
-    data_dir.mkdir()
-    (data_dir / "sites").mkdir()
-    (data_dir / "roster").mkdir()
-    (data_dir / "threads").mkdir()
-    (data_dir / "screenshots").mkdir()
+    existing = projects_data["projects"].get(project)
+    if existing is not None:
+        try:
+            existing_data_dir = project_data_dir_from_registry_entry(
+                project, existing
+            )
+        except ProjectRegistryError as e:
+            raise click.ClickException(
+                f"Cannot initialize while the project registry is unsafe: {e}. "
+                "No project files were created."
+            ) from e
+        same_owner = project_data_dirs_match(existing_data_dir, data_dir)
+        if not same_owner:
+            if isinstance(existing, dict):
+                owner = (
+                    existing.get("path")
+                    or existing.get("data_dir")
+                    or "(unknown location)"
+                )
+            else:
+                owner = "(malformed registry entry)"
+            raise click.ClickException(
+                f"Project ID '{project}' is already registered at {owner}. "
+                "Choose a different project ID; the existing owner was not changed."
+            )
 
-    # Create project config. No server_url: a project config is shared and
-    # checked out across machines, so pinning one machine's service address
-    # into it froze that machine's port into every other's resolution
-    # (notion-20260722-95kl). The CLI resolves its URL per machine instead;
-    # a server_url someone writes here deliberately is still honored.
-    project_config = {
-        "project_id": project,
-        "name": name or project,
-        "created_at": datetime.now().isoformat(),
-    }
-
-    config_file = skein_dir / "config.json"
-    with open(config_file, "w") as f:
-        json.dump(project_config, f, indent=2)
-
-    # Register in global projects.json. Read-merge-then-write: the atomic,
-    # backup-taking save_project_registry protects the write (a truncate-then-
-    # write here once clobbered the whole registry — issue-20260709-zl71).
-    projects_file = skein_home() / "projects.json"
-    if projects_file.exists():
-        with open(projects_file) as f:
-            projects_data = json.load(f)
-    else:
-        projects_data = {"projects": {}}
-
-    projects_data["projects"][project] = {
+    project_info = {
         "path": str(project_root),
         "data_dir": str(data_dir),
         "name": name or project,
         "registered_at": datetime.now().isoformat(),
     }
 
-    save_project_registry(projects_data)
+    created_skein = False
+    try:
+        # Create local state first, then atomically claim the global ID.  If
+        # another initializer wins after our preflight, register_project refuses
+        # its different owner and this invocation removes only the tree it made.
+        skein_dir.mkdir()
+        created_skein = True
+        data_dir.mkdir()
+        (data_dir / "sites").mkdir()
+        (data_dir / "roster").mkdir()
+        (data_dir / "threads").mkdir()
+        (data_dir / "screenshots").mkdir()
+
+        # No server_url: a project config is shared and checked out across
+        # machines.  URL resolution remains per-machine.
+        project_config = {
+            "project_id": project,
+            "name": name or project,
+            "created_at": datetime.now().isoformat(),
+        }
+        with open(skein_dir / "config.json", "w") as f:
+            json.dump(project_config, f, indent=2)
+
+        register_project(project, project_info, allow_same_data_dir=True)
+    except (ProjectAlreadyRegistered, ProjectRegistryError, OSError) as e:
+        if created_skein and skein_dir.exists():
+            shutil.rmtree(skein_dir)
+        if isinstance(e, ProjectAlreadyRegistered):
+            raise click.ClickException(str(e)) from e
+        raise click.ClickException(
+            f"Project registration failed: {e}. New project files were rolled back."
+        ) from e
 
     click.echo(f"✓ Initialized SKEIN project '{project}' in {project_root}")
     click.echo("✓ Created .skein/ directory")
@@ -1265,9 +1369,41 @@ def doctor_checks(
             )
         )
     elif project_id and project_id in registry:
-        checks.append(
-            _check("current project", True, f"'{project_id}' at {project_root}", level="info")
+        project_info = registry[project_id]
+        registered_data_value = (
+            project_info.get("data_dir") if isinstance(project_info, dict) else None
         )
+        current_data_dir = project_root / ".skein" / "data"
+        registered_data_dir = (
+            Path(registered_data_value)
+            if isinstance(registered_data_value, str) and registered_data_value
+            else None
+        )
+        if registered_data_dir is not None and project_data_dirs_match(
+            registered_data_dir, current_data_dir
+        ):
+            checks.append(
+                _check(
+                    "current project",
+                    True,
+                    f"'{project_id}' at {project_root}",
+                    level="info",
+                )
+            )
+        else:
+            checks.append(
+                _check(
+                    "current project",
+                    False,
+                    f"{project_root} identifies as '{project_id}' with data at "
+                    f"{current_data_dir}, but the registry owns it at "
+                    f"{registered_data_dir or '(invalid data_dir)'}",
+                    hint="This may be a copied project. Work from the registered "
+                    "project, or remove the copy's .skein/ and initialize it with "
+                    "a different project ID. Use --project only when you intend "
+                    "to operate on the registered project.",
+                )
+            )
     else:
         checks.append(
             _check(
@@ -1949,7 +2085,7 @@ def brief_get(ctx, brief_id, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+    brief_data = make_folio_request("GET", brief_id, base_url, agent_id)
 
     if output_json:
         click.echo(json.dumps(brief_data, indent=2))
@@ -2031,7 +2167,7 @@ def playbook_get(ctx, playbook_id, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    playbook_data = make_request("GET", f"/folios/{playbook_id}", base_url, agent_id)
+    playbook_data = make_folio_request("GET", playbook_id, base_url, agent_id)
 
     if output_json:
         click.echo(json.dumps(playbook_data, indent=2))
@@ -2065,7 +2201,7 @@ def ignite(ctx, brief_id):
         raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to ignite work")
 
     # Get the brief
-    brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+    brief_data = make_folio_request("GET", brief_id, base_url, agent_id)
 
     if brief_data.get("type") != "brief":
         raise click.ClickException(f"Resource {brief_id} is not a brief")
@@ -3289,7 +3425,7 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     # Fetch the notion
-    notion_folio = make_request("GET", f"/folios/{notion_id}", base_url, agent_id)
+    notion_folio = make_folio_request("GET", notion_id, base_url, agent_id)
     if notion_folio.get("type") != "notion":
         raise click.ClickException(f"Folio '{notion_id}' is not a notion")
 
@@ -3315,9 +3451,9 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
 
     # Close the notion
     try:
-        make_request(
+        make_folio_request(
             "PATCH",
-            f"/folios/{notion_id}",
+            notion_id,
             base_url,
             agent_id,
             json={"status": "closed"},
@@ -3445,7 +3581,7 @@ def writ(ctx, site_id, decision, thread_id):
     # If threading to a tender, verify it exists and is a tender
     if thread_id:
         try:
-            tender = make_request("GET", f"/folios/{thread_id}", base_url, agent_id)
+            tender = make_folio_request("GET", thread_id, base_url, agent_id)
             if tender.get("type") != "tender":
                 raise click.ClickException(
                     f"{thread_id} is not a tender (type: {tender.get('type')})"
@@ -3581,7 +3717,7 @@ def folio(ctx, folio_id, no_pager, all_projects, output_json, raw):
         return
 
     try:
-        folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+        folio_data = make_folio_request("GET", folio_id, base_url, agent_id)
     except click.ClickException as e:
         msg = str(e)
         if not output_json and ("404" in msg or "not found" in msg.lower()):
@@ -3713,7 +3849,7 @@ def export(ctx, folio_id, output_format, output):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     # Fetch the folio
-    folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+    folio_data = make_folio_request("GET", folio_id, base_url, agent_id)
 
     title = folio_data.get("title", folio_data.get("folio_id", "Untitled"))
     content = folio_data.get("content", "")
@@ -4029,7 +4165,13 @@ def edit(ctx, folio_id, title, content, status, output_json):
     if status is not None:
         update_data["status"] = status
 
-    result = make_request("PATCH", f"/folios/{folio_id}", base_url, agent_id, json=update_data)
+    result = make_folio_request(
+        "PATCH",
+        folio_id,
+        base_url,
+        agent_id,
+        json=update_data,
+    )
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))
@@ -4071,7 +4213,14 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
     if note:
         move_data["note"] = note
 
-    result = make_request("POST", f"/folios/{folio_id}/move", base_url, agent_id, json=move_data)
+    result = make_folio_request(
+        "POST",
+        folio_id,
+        base_url,
+        agent_id,
+        suffix="/move",
+        json=move_data,
+    )
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))
@@ -4896,7 +5045,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
     # If brief provided, load it
     if brief_id:
         try:
-            brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+            brief = make_folio_request("GET", brief_id, base_url, agent_id)
             brief_content = brief.get("content", "")
             mission_parts.append(f"**From Brief ({brief_id}):**\n{brief_content}")
         except Exception as e:
@@ -4909,7 +5058,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
         try:
             # If it looks like a folio ID (mantle-YYYYMMDD-xxxx), use directly
             if mantle.startswith("mantle-"):
-                mantle_folio = make_request("GET", f"/folios/{mantle}", base_url, agent_id)
+                mantle_folio = make_folio_request("GET", mantle, base_url, agent_id)
             else:
                 # Search for mantle by name using the /search endpoint
                 search_response = make_request(
@@ -5219,7 +5368,7 @@ def _get_ignition_brief(base_url: str, agent_id: str, roster_data: dict):
     if not brief_id:
         return None
     try:
-        brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+        brief = make_folio_request("GET", brief_id, base_url, agent_id)
     except Exception:
         return None
     return brief if brief.get("type") == "brief" else None
@@ -5293,7 +5442,7 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[dict]:
     folios = {}
     for folio_id in unique_ids:
         try:
-            folios[folio_id] = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+            folios[folio_id] = make_folio_request("GET", folio_id, base_url, agent_id)
         except Exception as e:
             failures.append((folio_id, str(e)))
 
@@ -9035,7 +9184,7 @@ def publish(
 
     folios = list(folio_hashes)
     for ref in refs:
-        folio = make_request("GET", f"/folios/{ref}", base_url, agent_id)
+        folio = make_folio_request("GET", ref, base_url, agent_id)
         h = folio.get("content_hash")
         if not h:
             raise click.ClickException(f"folio '{ref}' has no content_hash to publish")

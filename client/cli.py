@@ -5035,7 +5035,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
     # If brief provided, load it
     if brief_id:
         try:
-            brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+            brief = make_folio_request("GET", brief_id, base_url, agent_id)
             brief_content = brief.get("content", "")
             mission_parts.append(f"**From Brief ({brief_id}):**\n{brief_content}")
         except Exception as e:

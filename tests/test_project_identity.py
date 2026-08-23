@@ -148,7 +148,7 @@ class TestClientOriginClaim:
         assert "X-Skein-Project-Data-Dir" not in headers
 
     @pytest.mark.parametrize(
-        "command", ["brief", "playbook", "export", "edit", "move"]
+        "command", ["brief", "playbook", "ignite", "export", "edit", "move"]
     )
     def test_project_qualified_folio_commands_omit_cwd_claim(
         self, tmp_path, monkeypatch, command
@@ -176,6 +176,7 @@ class TestClientOriginClaim:
         args = {
             "brief": ["brief", "get", address, "--json"],
             "playbook": ["playbook", "get", address, "--json"],
+            "ignite": ["ignite", address],
             "export": [
                 "export",
                 address,
@@ -194,7 +195,7 @@ class TestClientOriginClaim:
             )
 
         assert result.exit_code == 0, result.output
-        headers = request.call_args.kwargs["headers"]
+        headers = request.call_args_list[0].kwargs["headers"]
         assert headers["X-Project-Id"] == "copy-id"
         assert "X-Skein-Project-Data-Dir" not in headers
 
@@ -266,6 +267,35 @@ class TestClientOriginClaim:
 
         assert result.exit_code == 0, result.output
         headers = request.call_args.kwargs["headers"]
+        assert headers["X-Project-Id"] == "canonical"
+        assert "X-Skein-Project-Data-Dir" not in headers
+
+    def test_qualified_ignite_outside_a_project_uses_target_as_fallback(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("SKEIN_PROJECT", raising=False)
+        response = MagicMock()
+        response.text = json.dumps({"type": "brief", "content": "mission"})
+        response.json.return_value = {"type": "brief", "content": "mission"}
+        response.ok = True
+        response.raise_for_status.return_value = None
+
+        with patch("client.cli.requests.request", return_value=response) as request:
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "--url",
+                    "http://service",
+                    "--agent",
+                    "agent",
+                    "ignite",
+                    "canonical:brief-20260725-test",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        headers = request.call_args_list[0].kwargs["headers"]
         assert headers["X-Project-Id"] == "canonical"
         assert "X-Skein-Project-Data-Dir" not in headers
 

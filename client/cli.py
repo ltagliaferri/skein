@@ -3415,7 +3415,7 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     # Fetch the notion
-    notion_folio = make_request("GET", f"/folios/{notion_id}", base_url, agent_id)
+    notion_folio = make_folio_request("GET", notion_id, base_url, agent_id)
     if notion_folio.get("type") != "notion":
         raise click.ClickException(f"Folio '{notion_id}' is not a notion")
 
@@ -3441,9 +3441,9 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
 
     # Close the notion
     try:
-        make_request(
+        make_folio_request(
             "PATCH",
-            f"/folios/{notion_id}",
+            notion_id,
             base_url,
             agent_id,
             json={"status": "closed"},
@@ -3571,7 +3571,7 @@ def writ(ctx, site_id, decision, thread_id):
     # If threading to a tender, verify it exists and is a tender
     if thread_id:
         try:
-            tender = make_request("GET", f"/folios/{thread_id}", base_url, agent_id)
+            tender = make_folio_request("GET", thread_id, base_url, agent_id)
             if tender.get("type") != "tender":
                 raise click.ClickException(
                     f"{thread_id} is not a tender (type: {tender.get('type')})"
@@ -5048,7 +5048,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
         try:
             # If it looks like a folio ID (mantle-YYYYMMDD-xxxx), use directly
             if mantle.startswith("mantle-"):
-                mantle_folio = make_request("GET", f"/folios/{mantle}", base_url, agent_id)
+                mantle_folio = make_folio_request("GET", mantle, base_url, agent_id)
             else:
                 # Search for mantle by name using the /search endpoint
                 search_response = make_request(
@@ -5358,7 +5358,7 @@ def _get_ignition_brief(base_url: str, agent_id: str, roster_data: dict):
     if not brief_id:
         return None
     try:
-        brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+        brief = make_folio_request("GET", brief_id, base_url, agent_id)
     except Exception:
         return None
     return brief if brief.get("type") == "brief" else None
@@ -5432,7 +5432,7 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[dict]:
     folios = {}
     for folio_id in unique_ids:
         try:
-            folios[folio_id] = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+            folios[folio_id] = make_folio_request("GET", folio_id, base_url, agent_id)
         except Exception as e:
             failures.append((folio_id, str(e)))
 
@@ -8928,7 +8928,7 @@ def publish(
 
     folios = list(folio_hashes)
     for ref in refs:
-        folio = make_request("GET", f"/folios/{ref}", base_url, agent_id)
+        folio = make_folio_request("GET", ref, base_url, agent_id)
         h = folio.get("content_hash")
         if not h:
             raise click.ClickException(f"folio '{ref}' has no content_hash to publish")

@@ -6,6 +6,7 @@ These tests guard issue-20260725-b3a5.  A copied project can carry the same
 from the copy must not silently operate on the source.
 """
 
+import ast
 import json
 import threading
 from datetime import datetime, timezone
@@ -67,6 +68,36 @@ def _successful_response() -> MagicMock:
 
 
 class TestClientOriginClaim:
+    def test_dynamic_folio_requests_cannot_bypass_address_helper(self):
+        source = (Path(__file__).parents[1] / "client" / "cli.py").read_text()
+        tree = ast.parse(source)
+        offenders = []
+        for function in (
+            node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        ):
+            if function.name == "make_folio_request":
+                continue
+            for call in (
+                node for node in ast.walk(function) if isinstance(node, ast.Call)
+            ):
+                if not (
+                    isinstance(call.func, ast.Name)
+                    and call.func.id == "make_request"
+                    and len(call.args) >= 2
+                    and isinstance(call.args[1], ast.JoinedStr)
+                ):
+                    continue
+                literals = [
+                    value.value
+                    for value in call.args[1].values
+                    if isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ]
+                if literals and literals[0].startswith("/folios/"):
+                    offenders.append(call.lineno)
+
+        assert offenders == []
+
     def test_implicit_cwd_project_claims_its_discovered_data_dir(
         self, tmp_path, monkeypatch
     ):

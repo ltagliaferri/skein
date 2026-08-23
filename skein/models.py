@@ -66,6 +66,7 @@ FolioType = Literal[
     "summary",
     "finding",
     "notion",
+    "moment",
     "tender",
     "playbook",
     "mantle",

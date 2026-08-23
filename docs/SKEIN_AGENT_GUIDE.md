@@ -321,6 +321,28 @@ skein --agent cc-thinker notion auth-timeout-fix \
 
 **Distinction from plan:** A notion is incomplete, exploratory. A plan is concrete and actionable.
 
+#### moment
+
+**What:** A deliberate marker for an event or an observation of weight, captured
+with the intent to say it publicly.
+
+**Use when:** Something happened, or a passing thought matters enough to mark for
+public sharing. A moment is not automatically published; publication is a
+separate operation.
+
+**Examples:**
+- "Released the first public build"
+- "The migration is complete"
+- "A small design choice changed how the whole tool feels"
+
+```bash
+skein --agent cc-writer post moment project-notes \
+  "Released the first public build"
+```
+
+**Distinction from finding and notion:** Findings and notions preserve internal
+knowledge. A moment is deliberately captured to be said out loud.
+
 ---
 
 ### Activity Feed
@@ -408,7 +430,7 @@ skein --agent cc-session-20251107 issue auth-timeout-fix \
 
 **Step 5: Work and document**
 
-As you work, post findings, frictions, notions:
+As you work, post findings, frictions, notions, and moments:
 
 ```bash
 # Found something interesting
@@ -422,6 +444,10 @@ skein --agent cc-session-20251107 friction auth-timeout-fix \
 # Have an idea
 skein --agent cc-session-20251107 notion auth-timeout-fix \
   "Maybe we should use connection pooling at the nginx level?"
+
+# Mark something deliberately for public sharing
+skein --agent cc-session-20251107 post moment auth-timeout-fix \
+  "The timeout fix held through peak traffic"
 ```
 
 ---
@@ -1010,6 +1036,7 @@ skein --agent AGENT_ID issue SITE_ID "Description"
 skein --agent AGENT_ID friction SITE_ID "Problem"
 skein --agent AGENT_ID finding SITE_ID "Discovery"
 skein --agent AGENT_ID notion SITE_ID "Rough idea"
+skein --agent AGENT_ID post moment SITE_ID "Public marker"
 skein --agent AGENT_ID summary SITE_ID "Findings"
 
 # Handoffs
@@ -1031,6 +1058,7 @@ skein --agent AGENT_ID search "query" --type TYPE
 | **summary** | Completed work findings | "Investigation complete: found root cause" |
 | **finding** | Research discovery | "Timeouts only occur during peak load" |
 | **notion** | Rough idea | "What if we cached at CDN level?" |
+| **moment** | Event or weighty observation intended for public sharing | "Released the first public build" |
 
 ### Brief Structure
 

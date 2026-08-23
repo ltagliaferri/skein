@@ -316,6 +316,13 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
     project_id = kwargs.pop("project_id", None)
     fallback_project_id = kwargs.pop("fallback_project_id", None)
     qualified_address = kwargs.pop("qualified_address", False)
+    folio_address_request = kwargs.pop("_folio_address_request", False)
+
+    if endpoint.startswith("/folios/") and not folio_address_request:
+        raise ValueError(
+            "Addressed folio requests must use make_folio_request so qualified "
+            "project selection cannot retain an implicit cwd claim"
+        )
 
     if agent_id is not None:
         headers["X-Agent-Id"] = agent_id
@@ -391,6 +398,7 @@ def make_folio_request(
         agent_id,
         fallback_project_id=qualified_project,
         qualified_address=qualified_project is not None,
+        _folio_address_request=True,
         **kwargs,
     )
 

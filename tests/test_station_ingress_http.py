@@ -125,7 +125,7 @@ def test_write_lock_contention_503_not_500(app_client, monkeypatch):
     assert "busy" in r.json()["error"]
 
 
-def test_numeric_lock_codes_work_on_python_310():
+def test_numeric_lock_codes_use_stable_primary_values():
     import sqlite3
 
     from skein.station_store import sqlite_error_is_lock

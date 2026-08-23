@@ -77,10 +77,9 @@ def _parse_timestamp(value: str) -> datetime:
     # so behavior is identical across supported interpreters.
     if s.endswith("Z") or s.endswith("z"):
         s = s[:-1] + "+00:00"
-    # Before 3.11, fromisoformat only accepts fractional seconds of exactly 3 or 6
-    # digits (".1" raises); 3.11+ accepts any length. Normalize the fraction to
-    # exactly 6 digits (right-pad, truncate beyond microsecond precision) so the
-    # parse — and thus the canonical hash input — is identical across 3.10-3.12.
+    # Normalize the fraction to exactly 6 digits (right-pad, truncate beyond
+    # microsecond precision) so canonical bytes stay identical across supported
+    # interpreters and do not depend on fromisoformat's accepted input widths.
     s = _FRACTION_RE.sub(lambda m: "." + m.group(1)[:6].ljust(6, "0"), s)
     try:
         return datetime.fromisoformat(s)

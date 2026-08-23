@@ -666,6 +666,7 @@ GENERIC_TITLES = {
     "friction",
     "finding",
     "notion",
+    "moment",
     "summary",
     "tender",
     "writ",
@@ -685,6 +686,7 @@ TITLE_EXAMPLES = {
     "finding": 'e.g., "Redis caching reduces latency by 40%" or "Users prefer dark mode 3:1"',
     "tender": 'e.g., "Auth refactor ready for review" or "New dashboard component complete"',
     "notion": 'e.g., "Could use websockets for real-time updates" or "Consider caching user preferences"',
+    "moment": 'e.g., "Released the first public build" or "The migration is complete"',
     "summary": 'e.g., "Completed OAuth integration" or "Session retrospective: agent coordination"',
 }
 
@@ -700,7 +702,7 @@ SHARD_ID_PATTERN = re.compile(
 
 # Folio type prefixes that are redundant (the type field already says this)
 TYPE_PREFIX_PATTERN = re.compile(
-    r"^(tender|brief|issue|finding|friction|notion|summary|writ|playbook|mantle|plan):\s*",
+    r"^(tender|brief|issue|finding|friction|notion|moment|summary|writ|playbook|mantle|plan):\s*",
     re.IGNORECASE,
 )
 

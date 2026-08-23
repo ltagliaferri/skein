@@ -2098,7 +2098,7 @@ def resume(ctx, brief_id):
 @click.option(
     "--type",
     "-t",
-    help="Filter by folio type (issue, brief, friction, finding, summary, notion)",
+    help="Filter by folio type (issue, brief, friction, finding, summary, notion, moment)",
 )
 @click.option("--status", help="Filter by status (open, closed, investigating)")
 @click.option("--assigned", help="Filter by assignee")
@@ -2916,6 +2916,41 @@ def post_notion(ctx, site_id, title, details):
     click.echo(f"Posted notion: {result['folio_id']}")
 
 
+@post.command("moment")
+@click.argument("site_id")
+@click.argument("title")
+@click.option("--details", "-d", help="Additional details (title used if not provided)")
+@click.pass_context
+def post_moment(ctx, site_id, title, details):
+    """Post a moment intended for public sharing.
+
+    A moment marks an event or a weighty observation. Posting one records the
+    public intent; it does not publish anything by itself.
+
+    Examples:
+        skein post moment skein-dev "Released the first public build"
+        skein post moment speakbot:skein-dev "The migration is complete"
+    """
+    validate_positional_args(site_id, title, command_name="post moment")
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
+
+    data = {
+        "type": "moment",
+        "site_id": site_id,
+        "title": title,
+        "content": details or title,
+        "metadata": {},
+    }
+
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
+    click.echo(f"Posted moment: {result['folio_id']}")
+
+
 @post.command("finding")
 @click.argument("site_id")
 @click.argument("title")
@@ -3280,6 +3315,16 @@ def friction(ctx, site_id, title, details):
 def notion(ctx, site_id, title, details):
     """Post a notion (deprecated: use 'skein post notion')."""
     ctx.invoke(post_notion, site_id=site_id, title=title, details=details)
+
+
+@cli.command(hidden=True)
+@click.argument("site_id")
+@click.argument("title")
+@click.option("--details", "-d", help="Additional details (title used if not provided)")
+@click.pass_context
+def moment(ctx, site_id, title, details):
+    """Post a moment (deprecated: use 'skein post moment')."""
+    ctx.invoke(post_moment, site_id=site_id, title=title, details=details)
 
 
 @cli.command(hidden=True)
@@ -5090,6 +5135,7 @@ FOLIO_SUMMARY_LABELS = {
     "summary": "summaries",
     "finding": "findings",
     "notion": "notions",
+    "moment": "moments",
     "tender": "tenders",
     "playbook": "playbooks",
     "mantle": "mantles",

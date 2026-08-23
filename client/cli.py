@@ -14,6 +14,7 @@ import sys
 import re
 import json
 import stat
+import shutil
 import click
 import requests
 from pathlib import Path
@@ -29,7 +30,15 @@ except ImportError:
 
 from skein.address_legacy import parse as parse_address
 from skein.service_address import local_service_url
-from skein.storage import skein_home, save_project_registry
+from skein.storage import (
+    PROJECT_DATA_DIR_HEADER,
+    ProjectAlreadyRegistered,
+    ProjectRegistryError,
+    load_project_registry_document,
+    project_data_dirs_match,
+    register_project,
+    skein_home,
+)
 from skein.version import package_version as _package_version
 
 
@@ -64,6 +73,19 @@ def parse_post_site_id(site_id_arg: str) -> tuple:
     if parsed.is_qualified:
         return parsed.folio_id, parsed.project
     return parsed.folio_id, None
+
+
+def parse_folio_project_override(folio_address: str) -> Optional[str]:
+    """Return the explicit project in a legacy ``project:folio`` read address.
+
+    Rev-3 ``::`` addresses are content addresses, not project qualifiers.  A
+    verifier fragment also does not participate in project selection.
+    """
+    body = folio_address.partition("#")[0]
+    if "::" in body:
+        return None
+    parsed = parse_address(body)
+    return parsed.project if parsed.is_qualified else None
 
 
 def find_project_root() -> Optional[Path]:
@@ -296,14 +318,25 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
 
     # Resolve project: explicit kwarg > SKEIN_PROJECT env > cwd .skein/ config.
     # The top-level --project flag is pushed into SKEIN_PROJECT by the cli group.
+    implicit_project_root: Optional[Path] = None
     if not project_id:
         project_id = os.environ.get("SKEIN_PROJECT")
     if not project_id:
         project_config = get_project_config()
         if project_config:
             project_id = project_config.get("project_id")
+            if project_id:
+                implicit_project_root = find_project_root()
     if project_id:
         headers["X-Project-Id"] = project_id
+        if implicit_project_root is not None:
+            # A project id alone cannot distinguish a copied .skein/config.json
+            # from its registered owner.  Send the cwd-discovered data directory
+            # so the service can compare it with its own registry before opening
+            # a store.  Explicit cross-project selections intentionally omit it.
+            headers[PROJECT_DATA_DIR_HEADER] = str(
+                (implicit_project_root / ".skein" / "data").resolve()
+            )
 
     # Warn if agent is still orienting when posting folios
     if method == "POST" and endpoint == "/folios" and agent_id is not None:
@@ -531,48 +564,81 @@ def init(project, name):
     if skein_dir.exists():
         raise click.ClickException(f"SKEIN already initialized in {project_root}")
 
-    # Create .skein directory structure
-    skein_dir.mkdir()
+    # Read and validate the registry before creating any local state.  A damaged
+    # registry is not an empty registry, and an existing project id has one
+    # owner: neither condition may be overwritten by `skein init`.
+    try:
+        projects_data = load_project_registry_document()
+    except ProjectRegistryError as e:
+        raise click.ClickException(
+            f"Cannot initialize while the project registry is unsafe: {e}. "
+            "No project files were created."
+        ) from e
+
     data_dir = skein_dir / "data"
-    data_dir.mkdir()
-    (data_dir / "sites").mkdir()
-    (data_dir / "roster").mkdir()
-    (data_dir / "threads").mkdir()
-    (data_dir / "screenshots").mkdir()
+    existing = projects_data["projects"].get(project)
+    if existing is not None:
+        existing_data = (
+            existing.get("data_dir") if isinstance(existing, dict) else None
+        )
+        same_owner = (
+            isinstance(existing_data, str)
+            and bool(existing_data)
+            and project_data_dirs_match(Path(existing_data), data_dir)
+        )
+        if not same_owner:
+            if isinstance(existing, dict):
+                owner = (
+                    existing.get("path")
+                    or existing.get("data_dir")
+                    or "(unknown location)"
+                )
+            else:
+                owner = "(malformed registry entry)"
+            raise click.ClickException(
+                f"Project ID '{project}' is already registered at {owner}. "
+                "Choose a different project ID; the existing owner was not changed."
+            )
 
-    # Create project config. No server_url: a project config is shared and
-    # checked out across machines, so pinning one machine's service address
-    # into it froze that machine's port into every other's resolution
-    # (notion-20260722-95kl). The CLI resolves its URL per machine instead;
-    # a server_url someone writes here deliberately is still honored.
-    project_config = {
-        "project_id": project,
-        "name": name or project,
-        "created_at": datetime.now().isoformat(),
-    }
-
-    config_file = skein_dir / "config.json"
-    with open(config_file, "w") as f:
-        json.dump(project_config, f, indent=2)
-
-    # Register in global projects.json. Read-merge-then-write: the atomic,
-    # backup-taking save_project_registry protects the write (a truncate-then-
-    # write here once clobbered the whole registry — issue-20260709-zl71).
-    projects_file = skein_home() / "projects.json"
-    if projects_file.exists():
-        with open(projects_file) as f:
-            projects_data = json.load(f)
-    else:
-        projects_data = {"projects": {}}
-
-    projects_data["projects"][project] = {
+    project_info = {
         "path": str(project_root),
         "data_dir": str(data_dir),
         "name": name or project,
         "registered_at": datetime.now().isoformat(),
     }
 
-    save_project_registry(projects_data)
+    created_skein = False
+    try:
+        # Create local state first, then atomically claim the global ID.  If
+        # another initializer wins after our preflight, register_project refuses
+        # its different owner and this invocation removes only the tree it made.
+        skein_dir.mkdir()
+        created_skein = True
+        data_dir.mkdir()
+        (data_dir / "sites").mkdir()
+        (data_dir / "roster").mkdir()
+        (data_dir / "threads").mkdir()
+        (data_dir / "screenshots").mkdir()
+
+        # No server_url: a project config is shared and checked out across
+        # machines.  URL resolution remains per-machine.
+        project_config = {
+            "project_id": project,
+            "name": name or project,
+            "created_at": datetime.now().isoformat(),
+        }
+        with open(skein_dir / "config.json", "w") as f:
+            json.dump(project_config, f, indent=2)
+
+        register_project(project, project_info, allow_same_data_dir=True)
+    except (ProjectAlreadyRegistered, ProjectRegistryError, OSError) as e:
+        if created_skein and skein_dir.exists():
+            shutil.rmtree(skein_dir)
+        if isinstance(e, ProjectAlreadyRegistered):
+            raise click.ClickException(str(e)) from e
+        raise click.ClickException(
+            f"Project registration failed: {e}. New project files were rolled back."
+        ) from e
 
     click.echo(f"✓ Initialized SKEIN project '{project}' in {project_root}")
     click.echo("✓ Created .skein/ directory")
@@ -1263,9 +1329,41 @@ def doctor_checks(
             )
         )
     elif project_id and project_id in registry:
-        checks.append(
-            _check("current project", True, f"'{project_id}' at {project_root}", level="info")
+        project_info = registry[project_id]
+        registered_data_value = (
+            project_info.get("data_dir") if isinstance(project_info, dict) else None
         )
+        current_data_dir = project_root / ".skein" / "data"
+        registered_data_dir = (
+            Path(registered_data_value)
+            if isinstance(registered_data_value, str) and registered_data_value
+            else None
+        )
+        if registered_data_dir is not None and project_data_dirs_match(
+            registered_data_dir, current_data_dir
+        ):
+            checks.append(
+                _check(
+                    "current project",
+                    True,
+                    f"'{project_id}' at {project_root}",
+                    level="info",
+                )
+            )
+        else:
+            checks.append(
+                _check(
+                    "current project",
+                    False,
+                    f"{project_root} identifies as '{project_id}' with data at "
+                    f"{current_data_dir}, but the registry owns it at "
+                    f"{registered_data_dir or '(invalid data_dir)'}",
+                    hint="This may be a copied project. Work from the registered "
+                    "project, or remove the copy's .skein/ and initialize it with "
+                    "a different project ID. Use --project only when you intend "
+                    "to operate on the registered project.",
+                )
+            )
     else:
         checks.append(
             _check(
@@ -3579,7 +3677,13 @@ def folio(ctx, folio_id, no_pager, all_projects, output_json, raw):
         return
 
     try:
-        folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+        folio_data = make_request(
+            "GET",
+            f"/folios/{folio_id}",
+            base_url,
+            agent_id,
+            project_id=parse_folio_project_override(folio_id),
+        )
     except click.ClickException as e:
         msg = str(e)
         if not output_json and ("404" in msg or "not found" in msg.lower()):

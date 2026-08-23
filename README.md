@@ -126,6 +126,13 @@ skein init --project my-project
 This creates `.skein/` in the current directory. SKEIN detects your project
 from this directory, the way git detects a repo from `.git/`.
 
+A project ID has one registered owner. `skein init` refuses an ID already
+registered to another directory, and an implicit command from a copied
+`.skein/` directory refuses to operate on the original project's data. Give a
+copy a new project ID; use `--project ID` only when you deliberately mean to
+operate on that registered project from somewhere else. `skein doctor` reports
+an ownership mismatch directly.
+
 Create a site:
 
 ```bash

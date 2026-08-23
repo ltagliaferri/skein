@@ -6,6 +6,7 @@ Multi-project support via ~/.skein/projects.json registry.
 
 import sqlite3
 import json
+import fcntl
 import logging
 import os
 import re
@@ -136,6 +137,29 @@ def _folio_from_head_row(row: "sqlite3.Row") -> Folio:
 # Project Registry
 
 
+PROJECT_DATA_DIR_HEADER = "X-Skein-Project-Data-Dir"
+
+
+class ProjectRegistryError(ValueError):
+    """The project registry exists but cannot safely be used."""
+
+
+class ProjectNotFound(ValueError):
+    """The requested project has no entry in the project registry."""
+
+
+class ProjectAlreadyRegistered(ProjectRegistryError):
+    """A compare-and-set registration found an owner for the requested id."""
+
+
+class ProjectDataDirClaimError(ValueError):
+    """A client supplied an unusable implicit project data-directory claim."""
+
+
+class ProjectDataDirMismatch(ProjectDataDirClaimError):
+    """A client's implicit project origin does not own the requested project id."""
+
+
 def skein_home() -> Path:
     """Resolve the SKEIN home directory — the ``~/.skein`` tree that holds the
     project registry (``projects.json``).
@@ -177,16 +201,54 @@ def _prune_registry_backups(registry_file: Path) -> None:
         stale.unlink(missing_ok=True)
 
 
+@contextmanager
+def _project_registry_lock():
+    """Serialize registry writers on this SKEIN home.
+
+    ``flock`` is available on the Linux and macOS platforms SKEIN supports.
+    Keeping the lock in a separate stable file lets ``projects.json`` continue
+    to be replaced atomically.
+    """
+    home = skein_home()
+    home.mkdir(parents=True, exist_ok=True)
+    with open(home / "projects.json.lock", "a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _save_project_registry_unlocked(data: Dict[str, Any]) -> None:
+    """Persist a full registry document while the caller holds its lock."""
+    home = skein_home()
+    registry_file = home / "projects.json"
+
+    if registry_file.exists():
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        backup = registry_file.with_name(f"{registry_file.name}.bak-{stamp}")
+        shutil.copy2(registry_file, backup)
+        _prune_registry_backups(registry_file)
+
+    fd, tmp_name = tempfile.mkstemp(dir=str(home), prefix=".projects.json.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp, registry_file)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def save_project_registry(data: Dict[str, Any]) -> None:
     """Atomically persist the project registry to ``<SKEIN_HOME>/projects.json``.
 
     The registry maps every project to its data dir, so a truncate-then-write
     (the naive ``open(path, "w")``) is dangerous: a concurrent reader can catch
     the file mid-write, and a writer that starts from an empty base destroys it
-    outright (issue-20260709-zl71 deregistered all 50 projects this way). This
-    makes a write safe two ways, deliberately WITHOUT file locking — last-write-
-    wins on a genuinely concurrent registration is accepted, and the backups
-    bound the damage:
+    outright (issue-20260709-zl71 deregistered all 50 projects this way). Writers
+    are serialized, then each write is protected two more ways:
 
       1. If the registry already exists, snapshot it to
          ``projects.json.bak-<UTC YYYYmmdd-HHMMSS-ffffff>`` in the same directory
@@ -201,30 +263,8 @@ def save_project_registry(data: Dict[str, Any]) -> None:
     ``data`` is the full top-level object (``{"projects": {...}}``), matching what
     :func:`load_project_registry` reads back.
     """
-    home = skein_home()
-    home.mkdir(parents=True, exist_ok=True)
-    registry_file = home / "projects.json"
-
-    # (1) Snapshot the current file before touching it, then prune. Microseconds
-    # (%f) go into the stamp so a same-second double-save stages to two distinct
-    # backups instead of colliding — the zero-padded field keeps name order ==
-    # time order for the prune.
-    if registry_file.exists():
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-        backup = registry_file.with_name(f"{registry_file.name}.bak-{stamp}")
-        shutil.copy2(registry_file, backup)
-        _prune_registry_backups(registry_file)
-
-    # (2) Stage to a unique temp in the same dir, then atomically replace.
-    fd, tmp_name = tempfile.mkstemp(dir=str(home), prefix=".projects.json.", suffix=".tmp")
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w") as fh:
-            json.dump(data, fh, indent=2)
-        os.replace(tmp, registry_file)
-    except Exception:
-        tmp.unlink(missing_ok=True)  # never leave a stray temp on a failed write
-        raise
+    with _project_registry_lock():
+        _save_project_registry_unlocked(data)
 
 
 def save_project_registry_text(text: str) -> None:
@@ -244,52 +284,207 @@ def save_project_registry_text(text: str) -> None:
     ``os.replace`` onto ``projects.json``, so a reader only ever sees the whole old
     file or the whole new one. ``skein_home()`` is resolved fresh at call time.
     """
-    home = skein_home()
-    home.mkdir(parents=True, exist_ok=True)
-    registry_file = home / "projects.json"
-    fd, tmp_name = tempfile.mkstemp(dir=str(home), prefix=".projects.json.", suffix=".tmp")
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w") as fh:
-            fh.write(text)
-        os.replace(tmp, registry_file)
-    except Exception:
-        tmp.unlink(missing_ok=True)  # never leave a stray temp on a failed write
-        raise
+    with _project_registry_lock():
+        home = skein_home()
+        registry_file = home / "projects.json"
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(home), prefix=".projects.json.", suffix=".tmp"
+        )
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(text)
+            os.replace(tmp, registry_file)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
 
-def load_project_registry() -> Dict[str, Dict[str, Any]]:
-    """Load project registry from ``<SKEIN_HOME>/projects.json`` (default
-    ``~/.skein/projects.json``)."""
+def load_project_registry_document() -> Dict[str, Any]:
+    """Read and validate the complete project-registry document.
+
+    Unlike :func:`load_project_registry`, this is strict: a present registry
+    that is unreadable, invalid JSON, or has no object-valued ``projects`` map
+    raises :class:`ProjectRegistryError`.  Mutating callers use this form so
+    damage cannot be mistaken for a fresh empty registry.
+    """
     registry_file = skein_home() / "projects.json"
     if not registry_file.exists():
-        logger.warning("No project registry at %s, using default data dir", registry_file)
-        return {}
+        return {"projects": {}}
 
     try:
         with open(registry_file) as f:
             data = json.load(f)
-            return data.get("projects", {})
     except Exception as e:
-        logger.error(f"Failed to load project registry: {e}")
+        raise ProjectRegistryError(
+            f"project registry {registry_file} is unreadable or invalid: {e}"
+        ) from e
+
+    if not isinstance(data, dict) or not isinstance(data.get("projects"), dict):
+        raise ProjectRegistryError(
+            f"project registry {registry_file} must contain an object-valued "
+            "'projects' map"
+        )
+    return data
+
+
+def load_project_registry() -> Dict[str, Dict[str, Any]]:
+    """Load project registry from ``<SKEIN_HOME>/projects.json`` (default
+    ``~/.skein/projects.json``).
+
+    Read-only discovery historically treats a missing or damaged registry as
+    empty.  Mutating code must use :func:`load_project_registry_document`
+    instead, so it cannot overwrite damage with a new registry.
+    """
+    registry_file = skein_home() / "projects.json"
+    if not registry_file.exists():
+        logger.warning("No project registry at %s, using default data dir", registry_file)
+        return {}
+    try:
+        return load_project_registry_document()["projects"]
+    except ProjectRegistryError as e:
+        logger.error("Failed to load project registry: %s", e)
         return {}
 
 
-def get_data_dir_for_project(project_id: Optional[str] = None) -> Path:
+def project_data_dirs_match(registered: Path, claimed: Path) -> bool:
+    """Compare filesystem locations, accepting symlink aliases.
+
+    ``samefile`` gives the strongest answer when both locations exist.  The
+    resolved-path fallback also covers an intentionally registered directory
+    that has not been created yet.  Any filesystem error is a mismatch: an
+    origin claim is a safety assertion, so an uncheckable claim cannot pass.
+    """
+    try:
+        registered_stat = registered.stat()
+        claimed_stat = claimed.stat()
+    except FileNotFoundError:
+        # A not-yet-created data directory can still be the same intended
+        # owner. Normalize only genuinely missing paths; other filesystem
+        # failures are uncheckable and therefore fail closed.
+        try:
+            return registered.resolve(strict=False) == claimed.resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            return False
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+    try:
+        return os.path.samestat(registered_stat, claimed_stat)
+    except (OSError, ValueError):
+        return False
+
+
+def _project_data_dir_from_entry(
+    project_id: str, project_info: Any
+) -> Path:
+    """Validate one registry entry and return its absolute data directory."""
+    data_dir_value = (
+        project_info.get("data_dir") if isinstance(project_info, dict) else None
+    )
+    if not isinstance(data_dir_value, str) or not data_dir_value:
+        raise ProjectRegistryError(
+            f"entry for project '{project_id}' has no valid data_dir"
+        )
+    data_dir = Path(data_dir_value)
+    if not data_dir.is_absolute():
+        raise ProjectRegistryError(
+            f"entry for project '{project_id}' has a non-absolute "
+            f"data_dir: {data_dir_value}"
+        )
+    return data_dir
+
+
+def get_registered_project_data_dir(project_id: str) -> Optional[Path]:
+    """Resolve one registered project without opening or creating storage.
+
+    A missing project returns ``None``. A present but malformed entry is unsafe
+    and raises instead of being interpreted relative to the service cwd.
+    """
+    projects = load_project_registry_document()["projects"]
+    project_info = projects.get(project_id)
+    if project_info is None:
+        return None
+    return _project_data_dir_from_entry(project_id, project_info)
+
+
+def register_project(
+    project_id: str,
+    project_info: Dict[str, Any],
+    *,
+    allow_same_data_dir: bool = False,
+) -> None:
+    """Register one project with a locked compare-and-set.
+
+    A different owner can never be replaced between the duplicate check and
+    save.  ``allow_same_data_dir`` supports repairing an owner whose local
+    ``.skein`` tree was deleted; it never permits rebinding the id elsewhere.
+    """
+    candidate = _project_data_dir_from_entry(project_id, project_info)
+
+    with _project_registry_lock():
+        document = load_project_registry_document()
+        existing = document["projects"].get(project_id)
+        if existing is not None:
+            existing_value = (
+                existing.get("data_dir") if isinstance(existing, dict) else None
+            )
+            same_owner = (
+                allow_same_data_dir
+                and isinstance(existing_value, str)
+                and bool(existing_value)
+                and project_data_dirs_match(Path(existing_value), candidate)
+            )
+            if not same_owner:
+                owner = (
+                    existing.get("path")
+                    or existing.get("data_dir")
+                    or "(unknown location)"
+                    if isinstance(existing, dict)
+                    else "(malformed registry entry)"
+                )
+                raise ProjectAlreadyRegistered(
+                    f"Project ID '{project_id}' is already registered at {owner}. "
+                    "Choose a different project ID; the existing owner was not changed."
+                )
+
+        document["projects"][project_id] = project_info
+        _save_project_registry_unlocked(document)
+
+
+def get_data_dir_for_project(
+    project_id: Optional[str] = None,
+    claimed_data_dir: Optional[str] = None,
+) -> Path:
     """
     Get data directory for a project.
 
-    If project_id is provided, looks up in registry.
+    If project_id is provided, looks up in registry.  When ``claimed_data_dir``
+    is present, it came from cwd-based project discovery in the CLI.  Validate
+    it against this service's registry before creating or opening anything.
     Otherwise uses default data directory.
     """
     if project_id:
-        registry = load_project_registry()
-        if project_id in registry:
-            data_dir = Path(registry[project_id]["data_dir"])
+        data_dir = get_registered_project_data_dir(project_id)
+        if data_dir is not None:
+            if claimed_data_dir is not None:
+                claimed = Path(claimed_data_dir)
+                if not claimed.is_absolute():
+                    raise ProjectDataDirClaimError(
+                        f"Implicit data-directory claim for project '{project_id}' "
+                        f"must be an absolute path, got: {claimed_data_dir}"
+                    )
+                if not project_data_dirs_match(data_dir, claimed):
+                    raise ProjectDataDirMismatch(
+                        f"Project '{project_id}' is registered to {data_dir}, but "
+                        f"this implicit command came from {claimed}. Refusing to "
+                        "route the command to a different project's data. Use an "
+                        "explicit --project selection only when you intend to "
+                        "operate on the registered project."
+                    )
             data_dir.mkdir(parents=True, exist_ok=True)
             return data_dir
-        else:
-            raise ValueError(f"Project '{project_id}' not found in registry")
+        raise ProjectNotFound(f"Project '{project_id}' not found in registry")
 
     # No project_id provided - this shouldn't happen in normal operation
     raise ValueError("No project_id provided and no default available")
@@ -309,7 +504,7 @@ def search_folio_across_projects(
         if project_name == current_project_id:
             continue
         try:
-            data_dir = Path(project_info["data_dir"])
+            data_dir = _project_data_dir_from_entry(project_name, project_info)
             db_path = data_dir / "skein.db"
             if not db_path.exists():
                 continue
@@ -324,7 +519,7 @@ def search_folio_across_projects(
                     return {"project_name": project_name, "project_path": project_path}
             finally:
                 conn.close()
-        except sqlite3.Error as e:
+        except (sqlite3.Error, ProjectRegistryError) as e:
             logger.debug(
                 f"Skipping project '{project_name}' during cross-project folio search: {e}"
             )
@@ -338,11 +533,9 @@ def get_project_store(project_name: str) -> Optional["JSONStore"]:
 
     Returns None if the project is not found or has no data directory.
     """
-    registry = load_project_registry()
-    project_info = registry.get(project_name)
-    if not project_info:
+    data_dir = get_registered_project_data_dir(project_name)
+    if data_dir is None:
         return None
-    data_dir = Path(project_info["data_dir"])
     if not data_dir.exists():
         return None
     return JSONStore(data_dir)
@@ -360,7 +553,7 @@ def get_project_last_activity_timestamps() -> Dict[str, int]:
     result: Dict[str, int] = {}
     for project_name, project_info in registry.items():
         try:
-            data_dir = Path(project_info["data_dir"])
+            data_dir = _project_data_dir_from_entry(project_name, project_info)
             db_path = data_dir / "skein.db"
             if not db_path.exists():
                 continue
@@ -378,7 +571,13 @@ def get_project_last_activity_timestamps() -> Dict[str, int]:
                 result[project_name] = int(dt.timestamp())
             finally:
                 conn.close()
-        except (sqlite3.Error, KeyError, OSError, ValueError) as e:
+        except (
+            sqlite3.Error,
+            ProjectRegistryError,
+            KeyError,
+            OSError,
+            ValueError,
+        ) as e:
             logger.debug(
                 f"Skipping project '{project_name}' during cross-project timestamps: {e}"
             )
@@ -401,7 +600,7 @@ def resolve_folio_across_projects(
         if project_name == current_project_id:
             continue
         try:
-            data_dir = Path(project_info["data_dir"])
+            data_dir = _project_data_dir_from_entry(project_name, project_info)
             db_path = data_dir / "skein.db"
             if not db_path.exists():
                 continue
@@ -422,7 +621,7 @@ def resolve_folio_across_projects(
                     return {"folio": folio, "project_name": project_name}
             finally:
                 conn.close()
-        except (sqlite3.Error, KeyError) as e:
+        except (sqlite3.Error, ProjectRegistryError, KeyError) as e:
             logger.debug(
                 f"Skipping project '{project_name}' during cross-project folio resolve: {e}"
             )

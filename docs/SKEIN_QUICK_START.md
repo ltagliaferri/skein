@@ -430,24 +430,23 @@ skein complete
 ```bash
 # User says: "Continue from HANDOFF: brief-20251107-x9k2"
 
-# Use resume command (does everything for you)
+# Begin orientation from the brief
 skein --agent cc-new-session ignite brief-20251107-x9k2
 
 # This automatically:
-# - Auto-registers you with predecessor's suggested name
-# - Retrieves the brief with full context
-# - Creates succession thread to predecessor
-# - Shows threaded issues/findings
-# - Guides you on next steps
+# - Retrieves the brief and presents it as the mission
+# - Suggests an agent name and registers it as orienting
+# - Lists relevant project reading
+# - Tells you how to become active with skein ready
 
 # Then continue work from the "Remaining" section
 ```
 
-**What resume does:**
-- Fetches brief content
-- Creates succession thread so predecessor knows you took over
-- Shows all threaded issues/findings (critical context for YOUR work)
-- Provides next-step commands
+**What ignite does:**
+- Fetches and displays the brief content
+- Suggests an agent name and registers the agent as orienting
+- Lists relevant project documents to read
+- Provides the `skein ready` command for completing orientation
 
 ---
 

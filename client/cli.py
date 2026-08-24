@@ -2181,81 +2181,12 @@ def playbook_get(ctx, playbook_id, output_json):
         click.echo(playbook_data["content"])
 
 
-@cli.command()
-@click.argument("brief_id")
-@click.pass_context
-def ignite(ctx, brief_id):
-    """Ignite work from a handoff brief.
-
-    This command:
-    1. Retrieves the brief
-    2. Auto-registers with suggested successor name (if provided)
-    3. Creates succession thread to predecessor
-    4. Shows threaded issues/findings
-    5. Guides you on next steps
-    """
-    base_url = get_base_url(ctx.obj.get("url"))
-    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
-
-    if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to ignite work")
-
-    # Get the brief
-    brief_data = make_folio_request("GET", brief_id, base_url, agent_id)
-
-    if brief_data.get("type") != "brief":
-        raise click.ClickException(f"Resource {brief_id} is not a brief")
-
-    predecessor = brief_data.get("created_by")
-    site_id = brief_data.get("site_id")
-
-    # Create succession thread
-    succession_data = {
-        "from_id": agent_id,
-        "to_id": predecessor,
-        "type": "succession",
-        "content": f"Resuming work from {brief_id}",
-    }
-    make_request("POST", "/threads", base_url, agent_id, json=succession_data)
-
-    # Display brief
-    click.echo(f"{'=' * 60}")
-    click.echo(f"RESUMING: {brief_id}")
-    click.echo(f"Predecessor: {predecessor}")
-    click.echo(f"Site: {site_id}")
-    click.echo(f"{'=' * 60}\n")
-    click.echo(brief_data.get("content", ""))
-    click.echo(f"\n{'=' * 60}")
-
-    # Show threaded issues
-    threads_data = make_request("GET", "/threads", base_url, agent_id, params={"from_id": brief_id})
-
-    if threads_data:
-        click.echo(f"\nThreaded work ({len(threads_data)} item(s)):")
-        for t in threads_data:
-            click.echo(f"  [{t['type'].upper()}] -> {t['to_id']}")
-
-    click.echo(f"\n{'=' * 60}")
-    click.echo("⚠️  BEFORE STARTING - Read Required Docs:")
-    click.echo("  See CLAUDE.md for required reading list.")
-    click.echo("  Common docs: PROJECT_CONTEXT.md, ARCHITECTURE.md, PRINCIPLES.md")
-    click.echo("  Previous agents who skipped this produced incorrect work.")
-    click.echo(f"\n{'=' * 60}")
-    click.echo("Next steps:")
-    click.echo("  1. Read required docs listed in CLAUDE.md")
-    click.echo("  2. Review the brief above")
-    click.echo(f"  3. Check site: skein --agent {agent_id} issues {site_id}")
-    click.echo(f"  4. Check recent activity: skein --agent {agent_id} activity")
-    click.echo("  5. Continue work from 'Remaining' section")
-    click.echo(f"{'=' * 60}")
-
-
 @cli.command(hidden=True)
 @click.argument("brief_id")
 @click.pass_context
 def resume(ctx, brief_id):
     """Deprecated: Use 'ignite' instead."""
-    ctx.invoke(ignite, brief_id=brief_id)
+    ctx.invoke(ignite_start, brief_id=brief_id, mantle=None, message=None)
 
 
 # ============================================================================

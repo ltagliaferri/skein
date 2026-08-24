@@ -10,6 +10,7 @@ from client.cli import (
     MAX_RETROACTIVE_FOLIOS,
     _show_folio_inventory,
     cli,
+    ignite_start,
 )
 
 
@@ -25,6 +26,21 @@ def _invoke(args, request, **patches):
             ):
                 return CliRunner().invoke(cli, args, env=env)
         return CliRunner().invoke(cli, args, env=env)
+
+
+def test_ignite_command_has_one_live_registration():
+    assert cli.commands["ignite"] is ignite_start
+
+
+def test_legacy_resume_invokes_live_ignite_implementation():
+    with patch("client.cli._ignite_start") as start:
+        result = CliRunner().invoke(cli, ["resume", "brief-20260824-test"])
+
+    assert result.exit_code == 0, result.output
+    _, brief_id, mantle, message = start.call_args.args
+    assert brief_id == "brief-20260824-test"
+    assert mantle is None
+    assert message is None
 
 
 def test_torch_without_agent_has_retroactive_breadcrumb():

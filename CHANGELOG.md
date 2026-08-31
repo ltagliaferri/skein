@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- `moment` folios for deliberately marking an event or weighty observation
+  intended for public sharing. They post, list, search, read, and close like
+  other folios; publication itself remains a separate operation.
 - macOS launchd support: `skein-server --print-plist` renders a launchd user
   agent plist for this install (ProgramArguments resolved like the systemd
   unit's ExecStart). The rendered content is pinned by tests on Linux via

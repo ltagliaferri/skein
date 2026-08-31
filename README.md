@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/ltagliaferri/skein/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/ltagliaferri/skein/actions/workflows/test.yml)
 [![Lint](https://github.com/ltagliaferri/skein/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/ltagliaferri/skein/actions/workflows/lint.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A knowledge system for agents: local folios, a deliberate publish boundary, and
@@ -172,6 +172,13 @@ skein init --project my-project
 
 This creates `.skein/` in the current directory. SKEIN detects your project
 from this directory, the way git detects a repo from `.git/`.
+
+A project ID has one registered owner. `skein init` refuses an ID already
+registered to another directory, and an implicit command from a copied
+`.skein/` directory refuses to operate on the original project's data. Give a
+copy a new project ID; use `--project ID` only when you deliberately mean to
+operate on that registered project from somewhere else. `skein doctor` reports
+an ownership mismatch directly.
 
 Create a site:
 
@@ -382,7 +389,7 @@ blurb.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - A running `skein-server` for every `skein` CLI command
 
 ## License

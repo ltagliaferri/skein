@@ -13,10 +13,14 @@ import os
 import sys
 import re
 import json
+import stat
+import multiprocessing
+import signal as signal_module
+import shutil
 import click
 import requests
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, NamedTuple, Set, List
 
 # Import name generator from skein package
@@ -28,8 +32,40 @@ except ImportError:
 
 from skein.address_legacy import parse as parse_address
 from skein.service_address import local_service_url
-from skein.storage import skein_home, save_project_registry
+from skein.storage import (
+    PROJECT_DATA_DIR_HEADER,
+    ProjectAlreadyRegistered,
+    ProjectRegistryError,
+    encode_project_data_dir_claim,
+    load_project_registry_document,
+    project_data_dirs_match,
+    project_data_dir_from_registry_entry,
+    register_project,
+    skein_home,
+)
 from skein.version import package_version as _package_version
+
+
+def _path_exists_strict(path: Path) -> bool:
+    """Test existence without Python 3.14's OSError-suppressing Path.exists().
+
+    Only a missing leaf is absent. Broken traversal such as a non-directory
+    parent is a repository/configuration fault that callers must surface.
+    """
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _path_is_dir_strict(path: Path) -> bool:
+    """Test directory type while preserving permission and traversal errors."""
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        return False
+    return stat.S_ISDIR(mode)
 
 
 def parse_post_site_id(site_id_arg: str) -> tuple:
@@ -43,6 +79,19 @@ def parse_post_site_id(site_id_arg: str) -> tuple:
     return parsed.folio_id, None
 
 
+def parse_folio_project_override(folio_address: str) -> Optional[str]:
+    """Return the explicit project in a legacy ``project:folio`` read address.
+
+    Rev-3 ``::`` addresses are content addresses, not project qualifiers.  A
+    verifier fragment also does not participate in project selection.
+    """
+    body = folio_address.partition("#")[0]
+    if "::" in body:
+        return None
+    parsed = parse_address(body)
+    return parsed.project if parsed.is_qualified else None
+
+
 def find_project_root() -> Optional[Path]:
     """
     Walk up directory tree to find .skein/ directory (like git).
@@ -51,7 +100,7 @@ def find_project_root() -> Optional[Path]:
     current = Path.cwd()
     while current != current.parent:
         skein_dir = current / ".skein"
-        if skein_dir.exists() and skein_dir.is_dir():
+        if _path_is_dir_strict(skein_dir):
             return current
         current = current.parent
     return None
@@ -70,7 +119,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
         return None
 
     config_file = project_root / ".skein" / "config.json"
-    if not config_file.exists():
+    if not _path_exists_strict(config_file):
         return None
 
     try:
@@ -79,7 +128,7 @@ def get_project_config() -> Optional[Dict[str, Any]]:
         # A config file that parses but is not an object (a JSON array, a bare
         # string) is unusable; callers do config.get(...), which would raise.
         return data if isinstance(data, dict) else None
-    except Exception:
+    except (ValueError, RecursionError):
         return None
 
 
@@ -97,7 +146,7 @@ def get_global_config() -> Dict[str, Any]:
     reports that state as a failing check.
     """
     config_file = Path.home() / ".skein" / "config.json"
-    if not config_file.exists():
+    if not _path_exists_strict(config_file):
         return {}
 
     try:
@@ -107,7 +156,7 @@ def get_global_config() -> Dict[str, Any]:
         # other shape reads as empty rather than crashing every command
         # (get_base_url reads this).
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except (ValueError, RecursionError):
         return {}
 
 
@@ -267,20 +316,42 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
     url = f"{base_url}/skein{endpoint}"
     headers = kwargs.pop("headers", {})
     project_id = kwargs.pop("project_id", None)
+    fallback_project_id = kwargs.pop("fallback_project_id", None)
+    qualified_address = kwargs.pop("qualified_address", False)
+    folio_address_request = kwargs.pop("_folio_address_request", False)
+
+    if endpoint.startswith("/folios/") and not folio_address_request:
+        raise ValueError(
+            "Addressed folio requests must use make_folio_request so qualified "
+            "project selection cannot retain an implicit cwd claim"
+        )
 
     if agent_id is not None:
         headers["X-Agent-Id"] = agent_id
 
     # Resolve project: explicit kwarg > SKEIN_PROJECT env > cwd .skein/ config.
     # The top-level --project flag is pushed into SKEIN_PROJECT by the cli group.
+    implicit_project_root: Optional[Path] = None
     if not project_id:
         project_id = os.environ.get("SKEIN_PROJECT")
     if not project_id:
         project_config = get_project_config()
         if project_config:
             project_id = project_config.get("project_id")
+            if project_id:
+                implicit_project_root = find_project_root()
+    if not project_id:
+        project_id = fallback_project_id
     if project_id:
         headers["X-Project-Id"] = project_id
+        if implicit_project_root is not None and not qualified_address:
+            # A project id alone cannot distinguish a copied .skein/config.json
+            # from its registered owner.  Send the cwd-discovered data directory
+            # so the service can compare it with its own registry before opening
+            # a store.  Explicit cross-project selections intentionally omit it.
+            headers[PROJECT_DATA_DIR_HEADER] = encode_project_data_dir_claim(
+                (implicit_project_root / ".skein" / "data").resolve()
+            )
 
     # Warn if agent is still orienting when posting folios
     if method == "POST" and endpoint == "/folios" and agent_id is not None:
@@ -309,6 +380,29 @@ def make_request(method: str, endpoint: str, base_url: str, agent_id: str, **kwa
             except Exception:
                 raise click.ClickException(f"API error: {e.response.text or str(e)}")
         raise click.ClickException(f"Connection error: {str(e)}")
+
+
+def make_folio_request(
+    method: str,
+    folio_address: str,
+    base_url: str,
+    agent_id: str,
+    *,
+    suffix: str = "",
+    **kwargs,
+):
+    """Request a folio address without treating a qualified address as cwd-based."""
+    qualified_project = parse_folio_project_override(folio_address)
+    return make_request(
+        method,
+        f"/folios/{folio_address}{suffix}",
+        base_url,
+        agent_id,
+        fallback_project_id=qualified_project,
+        qualified_address=qualified_project is not None,
+        _folio_address_request=True,
+        **kwargs,
+    )
 
 
 # Breadcrumb hints — one-line footers pointing at cross-project layer.
@@ -508,48 +602,83 @@ def init(project, name):
     if skein_dir.exists():
         raise click.ClickException(f"SKEIN already initialized in {project_root}")
 
-    # Create .skein directory structure
-    skein_dir.mkdir()
+    # Read and validate the registry before creating any local state.  A damaged
+    # registry is not an empty registry, and an existing project id has one
+    # owner: neither condition may be overwritten by `skein init`.
+    try:
+        projects_data = load_project_registry_document()
+    except ProjectRegistryError as e:
+        raise click.ClickException(
+            f"Cannot initialize while the project registry is unsafe: {e}. "
+            "No project files were created."
+        ) from e
+
     data_dir = skein_dir / "data"
-    data_dir.mkdir()
-    (data_dir / "sites").mkdir()
-    (data_dir / "roster").mkdir()
-    (data_dir / "threads").mkdir()
-    (data_dir / "screenshots").mkdir()
+    existing = projects_data["projects"].get(project)
+    if existing is not None:
+        try:
+            existing_data_dir = project_data_dir_from_registry_entry(
+                project, existing
+            )
+        except ProjectRegistryError as e:
+            raise click.ClickException(
+                f"Cannot initialize while the project registry is unsafe: {e}. "
+                "No project files were created."
+            ) from e
+        same_owner = project_data_dirs_match(existing_data_dir, data_dir)
+        if not same_owner:
+            if isinstance(existing, dict):
+                owner = (
+                    existing.get("path")
+                    or existing.get("data_dir")
+                    or "(unknown location)"
+                )
+            else:
+                owner = "(malformed registry entry)"
+            raise click.ClickException(
+                f"Project ID '{project}' is already registered at {owner}. "
+                "Choose a different project ID; the existing owner was not changed."
+            )
 
-    # Create project config. No server_url: a project config is shared and
-    # checked out across machines, so pinning one machine's service address
-    # into it froze that machine's port into every other's resolution
-    # (notion-20260722-95kl). The CLI resolves its URL per machine instead;
-    # a server_url someone writes here deliberately is still honored.
-    project_config = {
-        "project_id": project,
-        "name": name or project,
-        "created_at": datetime.now().isoformat(),
-    }
-
-    config_file = skein_dir / "config.json"
-    with open(config_file, "w") as f:
-        json.dump(project_config, f, indent=2)
-
-    # Register in global projects.json. Read-merge-then-write: the atomic,
-    # backup-taking save_project_registry protects the write (a truncate-then-
-    # write here once clobbered the whole registry — issue-20260709-zl71).
-    projects_file = skein_home() / "projects.json"
-    if projects_file.exists():
-        with open(projects_file) as f:
-            projects_data = json.load(f)
-    else:
-        projects_data = {"projects": {}}
-
-    projects_data["projects"][project] = {
+    project_info = {
         "path": str(project_root),
         "data_dir": str(data_dir),
         "name": name or project,
         "registered_at": datetime.now().isoformat(),
     }
 
-    save_project_registry(projects_data)
+    created_skein = False
+    try:
+        # Create local state first, then atomically claim the global ID.  If
+        # another initializer wins after our preflight, register_project refuses
+        # its different owner and this invocation removes only the tree it made.
+        skein_dir.mkdir()
+        created_skein = True
+        data_dir.mkdir()
+        (data_dir / "sites").mkdir()
+        (data_dir / "roster").mkdir()
+        (data_dir / "threads").mkdir()
+        (data_dir / "screenshots").mkdir()
+
+        # No server_url: a project config is shared and checked out across
+        # machines.  URL resolution remains per-machine.
+        project_config = {
+            "project_id": project,
+            "name": name or project,
+            "created_at": datetime.now().isoformat(),
+        }
+        with open(skein_dir / "config.json", "w") as f:
+            json.dump(project_config, f, indent=2)
+
+        register_project(project, project_info, allow_same_data_dir=True)
+    except (ProjectAlreadyRegistered, ProjectRegistryError, OSError) as e:
+        if created_skein and skein_dir.exists():
+            shutil.rmtree(skein_dir)
+        if isinstance(e, ProjectAlreadyRegistered):
+            raise click.ClickException(str(e)) from e
+        raise click.ClickException(
+            f"Project registration failed: {e}. New project files were rolled back."
+        ) from e
 
     click.echo(f"✓ Initialized SKEIN project '{project}' in {project_root}")
     click.echo("✓ Created .skein/ directory")
@@ -792,10 +921,29 @@ def _same_dir(a: str, b) -> Optional[bool]:
     ``Path.resolve()`` raise, so a failure returns None ("can't compare") rather
     than crashing this diagnostic.
     """
-    try:
-        return Path(a).resolve() == Path(b).resolve()
-    except (OSError, RuntimeError, ValueError):
+    def _resolve(value) -> Optional[Path]:
+        path = Path(value)
+        try:
+            return path.resolve(strict=True)
+        except (FileNotFoundError, NotADirectoryError):
+            # A service can report a legitimate but currently absent home or
+            # a not-yet-materializable child path. It is still comparable
+            # as a normalized path and should mismatch a different live home
+            # rather than becoming "unknown".
+            try:
+                return path.resolve(strict=False)
+            except (OSError, RuntimeError, ValueError):
+                return None
+        except (OSError, RuntimeError, ValueError):
+            # ELOOP (and pathlib's older RuntimeError form) is not a path that
+            # can be compared safely.
+            return None
+
+    resolved_a = _resolve(a)
+    resolved_b = _resolve(b)
+    if resolved_a is None or resolved_b is None:
         return None
+    return resolved_a == resolved_b
 
 
 def _check(name, ok, detail, level="error", hint=None):
@@ -882,7 +1030,7 @@ def doctor_checks(
     # (a root-owned ~/.skein after a stray sudo) — the exact broken install
     # doctor is run to diagnose, so the probe itself must become a check result.
     try:
-        registry_present = registry_file.exists()
+        registry_present = _path_exists_strict(registry_file)
     except OSError as e:
         registry_present = False
         registry_readable = False
@@ -937,11 +1085,7 @@ def doctor_checks(
         # Evidence doctor could not collect makes the failed probe the verdict;
         # "no projects registered yet" would claim it collected some.
         try:
-            backups = (
-                sorted(n for n in os.listdir(home) if n.startswith("projects.json.bak-"))
-                if home.exists()
-                else []
-            )
+            backups = sorted(n for n in os.listdir(home) if n.startswith("projects.json.bak-"))
         except OSError as e:
             checks.append(
                 _check(
@@ -1225,9 +1369,41 @@ def doctor_checks(
             )
         )
     elif project_id and project_id in registry:
-        checks.append(
-            _check("current project", True, f"'{project_id}' at {project_root}", level="info")
+        project_info = registry[project_id]
+        registered_data_value = (
+            project_info.get("data_dir") if isinstance(project_info, dict) else None
         )
+        current_data_dir = project_root / ".skein" / "data"
+        registered_data_dir = (
+            Path(registered_data_value)
+            if isinstance(registered_data_value, str) and registered_data_value
+            else None
+        )
+        if registered_data_dir is not None and project_data_dirs_match(
+            registered_data_dir, current_data_dir
+        ):
+            checks.append(
+                _check(
+                    "current project",
+                    True,
+                    f"'{project_id}' at {project_root}",
+                    level="info",
+                )
+            )
+        else:
+            checks.append(
+                _check(
+                    "current project",
+                    False,
+                    f"{project_root} identifies as '{project_id}' with data at "
+                    f"{current_data_dir}, but the registry owns it at "
+                    f"{registered_data_dir or '(invalid data_dir)'}",
+                    hint="This may be a copied project. Work from the registered "
+                    "project, or remove the copy's .skein/ and initialize it with "
+                    "a different project ID. Use --project only when you intend "
+                    "to operate on the registered project.",
+                )
+            )
     else:
         checks.append(
             _check(
@@ -1909,7 +2085,7 @@ def brief_get(ctx, brief_id, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+    brief_data = make_folio_request("GET", brief_id, base_url, agent_id)
 
     if output_json:
         click.echo(json.dumps(brief_data, indent=2))
@@ -1991,7 +2167,7 @@ def playbook_get(ctx, playbook_id, output_json):
     base_url = get_base_url(ctx.obj.get("url"))
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
-    playbook_data = make_request("GET", f"/folios/{playbook_id}", base_url, agent_id)
+    playbook_data = make_folio_request("GET", playbook_id, base_url, agent_id)
 
     if output_json:
         click.echo(json.dumps(playbook_data, indent=2))
@@ -2005,81 +2181,12 @@ def playbook_get(ctx, playbook_id, output_json):
         click.echo(playbook_data["content"])
 
 
-@cli.command()
-@click.argument("brief_id")
-@click.pass_context
-def ignite(ctx, brief_id):
-    """Ignite work from a handoff brief.
-
-    This command:
-    1. Retrieves the brief
-    2. Auto-registers with suggested successor name (if provided)
-    3. Creates succession thread to predecessor
-    4. Shows threaded issues/findings
-    5. Guides you on next steps
-    """
-    base_url = get_base_url(ctx.obj.get("url"))
-    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
-
-    if agent_id is None:
-        raise click.ClickException("Must set SKEIN_AGENT_ID or use --agent flag to ignite work")
-
-    # Get the brief
-    brief_data = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
-
-    if brief_data.get("type") != "brief":
-        raise click.ClickException(f"Resource {brief_id} is not a brief")
-
-    predecessor = brief_data.get("created_by")
-    site_id = brief_data.get("site_id")
-
-    # Create succession thread
-    succession_data = {
-        "from_id": agent_id,
-        "to_id": predecessor,
-        "type": "succession",
-        "content": f"Resuming work from {brief_id}",
-    }
-    make_request("POST", "/threads", base_url, agent_id, json=succession_data)
-
-    # Display brief
-    click.echo(f"{'=' * 60}")
-    click.echo(f"RESUMING: {brief_id}")
-    click.echo(f"Predecessor: {predecessor}")
-    click.echo(f"Site: {site_id}")
-    click.echo(f"{'=' * 60}\n")
-    click.echo(brief_data.get("content", ""))
-    click.echo(f"\n{'=' * 60}")
-
-    # Show threaded issues
-    threads_data = make_request("GET", "/threads", base_url, agent_id, params={"from_id": brief_id})
-
-    if threads_data:
-        click.echo(f"\nThreaded work ({len(threads_data)} item(s)):")
-        for t in threads_data:
-            click.echo(f"  [{t['type'].upper()}] -> {t['to_id']}")
-
-    click.echo(f"\n{'=' * 60}")
-    click.echo("⚠️  BEFORE STARTING - Read Required Docs:")
-    click.echo("  See CLAUDE.md for required reading list.")
-    click.echo("  Common docs: PROJECT_CONTEXT.md, ARCHITECTURE.md, PRINCIPLES.md")
-    click.echo("  Previous agents who skipped this produced incorrect work.")
-    click.echo(f"\n{'=' * 60}")
-    click.echo("Next steps:")
-    click.echo("  1. Read required docs listed in CLAUDE.md")
-    click.echo("  2. Review the brief above")
-    click.echo(f"  3. Check site: skein --agent {agent_id} issues {site_id}")
-    click.echo(f"  4. Check recent activity: skein --agent {agent_id} activity")
-    click.echo("  5. Continue work from 'Remaining' section")
-    click.echo(f"{'=' * 60}")
-
-
 @cli.command(hidden=True)
 @click.argument("brief_id")
 @click.pass_context
 def resume(ctx, brief_id):
     """Deprecated: Use 'ignite' instead."""
-    ctx.invoke(ignite, brief_id=brief_id)
+    ctx.invoke(ignite_start, brief_id=brief_id, mantle=None, message=None)
 
 
 # ============================================================================
@@ -2098,7 +2205,7 @@ def resume(ctx, brief_id):
 @click.option(
     "--type",
     "-t",
-    help="Filter by folio type (issue, brief, friction, finding, summary, notion)",
+    help="Filter by folio type (issue, brief, friction, finding, summary, notion, moment)",
 )
 @click.option("--status", help="Filter by status (open, closed, investigating)")
 @click.option("--assigned", help="Filter by assignee")
@@ -2916,6 +3023,41 @@ def post_notion(ctx, site_id, title, details):
     click.echo(f"Posted notion: {result['folio_id']}")
 
 
+@post.command("moment")
+@click.argument("site_id")
+@click.argument("title")
+@click.option("--details", "-d", help="Additional details (title used if not provided)")
+@click.pass_context
+def post_moment(ctx, site_id, title, details):
+    """Post a moment intended for public sharing.
+
+    A moment marks an event or a weighty observation. Posting one records the
+    public intent; it does not publish anything by itself.
+
+    Examples:
+        skein post moment skein-dev "Released the first public build"
+        skein post moment speakbot:skein-dev "The migration is complete"
+    """
+    validate_positional_args(site_id, title, command_name="post moment")
+    base_url = get_base_url(ctx.obj.get("url"))
+    agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
+
+    site_id, project_override = parse_post_site_id(site_id)
+
+    data = {
+        "type": "moment",
+        "site_id": site_id,
+        "title": title,
+        "content": details or title,
+        "metadata": {},
+    }
+
+    result = make_request(
+        "POST", "/folios", base_url, agent_id, json=data, project_id=project_override
+    )
+    click.echo(f"Posted moment: {result['folio_id']}")
+
+
 @post.command("finding")
 @click.argument("site_id")
 @click.argument("title")
@@ -3214,7 +3356,7 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     # Fetch the notion
-    notion_folio = make_request("GET", f"/folios/{notion_id}", base_url, agent_id)
+    notion_folio = make_folio_request("GET", notion_id, base_url, agent_id)
     if notion_folio.get("type") != "notion":
         raise click.ClickException(f"Folio '{notion_id}' is not a notion")
 
@@ -3240,9 +3382,9 @@ def hypothesis_promote(ctx, notion_id, priority, claim):
 
     # Close the notion
     try:
-        make_request(
+        make_folio_request(
             "PATCH",
-            f"/folios/{notion_id}",
+            notion_id,
             base_url,
             agent_id,
             json={"status": "closed"},
@@ -3280,6 +3422,16 @@ def friction(ctx, site_id, title, details):
 def notion(ctx, site_id, title, details):
     """Post a notion (deprecated: use 'skein post notion')."""
     ctx.invoke(post_notion, site_id=site_id, title=title, details=details)
+
+
+@cli.command(hidden=True)
+@click.argument("site_id")
+@click.argument("title")
+@click.option("--details", "-d", help="Additional details (title used if not provided)")
+@click.pass_context
+def moment(ctx, site_id, title, details):
+    """Post a moment (deprecated: use 'skein post moment')."""
+    ctx.invoke(post_moment, site_id=site_id, title=title, details=details)
 
 
 @cli.command(hidden=True)
@@ -3360,7 +3512,7 @@ def writ(ctx, site_id, decision, thread_id):
     # If threading to a tender, verify it exists and is a tender
     if thread_id:
         try:
-            tender = make_request("GET", f"/folios/{thread_id}", base_url, agent_id)
+            tender = make_folio_request("GET", thread_id, base_url, agent_id)
             if tender.get("type") != "tender":
                 raise click.ClickException(
                     f"{thread_id} is not a tender (type: {tender.get('type')})"
@@ -3496,7 +3648,7 @@ def folio(ctx, folio_id, no_pager, all_projects, output_json, raw):
         return
 
     try:
-        folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+        folio_data = make_folio_request("GET", folio_id, base_url, agent_id)
     except click.ClickException as e:
         msg = str(e)
         if not output_json and ("404" in msg or "not found" in msg.lower()):
@@ -3628,7 +3780,7 @@ def export(ctx, folio_id, output_format, output):
     agent_id = get_agent_id(ctx.obj.get("agent"), base_url)
 
     # Fetch the folio
-    folio_data = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+    folio_data = make_folio_request("GET", folio_id, base_url, agent_id)
 
     title = folio_data.get("title", folio_data.get("folio_id", "Untitled"))
     content = folio_data.get("content", "")
@@ -3944,7 +4096,13 @@ def edit(ctx, folio_id, title, content, status, output_json):
     if status is not None:
         update_data["status"] = status
 
-    result = make_request("PATCH", f"/folios/{folio_id}", base_url, agent_id, json=update_data)
+    result = make_folio_request(
+        "PATCH",
+        folio_id,
+        base_url,
+        agent_id,
+        json=update_data,
+    )
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))
@@ -3986,7 +4144,14 @@ def move(ctx, folio_id, dest_site_id, note, output_json):
     if note:
         move_data["note"] = note
 
-    result = make_request("POST", f"/folios/{folio_id}/move", base_url, agent_id, json=move_data)
+    result = make_folio_request(
+        "POST",
+        folio_id,
+        base_url,
+        agent_id,
+        suffix="/move",
+        json=move_data,
+    )
 
     if output_json:
         click.echo(json.dumps(result, indent=2, default=str))
@@ -4811,7 +4976,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
     # If brief provided, load it
     if brief_id:
         try:
-            brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+            brief = make_folio_request("GET", brief_id, base_url, agent_id)
             brief_content = brief.get("content", "")
             mission_parts.append(f"**From Brief ({brief_id}):**\n{brief_content}")
         except Exception as e:
@@ -4824,7 +4989,7 @@ def _ignite_start(ctx, brief_id, mantle, message):
         try:
             # If it looks like a folio ID (mantle-YYYYMMDD-xxxx), use directly
             if mantle.startswith("mantle-"):
-                mantle_folio = make_request("GET", f"/folios/{mantle}", base_url, agent_id)
+                mantle_folio = make_folio_request("GET", mantle, base_url, agent_id)
             else:
                 # Search for mantle by name using the /search endpoint
                 search_response = make_request(
@@ -5090,6 +5255,7 @@ FOLIO_SUMMARY_LABELS = {
     "summary": "summaries",
     "finding": "findings",
     "notion": "notions",
+    "moment": "moments",
     "tender": "tenders",
     "playbook": "playbooks",
     "mantle": "mantles",
@@ -5133,7 +5299,7 @@ def _get_ignition_brief(base_url: str, agent_id: str, roster_data: dict):
     if not brief_id:
         return None
     try:
-        brief = make_request("GET", f"/folios/{brief_id}", base_url, agent_id)
+        brief = make_folio_request("GET", brief_id, base_url, agent_id)
     except Exception:
         return None
     return brief if brief.get("type") == "brief" else None
@@ -5207,7 +5373,7 @@ def _attribute_folios(base_url: str, agent_id: str, folio_ids) -> List[dict]:
     folios = {}
     for folio_id in unique_ids:
         try:
-            folios[folio_id] = make_request("GET", f"/folios/{folio_id}", base_url, agent_id)
+            folios[folio_id] = make_folio_request("GET", folio_id, base_url, agent_id)
         except Exception as e:
             failures.append((folio_id, str(e)))
 
@@ -7846,6 +8012,353 @@ def shard_triage(ctx, output_json):
         raise click.ClickException(f"Failed to triage SHARDs: {e}")
 
 
+def _load_xgun_api():
+    """Load xgun only when shard inspection asks for a quality reading.
+
+    xgun is optional for SKEIN, so importing client.cli must not depend on it.
+    Keeping this boundary small also gives tests one place to substitute the
+    typed library API without recreating an installed xgun package.
+    """
+    from xgun.artifact import ArtifactError, resolve_diff
+    from xgun.qgun import scan as qgun_scan
+    from xgun.qgun.tool_run import check_did_not_run
+    from xgun.sgun import sniff as sgun_sniff
+
+    return resolve_diff, ArtifactError, qgun_scan, sgun_sniff, check_did_not_run
+
+
+def _xgun_not_run(status, message):
+    """Return one visible shape for every xgun scan that did not complete."""
+    return {
+        "status": status,
+        "message": (
+            f"{message} Quality reading is incomplete. "
+            "Raise this before merge and rerun `skein shard inspect`."
+        ),
+    }
+
+
+def _serialize_shard_xgun(
+    worktree_path,
+    base_branch,
+    reading,
+    smells,
+    check_did_not_run,
+):
+    """Translate xgun's typed reading into shard inspect's public JSON shape."""
+    failed_checks = []
+    signals = []
+    for signal in reading.signals:
+        level = signal.level.value if hasattr(signal.level, "value") else str(signal.level)
+        signal_data = {
+            "check": signal.check,
+            "level": level,
+            "message": signal.message,
+        }
+        if check_did_not_run(signal):
+            signal_data["did_not_run"] = True
+            if signal.check not in failed_checks:
+                failed_checks.append(signal.check)
+        signals.append(signal_data)
+
+    flags = [
+        {
+            "check": flag.check,
+            "file": flag.file,
+            "line": flag.line,
+            "message": flag.message,
+            "severity": getattr(flag, "severity", "high"),
+        }
+        for flag in reading.flags
+    ]
+    smell_data = [
+        {
+            "kind": smell.kind,
+            "file": smell.file,
+            "line": smell.line,
+            "severity": smell.severity,
+            "reason": smell.reason,
+        }
+        for smell in smells
+    ]
+
+    result = {
+        "status": "incomplete" if failed_checks else "completed",
+        "artifact": worktree_path,
+        "artifact_type": "refs",
+        "comparison": f"{base_branch}...HEAD",
+        # Preserve the successful subprocess integration's public JSON fields
+        # while adding the explicit status used by the typed integration.
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "qgun": {
+            "passed": reading.passed,
+            "flags": flags,
+            "signals": signals,
+            "stats": reading.stats,
+        },
+        "sgun": {"smells": smell_data, "files_checked": []},
+        "summary": {
+            "passed": reading.passed and not smell_data and not failed_checks,
+            "checks_failed": failed_checks,
+            "flags": len(flags),
+            "signals": len(signals),
+            "smells": len(smell_data),
+        },
+    }
+    if failed_checks:
+        count = len(failed_checks)
+        result["message"] = (
+            f"{count} xgun check(s) could not run: {', '.join(failed_checks)}. "
+            "Quality reading is incomplete. "
+            "Raise this before merge and rerun `skein shard inspect`."
+        )
+    return result
+
+
+def _run_shard_xgun_in_process(worktree_path, base_branch):
+    """Run xgun in-process for a shard's explicit base...HEAD diff.
+
+    The library owns diff resolution, governed external-tool execution, and the
+    structured did-not-run marker. SKEIN owns only its inspect-specific result
+    shape and presentation.
+    """
+    try:
+        (
+            resolve_diff,
+            artifact_error,
+            qgun_scan,
+            sgun_sniff,
+            check_did_not_run,
+        ) = _load_xgun_api()
+    except Exception as exc:
+        return _xgun_not_run(
+            "unavailable",
+            f"xgun is unavailable to {sys.executable} "
+            f"({type(exc).__name__}: {exc}).",
+        )
+
+    if not base_branch:
+        return _xgun_not_run(
+            "not_run",
+            "xgun did not run because the shard base branch could not be determined.",
+        )
+
+    try:
+        diff_text, changed_files, content_map = resolve_diff(
+            worktree_path,
+            base_branch,
+            "HEAD",
+            None,
+        )
+        reading = qgun_scan(diff_text, content_map)
+        smells = sgun_sniff(changed_files) if changed_files else []
+    except artifact_error as exc:
+        return _xgun_not_run("error", f"xgun could not resolve the shard diff: {exc}.")
+    except Exception as exc:
+        return _xgun_not_run(
+            "error",
+            f"xgun failed with {type(exc).__name__}: {exc}.",
+        )
+
+    try:
+        return _serialize_shard_xgun(
+            worktree_path,
+            base_branch,
+            reading,
+            smells,
+            check_did_not_run,
+        )
+    except Exception as exc:
+        return _xgun_not_run(
+            "error",
+            f"xgun returned an unusable result ({type(exc).__name__}: {exc}).",
+        )
+
+
+_XGUN_TOTAL_TIMEOUT_SECONDS = 60.0
+
+
+def _xgun_worker(send_conn, worktree_path, base_branch):
+    """Run one typed scan in an owned process and return its public result."""
+    try:
+        # Give external tools launched by xgun an owned process group so a total
+        # timeout can stop the worker and any still-running checker together.
+        os.setsid()
+    except OSError:
+        pass
+
+    try:
+        result = _run_shard_xgun_in_process(worktree_path, base_branch)
+    except BaseException as exc:
+        result = _xgun_not_run(
+            "error",
+            f"xgun worker failed with {type(exc).__name__}: {exc}.",
+        )
+
+    try:
+        send_conn.send(result)
+    except (BrokenPipeError, EOFError, OSError):
+        pass
+    finally:
+        send_conn.close()
+
+
+def _stop_xgun_worker(process):
+    """Stop an owned xgun worker and its checker process group."""
+    if process.pid is None:
+        return
+    try:
+        os.killpg(process.pid, signal_module.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        process.terminate()
+    except OSError:
+        process.terminate()
+
+    process.join(timeout=1)
+    if not process.is_alive():
+        return
+
+    try:
+        os.killpg(process.pid, signal_module.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        process.kill()
+    except OSError:
+        process.kill()
+    process.join(timeout=1)
+
+
+def _run_shard_xgun(
+    worktree_path,
+    base_branch,
+    timeout=_XGUN_TOTAL_TIMEOUT_SECONDS,
+):
+    """Run typed xgun integration with one total wall-clock deadline."""
+    receive_conn = None
+    send_conn = None
+    process = None
+    try:
+        context = multiprocessing.get_context("fork")
+        receive_conn, send_conn = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_xgun_worker,
+            args=(send_conn, worktree_path, base_branch),
+            daemon=True,
+        )
+        process.start()
+    except (OSError, RuntimeError, ValueError) as exc:
+        if receive_conn is not None:
+            receive_conn.close()
+        if send_conn is not None:
+            send_conn.close()
+        if process is not None and process.pid is not None and process.is_alive():
+            _stop_xgun_worker(process)
+        return _xgun_not_run(
+            "error",
+            f"xgun worker could not start ({type(exc).__name__}: {exc}).",
+        )
+
+    send_conn.close()
+    try:
+        if not receive_conn.poll(timeout):
+            _stop_xgun_worker(process)
+            return _xgun_not_run(
+                "error",
+                f"xgun timed out after {timeout:g} seconds.",
+            )
+
+        try:
+            result = receive_conn.recv()
+        except (EOFError, OSError) as exc:
+            return _xgun_not_run(
+                "error",
+                f"xgun worker returned no result ({type(exc).__name__}: {exc}).",
+            )
+
+        process.join(timeout=1)
+        if process.is_alive():
+            _stop_xgun_worker(process)
+        return result
+    finally:
+        receive_conn.close()
+        if process.is_alive():
+            _stop_xgun_worker(process)
+
+
+def _render_shard_xgun(xgun_result):
+    """Render the xgun portion of human shard-inspect output."""
+    click.echo("=== Code Quality (xgun) ===")
+    click.echo()
+
+    status = xgun_result["status"]
+    if status in {"unavailable", "not_run", "error"}:
+        click.echo(f"! {xgun_result['message']}")
+        click.echo()
+        return
+
+    summary = xgun_result["summary"]
+    flags_count = summary["flags"]
+    signals_count = summary["signals"]
+    smells_count = summary["smells"]
+    counts = f"{signals_count} signals, {flags_count} flags, {smells_count} smells"
+
+    if status == "incomplete":
+        click.echo(f"! Quality: Incomplete ({counts})")
+        click.echo(f"  {xgun_result['message']}")
+    elif summary["passed"]:
+        click.echo(f"✓ Quality: Passed ({counts})")
+    else:
+        click.echo(f"✗ Quality: Issues detected ({counts})")
+
+    flags = xgun_result["qgun"]["flags"]
+    if flags:
+        click.echo()
+        click.echo(f"Flags ({len(flags)}):")
+        for flag in flags[:10]:
+            loc = (
+                f"{flag.get('file', '?')}:{flag['line']}"
+                if flag.get("line")
+                else flag.get("file", "?")
+            )
+            click.echo(f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}")
+        if len(flags) > 10:
+            click.echo(f"  ... and {len(flags) - 10} more")
+
+    signals = xgun_result["qgun"]["signals"]
+    if signals:
+        click.echo()
+        click.echo(f"Signals ({len(signals)}):")
+        did_not_run = [signal for signal in signals if signal.get("did_not_run")]
+        ordinary = [signal for signal in signals if not signal.get("did_not_run")]
+        # A display cap may hide routine signals, never the explanation for a
+        # check that did not execute. Show every such failure first, then fill
+        # the ordinary five-signal budget when room remains.
+        shown_signals = did_not_run + ordinary[: max(0, 5 - len(did_not_run))]
+        for signal in shown_signals:
+            level = signal.get("level", "?")
+            marker = " did-not-run" if signal.get("did_not_run") else ""
+            label = f"[{level}{marker}] [{signal.get('check', '?')}]"
+            click.echo(f"  {label} {signal.get('message', '')}")
+        hidden_count = len(signals) - len(shown_signals)
+        if hidden_count:
+            click.echo(f"  ... and {hidden_count} more")
+
+    smells = xgun_result["sgun"]["smells"]
+    if smells:
+        click.echo()
+        click.echo(f"Smells ({len(smells)}):")
+        for smell in smells[:5]:
+            loc = (
+                f"{smell.get('file', '?')}:{smell['line']}"
+                if smell.get("line")
+                else smell.get("file", "?")
+            )
+            click.echo(f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}")
+        if len(smells) > 5:
+            click.echo(f"  ... and {len(smells) - 5} more")
+
+    click.echo()
+
+
 @shard.command("inspect")
 @click.argument("worktree_name")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
@@ -7929,57 +8442,17 @@ def shard_inspect(ctx, worktree_name, output_json):
             "work_diff_stat": drift_info.get("work_diff_stat"),
         }
 
-        # Run xgun scan if available (silent degradation if not)
-        xgun_result = None
-        import shutil
-        import json as json_mod
+        base_branch = drift_info.get("base_branch")
+        if not base_branch:
+            try:
+                from skein import shard as shard_module
 
-        if shutil.which("xgun"):
-            import subprocess
+                base_branch = shard_module._get_shard_base_branch(worktree_name)
+            except Exception:
+                base_branch = None
 
-            worktree_path = shard_info["worktree_path"]
-            # xgun takes an explicit diff now: review what the shard changed
-            # since its base (base...HEAD, three-dot). Base from stored metadata,
-            # falling back to detection; if it can't be determined, skip xgun.
-            base_branch = drift_info.get("base_branch")
-            if not base_branch:
-                try:
-                    from skein import shard as shard_module
-
-                    base_branch = shard_module._get_shard_base_branch(worktree_name)
-                except Exception:
-                    base_branch = None
-            if base_branch:
-                try:
-                    result = subprocess.run(
-                        [
-                            "xgun",
-                            "scan",
-                            "--repo",
-                            worktree_path,
-                            "--old",
-                            base_branch,
-                            "--new",
-                            "HEAD",
-                            "--output",
-                            "json",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                        cwd=worktree_path,
-                    )
-                    if result.returncode in (0, 1):  # 0=passed, 1=issues found
-                        xgun_result = json_mod.loads(result.stdout)
-                except (
-                    subprocess.TimeoutExpired,
-                    subprocess.SubprocessError,
-                    json_mod.JSONDecodeError,
-                ):
-                    pass  # Silent degradation
-
-        if xgun_result:
-            review_data["xgun"] = xgun_result
+        xgun_result = _run_shard_xgun(shard_info["worktree_path"], base_branch)
+        review_data["xgun"] = xgun_result
 
         if output_json:
             import json as json_module
@@ -8107,68 +8580,7 @@ def shard_inspect(ctx, worktree_name, output_json):
                     click.echo(f"  {tender_info['summary']}")
                 click.echo()
 
-            # Show xgun quality check results
-            if xgun_result:
-                click.echo("=== Code Quality (xgun) ===")
-                click.echo()
-                summary = xgun_result.get("summary", {})
-                flags_count = summary.get("flags", 0)
-                signals_count = summary.get("signals", 0)
-                smells_count = summary.get("smells", 0)
-                passed = summary.get("passed", True)
-
-                if passed:
-                    click.echo(
-                        f"✓ Quality: Passed ({signals_count} signals, {flags_count} flags, {smells_count} smells)"
-                    )
-                else:
-                    click.echo(
-                        f"✗ Quality: Issues detected ({signals_count} signals, {flags_count} flags, {smells_count} smells)"
-                    )
-
-                # Show flags (specific line issues)
-                qgun_data = xgun_result.get("qgun", {})
-                flags = qgun_data.get("flags", [])
-                if flags:
-                    click.echo()
-                    click.echo(f"Flags ({len(flags)}):")
-                    for flag in flags[:10]:
-                        loc = (
-                            f"{flag.get('file', '?')}:{flag['line']}"
-                            if flag.get("line")
-                            else flag.get("file", "?")
-                        )
-                        click.echo(f"  {loc} [{flag.get('check', '?')}] {flag.get('message', '')}")
-                    if len(flags) > 10:
-                        click.echo(f"  ... and {len(flags) - 10} more")
-
-                # Show signals (repo-wide observations)
-                signals = qgun_data.get("signals", [])
-                if signals:
-                    click.echo()
-                    click.echo(f"Signals ({len(signals)}):")
-                    for signal in signals[:5]:
-                        click.echo(f"  [{signal.get('check', '?')}] {signal.get('message', '')}")
-                    if len(signals) > 5:
-                        click.echo(f"  ... and {len(signals) - 5} more")
-
-                # Show smells
-                sgun_data = xgun_result.get("sgun", {})
-                smells = sgun_data.get("smells", [])
-                if smells:
-                    click.echo()
-                    click.echo(f"Smells ({len(smells)}):")
-                    for smell in smells[:5]:
-                        loc = (
-                            f"{smell.get('file', '?')}:{smell['line']}"
-                            if smell.get("line")
-                            else smell.get("file", "?")
-                        )
-                        click.echo(f"  {loc} [{smell.get('kind', '?')}] {smell.get('reason', '')}")
-                    if len(smells) > 5:
-                        click.echo(f"  ... and {len(smells) - 5} more")
-
-                click.echo()
+            _render_shard_xgun(xgun_result)
 
             # Actions
             if uncommitted:
@@ -8757,7 +9169,7 @@ def publish(
 
     folios = list(folio_hashes)
     for ref in refs:
-        folio = make_request("GET", f"/folios/{ref}", base_url, agent_id)
+        folio = make_folio_request("GET", ref, base_url, agent_id)
         h = folio.get("content_hash")
         if not h:
             raise click.ClickException(f"folio '{ref}' has no content_hash to publish")

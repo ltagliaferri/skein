@@ -125,6 +125,17 @@ def test_write_lock_contention_503_not_500(app_client, monkeypatch):
     assert "busy" in r.json()["error"]
 
 
+def test_numeric_lock_codes_use_stable_primary_values():
+    import sqlite3
+
+    from skein.station_store import sqlite_error_is_lock
+
+    for code in (5, 6):  # SQLITE_BUSY / SQLITE_LOCKED primary result codes
+        error = sqlite3.OperationalError("opaque driver error")
+        error.sqlite_errorcode = code
+        assert sqlite_error_is_lock(error)
+
+
 def test_real_write_lock_returns_503(app_client, data_dir, monkeypatch):
     # End-to-end: a genuinely held write lock makes the route's BEGIN IMMEDIATE
     # time out and raise a DRIVER OperationalError (sqlite_errorcode = SQLITE_BUSY),

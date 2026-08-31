@@ -151,3 +151,72 @@ def test_slug_override_refuses_unheld_anchor(tmp_path):
     _init_op(tmp_path)
     r = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", "sha256::" + "c" * 64)
     assert r.exit_code != 0 and "not a held folio" in r.output
+
+
+def test_slug_override_on_a_defective_lineage_names_the_recovery(tmp_path):
+    """A structurally-broken anchor fails closed AND names the atomic recovery command
+    (the migration module), not the unsafe `_repair_supersedes` helper. This is the
+    operator's dead end: without the command they know the name is unusable but not how
+    to fix it."""
+    _init_op(tmp_path)
+    with _open(tmp_path) as st:
+        anchor = st.store.create_folio({
+            "type": "site", "title": "defective site", "content": "b",
+            "created_at": "2026-07-16T00:00:00+00:00", "created_by": "op",
+        })
+        # a self-edge: the genesis resolver fails closed on it forever
+        st.store.save_thread(from_id=anchor, to_id=anchor, type="supersedes",
+                             created_at="2026-07-16T01:00:00+00:00")
+
+    r = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", anchor)
+
+    assert r.exit_code != 0, r.output
+    assert "no single lineage genesis" in r.output, r.output
+    assert "python -m skein.migrations.perm_model_rev6" in r.output, r.output
+    assert "_repair_supersedes" not in r.output, r.output
+    with _open(tmp_path) as st:
+        assert st.store.get_slug_claim("specs") is None   # still fails closed
+
+
+def test_the_named_recovery_command_actually_recovers(tmp_path):
+    """The command the refusal NAMES must exist and actually clear the defect — the test
+    above only pins the STRING. Runs the EXACT command the message printed against a
+    self-edged corpus, then confirms slug-override, which failed closed before, now
+    succeeds.
+
+    Runs the printed command rather than a hand-built one, so BOTH parts that could drift
+    from the message — the module name and the interpolated db path — are pinned by
+    execution: a wrong module fails to import, a wrong path recovers nothing. cwd is the
+    tree under test so `-m skein` resolves THIS worktree's package, not another checkout
+    that happens to be editable-installed on sys.path."""
+    import re
+    import shlex
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    _init_op(tmp_path)
+    with _open(tmp_path) as st:
+        anchor = st.store.create_folio({
+            "type": "site", "title": "defective site", "content": "b",
+            "created_at": "2026-07-16T00:00:00+00:00", "created_by": "op",
+        })
+        st.store.save_thread(from_id=anchor, to_id=anchor, type="supersedes",
+                             created_at="2026-07-16T01:00:00+00:00")
+
+    before = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", anchor)
+    assert before.exit_code != 0, before.output   # fails closed before recovery
+
+    printed = re.search(r"`([^`]+)`", before.output)   # the backticked command
+    assert printed, before.output
+    cmd = shlex.split(printed.group(1))
+    assert cmd[1] == "-m", cmd                          # a `python -m <module>` invocation
+    cmd[0] = sys.executable                             # this interpreter, not PATH's python
+    repo_root = str(Path(__file__).resolve().parents[1])
+    r = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+
+    after = _run(tmp_path, "slug-override", "--slug", "specs", "--anchor", anchor)
+    assert after.exit_code == 0, after.output     # recovered, now nameable
+    with _open(tmp_path) as st:
+        assert st.store.get_slug_claim("specs") is not None

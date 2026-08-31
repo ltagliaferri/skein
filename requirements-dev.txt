@@ -4,7 +4,11 @@
 # Include base requirements
 -r requirements.txt
 
+# Use the same reviewed lint toolchain as CI.
+-r requirements-lint.txt
+
 # Testing
+build>=1.2.0
 pytest>=7.0.0
 pytest-asyncio>=0.23.0
 pytest-cov>=4.0.0
@@ -12,16 +16,6 @@ aiohttp>=3.9.0
 httpx2>=2.0.0  # required by fastapi.testclient (re-exports Starlette TestClient)
 build>=1.0.0  # PEP 517 build frontend, used by tests/test_packaging.py to build a real wheel
 
-# Code quality
-# Exact-pinned, not >=: an unpinned ruff drifts to whatever's latest on each
-# CI run, and a new ruff release enabling new default rules can fail the
-# build on code nobody touched. Bump deliberately, not by surprise.
-ruff==0.15.16
-mypy>=1.8.0
-
 # Pre-commit hooks
 pre-commit>=3.0.0,<3.6.0; python_version < "3.9"
 pre-commit>=3.6.0; python_version >= "3.9"
-
-# Type stubs
-types-requests>=2.31.0

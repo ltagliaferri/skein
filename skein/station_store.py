@@ -96,6 +96,13 @@ def _now_micros() -> str:
     return _iso_micros(datetime.now(timezone.utc))
 
 
+# sqlite3.SQLITE_BUSY / SQLITE_LOCKED exist on every supported interpreter.
+# Keep the stable numeric fallback for hand-built test exceptions and unusual
+# sqlite3 builds that omit the symbolic module constants.
+_SQLITE_BUSY = getattr(sqlite3, "SQLITE_BUSY", 5)
+_SQLITE_LOCKED = getattr(sqlite3, "SQLITE_LOCKED", 6)
+
+
 def sqlite_error_is_lock(e: sqlite3.OperationalError) -> bool:
     """Whether an OperationalError is write-lock contention (SQLITE_BUSY/LOCKED).
 
@@ -112,11 +119,9 @@ def sqlite_error_is_lock(e: sqlite3.OperationalError) -> bool:
     ``primary is None`` fallback ever gets a chance to run."""
     code = getattr(e, "sqlite_errorcode", None)
     primary = (code & 0xFF) if isinstance(code, int) else None
-    if primary is not None:
-        busy = getattr(sqlite3, "SQLITE_BUSY", None)
-        locked = getattr(sqlite3, "SQLITE_LOCKED", None)
-        return primary in (busy, locked)
-    return "lock" in str(e).lower() or "busy" in str(e).lower()
+    return primary in (_SQLITE_BUSY, _SQLITE_LOCKED) or (
+        primary is None and ("lock" in str(e).lower() or "busy" in str(e).lower())
+    )
 
 
 # verify_multi statuses meaning "could not check" — never cached, must re-verify.
@@ -380,7 +385,9 @@ class StationStore:
                     try:
                         conn.close()
                     except Exception as close_err:
-                        logger.warning("Failed to close connection after open error: %s", close_err)
+                        logger.warning(
+                            "Failed to close connection after open error: %s", close_err
+                        )
         raise sqlite3.OperationalError(
             f"could not open {p} read-only (mode=ro or immutable=1): {last_err}"
         )

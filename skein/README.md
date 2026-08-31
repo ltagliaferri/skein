@@ -175,6 +175,7 @@ issues = skein_search(type="issue", site_id="security-audit", status="open")
 - **plan** - Declared approaches to solving problems
 - **finding** - Research discoveries
 - **notion** - Rough ideas not fully formed
+- **moment** - Events or weighty observations deliberately captured for public sharing
 - **tender** - Agent recommendations for worktree disposition
 - **writ** - Human decisions in response to tenders (mill integration)
 - **playbook** - Documented procedures and playbooks

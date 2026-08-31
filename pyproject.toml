@@ -5,7 +5,7 @@ description = "Agent knowledge management: local folios with a signed publish-to
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "Patrick Smyth", email = "website@pbsmyth.com"},
 ]
@@ -14,9 +14,10 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
@@ -45,6 +46,7 @@ dependencies = [
 # and `mesh fetch` stay lean — instances are HTTP-only and never run MCP.
 mesh-mcp = ["mcp>=1.2"]  # FastMCP (mcp.server.fastmcp) lands in the SDK at 1.2
 dev = [
+    "build>=1.2.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
@@ -54,9 +56,11 @@ dev = [
     "black>=24.0.0",
     "flake8>=7.0.0",
     "isort>=5.13.0",
-    "mypy>=1.8.0",
+    # Keep the developer lint toolchain identical to requirements-lint.txt and CI.
+    "ruff==0.16.3",
+    "mypy==2.3.1",
     "pre-commit>=3.6.0",
-    "types-requests>=2.31.0",
+    "types-requests==2.33.0.20260712",
     "hypothesis>=6.0.0",
 ]
 
@@ -122,7 +126,7 @@ filterwarnings = [
 
 [tool.black]
 line-length = 100
-target-version = ["py38", "py39", "py310", "py311", "py312"]
+target-version = ["py311"]
 include = '\.pyi?$'
 exclude = '''
 /(
@@ -154,6 +158,11 @@ line-length = 100
 # docs/emoji-codec holds a standalone alphabet-generator script, not package source.
 extend-exclude = ["docs"]
 
+[tool.ruff.lint]
+# Ruff 0.16 expanded its implicit default rule set. Keep the established CI
+# gate explicit so a deliberate future tool bump cannot silently redefine it.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.ruff.lint.per-file-ignores]
 # The signing bit-flip probe deliberately imports after an explanatory setup
 # block (E402) — the staging is intentional, not an accident.
@@ -170,7 +179,7 @@ extend-exclude = ["docs"]
 "tests/test_station_ingress_boot.py" = ["E741"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true

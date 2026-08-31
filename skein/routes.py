@@ -35,8 +35,13 @@ from .models import (
     Yield,
 )
 from .storage import (
+    PROJECT_DATA_DIR_HEADER,
     JSONStore,
     LogDatabase,
+    ProjectDataDirClaimError,
+    ProjectDataDirMismatch,
+    ProjectNotFound,
+    ProjectRegistryError,
     get_data_dir_for_project,
     ensure_aware,
     search_folio_across_projects,
@@ -66,7 +71,42 @@ router = APIRouter()
 
 
 # Multi-project support
-def get_project_store(x_project_id: Optional[str] = Header(None)) -> JSONStore:
+def _get_request_project_data_dir(
+    project_id: str, claimed_data_dir: Optional[str]
+) -> Path:
+    """Resolve a project only after validating an implicit cwd-origin claim."""
+    try:
+        return get_data_dir_for_project(project_id, claimed_data_dir)
+    except ProjectNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ProjectDataDirMismatch as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except ProjectDataDirClaimError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ProjectRegistryError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Project registry is unsafe: {e}",
+        ) from e
+
+
+def _get_safe_named_project_store(project_id: str) -> Optional[JSONStore]:
+    """Open a named project through the same strict registry validation."""
+    try:
+        return get_named_project_store(project_id)
+    except ProjectRegistryError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Project registry is unsafe: {e}",
+        ) from e
+
+
+def get_project_store(
+    x_project_id: Optional[str] = Header(None),
+    x_skein_project_data_dir: Optional[str] = Header(
+        None, alias=PROJECT_DATA_DIR_HEADER
+    ),
+) -> JSONStore:
     """
     Get JSONStore for the requested project.
 
@@ -79,12 +119,19 @@ def get_project_store(x_project_id: Optional[str] = Header(None)) -> JSONStore:
             detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first.",
         )
 
-    data_dir = get_data_dir_for_project(x_project_id)
+    data_dir = _get_request_project_data_dir(
+        x_project_id, x_skein_project_data_dir
+    )
     logger.info(f"Using project '{x_project_id}' data dir: {data_dir}")
     return JSONStore(data_dir)
 
 
-def get_project_log_db(x_project_id: Optional[str] = Header(None)) -> LogDatabase:
+def get_project_log_db(
+    x_project_id: Optional[str] = Header(None),
+    x_skein_project_data_dir: Optional[str] = Header(
+        None, alias=PROJECT_DATA_DIR_HEADER
+    ),
+) -> LogDatabase:
     """
     Get LogDatabase for the requested project.
 
@@ -97,13 +144,20 @@ def get_project_log_db(x_project_id: Optional[str] = Header(None)) -> LogDatabas
             detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first.",
         )
 
-    data_dir = get_data_dir_for_project(x_project_id)
+    data_dir = _get_request_project_data_dir(
+        x_project_id, x_skein_project_data_dir
+    )
     db_path = data_dir / "skein.db"
     logger.info(f"Using project '{x_project_id}' log db: {db_path}")
     return LogDatabase(db_path)
 
 
-def get_project_screenshots_dir(x_project_id: Optional[str] = Header(None)) -> Path:
+def get_project_screenshots_dir(
+    x_project_id: Optional[str] = Header(None),
+    x_skein_project_data_dir: Optional[str] = Header(
+        None, alias=PROJECT_DATA_DIR_HEADER
+    ),
+) -> Path:
     """
     Get screenshots directory for the requested project.
 
@@ -116,7 +170,9 @@ def get_project_screenshots_dir(x_project_id: Optional[str] = Header(None)) -> P
             detail="No project specified. Run 'skein init --project PROJECT_NAME' in your project directory first.",
         )
 
-    data_dir = get_data_dir_for_project(x_project_id)
+    data_dir = _get_request_project_data_dir(
+        x_project_id, x_skein_project_data_dir
+    )
     screenshots_dir = data_dir / "screenshots"
     screenshots_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Using project '{x_project_id}' screenshots dir: {screenshots_dir}")
@@ -208,7 +264,7 @@ def _overlay_thread_control(folio: Folio, store: JSONStore) -> None:
     read path)."""
     src = store
     if folio.source_project:
-        named = get_named_project_store(folio.source_project)
+        named = _get_safe_named_project_store(folio.source_project)
         if named is None:
             return
         src = named
@@ -276,7 +332,7 @@ def resolve_folio_read(
 
     if parsed.is_qualified:
         # Explicit project prefix — look in that project's store
-        target_store = get_named_project_store(parsed.project)
+        target_store = _get_safe_named_project_store(parsed.project)
         if not target_store:
             raise HTTPException(
                 status_code=404,
@@ -667,6 +723,7 @@ GENERIC_TITLES = {
     "friction",
     "finding",
     "notion",
+    "moment",
     "summary",
     "tender",
     "writ",
@@ -688,6 +745,7 @@ TITLE_EXAMPLES = {
     "finding": 'e.g., "Redis caching reduces latency by 40%" or "Users prefer dark mode 3:1"',
     "tender": 'e.g., "Auth refactor ready for review" or "New dashboard component complete"',
     "notion": 'e.g., "Could use websockets for real-time updates" or "Consider caching user preferences"',
+    "moment": 'e.g., "Released the first public build" or "The migration is complete"',
     "summary": 'e.g., "Completed OAuth integration" or "Session retrospective: agent coordination"',
 }
 
@@ -703,7 +761,7 @@ SHARD_ID_PATTERN = re.compile(
 
 # Folio type prefixes that are redundant (the type field already says this)
 TYPE_PREFIX_PATTERN = re.compile(
-    r"^(tender|brief|issue|finding|friction|notion|summary|writ|playbook|mantle|plan):\s*",
+    r"^(tender|brief|issue|finding|friction|notion|moment|summary|writ|playbook|mantle|plan):\s*",
     re.IGNORECASE,
 )
 
@@ -1001,10 +1059,13 @@ def _resolve_qualified_address(
 
     Returns ``(store, folio_id)`` — either the original pair (unqualified) or
     the target project's store and the bare folio ID (qualified).
+
+    Goes through _get_safe_named_project_store so an unsafe registry fails
+    closed with a 503 rather than escaping as an unhandled error.
     """
     parsed = parse_address(folio_id)
     if parsed.is_qualified:
-        target_store = get_named_project_store(parsed.project)
+        target_store = _get_safe_named_project_store(parsed.project)
         if not target_store:
             raise HTTPException(
                 status_code=404,

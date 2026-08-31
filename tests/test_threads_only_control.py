@@ -249,8 +249,8 @@ class TestResponsePathsCarryControl:
 
         registry = {"px": {"path": str(tmp_dir / "px"),
                            "data_dir": str(px_data), "name": "px"}}
-        monkeypatch.setattr(storage_mod, "load_project_registry",
-                            lambda: registry)
+        monkeypatch.setenv("SKEIN_HOME", str(tmp_dir / "skein-home"))
+        storage_mod.save_project_registry({"projects": registry})
 
         client, store, app, dep = _client_store(tmp_dir)
         try:
@@ -282,7 +282,7 @@ class TestAuditRound2Regressions:
             [sys.executable, "-m", "skein.migrations.verify_threads_control",
              str(tmp_dir / "post.db")],
             capture_output=True, text=True,
-            cwd=REPO_ROOT)
+            cwd=Path(__file__).resolve().parents[1])
         out = proc.stdout
         assert "SKIP" in out and "oracle inapplicable" in out, out
         assert "NOTHING VERIFIED" in out, out
@@ -338,9 +338,11 @@ class TestAuditRound2Regressions:
         import sqlite3
         from skein.storage import LogDatabase
         db = LogDatabase(tmp_dir / "collide.db")
+        # Create the lexically later site first: filesystem iteration order must
+        # not decide which colliding file wins.
         for site, body, extra in (
-                ("site-one", "first body", {}),
-                ("site-two", "second body", {"status": "closed"})):
+                ("site-z", "second body", {"status": "closed"}),
+                ("site-a", "first body", {})):
             d = tmp_dir / "sites" / site / "folios"
             d.mkdir(parents=True)
             (d / "issue-20260101-dupe.json").write_text(jsonlib.dumps({

@@ -1,0 +1,5 @@
+# Exact versions from successful Incident #40 follow-up run 32158875613.
+# Bump deliberately after reviewing release behavior and a green CI run.
+ruff==0.16.3
+mypy==2.3.1
+types-requests==2.33.0.20260712

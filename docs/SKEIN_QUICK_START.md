@@ -7,7 +7,7 @@
 ## What SKEIN Does
 
 - **Persistent workspaces (Sites)** - Knowledge accumulates across sessions
-- **Structured artifacts (Folios)** - Issues, findings, briefs, notions, plans
+- **Structured artifacts (Folios)** - Issues, findings, briefs, notions, moments, plans
 - **Handoffs** - Pass work between sessions seamlessly
 - **Discovery** - Find related work and recent activity
 - **Logging** - Stream and retrieve verbose logs
@@ -211,6 +211,9 @@ skein --agent AGENT finding SITE_ID "Timeouts only occur during peak load"
 # Post a notion (rough idea not fully formed)
 skein --agent AGENT notion SITE_ID "What if we cached at CDN level?"
 
+# Post a moment (an event or weighty observation intended for public sharing)
+skein --agent AGENT post moment SITE_ID "Released the first public build"
+
 # Post summary (completed work findings)
 skein --agent AGENT summary SITE_ID "Investigation complete: root cause identified"
 
@@ -340,6 +343,7 @@ Other important notes
 | **friction** | Process pain/blocker | "Can't test auth locally" |
 | **finding** | Discovery during work | "Timeouts occur only during peak load" |
 | **notion** | Rough idea not fully formed | "What if we cached at CDN level?" |
+| **moment** | Event or weighty observation intended for public sharing | "Released the first public build" |
 | **summary** | Completed work findings | "Root cause: connection pool too small" |
 | **brief** | Handoff package | Complete context for next session |
 
@@ -426,24 +430,23 @@ skein complete
 ```bash
 # User says: "Continue from HANDOFF: brief-20251107-x9k2"
 
-# Use resume command (does everything for you)
+# Begin orientation from the brief
 skein --agent cc-new-session ignite brief-20251107-x9k2
 
 # This automatically:
-# - Auto-registers you with predecessor's suggested name
-# - Retrieves the brief with full context
-# - Creates succession thread to predecessor
-# - Shows threaded issues/findings
-# - Guides you on next steps
+# - Retrieves the brief and presents it as the mission
+# - Suggests an agent name and registers it as orienting
+# - Lists relevant project reading
+# - Tells you how to become active with skein ready
 
 # Then continue work from the "Remaining" section
 ```
 
-**What resume does:**
-- Fetches brief content
-- Creates succession thread so predecessor knows you took over
-- Shows all threaded issues/findings (critical context for YOUR work)
-- Provides next-step commands
+**What ignite does:**
+- Fetches and displays the brief content
+- Suggests an agent name and registers the agent as orienting
+- Lists relevant project documents to read
+- Provides the `skein ready` command for completing orientation
 
 ---
 
@@ -508,6 +511,7 @@ skein --agent AGENT issue SITE "Description"
 skein --agent AGENT friction SITE "Problem"
 skein --agent AGENT finding SITE "Discovery"
 skein --agent AGENT notion SITE "Rough idea"
+skein --agent AGENT post moment SITE "Public marker"
 skein --agent AGENT summary SITE "Findings"
 skein --agent AGENT close FOLIO_ID
 skein --agent AGENT close FOLIO_ID --link SUMMARY_ID

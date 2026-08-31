@@ -22,9 +22,10 @@ Shards provide isolated git worktrees for agents to work in parallel without con
 shard is where an agent actively edits files, and nesting that inside the project meant any
 consuming app's own file watcher (dev-server hot-reload, build tooling, etc.) would see shard
 activity as changes to the host project itself. Set `SKEIN_WORKTREES_DIR` to override the
-location explicitly. Examples below show `cd worktrees/<name>/` as shorthand for "cd into the
-shard's directory" — always use the actual path printed by `skein shard spawn`/`skein shard
-list`, not a literal relative `worktrees/` path.
+location explicitly — it can point anywhere, and nothing requires the word "worktrees" in it.
+Use `skein shard where <name>` (below) to find a shard's directory; examples that show
+`cd worktrees/<name>/` are shorthand for "cd into the shard's directory", never a literal
+relative path.
 
 ---
 
@@ -38,7 +39,7 @@ skein shard spawn my-feature
 # Creates: worktrees/my-feature-20260113-001/
 
 # 2. Work in the shard
-cd worktrees/my-feature-20260113-001/
+cd "$(skein shard where my-feature-20260113-001 --path-only)"
 # ... make changes ...
 git add . && git commit -m "Implement feature"
 
@@ -86,6 +87,42 @@ Spawned SHARD: fix-bug-20260113-001
   Path: /home/patrick/.skein/worktrees/skein-3f9a2b1c/fix-bug-20260113-001
   Branch: shard-fix-bug-20260113-001
 ```
+
+### `skein shard where <name>`
+
+Find a shard's worktree and the repo it came from. Since worktrees live outside
+the project tree, this is how you get back to one.
+
+```bash
+skein shard where fix-bug-20260113-001
+
+# cd straight into it
+cd "$(skein shard where fix-bug-20260113-001 --path-only)"
+
+# machine-readable
+skein shard where fix-bug-20260113-001 --json
+```
+
+**Output:**
+```
+SHARD: fix-bug-20260113-001
+  Worktree:     /home/patrick/.skein/worktrees/skein-3f9a2b1c/fix-bug-20260113-001
+  Origin repo:  /home/patrick/projects/skein
+  Branch:       shard-fix-bug-20260113-001
+  Worktrees in: /home/patrick/.skein/worktrees/skein-3f9a2b1c
+```
+
+Shards created by an older skein, back when worktrees lived at
+`<project>/worktrees/<name>/`, are still found by `where`, `list`, `merge`, and
+`cleanup` — the old location is searched, though never written to. Nothing needs
+migrating by hand.
+
+The origin repo is read from the worktree's own `.git` file, which git writes as
+`gitdir: /path/to/repo/.git/worktrees/<name>`. That pointer travels with the
+worktree, so the answer stays correct even if the worktree has been moved by
+hand or `SKEIN_WORKTREES_DIR` has since changed. If the directory is missing or
+git no longer tracks it, the command says so rather than printing a path that
+isn't there.
 
 ### `skein shard review <name>`
 

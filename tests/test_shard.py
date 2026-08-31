@@ -63,6 +63,10 @@ from skein.shard import (
     _get_shard_metadata,
     _get_shard_base_branch,
     _get_shard_base_ref,
+    get_shard_location,
+    _is_known_shard_location,
+    _origin_repo_of_worktree,
+    _get_db_connection,
 )
 
 
@@ -3406,6 +3410,420 @@ class TestShardOnMainDefaultRepo:
             assert info["base_branch"] == "main"
         finally:
             cleanup_shard(info["worktree_name"])
+
+
+# =============================================================================
+# CUSTOM WORKTREES LOCATION (SKEIN_WORKTREES_DIR)
+# =============================================================================
+
+
+@pytest.fixture
+def custom_worktrees_env(temp_git_repo: Path, monkeypatch):
+    """
+    Like shard_env, but with SKEIN_WORKTREES_DIR pointing at a directory whose
+    path contains no "worktrees" substring anywhere.
+
+    This is the configuration that silently produced empty results back when
+    shard identification was done by substring match instead of path
+    containment: spawn worked, but list/status/detect all came up blank.
+    """
+    import skein.shard as shard_module
+
+    shard_module._PROJECT_ROOT = None
+    shard_module._WORKTREES_DIR = None
+
+    monkeypatch.setenv("SKEIN_HOME", str(temp_git_repo.parent / "skein_home_test"))
+
+    custom_dir = temp_git_repo.parent / "shard-cache"
+    # Guard the premise of every test using this fixture - if pytest's tmp_path
+    # ever contains "worktrees", these tests would pass for the wrong reason.
+    assert "worktrees" not in str(custom_dir)
+    monkeypatch.setenv("SKEIN_WORKTREES_DIR", str(custom_dir))
+
+    set_project_root(str(temp_git_repo))
+
+    original_cwd = os.getcwd()
+    os.chdir(temp_git_repo)
+
+    yield temp_git_repo
+
+    os.chdir(original_cwd)
+    shard_module._PROJECT_ROOT = None
+    shard_module._WORKTREES_DIR = None
+
+
+class TestCustomWorktreesLocation:
+    """
+    SKEIN_WORKTREES_DIR must work when it points somewhere that doesn't spell
+    "worktrees".
+    """
+
+    def test_spawn_uses_the_override(self, custom_worktrees_env: Path):
+        """WHY: The override has to actually place the worktree where it says."""
+        info = spawn_shard("custom-loc")
+        try:
+            worktree_path = Path(info["worktree_path"])
+            assert worktree_path.is_relative_to(get_worktrees_dir())
+            assert worktree_path.exists()
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_list_shards_finds_it(self, custom_worktrees_env: Path):
+        """WHY: Regression - list_shards pre-filtered on the substring
+        "worktrees/", so an override elsewhere reported no shards at all."""
+        info = spawn_shard("custom-list")
+        try:
+            shards = list_shards()
+            names = [s["worktree_name"] for s in shards]
+            assert info["worktree_name"] in names
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_get_shard_status_finds_it(self, custom_worktrees_env: Path):
+        """WHY: get_shard_status reads through list_shards, so it inherited
+        the same blind spot."""
+        info = spawn_shard("custom-status")
+        try:
+            status = get_shard_status(info["worktree_name"])
+            assert status is not None
+            assert status["worktree_path"] == info["worktree_path"]
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_detect_shard_environment_finds_it(self, custom_worktrees_env: Path):
+        """WHY: Regression - detect_shard_environment gated on "worktrees" in
+        cwd, so an agent working in an override location could not tell it was
+        running inside a shard at all."""
+        info = spawn_shard("custom-detect")
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(info["worktree_path"])
+            result = detect_shard_environment()
+            assert result is not None
+            assert result["worktree_name"] == info["worktree_name"]
+        finally:
+            os.chdir(original_cwd)
+            cleanup_shard(info["worktree_name"])
+
+    def test_detect_shard_environment_from_subdirectory(
+        self, custom_worktrees_env: Path
+    ):
+        """WHY: Agents rarely sit at the worktree root."""
+        info = spawn_shard("custom-detect-sub")
+        subdir = Path(info["worktree_path"]) / "a" / "b"
+        subdir.mkdir(parents=True)
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(subdir)
+            result = detect_shard_environment()
+            assert result is not None
+            assert result["worktree_name"] == info["worktree_name"]
+        finally:
+            os.chdir(original_cwd)
+            cleanup_shard(info["worktree_name"])
+
+    def test_cleanup_works(self, custom_worktrees_env: Path):
+        """WHY: A shard you can't remove is worse than one you can't list."""
+        info = spawn_shard("custom-cleanup")
+        worktree_path = Path(info["worktree_path"])
+        assert worktree_path.exists()
+
+        cleanup_shard(info["worktree_name"])
+
+        assert not worktree_path.exists()
+        assert get_shard_status(info["worktree_name"]) is None
+
+    def test_main_repo_is_not_reported_as_a_shard(self, custom_worktrees_env: Path):
+        """WHY: Dropping the substring pre-filter means every git worktree now
+        reaches the parser - the project root must still be excluded."""
+        info = spawn_shard("custom-notmain")
+        try:
+            paths = [s["worktree_path"] for s in list_shards()]
+            assert str(custom_worktrees_env) not in paths
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_detect_returns_none_in_main_repo(self, custom_worktrees_env: Path):
+        """WHY: The main repo has a .git directory, not a .git file - the walk
+        must stop there rather than keep climbing."""
+        assert detect_shard_environment() is None
+
+
+class TestLegacyWorktreeLocation:
+    """
+    Worktrees created before shards moved out of the project tree must stay
+    visible after upgrading.
+
+    Tightening identification to strict containment against the *new* location
+    would otherwise hide them, and a shard that can't be listed can't be
+    merged or cleaned up either - the work just goes quiet.
+    """
+
+    @staticmethod
+    def _make_legacy_worktree(repo: Path) -> Path:
+        """Create a worktree where skein used to put them."""
+        legacy = repo / "worktrees" / "legacy-20260101-001"
+        subprocess.run(
+            ["git", "worktree", "add", str(legacy), "-b", "shard-legacy-20260101-001"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        return legacy
+
+    def test_listed_when_new_dir_does_not_exist_yet(self, shard_env: Path):
+        """WHY: Upgrade case - old worktrees present, nothing spawned since."""
+        self._make_legacy_worktree(shard_env)
+        assert not get_worktrees_dir().exists()
+
+        names = [s["worktree_name"] for s in list_shards()]
+        assert "legacy-20260101-001" in names
+
+    def test_listed_alongside_new_worktrees(self, shard_env: Path):
+        """WHY: Upgrade case - both locations in use during the transition."""
+        self._make_legacy_worktree(shard_env)
+        info = spawn_shard("new-location")
+
+        try:
+            names = [s["worktree_name"] for s in list_shards()]
+            assert "legacy-20260101-001" in names
+            assert info["worktree_name"] in names
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_listed_when_override_points_elsewhere(
+        self, custom_worktrees_env: Path
+    ):
+        """WHY: Setting SKEIN_WORKTREES_DIR must not strand existing work."""
+        self._make_legacy_worktree(custom_worktrees_env)
+
+        names = [s["worktree_name"] for s in list_shards()]
+        assert "legacy-20260101-001" in names
+
+    def test_legacy_shard_can_be_located(self, shard_env: Path):
+        """WHY: Listing it is only useful if you can then act on it."""
+        legacy = self._make_legacy_worktree(shard_env)
+
+        location = get_shard_location("legacy-20260101-001")
+        assert Path(location["worktree_path"]) == legacy
+        assert location["exists"] is True
+        assert location["registered"] is True
+        assert Path(location["project_root"]) == shard_env.resolve()
+
+    def test_new_shards_still_go_to_the_new_location(self, shard_env: Path):
+        """WHY: The legacy directory is searched, never written to."""
+        self._make_legacy_worktree(shard_env)
+        info = spawn_shard("still-new")
+
+        try:
+            assert Path(info["worktree_path"]).is_relative_to(get_worktrees_dir())
+            assert not Path(info["worktree_path"]).is_relative_to(
+                shard_env / "worktrees"
+            )
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+
+class TestWorktreesDirContainment:
+    """_is_known_shard_location must test containment, not string prefixes."""
+
+    def test_worktree_inside_is_matched(self, custom_worktrees_env: Path):
+        info = spawn_shard("containment-in")
+        try:
+            assert _is_known_shard_location(Path(info["worktree_path"]))
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_sibling_sharing_a_prefix_is_not_matched(
+        self, custom_worktrees_env: Path
+    ):
+        """WHY: The old check used str.startswith, so a sibling directory
+        whose name merely began with the worktrees dir name matched."""
+        worktrees_dir = get_worktrees_dir()
+        decoy = worktrees_dir.parent / (worktrees_dir.name + "-backup")
+        assert not _is_known_shard_location(decoy / "decoy-20260101-001")
+
+    def test_unrelated_path_named_worktrees_is_not_matched(
+        self, custom_worktrees_env: Path
+    ):
+        """WHY: The word "worktrees" in a path proves nothing about ownership
+        once the location is configurable."""
+        unrelated = custom_worktrees_env.parent / "someone-else" / "worktrees"
+        assert not _is_known_shard_location(unrelated / "other-20260101-001")
+
+    def test_list_shards_ignores_worktrees_outside_the_dir(
+        self, custom_worktrees_env: Path
+    ):
+        """WHY: A real git worktree living elsewhere, with a shard-shaped name,
+        must not be picked up as one of ours."""
+        import skein.shard as shard_module
+
+        outsider = custom_worktrees_env.parent / "elsewhere" / "decoy-20260101-001"
+        repo = shard_module._get_repo()
+        repo.git.worktree("add", str(outsider), "-b", "shard-decoy-20260101-001")
+
+        try:
+            names = [s["worktree_name"] for s in list_shards()]
+            assert "decoy-20260101-001" not in names
+        finally:
+            repo.git.worktree("remove", "--force", str(outsider))
+
+
+class TestGetShardLocation:
+    """`skein shard where` - answering where a worktree is and what it came from."""
+
+    def test_reports_path_and_origin_repo(self, custom_worktrees_env: Path):
+        info = spawn_shard("where-basic")
+        try:
+            location = get_shard_location(info["worktree_name"])
+
+            assert location["worktree_path"] == info["worktree_path"]
+            assert Path(location["project_root"]) == custom_worktrees_env.resolve()
+            assert location["branch_name"] == info["branch_name"]
+            assert location["worktrees_dir"] == str(get_worktrees_dir())
+            assert location["exists"] is True
+            assert location["registered"] is True
+            assert location["source"] == "git"
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_accepts_a_full_path(self, custom_worktrees_env: Path):
+        """WHY: Callers paste whatever `shard spawn` printed."""
+        info = spawn_shard("where-fullpath")
+        try:
+            location = get_shard_location(info["worktree_path"])
+            assert location["worktree_name"] == info["worktree_name"]
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_origin_repo_comes_from_the_worktree_itself(
+        self, custom_worktrees_env: Path
+    ):
+        """WHY: This is the traceability guarantee - a worktree points home
+        through its own .git file, independent of where it was placed."""
+        info = spawn_shard("where-origin")
+        try:
+            origin = _origin_repo_of_worktree(Path(info["worktree_path"]))
+            assert origin is not None
+            assert origin.resolve() == custom_worktrees_env.resolve()
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_origin_repo_of_non_worktree_is_none(self, custom_worktrees_env: Path):
+        """WHY: The main repo has a .git directory, so there's nothing to read."""
+        assert _origin_repo_of_worktree(custom_worktrees_env) is None
+
+    def test_unknown_shard_reports_expected_path(self, custom_worktrees_env: Path):
+        """WHY: Asking where a shard would live is still a useful answer, but
+        it must be labelled as a guess rather than a fact."""
+        location = get_shard_location("never-spawned-20260101-001")
+
+        assert location["source"] == "expected"
+        assert location["exists"] is False
+        assert location["registered"] is False
+        assert (
+            Path(location["worktree_path"])
+            == get_worktrees_dir() / "never-spawned-20260101-001"
+        )
+
+    def test_empty_name_is_rejected(self, custom_worktrees_env: Path):
+        with pytest.raises(ShardError):
+            get_shard_location("")
+
+    def test_after_cleanup_reports_gone(self, custom_worktrees_env: Path):
+        info = spawn_shard("where-cleaned")
+        cleanup_shard(info["worktree_name"])
+
+        location = get_shard_location(info["worktree_name"])
+        assert location["exists"] is False
+        assert location["registered"] is False
+
+
+class TestWorktreePathRecorded:
+    """The shards table records where each worktree went."""
+
+    def test_spawn_records_the_path(self, custom_worktrees_env: Path):
+        """WHY: Once worktrees live outside the project, the database is the
+        only durable record of where a given shard was put."""
+        info = spawn_shard("record-path")
+        try:
+            metadata = _get_shard_metadata(info["worktree_name"])
+            assert metadata is not None
+            assert metadata["worktree_path"] == info["worktree_path"]
+        finally:
+            cleanup_shard(info["worktree_name"])
+
+    def test_graft_records_its_own_path(self, custom_worktrees_env: Path):
+        """WHY: Grafts get their own worktree and must be locatable too."""
+        info = spawn_shard("record-graft")
+        worktree_path = Path(info["worktree_path"])
+        (worktree_path / "file.txt").write_text("content\n")
+        subprocess.run(
+            ["git", "add", "."], cwd=worktree_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "work"],
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
+        )
+
+        graft = graft_shard(info["worktree_name"])
+        graft_name = graft["graft_worktree_name"]
+        try:
+            metadata = _get_shard_metadata(graft_name)
+            assert metadata is not None
+            assert metadata["worktree_path"] == str(get_worktrees_dir() / graft_name)
+        finally:
+            cleanup_shard(graft_name)
+            cleanup_shard(info["worktree_name"])
+
+    def test_column_is_added_to_older_databases(self, shard_env: Path):
+        """WHY: Existing projects have a shards.db predating this column; the
+        best-effort ALTER must bring them forward without losing rows."""
+        import sqlite3
+
+        import skein.shard as shard_module
+
+        db_path = shard_module._get_db_path()
+        if db_path.exists():
+            db_path.unlink()
+
+        # Recreate the pre-migration schema, with a row in it
+        legacy = sqlite3.connect(str(db_path))
+        legacy.execute(
+            """
+            CREATE TABLE shards (
+                worktree_name TEXT PRIMARY KEY,
+                parent_worktree TEXT,
+                base_commit TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'active'
+            )
+            """
+        )
+        legacy.execute(
+            "INSERT INTO shards (worktree_name, base_commit, created_at) "
+            "VALUES ('legacy-20260101-001', 'abc123', '2026-01-01T00:00:00+00:00')"
+        )
+        legacy.commit()
+        legacy.close()
+
+        conn = _get_db_connection()
+        try:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(shards)")}
+            assert "worktree_path" in columns
+            assert "base_branch" in columns
+
+            row = conn.execute(
+                "SELECT worktree_path FROM shards WHERE worktree_name = ?",
+                ("legacy-20260101-001",),
+            ).fetchone()
+            assert row is not None
+            assert row["worktree_path"] is None
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":

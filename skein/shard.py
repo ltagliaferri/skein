@@ -6,21 +6,22 @@ Manages git worktrees for SHARD agent coordination workflow.
 Provides core functions for creating, cleaning up, and listing SHARDs.
 """
 
-import hashlib
 import os
 import re
 import json
+import hashlib
+import stat
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 try:
     import git
 except ImportError:
     git = None
-
-from skein.storage import skein_home
 
 
 class ShardError(Exception):
@@ -57,16 +58,67 @@ CREATE INDEX IF NOT EXISTS idx_shards_base_commit ON shards(base_commit);
 
 
 def _get_db_path() -> Path:
-    """Get path to shard database (in .skein directory of project root)."""
-    project_root = get_project_root()
-    skein_dir = project_root / ".skein"
-    skein_dir.mkdir(exist_ok=True)
-    return skein_dir / "shards.db"
+    """Get path to shard database (in .skein directory of project root).
+
+    Pure: never creates the .skein directory. Directory creation belongs to
+    the write path (_get_db_connection) so that read commands stay
+    side-effect-free.
+    """
+    return get_project_root() / ".skein" / "shards.db"
+
+
+def _open_db_readonly() -> Optional[sqlite3.Connection]:
+    """Open the shard database for observational reads, or None if absent.
+
+    Opens with SQLite's read-only URI mode plus query_only, so a read command
+    cannot create the file, alter the schema, run migrations, or leave journal
+    sidecars behind: the DB and its sidecars stay byte-identical across every
+    observational command. Callers must tolerate None (no DB yet) and treat
+    sqlite3.Error from queries as "no metadata" — an old schema is metadata
+    absence, not a crash.
+    """
+    db_path = _get_db_path()
+    if not db_path.exists():
+        return None
+    try:
+        # Percent-encode the filesystem path: in a SQLite URI, ?, #, and %
+        # are metacharacters, so an unquoted repo path containing them
+        # misparses and every metadata read silently disappears.
+        conn = sqlite3.connect(
+            f"file:{quote(str(db_path), safe='/')}?mode=ro", uri=True
+        )
+    except sqlite3.Error:
+        return None
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA query_only=ON")
+    except sqlite3.Error:
+        pass
+    return conn
+
+
+def _load_all_rows() -> List[Dict[str, Any]]:
+    """Read every shard row, read-only. Empty list when DB or table is absent."""
+    conn = _open_db_readonly()
+    if conn is None:
+        return []
+    try:
+        cursor = conn.execute("SELECT * FROM shards")
+        return [dict(row) for row in cursor.fetchall()]
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
 
 
 def _get_db_connection() -> sqlite3.Connection:
-    """Get connection to shard database, creating it if needed."""
+    """Get a writable connection to the shard database, creating it if needed.
+
+    Only mutating lifecycle operations (spawn, graft, cleanup, merge, tender)
+    and explicit reconcile may use this; reads go through _open_db_readonly.
+    """
     db_path = _get_db_path()
+    db_path.parent.mkdir(exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
 
@@ -111,15 +163,13 @@ def _record_shard_metadata(
 ) -> None:
     """Record shard metadata in SQLite database.
 
-    worktree_path is stored so a shard stays locatable even if the worktrees
-    directory later moves (SKEIN_WORKTREES_DIR changes, SKEIN_HOME differs
-    between callers). Falls back to the current worktrees dir when the caller
-    doesn't supply one.
+    worktree_path is stored so a shard stays locatable (and bindable while
+    detached) even after the worktree moves. Callers pass the actual creation
+    path; there is no fallback computation here — path writes happen only
+    with a real path in hand, never a reconstructed one.
     """
     if base_branch is None:
         base_branch = _detect_default_branch()
-    if worktree_path is None:
-        worktree_path = str(get_worktrees_dir() / worktree_name)
     conn = _get_db_connection()
     try:
         conn.execute(
@@ -146,8 +196,10 @@ def _record_shard_metadata(
 
 
 def _get_shard_metadata(worktree_name: str) -> Optional[Dict[str, Any]]:
-    """Get shard metadata from SQLite database."""
-    conn = _get_db_connection()
+    """Get shard metadata from SQLite database (read-only; None if absent)."""
+    conn = _open_db_readonly()
+    if conn is None:
+        return None
     try:
         cursor = conn.execute(
             "SELECT * FROM shards WHERE worktree_name = ?", (worktree_name,)
@@ -156,6 +208,39 @@ def _get_shard_metadata(worktree_name: str) -> Optional[Dict[str, Any]]:
         if row:
             return dict(row)
         return None
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
+def _set_worktree_path(worktree_name: str, worktree_path: Optional[str]) -> None:
+    """Set (or clear, with None) the recorded worktree_path for a shard row.
+
+    Updates only an existing row — never creates one, so lifecycle writes
+    can refresh paths without inventing metadata.
+    """
+    conn = _get_db_connection()
+    try:
+        conn.execute(
+            "UPDATE shards SET worktree_path = ? WHERE worktree_name = ?",
+            (worktree_path, worktree_name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _delete_shard_row(worktree_name: str) -> None:
+    """Delete a shard's metadata row.
+
+    Invariant 11: a row is deleted only together with its branch. Callers are
+    the merge-proof and --delete-unmerged-branch cleanup paths.
+    """
+    conn = _get_db_connection()
+    try:
+        conn.execute("DELETE FROM shards WHERE worktree_name = ?", (worktree_name,))
+        conn.commit()
     finally:
         conn.close()
 
@@ -270,6 +355,100 @@ def validate_shard_name(name: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
+# =============================================================================
+# PINNED SHARD NAME GRAMMAR (membership predicate, Decision A)
+# =============================================================================
+
+# A shard's identity is its git branch: `shard-<name>` where <name> passes the
+# pinned grammar below. The directory basename is only a creation convention;
+# it never participates in membership, lookup, or resolution. This grammar is
+# a reserved namespace: tooling that creates non-shard `shard-*` branches
+# (e.g. Spindle fallback worktrees, branch `shard-<hex8>`) must never emit
+# `{stem}-{valid YYYYMMDD}-{001-999}` shaped names.
+
+SHARD_BRANCH_PREFIX = "shard-"
+GRAFT_SUFFIX = "-graft"
+
+_SEQ_PATTERN = re.compile(r"^[0-9]{3}$")
+_DATE_PATTERN = re.compile(r"^[0-9]{8}$")
+
+
+def parse_shard_name(name: str) -> Optional[Dict[str, Any]]:
+    """
+    Validate a shard name against the pinned grammar.
+
+    The canonical name keeps any terminal -graft suffixes; validation strips
+    them repeatedly, then right-splits the residue into:
+      stem   - nonempty, internal dashes allowed
+      date   - exactly 8 ASCII digits forming a valid calendar YYYYMMDD date
+      seq    - exactly three ASCII digits in 001-999
+
+    Returns:
+        {"name", "stem", "date", "seq", "graft_depth"} when valid, else None.
+    """
+    if not name:
+        return None
+
+    graft_depth = 0
+    residue = name
+    while residue.endswith(GRAFT_SUFFIX):
+        residue = residue[: -len(GRAFT_SUFFIX)]
+        graft_depth += 1
+
+    parts = residue.rsplit("-", 2)
+    if len(parts) != 3:
+        return None
+    stem, date, seq = parts
+
+    if not stem:
+        return None
+    if not _DATE_PATTERN.match(date):
+        return None
+    try:
+        datetime.strptime(date, "%Y%m%d")
+    except ValueError:
+        return None
+    if not _SEQ_PATTERN.match(seq):
+        return None
+    if not (1 <= int(seq) <= MAX_SEQUENCE_NUMBER):
+        return None
+
+    return {
+        "name": name,
+        "stem": stem,
+        "date": date,
+        "seq": seq,
+        "graft_depth": graft_depth,
+    }
+
+
+def _normalize_branch_ref(ref: Optional[str]) -> Optional[str]:
+    """Normalize a porcelain branch field (refs/heads/x) to a short name."""
+    if not ref:
+        return None
+    if ref.startswith("refs/heads/"):
+        return ref[len("refs/heads/") :]
+    return ref
+
+
+def shard_name_from_branch(branch: Optional[str]) -> Optional[str]:
+    """
+    Derive a shard name from an actual git branch name, or None.
+
+    The branch (normalized from refs/heads/ form) must carry the shard-
+    prefix and the remainder must pass the pinned grammar. This is the only
+    way an attached worktree becomes a member; names are never fabricated
+    from directory paths.
+    """
+    branch = _normalize_branch_ref(branch)
+    if not branch or not branch.startswith(SHARD_BRANCH_PREFIX):
+        return None
+    name = branch[len(SHARD_BRANCH_PREFIX) :]
+    if parse_shard_name(name) is None:
+        return None
+    return name
+
+
 # Project root detection
 # Note: We need to find the git repo root for the project the user is currently
 # working in (based on current working directory), not where this shard.py file lives.
@@ -280,8 +459,21 @@ def _find_project_root() -> Path:
     env_project = os.environ.get("SKEIN_PROJECT")
     if env_project:
         project_path = Path(env_project).resolve()
-        if (project_path / ".git").exists():
+        git_path = project_path / ".git"
+        if git_path.is_dir():
             return project_path
+        if git_path.is_file():
+            # A linked worktree: project identity is the origin repo, never
+            # the worktree directory (whose basename may be anything after a
+            # move) — otherwise site derivation and the .skein DB both follow
+            # the wrong directory.
+            origin = _origin_repo_of_worktree(project_path)
+            if origin is not None:
+                return origin
+            raise ShardError(
+                f"SKEIN_PROJECT points at a worktree whose origin repository "
+                f"cannot be resolved: {env_project}"
+            )
         # If SKEIN_PROJECT is set but invalid, raise an error
         raise ShardError(
             f"SKEIN_PROJECT env var points to non-git directory: {env_project}"
@@ -313,26 +505,6 @@ def _find_project_root() -> Path:
     )
 
 
-def _default_worktrees_dir(project_root: Path) -> Path:
-    """Compute where shard worktrees live for a given project.
-
-    Worktrees deliberately live OUTSIDE the project's own directory tree
-    (under SKEIN_HOME, keyed by project name + a short hash of the resolved
-    project path to avoid collisions between same-named repos in different
-    locations). A shard worktree is where an agent actively edits files —
-    nesting that inside the project meant every consuming app's own file
-    watcher (dev-server hot-reload, build tooling, etc.) would see shard
-    activity as changes to the host project itself. Set SKEIN_WORKTREES_DIR
-    to override this location explicitly.
-    """
-    override = os.environ.get("SKEIN_WORKTREES_DIR")
-    if override:
-        return Path(override).resolve()
-    resolved = project_root.resolve()
-    digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:8]
-    return skein_home() / "worktrees" / f"{resolved.name}-{digest}"
-
-
 # Lazy-initialized project root. None means not yet resolved.
 # Use get_project_root() to access - never access directly.
 _PROJECT_ROOT: Optional[Path] = None
@@ -344,41 +516,34 @@ def get_project_root() -> Path:
     global _PROJECT_ROOT, _WORKTREES_DIR
     if _PROJECT_ROOT is None:
         _PROJECT_ROOT = _find_project_root()
-        _WORKTREES_DIR = _default_worktrees_dir(_PROJECT_ROOT)
+        _WORKTREES_DIR = _PROJECT_ROOT / "worktrees"
     return _PROJECT_ROOT
 
 
 def get_worktrees_dir() -> Path:
-    """Get the worktrees directory, resolving project root lazily if needed."""
+    """Get the creation-placement directory for NEW shard worktrees.
+
+    Placement is a creation-time policy only: it decides where spawn and
+    graft put a new worktree, and it labels the resolver's last-resort guess.
+    It is never consulted for membership or discovery — existing shards are
+    found through git regardless of where they live. The default is the
+    in-tree `<repo>/worktrees/`; no environment variable participates
+    (SKEIN_WORKTREES_DIR deliberately has no effect).
+    """
     global _WORKTREES_DIR
     if _WORKTREES_DIR is None:
         get_project_root()  # This sets _WORKTREES_DIR
     return _WORKTREES_DIR
 
 
-def legacy_worktrees_dir() -> Path:
-    """
-    Where shard worktrees lived before they moved out of the project tree.
+def _placement_path(worktree_name: str) -> Path:
+    """The path where creation policy would place a worktree of this name.
 
-    Nothing is ever created here. It is searched so that worktrees spawned by
-    an older skein stay listable - and therefore mergeable and cleanable -
-    after upgrading, instead of silently disappearing from `shard list`.
+    This is the ONLY place `worktrees_dir / name` may be computed. Its
+    callers are spawn/graft placement and the resolver's labeled guess arm;
+    every other operation must resolve real locations through resolve_shard.
     """
-    return get_project_root() / "worktrees"
-
-
-def shard_search_dirs() -> List[Path]:
-    """
-    Every directory that may hold this project's shard worktrees.
-
-    New shards always go to get_worktrees_dir(); the legacy in-project
-    location is included for discovery only (see legacy_worktrees_dir).
-    """
-    dirs = [get_worktrees_dir()]
-    legacy = legacy_worktrees_dir()
-    if legacy not in dirs:
-        dirs.append(legacy)
-    return dirs
+    return get_worktrees_dir() / worktree_name
 
 
 def _path_forms(path: Path) -> List[Path]:
@@ -399,51 +564,42 @@ def _path_forms(path: Path) -> List[Path]:
     return forms
 
 
-def _is_known_shard_location(path: Path) -> bool:
-    """
-    Check whether a path lives inside a directory that holds our shards.
-
-    Uses path containment rather than testing for the substring "worktrees".
-    SKEIN_WORKTREES_DIR can point anywhere, so a path that holds shards need
-    not contain that word - and a path that contains it need not be ours.
-
-    Args:
-        path: Path to test
-
-    Returns:
-        True if path is inside (or equal to) a shard worktrees directory
-    """
-    try:
-        search_dirs = shard_search_dirs()
-    except ShardError:
-        return False
-
-    candidates = _path_forms(path)
-    return any(
-        candidate.is_relative_to(base)
-        for search_dir in search_dirs
-        for base in _path_forms(search_dir)
-        for candidate in candidates
-    )
+def _paths_equal(a: Path, b: Path) -> bool:
+    """Exact path equality under raw and symlink-resolved forms (invariant 8)."""
+    forms_a = _path_forms(a)
+    forms_b = _path_forms(b)
+    return any(fa == fb for fa in forms_a for fb in forms_b)
 
 
 def set_project_root(path: str) -> None:
     """
     Override the project root for shard operations.
 
-    Use this to operate on a different project than the current working directory.
+    Use this to operate on a different project than the current working
+    directory. A linked worktree is accepted but canonicalized to its origin
+    repository (invariant 9: project identity comes from the origin repo,
+    never from the worktree directory).
 
     Args:
-        path: Path to the project root (must be a git repository)
+        path: Path to the project root (must be a git repository or a
+            linked worktree of one)
     """
     global _PROJECT_ROOT, _WORKTREES_DIR
 
     project_path = Path(path).resolve()
-    if not (project_path / ".git").exists():
+    git_path = project_path / ".git"
+    if git_path.is_file():
+        origin = _origin_repo_of_worktree(project_path)
+        if origin is None:
+            raise ShardError(
+                f"Cannot resolve the origin repository of worktree: {path}"
+            )
+        project_path = origin
+    elif not git_path.exists():
         raise ShardError(f"Not a git repository: {path}")
 
     _PROJECT_ROOT = project_path
-    _WORKTREES_DIR = _default_worktrees_dir(_PROJECT_ROOT)
+    _WORKTREES_DIR = _PROJECT_ROOT / "worktrees"
 
 
 def _get_repo() -> "git.Repo":
@@ -608,8 +764,12 @@ def _get_next_sequence(name: str, date: str) -> int:
     """
     Get next sequence number for name on given date.
 
-    Looks for existing worktrees matching pattern and returns next seq.
-    Pattern: worktrees/{name}-{date}-{seq}/
+    Enumerates existing BRANCHES matching `shard-{name}-{date}-*` (Decision C).
+    Branches are the real uniqueness namespace — creation fails loudly on a
+    branch collision — and branch enumeration is location-free, so sequences
+    whose directories are gone but whose branches survive are still skipped.
+    Only suffixes that are grammar-valid exact three-digit sequences (001-999)
+    are counted.
 
     Args:
         name: Shard name identifier
@@ -621,32 +781,22 @@ def _get_next_sequence(name: str, date: str) -> int:
     Raises:
         ShardError: If sequence limit (999) would be exceeded
     """
-    worktrees_dir = get_worktrees_dir()
-    if not worktrees_dir.exists() or not worktrees_dir.is_dir():
-        return 1
+    repo = _get_repo()
+    branch_prefix = f"{SHARD_BRANCH_PREFIX}{name}-{date}-"
+    try:
+        refs_output = repo.git.for_each_ref(
+            "--format=%(refname:short)", f"refs/heads/{branch_prefix}*"
+        )
+    except Exception as e:
+        raise ShardError(f"Failed to enumerate shard branches: {e}")
 
-    pattern_prefix = f"{name}-{date}-"
-    existing = [
-        d.name
-        for d in worktrees_dir.iterdir()
-        if d.is_dir() and d.name.startswith(pattern_prefix)
-    ]
-
-    if not existing:
-        return 1
-
-    # Extract sequence numbers (filter invalid: negative, zero, or >999)
     sequences = []
-    for worktree_name in existing:
-        # name format: name-date-seq
-        try:
-            seq_str = worktree_name.split("-")[-1]
-            seq = int(seq_str)
-            # Only count valid sequences (1-999)
-            if 1 <= seq <= MAX_SEQUENCE_NUMBER:
-                sequences.append(seq)
-        except (ValueError, IndexError):
-            continue
+    for ref in refs_output.splitlines():
+        suffix = ref[len(branch_prefix) :]
+        # Exact three digits, 001-999; anything else (including -graft
+        # branches, four-digit runs, and 000) is not a sequence.
+        if _SEQ_PATTERN.match(suffix) and 1 <= int(suffix) <= MAX_SEQUENCE_NUMBER:
+            sequences.append(int(suffix))
 
     next_seq = max(sequences) + 1 if sequences else 1
 
@@ -720,19 +870,17 @@ def spawn_shard(
             file=sys.stderr,
         )
 
-    worktrees_dir = get_worktrees_dir()
-    # Ensure worktrees directory exists (now outside the project tree, so
-    # intermediate SKEIN_HOME/worktrees/ parents may not exist yet either)
-    worktrees_dir.mkdir(parents=True, exist_ok=True)
-
     # Generate date and sequence
     date = datetime.now(timezone.utc).strftime("%Y%m%d")
     seq = _get_next_sequence(name, date)
 
-    # Generate names
+    # Generate names. Placement (where the directory goes) is decided here,
+    # at creation time, and only here; the directory name matching the shard
+    # name is a convention for human legibility, not an identity requirement.
     worktree_name = f"{name}-{date}-{seq:03d}"
-    branch_name = f"shard-{name}-{date}-{seq:03d}"
-    worktree_path = worktrees_dir / worktree_name
+    branch_name = f"{SHARD_BRANCH_PREFIX}{worktree_name}"
+    worktree_path = _placement_path(worktree_name)
+    worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Generate shard_id - use worktree_name which includes name+date+seq for uniqueness
     shard_id = f"shard-{worktree_name}"
@@ -827,228 +975,1389 @@ def _is_path_inside_worktree(path: Path, worktree_path: Path) -> bool:
         return True
 
 
-def cleanup_shard(
+def _branch_exists(repo, branch_name: str) -> bool:
+    """Check whether a local branch exists."""
+    try:
+        repo.git.show_ref("--verify", "--quiet", f"refs/heads/{branch_name}")
+        return True
+    except Exception:
+        return False
+
+
+def _commit_contained_in(repo, committish: str, base_branch: str) -> bool:
+    """
+    Ancestry-only containment proof: is committish an ancestor of base_branch?
+
+    This is the ONLY merge proof cleanup accepts. Squash-merge and rebase
+    integration do not leave the original commits in the base's ancestry, so
+    an externally squash-merged branch reads as unmerged here — that is the
+    safe direction, and deleting such a branch requires the explicit
+    --delete-unmerged-branch override.
+    """
+    try:
+        repo.git.merge_base("--is-ancestor", committish, base_branch)
+        return True
+    except Exception:
+        return False
+
+
+def _branch_merged_into(repo, branch_name: str, base_branch: str) -> bool:
+    """Merge proof over a branch name (see _commit_contained_in)."""
+    return _commit_contained_in(repo, branch_name, base_branch)
+
+
+def _branch_oid(repo, branch_name: str) -> Optional[str]:
+    """Current commit OID of a local branch, or None if it does not exist."""
+    try:
+        return repo.git.rev_parse("--verify", f"refs/heads/{branch_name}").strip()
+    except Exception:
+        return None
+
+
+def _delete_branch_at_oid(
+    repo,
+    branch_name: str,
+    expected_oid: str,
+    *,
+    proof_base: Optional[str] = None,
+    expected_proof_base_oid: Optional[str] = None,
+) -> None:
+    """Delete a branch iff every ref used for its authority is unchanged.
+
+    Explicit override authority needs only a compare-and-delete of the branch
+    tip. Merge authority depends on both the branch and proof-base tips, so a
+    single update-ref transaction verifies the latter while deleting the
+    former. Unlike `git branch -D`, update-ref does not refuse a checked-out
+    branch, so that guard is reinstated here before deletion. Raises on any
+    refusal.
+    """
+    for stanza in _list_worktree_stanzas(repo):
+        if stanza.get("branch") == branch_name:
+            raise ShardError(
+                f"branch {branch_name} is checked out at {stanza['path']}"
+            )
+    branch_ref = f"refs/heads/{branch_name}"
+    if (proof_base is None) != (expected_proof_base_oid is None):
+        raise ShardError(
+            "merge-proven branch deletion requires both the proof-base ref "
+            "and its expected OID"
+        )
+    if proof_base is None:
+        repo.git.update_ref("-d", branch_ref, expected_oid)
+        return
+
+    proof_base_ref = f"refs/heads/{proof_base}"
+    transaction = (
+        "start\n"
+        f"verify {proof_base_ref} {expected_proof_base_oid}\n"
+        f"delete {branch_ref} {expected_oid}\n"
+        "prepare\n"
+        "commit\n"
+    )
+    completed = subprocess.run(
+        ["git", "update-ref", "--stdin"],
+        cwd=repo.working_tree_dir,
+        input=transaction,
+        text=True,
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise ShardError(detail or "git update-ref transaction refused")
+
+
+def _stanza_for_path(repo, worktree_path: Path) -> Optional[Dict[str, Any]]:
+    """The porcelain stanza of the linked worktree at worktree_path, if any."""
+    for stanza in _list_worktree_stanzas(repo):
+        if not stanza["is_main"] and _paths_equal(Path(stanza["path"]), worktree_path):
+            return stanza
+    return None
+
+
+def _undisclosed_dirty(
+    dirty_files: List[str],
+    authorized_dirty_files: Optional[List[str]],
+    discard_uncommitted: bool,
+) -> List[str]:
+    """Dirty status lines whose discard nothing has authorized.
+
+    authorized_dirty_files, when given, is the exact disclosed set the
+    caller confirmed: anything outside it is undisclosed regardless of
+    discard_uncommitted, so a confirmation never stretches to dirt that
+    appeared after disclosure. With no disclosed set, discard_uncommitted
+    is the caller's blanket programmatic authority over this one worktree.
+    """
+    if not dirty_files:
+        return []
+    if authorized_dirty_files is not None:
+        allowed = set(authorized_dirty_files)
+        return [ln for ln in dirty_files if ln not in allowed]
+    if discard_uncommitted:
+        return []
+    return list(dirty_files)
+
+
+def _restore_live_worktree_path(
+    repo,
+    worktree_name: str,
+    expected_path: Path,
+    branch_name: str,
+    detached: bool,
+    expected_head: Optional[str],
+    path_was_cleared: bool,
+) -> None:
+    """Best-effort compensation after a failed git worktree removal.
+
+    The pre-clear revokes a DB path before git is touched. On failure, restore
+    only a binding freshly corroborated by git porcelain: an attached member
+    is identified by its branch (and may have moved again), while a detached
+    member needs both the exact path and the HEAD captured before mutation.
+    Never restore the row's prior path: it may be stale and already reused by
+    an unrelated detached worktree. Any uncertainty or write failure leaves
+    the row pathless, which is the safe direction because it binds nothing.
+    """
+    if not path_was_cleared:
+        return
+    try:
+        stanzas = _list_worktree_stanzas(repo)
+    except Exception:
+        return
+
+    live_path = None
+    for stanza in stanzas:
+        if stanza["is_main"] or stanza["bare"]:
+            continue
+        if detached:
+            if (
+                expected_head
+                and stanza["detached"]
+                and stanza["head"] == expected_head
+                and _paths_equal(Path(stanza["path"]), expected_path)
+            ):
+                live_path = stanza["path"]
+                break
+        elif not stanza["detached"] and stanza["branch"] == branch_name:
+            live_path = stanza["path"]
+            break
+
+    if live_path is None:
+        return
+    try:
+        _set_worktree_path(worktree_name, str(Path(live_path).absolute()))
+    except Exception:
+        pass
+
+
+def _worktree_dirty_files(worktree_path: Path) -> List[str]:
+    """Porcelain status lines for a worktree's uncommitted changes.
+
+    Read-only. An unreadable or gone worktree reports as clean here; git's
+    own removal validation backstops that (a tree git cannot read refuses
+    plain and --force removal alike).
+    """
+    try:
+        if git is None:
+            return []
+        wt_repo = git.Repo(str(worktree_path))
+        status = wt_repo.git.status("--porcelain")
+        return [ln for ln in status.splitlines() if ln.strip()]
+    except Exception:
+        return []
+
+
+def _worktree_dirty_fingerprint(worktree_path: Path) -> str:
+    """Digest the exact tracked/index and untracked state cleanup may discard.
+
+    Porcelain lines identify paths and status categories for people, but they
+    do not change when bytes at an already-dirty path change. This digest is
+    the machine-side half of disclosure authority: it binds the index, tracked
+    working-tree diff, every non-ignored untracked file's type, mode, and
+    content, and the corresponding state of every populated tracked submodule
+    at confirmation time.
+
+    Fail closed. If the state cannot be read consistently, cleanup has no
+    exact discard authority and must not force-remove the worktree.
+    """
+
+    def git_bytes(*args: str) -> bytes:
+        result = subprocess.run(
+            ["git", "-C", str(worktree_path), *args],
+            check=False,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            error = result.stderr.decode(errors="replace").strip()
+            raise ShardError(
+                f"Cannot snapshot uncommitted state in {worktree_path}: "
+                f"git {' '.join(args)} failed: {error}"
+            )
+        return result.stdout
+
+    def update_framed(target, label: bytes, payload: bytes) -> None:
+        """Add one unambiguous typed field to a digest input stream."""
+        target.update(len(label).to_bytes(2, "big"))
+        target.update(label)
+        target.update(len(payload).to_bytes(8, "big"))
+        target.update(payload)
+
+    digest = hashlib.sha256()
+    for label, args in (
+        (b"status", ("status", "--porcelain=v1", "-z", "--untracked-files=all")),
+        (
+            b"index",
+            (
+                "diff",
+                "--cached",
+                "--binary",
+                "--no-ext-diff",
+                "--no-textconv",
+                "HEAD",
+                "--",
+            ),
+        ),
+        (
+            b"worktree",
+            ("diff", "--binary", "--no-ext-diff", "--no-textconv", "--"),
+        ),
+    ):
+        payload = git_bytes(*args)
+        update_framed(digest, label, payload)
+
+    root = os.fsencode(str(worktree_path))
+
+    def fingerprint_entry(relative: bytes, full_path: bytes) -> bytes:
+        """Fingerprint one untracked entry without following symlinks.
+
+        Git normally enumerates every untracked file, but deliberately
+        collapses an embedded repository to one directory entry. Recursing
+        here binds everything worktree removal would destroy, including the
+        embedded repository's own Git directory.
+        """
+        try:
+            metadata = os.lstat(full_path)
+            entry = hashlib.sha256()
+            update_framed(entry, b"path", relative.rstrip(b"/"))
+            update_framed(
+                entry,
+                b"type",
+                stat.S_IFMT(metadata.st_mode).to_bytes(4, "big"),
+            )
+            update_framed(
+                entry,
+                b"mode",
+                stat.S_IMODE(metadata.st_mode).to_bytes(4, "big"),
+            )
+            if stat.S_ISLNK(metadata.st_mode):
+                target = os.readlink(full_path)
+                if isinstance(target, str):
+                    target = os.fsencode(target)
+                update_framed(entry, b"symlink-target", target)
+            elif stat.S_ISREG(metadata.st_mode):
+                content = hashlib.sha256()
+                length = 0
+                with open(full_path, "rb") as handle:
+                    while chunk := handle.read(1024 * 1024):
+                        content.update(chunk)
+                        length += len(chunk)
+                update_framed(entry, b"content-length", length.to_bytes(8, "big"))
+                update_framed(entry, b"content-sha256", content.digest())
+            elif stat.S_ISDIR(metadata.st_mode):
+                with os.scandir(full_path) as children:
+                    names = sorted(child.name for child in children)
+                parent = relative.rstrip(b"/")
+                for name in names:
+                    child_relative = parent + b"/" + name
+                    update_framed(
+                        entry,
+                        b"directory-entry",
+                        fingerprint_entry(
+                            child_relative, os.path.join(full_path, name)
+                        ),
+                    )
+            else:
+                update_framed(entry, b"size", str(metadata.st_size).encode())
+
+            after = os.lstat(full_path)
+            stable_fields = (
+                "st_dev",
+                "st_ino",
+                "st_mode",
+                "st_size",
+                "st_mtime_ns",
+                "st_ctime_ns",
+            )
+            if any(
+                getattr(metadata, field) != getattr(after, field)
+                for field in stable_fields
+            ):
+                raise ShardError(
+                    f"Cannot snapshot uncommitted state in {worktree_path}: "
+                    f"{os.fsdecode(relative)} changed while being read"
+                )
+            return entry.digest()
+        except OSError as e:
+            raise ShardError(
+                f"Cannot snapshot uncommitted state in {worktree_path}: "
+                f"{os.fsdecode(relative)} changed while being read: {e}"
+            ) from e
+
+    untracked = git_bytes("ls-files", "--others", "--exclude-standard", "-z")
+    for relative in sorted(path for path in untracked.split(b"\0") if path):
+        update_framed(
+            digest,
+            b"untracked-entry",
+            fingerprint_entry(relative, os.path.join(root, relative)),
+        )
+
+    # A parent diff says only that a gitlink is dirty; it does not bind the
+    # bytes changed inside that submodule. Recurse through each populated
+    # gitlink so a same-path rewrite below it changes the parent's authority
+    # fingerprint too. Unpopulated gitlinks are recorded explicitly, making a
+    # concurrent initialization visible without following arbitrary symlinks.
+    index_entries = git_bytes("ls-files", "--stage", "-z")
+    gitlinks: Dict[bytes, List[Tuple[bytes, bytes, bytes]]] = {}
+    for record in (entry for entry in index_entries.split(b"\0") if entry):
+        try:
+            metadata, relative = record.split(b"\t", 1)
+            mode, oid, stage_number = metadata.split()
+        except ValueError as e:
+            raise ShardError(
+                f"Cannot snapshot uncommitted state in {worktree_path}: "
+                "git ls-files returned a malformed index entry"
+            ) from e
+        if mode != b"160000":
+            continue
+
+        gitlinks.setdefault(relative, []).append((mode, oid, stage_number))
+
+    for relative in sorted(gitlinks):
+        full_path = os.path.join(root, relative)
+        git_marker = os.path.join(full_path, b".git")
+        populated = bool(
+            not os.path.islink(full_path)
+            and os.path.isdir(full_path)
+            and os.path.exists(git_marker)
+        )
+        entry = hashlib.sha256()
+        update_framed(entry, b"path", relative)
+        for mode, oid, stage_number in sorted(gitlinks[relative]):
+            index_entry = hashlib.sha256()
+            update_framed(index_entry, b"mode", mode)
+            update_framed(index_entry, b"oid", oid)
+            update_framed(index_entry, b"stage", stage_number)
+            update_framed(entry, b"index-entry", index_entry.digest())
+        update_framed(entry, b"populated", b"1" if populated else b"0")
+        if populated:
+            nested = _worktree_dirty_fingerprint(Path(os.fsdecode(full_path)))
+            update_framed(entry, b"nested-state-sha256", nested.encode("ascii"))
+        update_framed(digest, b"submodule-entry", entry.digest())
+
+    return digest.hexdigest()
+
+
+_CLEANUP_SNAPSHOT_LABELS = {
+    "registered": "worktree registration",
+    "worktree_path": "worktree path",
+    "path_exists": "worktree existence",
+    "path_is_dir": "worktree type",
+    "locked": "worktree lock",
+    "detached": "attachment state",
+    "worktree_head": "worktree HEAD",
+    "branch_oid": "branch tip",
+    "proof_base": "proof base",
+    "proof_base_oid": "proof-base tip",
+    "merged": "merge proof",
+    "dirty_files": "uncommitted paths",
+    "dirty_fingerprint": "uncommitted content",
+}
+_CLEANUP_SNAPSHOT_KEYS = frozenset(
+    {"version", "worktree_name", "branch_name"} | set(_CLEANUP_SNAPSHOT_LABELS)
+)
+
+
+def _validate_cleanup_snapshot(
+    worktree_name: str, snapshot: Dict[str, Any]
+) -> None:
+    """Reject malformed disclosure authority before any destructive step."""
+    if not isinstance(snapshot, dict):
+        raise ShardError(
+            f"Invalid cleanup disclosure snapshot for '{worktree_name}': "
+            "expected an object; nothing was removed."
+        )
+
+    keys = set(snapshot)
+    if keys != _CLEANUP_SNAPSHOT_KEYS:
+        missing = sorted(_CLEANUP_SNAPSHOT_KEYS - keys)
+        extra = sorted(keys - _CLEANUP_SNAPSHOT_KEYS)
+        details = []
+        if missing:
+            details.append(f"missing {', '.join(missing)}")
+        if extra:
+            details.append(f"unexpected {', '.join(extra)}")
+        raise ShardError(
+            f"Invalid cleanup disclosure snapshot for '{worktree_name}': "
+            f"{'; '.join(details)}; nothing was removed."
+        )
+
+    errors = []
+    if type(snapshot["version"]) is not int or snapshot["version"] != 1:
+        errors.append("version must be 1")
+    for key in ("worktree_name", "branch_name", "worktree_path"):
+        if not isinstance(snapshot[key], str) or not snapshot[key]:
+            errors.append(f"{key} must be a nonempty string")
+    if snapshot["worktree_name"] != worktree_name:
+        errors.append("worktree_name does not match its map key")
+    if snapshot["branch_name"] != f"{SHARD_BRANCH_PREFIX}{worktree_name}":
+        errors.append("branch_name does not match worktree_name")
+    if isinstance(snapshot["worktree_path"], str) and not Path(
+        snapshot["worktree_path"]
+    ).is_absolute():
+        errors.append("worktree_path must be absolute")
+
+    for key in (
+        "registered",
+        "path_exists",
+        "path_is_dir",
+        "locked",
+        "detached",
+    ):
+        if type(snapshot[key]) is not bool:
+            errors.append(f"{key} must be boolean")
+    for key in (
+        "worktree_head",
+        "branch_oid",
+        "proof_base",
+        "proof_base_oid",
+        "dirty_fingerprint",
+    ):
+        if snapshot[key] is not None and not isinstance(snapshot[key], str):
+            errors.append(f"{key} must be a string or null")
+    if snapshot["merged"] is not None and type(snapshot["merged"]) is not bool:
+        errors.append("merged must be boolean or null")
+    if not isinstance(snapshot["dirty_files"], list) or not all(
+        isinstance(line, str) for line in snapshot["dirty_files"]
+    ):
+        errors.append("dirty_files must be a list of strings")
+    if bool(snapshot["dirty_files"]) != bool(snapshot["dirty_fingerprint"]):
+        errors.append("dirty_files and dirty_fingerprint must be present together")
+    if snapshot["merged"] is True and not (
+        snapshot["branch_oid"] and snapshot["proof_base_oid"]
+    ):
+        errors.append("a true merge proof requires both commit OIDs")
+    if snapshot["path_is_dir"] and not snapshot["path_exists"]:
+        errors.append("a directory path must exist")
+
+    if errors:
+        raise ShardError(
+            f"Invalid cleanup disclosure snapshot for '{worktree_name}': "
+            f"{'; '.join(errors)}; nothing was removed."
+        )
+
+
+def _capture_cleanup_snapshot(
+    repo,
+    worktree_name: str,
+    base_branch: Optional[str] = None,
+    resolution: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Capture every disclosed fact that cleanup can revalidate.
+
+    The snapshot is the common authority object for single and chain cleanup.
+    It binds identity/location, both commit tips used by deletion proof,
+    attachment state, and the exact uncommitted bytes removal may discard.
+    Execution compares the complete object at its revalidation points, while
+    ref deletion separately uses Git's compare-and-swap transactions.
+    """
+    if resolution is None:
+        resolution = resolve_shard(worktree_name)
+    worktree_name = resolution["name"]
+    if resolution.get("ambiguous"):
+        raise ShardError(
+            f"Cannot snapshot cleanup authority for '{worktree_name}': "
+            "multiple metadata rows claim its detached worktree"
+        )
+
+    worktree_path = Path(resolution["path"])
+    stanza = (
+        _stanza_for_path(repo, worktree_path)
+        if resolution.get("registered")
+        else None
+    )
+    registered = stanza is not None if resolution.get("registered") else False
+    if stanza is not None:
+        worktree_path = Path(stanza["path"])
+    path_exists = worktree_path.exists()
+    branch_name = resolution["branch"]
+    branch_oid = _branch_oid(repo, branch_name)
+    proof_base = _resolve_proof_base(worktree_name, base_branch)
+    proof_base_oid = _branch_oid(repo, proof_base) if proof_base else None
+    merged: Optional[bool] = None
+    if branch_oid and proof_base_oid:
+        merged = _commit_contained_in(repo, branch_oid, proof_base_oid)
+
+    dirty_files: List[str] = []
+    dirty_fingerprint: Optional[str] = None
+    if path_exists and worktree_path.is_dir():
+        dirty_files = _worktree_dirty_files(worktree_path)
+        if dirty_files:
+            dirty_fingerprint = _worktree_dirty_fingerprint(worktree_path)
+
+    return {
+        "version": 1,
+        "worktree_name": worktree_name,
+        "branch_name": branch_name,
+        "registered": registered,
+        "worktree_path": str(worktree_path.absolute()),
+        "path_exists": path_exists,
+        "path_is_dir": worktree_path.is_dir(),
+        "locked": bool(stanza.get("locked")) if stanza else False,
+        "detached": bool(stanza.get("detached")) if stanza else False,
+        "worktree_head": stanza.get("head") if stanza else None,
+        "branch_oid": branch_oid,
+        "proof_base": proof_base,
+        "proof_base_oid": proof_base_oid,
+        "merged": merged,
+        "dirty_files": dirty_files,
+        "dirty_fingerprint": dirty_fingerprint,
+    }
+
+
+def _cleanup_snapshot_changes(
+    disclosed: Dict[str, Any], current: Dict[str, Any]
+) -> List[str]:
+    """Human-readable fields that differ between two authority snapshots."""
+    return [
+        _CLEANUP_SNAPSHOT_LABELS.get(key, key.replace("_", " "))
+        for key in sorted(_CLEANUP_SNAPSHOT_KEYS)
+        if disclosed[key] != current[key]
+    ]
+
+
+def _require_cleanup_snapshot(
+    worktree_name: str,
+    disclosed: Dict[str, Any],
+    current: Dict[str, Any],
+    *,
+    whole_chain: bool = False,
+) -> None:
+    """Refuse when any fact covered by cleanup disclosure has changed."""
+    _validate_cleanup_snapshot(worktree_name, disclosed)
+    _validate_cleanup_snapshot(worktree_name, current)
+    changes = _cleanup_snapshot_changes(disclosed, current)
+    if not changes:
+        return
+    scope = (
+        "nothing was removed"
+        if whole_chain
+        else "nothing was removed for this link"
+    )
+    dirty_detail = (
+        " The content or index state changed after disclosure."
+        if "uncommitted content" in changes
+        else ""
+    )
+    raise ShardError(
+        f"Cannot cleanup '{worktree_name}': state changed after disclosure; "
+        f"{scope}.{dirty_detail}\n"
+        f"Changed: {', '.join(changes)}\n"
+        "Re-run cleanup to inspect and confirm the current state."
+    )
+
+
+def _registered_worktree_paths(repo) -> List[Path]:
+    """Paths of every linked worktree registration git currently lists."""
+    return [Path(s["path"]) for s in _list_worktree_stanzas(repo) if not s["is_main"]]
+
+
+def _prune_registrations_preserving_metadata(repo) -> None:
+    """Global `git worktree prune` plus invariant-11 repair for collateral rows.
+
+    `git worktree prune` is global: it drops EVERY prunable registration,
+    not just the caller's target. Any row whose recorded registration
+    disappears in this prune while its branch survives has just become
+    branch-only, so its path is cleared (row and lineage preserved —
+    metadata follows the branch). Rows whose branch is also gone are stale
+    rows: phase-5 gc material, never touched silently.
+
+    Two safety rules govern the global prune:
+    - A missing DETACHED worktree's registration is the only reachability
+      record of its HEAD commit, and this hygiene pass carries no authority
+      over that commit — if such a registration exists, the prune is
+      skipped entirely. Discarding it belongs to that shard's own cleanup,
+      which settles HEAD-containment authority and removes its registration
+      by targeted `git worktree remove --force`.
+    - Rows whose registration this prune is about to drop while their
+      branch survives have their recorded path cleared BEFORE the git
+      mutation: a DB failure then aborts with git untouched, and a git
+      failure leaves only a pathless row — never a dead path that could
+      bind unrelated detached work later. The after-check remains as a
+      backstop for registrations that vanish unpredictedly.
+    """
+    stanzas = [s for s in _list_worktree_stanzas(repo) if not s["is_main"]]
+    for stanza in stanzas:
+        if stanza["detached"] and not os.path.isdir(stanza["path"]):
+            return
+    doomed = [
+        Path(s["path"])
+        for s in stanzas
+        if not s["locked"] and (s["prunable"] or not os.path.isdir(s["path"]))
+    ]
+    for row in _load_all_rows():
+        row_path = row.get("worktree_path")
+        if not row_path:
+            continue
+        if not any(_paths_equal(Path(row_path), p) for p in doomed):
+            continue
+        if _branch_exists(repo, f"{SHARD_BRANCH_PREFIX}{row['worktree_name']}"):
+            _set_worktree_path(row["worktree_name"], None)
+    before = [Path(s["path"]) for s in stanzas]
+    repo.git.worktree("prune")
+    after = _registered_worktree_paths(repo)
+    for row in _load_all_rows():
+        row_path = row.get("worktree_path")
+        if not row_path:
+            continue
+        recorded = Path(row_path)
+        was_registered = any(_paths_equal(recorded, p) for p in before)
+        still_registered = any(_paths_equal(recorded, p) for p in after)
+        if not was_registered or still_registered:
+            continue
+        if _branch_exists(repo, f"{SHARD_BRANCH_PREFIX}{row['worktree_name']}"):
+            _set_worktree_path(row["worktree_name"], None)
+
+
+def _resolve_proof_base(
+    worktree_name: str, explicit_base: Optional[str]
+) -> Optional[str]:
+    """
+    The base branch that merge proof may be checked against.
+
+    Comes ONLY from the shard's DB row (base_branch) or an explicit caller
+    argument — never from default-branch detection, the current HEAD, or any
+    other guess. A guessed base could prove "merged" against the wrong branch
+    and authorize deleting unmerged work.
+    """
+    if explicit_base:
+        return explicit_base
+    row = _get_shard_metadata(worktree_name)
+    if row and row.get("base_branch"):
+        return row["base_branch"]
+    return None
+
+
+def _cleanup_shard_detailed(
     worktree_name: str,
     keep_branch: bool = False,
     caller_cwd: Optional[str] = None,
     project_root: Optional[str] = None,
-) -> bool:
+    delete_unmerged_branch: bool = False,
+    base_branch: Optional[str] = None,
+    discard_uncommitted: bool = False,
+    authorized_dirty_files: Optional[List[str]] = None,
+    authorized_dirty_fingerprint: Optional[str] = None,
+    authorized_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
-    Remove SHARD worktree and optionally delete branch.
+    Remove SHARD worktree; delete the branch only under explicit authority.
+
+    Branch deletion has exactly two authorities (invariant 6):
+    - merge proof: an ancestry check showing the branch is contained in its
+      base, where the base comes only from the DB row or the base_branch
+      argument (never guessed); or
+    - the explicit delete_unmerged_branch override.
+
+    keep_branch skips deletion entirely. When the branch survives (kept or
+    preserved absent authority), the DB row survives with it, with only
+    worktree_path cleared (invariant 11 — metadata follows the branch).
+    Internal git force flags are directory mechanics and never cascade to
+    branches.
 
     Args:
-        worktree_name: Worktree directory name (e.g., 'fix-auth-bug-20251109-001')
-            Can also be a full path, which will be normalized to just the name.
-        keep_branch: If True, keep git branch after removing worktree
-        caller_cwd: Optional path to check for self-deletion. If provided, cleanup will
-            be refused if this path is inside the target worktree. This is used to prevent
-            agents from deleting their own worktree after cd-ing elsewhere.
+        worktree_name: Shard name, or the exact absolute path of a member's
+            worktree (resolved to its member — basenames are never extracted).
+        keep_branch: If True, keep git branch after removing worktree.
+        caller_cwd: Optional path checked against self-deletion.
         project_root: Optional path to git repo. If not provided, auto-detects.
+        delete_unmerged_branch: Explicit authority to delete a branch that is
+            not provably merged. This is the only such authority; interactive
+            confirmation (--yes) never substitutes for it.
+        base_branch: Explicit base for the merge proof when no DB row records
+            one. Never guessed.
+        discard_uncommitted: Blanket programmatic confirmation that this
+            worktree's uncommitted changes may be discarded. Ignored when
+            authorized_dirty_files is given.
+        authorized_dirty_files: The exact dirty status lines a disclosure
+            confirmed (the CLI passes the set it printed). Discard authority
+            is exact to this set: any dirty file outside it — dirt that
+            appeared after disclosure — refuses, and the recheck runs again
+            immediately before any force removal.
+        authorized_dirty_fingerprint: Digest of the disclosed dirty state.
+            Required whenever authorized_dirty_files permits discarding a
+            nonempty state; catches same-path content or index changes whose
+            porcelain status line stays unchanged.
+        authorized_snapshot: Complete per-link state captured at disclosure.
+            When supplied, every mutable cleanup fact must still match before
+            any mutation. This is the CLI authority path; the narrower dirty
+            arguments remain for compatible internal callers.
 
     Returns:
-        True if successful, False otherwise
+        Dict describing what happened: worktree_removed, worktree_pruned,
+        branch_deleted, branch_preserved, row_deleted, path_cleared,
+        branch_name, merged, message.
 
     Raises:
-        ShardError: If cleanup fails
+        ShardError: On refusal (unknown/branch-only/locked/ambiguous names,
+        unauthorized branch deletion, unconfirmed dirty worktree) or failure.
     """
     if project_root:
         set_project_root(project_root)
 
-    worktrees_dir = get_worktrees_dir()
-
-    # Normalize worktree_name: if user passes a full path, extract just the name
-    # This prevents Path('/base') / '/full/path' from returning just '/full/path'
-    worktree_name = Path(worktree_name).name
-
-    # Validate: worktree_name must not be empty or the worktrees directory itself
-    if not worktree_name or worktree_name == worktrees_dir.name:
+    if not worktree_name or not str(worktree_name).strip():
         raise ShardError(
             f"Invalid worktree name: '{worktree_name}'\n"
             f"Expected a specific worktree name like 'agent-20251109-001'"
         )
 
-    worktree_path = worktrees_dir / worktree_name
+    repo = _get_repo()
+    resolution = resolve_shard(worktree_name)
+    # The resolver maps an exact member-path input to its member; use the
+    # canonical name for everything downstream (rows are keyed by name).
+    worktree_name = resolution["name"]
+    branch_name = resolution["branch"]
 
-    # Safety check: ensure the path is actually inside worktrees_dir
-    # (should always be true after normalization, but belt-and-suspenders)
-    try:
-        worktree_path.resolve().relative_to(worktrees_dir.resolve())
-    except ValueError:
+    if resolution.get("ambiguous"):
         raise ShardError(
-            f"Invalid worktree path: {worktree_path}\n"
-            f"Worktree must be inside: {worktrees_dir}"
+            f"Cannot cleanup '{worktree_name}': multiple DB rows claim its "
+            f"detached worktree at {resolution['path']}.\n"
+            f"This is corrupt metadata; inspect with `skein shard triage` and "
+            f"repair the rows before any destructive operation."
         )
 
-    if not worktree_path.exists():
-        raise ShardError(f"Worktree not found: {worktree_path}")
+    current_snapshot = _capture_cleanup_snapshot(
+        repo,
+        worktree_name,
+        base_branch=base_branch,
+        resolution=resolution,
+    )
+    if authorized_snapshot is not None:
+        _require_cleanup_snapshot(
+            worktree_name, authorized_snapshot, current_snapshot
+        )
+        authorized_dirty_files = list(authorized_snapshot["dirty_files"])
+        authorized_dirty_fingerprint = authorized_snapshot["dirty_fingerprint"]
+        discard_uncommitted = False
 
-    # Check if caller_cwd is inside the worktree being deleted
-    # This prevents agents from deleting their own worktree after cd-ing elsewhere
-    if caller_cwd:
-        caller_path = Path(caller_cwd)
-        if _is_path_inside_worktree(caller_path, worktree_path):
+    if not current_snapshot["registered"]:
+        # No git worktree entry for this name.
+        if resolution["branch_exists"]:
             raise ShardError(
-                f"Cannot cleanup: caller_cwd is inside the target worktree.\n"
-                f"caller_cwd: {caller_cwd}\n"
-                f"This may indicate self-deletion attempt."
+                f"'{worktree_name}' is a branch-only shard (branch "
+                f"{branch_name} survives with no worktree).\n"
+                f"Branch-only shards are observational-only: cleanup will not "
+                f"touch the branch or its metadata.\n"
+                f"To revive it: git worktree add <path> {branch_name}\n"
+                f"To inspect it: skein shard triage"
+            )
+        raise ShardError(
+            f"'{worktree_name}' has no worktree and no surviving branch "
+            f"(a stale metadata row may remain; see `skein shard triage`).\n"
+            f"Nothing to clean up."
+        )
+
+    if current_snapshot["locked"]:
+        raise ShardError(
+            f"Cannot cleanup '{worktree_name}': its worktree is locked "
+            f"({resolution['path']}).\n"
+            f"Unlock it first if you really mean it: git worktree unlock "
+            f"{resolution['path']}"
+        )
+
+    worktree_path = Path(current_snapshot["worktree_path"])
+    missing = not current_snapshot["path_exists"]
+
+    # Self-deletion guards (meaningful only while the directory exists)
+    if not missing:
+        if caller_cwd:
+            caller_path = Path(caller_cwd)
+            if _is_path_inside_worktree(caller_path, worktree_path):
+                raise ShardError(
+                    f"Cannot cleanup: caller_cwd is inside the target worktree.\n"
+                    f"caller_cwd: {caller_cwd}\n"
+                    f"This may indicate self-deletion attempt."
+                )
+        try:
+            current_dir = Path.cwd()
+            if _is_path_inside_worktree(current_dir, worktree_path):
+                raise ShardError(
+                    f"Cannot cleanup from inside the worktree.\n"
+                    f"Your shell is currently in: {current_dir}\n"
+                    f"Please change directory first: cd {get_project_root()}"
+                )
+        except OSError:
+            pass
+
+    # Branch-deletion authority is settled BEFORE touching anything, and it
+    # is settled against the exact OID the deletion will later require: a
+    # proof over the ref NAME would let the ref move between proof and
+    # deletion and the delete would then discard commits nothing proved.
+    branch_oid = current_snapshot["branch_oid"]
+    branch_present = branch_oid is not None
+    proof_base = current_snapshot["proof_base"]
+    merged = current_snapshot["merged"] is True
+
+    want_delete = not keep_branch and branch_present
+    authorized = merged or delete_unmerged_branch
+    preserve_branch = False
+
+    if want_delete and not authorized:
+        if missing:
+            # The directory is already gone; prune the stale registration but
+            # preserve the unmerged branch and its metadata row.
+            preserve_branch = True
+        else:
+            if proof_base is None:
+                raise ShardError(
+                    f"Cannot cleanup '{worktree_name}': branch {branch_name} "
+                    f"has no recorded base branch to prove a merge against.\n"
+                    f"No base is ever guessed. Your options:\n"
+                    f"  - pass --base <branch> to check merge proof explicitly\n"
+                    f"  - pass --delete-unmerged-branch to delete it anyway "
+                    f"(you assume the loss)\n"
+                    f"  - pass --keep-branch to remove only the worktree\n"
+                    f"  - leave the shard alone"
+                )
+            raise ShardError(
+                f"Cannot cleanup '{worktree_name}': branch {branch_name} is "
+                f"not provably merged into {proof_base}.\n"
+                f"(Ancestry check only — a squash-merged or rebased branch "
+                f"also reads as unmerged; check with `git branch --merged "
+                f"{proof_base}`.)\n"
+                f"Your options:\n"
+                f"  - merge it first: skein shard merge {worktree_name}\n"
+                f"  - pass --delete-unmerged-branch to delete it anyway "
+                f"(you assume the loss)\n"
+                f"  - pass --keep-branch to remove only the worktree\n"
+                f"  - leave the shard alone"
             )
 
-    # Also check current working directory for backwards compatibility
-    # If so, exit with error to prevent breaking the user's shell
-    try:
-        current_dir = Path.cwd()
-        if _is_path_inside_worktree(current_dir, worktree_path):
+    # Detached-worktree discard authority: removing (or pruning) a detached
+    # worktree discards its actual HEAD commit, which may have advanced past
+    # the shard branch — the branch's merge proof says nothing about it. The
+    # discard needs its own proof over the exact HEAD being discarded
+    # (containment in the proof base) or the explicit override.
+    detached_head = None
+    if resolution.get("detached"):
+        detached_head = current_snapshot["worktree_head"]
+        head_contained = bool(
+            detached_head
+            and proof_base
+            and _branch_exists(repo, proof_base)
+            and _commit_contained_in(repo, detached_head, proof_base)
+        )
+        if not head_contained and not delete_unmerged_branch:
+            shown = detached_head[:12] if detached_head else "unknown"
+            base_shown = proof_base if proof_base else "any recorded base"
             raise ShardError(
-                f"Cannot cleanup from inside the worktree.\n"
-                f"Your shell is currently in: {current_dir}\n"
-                f"Please change directory first: cd {get_project_root()}"
+                f"Cannot cleanup '{worktree_name}': its worktree is detached "
+                f"at commit {shown}, which is not provably contained in "
+                f"{base_shown}.\n"
+                f"Removing the worktree would discard that commit.\n"
+                f"Your options:\n"
+                f"  - finish or abort the rebase/bisect so the branch "
+                f"reattaches, then retry\n"
+                f"  - pass --base <branch> if the commit is merged elsewhere\n"
+                f"  - pass --delete-unmerged-branch to discard it anyway "
+                f"(you assume the loss)\n"
+                f"  - leave the shard alone"
             )
-    except OSError:
-        # If we can't determine current directory (e.g., it's already deleted),
-        # that's fine, continue with cleanup
-        pass
 
-    # Extract branch name from worktree
-    # Format: agent-id-date-seq → shard-agent-id-date-seq
-    branch_name = f"shard-{worktree_name}"
+    # Uncommitted-work confirmation (git-side check, before any removal).
+    # Discard authority is exact: with a disclosed set, any file outside it
+    # refuses — a confirmation never stretches to dirt that appeared after
+    # the disclosure it confirmed.
+    if not missing:
+        dirty_files = list(current_snapshot["dirty_files"])
+        undisclosed = _undisclosed_dirty(
+            dirty_files, authorized_dirty_files, discard_uncommitted
+        )
+        dirty_state_changed = bool(
+            dirty_files
+            and authorized_dirty_files is not None
+            and (
+                authorized_dirty_fingerprint is None
+                or _worktree_dirty_fingerprint(worktree_path)
+                != authorized_dirty_fingerprint
+            )
+        )
+        if undisclosed or dirty_state_changed:
+            listed = undisclosed or dirty_files
+            listing = "\n".join(f"  {ln}" for ln in listed[:20])
+            more = len(listed) - 20
+            if more > 0:
+                listing += f"\n  ... and {more} more"
+            beyond = (
+                " beyond the disclosed set"
+                if authorized_dirty_files is not None
+                else ""
+            )
+            err = ShardError(
+                f"Worktree has uncommitted changes{beyond}"
+                + (
+                    " whose content or index state changed after disclosure"
+                    if dirty_state_changed
+                    else ""
+                )
+                + f":\n{listing}\n"
+                f"Cleanup would discard them. Confirm explicitly "
+                f"(interactively, or --yes at the CLI) to proceed."
+            )
+            err.dirty_files = dirty_files
+            err.dirty_fingerprint = (
+                current_snapshot["dirty_fingerprint"] if dirty_files else None
+            )
+            err.cleanup_snapshot = current_snapshot
+            raise err
 
-    # Remove worktree using GitPython
-    repo = _get_repo()
-    try:
-        repo.git.worktree("remove", str(worktree_path))
-    except Exception:
-        # Try force removal if regular removal fails
+    result: Dict[str, Any] = {
+        "worktree_removed": False,
+        "worktree_pruned": False,
+        "branch_deleted": False,
+        "branch_preserved": False,
+        "row_deleted": False,
+        "path_cleared": False,
+        "branch_name": branch_name,
+        "merged": merged,
+        "message": "",
+    }
+
+    # Cross-store ordering: the row's recorded path is authority to bind
+    # detached work, so it is revoked BEFORE any git mutation. A DB failure
+    # here aborts with git untouched; any git failure after this point
+    # leaves at worst a pathless row (branch-only metadata, or a stale row
+    # triage surfaces) — never a dead path that could bind an unrelated
+    # worktree created at the same location later.
+    row = _get_shard_metadata(worktree_name)
+    prior_path = row.get("worktree_path") if row else None
+    if prior_path is not None:
+        try:
+            _set_worktree_path(worktree_name, None)
+        except Exception as e:
+            raise ShardError(
+                f"Cleanup aborted before touching git state: could not clear "
+                f"the recorded worktree path for '{worktree_name}': {e}"
+            )
+
+    if missing:
+        # The directory is gone; remove exactly this registration. --force
+        # here is registration mechanics for an absent directory and carries
+        # no branch authority. Targeted, unlike global prune, so no other
+        # worktree's registration — or detached HEAD — is touched.
         try:
             repo.git.worktree("remove", "--force", str(worktree_path))
-        except Exception as e2:
-            raise ShardError(f"Failed to remove worktree: {e2}")
-
-    # Optionally delete branch
-    if not keep_branch:
-        try:
-            repo.git.branch("-D", branch_name)
         except Exception as e:
-            # Don't raise error if branch deletion fails (branch might not exist)
-            import sys
-
-            print(
-                f"Warning: Could not delete branch {branch_name}: {e}", file=sys.stderr
+            _restore_live_worktree_path(
+                repo,
+                worktree_name,
+                worktree_path,
+                branch_name,
+                bool(resolution.get("detached")),
+                detached_head,
+                prior_path is not None,
             )
+            raise ShardError(f"Failed to prune stale worktree registration: {e}")
+        result["worktree_pruned"] = True
+    else:
+        try:
+            repo.git.worktree("remove", str(worktree_path))
+        except Exception:
+            # Plain removal refuses dirty trees. Recheck against the same
+            # authority before forcing, so dirt that appeared between the
+            # disclosure check and removal refuses instead of being wiped —
+            # --force stays directory mechanics, never discard authority.
+            if authorized_snapshot is not None:
+                try:
+                    latest_snapshot = _capture_cleanup_snapshot(
+                        repo,
+                        worktree_name,
+                        base_branch=base_branch,
+                        resolution=resolution,
+                    )
+                    _require_cleanup_snapshot(
+                        worktree_name,
+                        authorized_snapshot,
+                        latest_snapshot,
+                    )
+                except ShardError:
+                    _restore_live_worktree_path(
+                        repo,
+                        worktree_name,
+                        worktree_path,
+                        branch_name,
+                        bool(resolution.get("detached")),
+                        detached_head,
+                        prior_path is not None,
+                    )
+                    raise
+                current_dirty = list(latest_snapshot["dirty_files"])
+            else:
+                current_dirty = _worktree_dirty_files(worktree_path)
+            late = _undisclosed_dirty(
+                current_dirty,
+                authorized_dirty_files,
+                discard_uncommitted,
+            )
+            try:
+                dirty_state_changed = bool(
+                    current_dirty
+                    and authorized_dirty_files is not None
+                    and (
+                        authorized_dirty_fingerprint is None
+                        or _worktree_dirty_fingerprint(worktree_path)
+                        != authorized_dirty_fingerprint
+                    )
+                )
+            except ShardError:
+                _restore_live_worktree_path(
+                    repo,
+                    worktree_name,
+                    worktree_path,
+                    branch_name,
+                    bool(resolution.get("detached")),
+                    detached_head,
+                    prior_path is not None,
+                )
+                raise
+            if late or dirty_state_changed:
+                _restore_live_worktree_path(
+                    repo,
+                    worktree_name,
+                    worktree_path,
+                    branch_name,
+                    bool(resolution.get("detached")),
+                    detached_head,
+                    prior_path is not None,
+                )
+                listing = "\n".join(
+                    f"  {ln}" for ln in (late or current_dirty)[:20]
+                )
+                raise ShardError(
+                    f"Refusing to force-remove '{worktree_name}': uncommitted "
+                    f"changes appeared or changed after disclosure:\n{listing}\n"
+                    f"Nothing was removed. Re-run cleanup to re-disclose."
+                )
+            try:
+                repo.git.worktree("remove", "--force", str(worktree_path))
+            except Exception as e2:
+                _restore_live_worktree_path(
+                    repo,
+                    worktree_name,
+                    worktree_path,
+                    branch_name,
+                    bool(resolution.get("detached")),
+                    detached_head,
+                    prior_path is not None,
+                )
+                raise ShardError(f"Failed to remove worktree: {e2}")
+        result["worktree_removed"] = True
 
-    # Prune stale worktree references
+    if want_delete and authorized:
+        try:
+            _delete_branch_at_oid(
+                repo,
+                branch_name,
+                branch_oid,
+                proof_base=proof_base if merged else None,
+                expected_proof_base_oid=(
+                    current_snapshot["proof_base_oid"] if merged else None
+                ),
+            )
+        except Exception as e:
+            # The worktree is gone but the branch survived — possibly
+            # because the branch or proof-base ref moved past the OIDs the
+            # authority covered. Its row
+            # already lost its path in the pre-transition, so this failure
+            # state is exactly branch-only metadata (invariant 11), never a
+            # dead pointer.
+            raise ShardError(
+                f"Removed worktree but failed to delete branch {branch_name}: "
+                f"{e}\n"
+                f"If either ref moved since the merge proof, re-run cleanup "
+                f"to prove the current tips (or pass "
+                f"--delete-unmerged-branch)."
+            )
+        result["branch_deleted"] = True
+        result["message"] = (
+            f"Removed worktree and deleted branch {branch_name} "
+            f"({'merge-proven' if merged else 'explicit override'})."
+        )
+        # The row is deleted only together with its branch (invariant 11).
+        # Its path is already cleared, so a failure here leaves a harmless
+        # pathless stale row (triage-visible), which is reported, not raised.
+        if row is not None:
+            try:
+                _delete_shard_row(worktree_name)
+                result["row_deleted"] = True
+            except Exception as e:
+                result["message"] += (
+                    f"\nNote: the metadata row could not be deleted and "
+                    f"remains as a pathless stale row (see `skein shard "
+                    f"triage`): {e}"
+                )
+    else:
+        # Branch survives: metadata follows the branch. Preserve the row;
+        # its recorded path was already cleared in the pre-transition.
+        if branch_present:
+            result["branch_preserved"] = True
+        if row is not None:
+            result["path_cleared"] = True
+        if preserve_branch:
+            result["message"] = (
+                f"Pruned stale worktree registration. Branch {branch_name} is "
+                f"not provably merged and was PRESERVED with its metadata "
+                f"(now branch-only; path cleared).\n"
+                f"Check with: git branch --merged"
+                + (f" {proof_base}" if proof_base else "")
+                + f"\nRevive with: git worktree add <path> {branch_name}\n"
+                f"To delete through SKEIN, revive it first, then run: "
+                f"skein shard cleanup {worktree_name} "
+                f"--delete-unmerged-branch"
+            )
+        elif keep_branch and branch_present:
+            result["message"] = (
+                f"Removed worktree; branch {branch_name} kept with its "
+                f"metadata (path cleared)."
+            )
+        else:
+            result["message"] = "Removed worktree."
+
+    # Prune stale worktree references (global: collateral rows repaired too)
     try:
-        repo.git.worktree("prune")
+        _prune_registrations_preserving_metadata(repo)
     except Exception:
         pass  # Ignore prune errors
 
+    return result
+
+
+def cleanup_shard(
+    worktree_name: str,
+    keep_branch: bool = False,
+    caller_cwd: Optional[str] = None,
+    project_root: Optional[str] = None,
+    delete_unmerged_branch: bool = False,
+    base_branch: Optional[str] = None,
+    discard_uncommitted: bool = False,
+) -> bool:
+    """
+    Remove SHARD worktree; delete the branch only under explicit authority.
+
+    Public wrapper preserving the long-standing bool contract: returns True
+    on success and raises ShardError otherwise, so existing callers
+    comparing `cleanup_shard(...) is True` keep working. The detailed
+    outcome dict lives on _cleanup_shard_detailed (used by the CLI and
+    chain cleanup); the authority semantics are documented there.
+    """
+    _cleanup_shard_detailed(
+        worktree_name,
+        keep_branch=keep_branch,
+        caller_cwd=caller_cwd,
+        project_root=project_root,
+        delete_unmerged_branch=delete_unmerged_branch,
+        base_branch=base_branch,
+        discard_uncommitted=discard_uncommitted,
+    )
     return True
+
+
+def _list_worktree_stanzas(repo=None) -> List[Dict[str, Any]]:
+    """
+    Parse `git worktree list --porcelain` into one dict per worktree.
+
+    Captures the full stanza: path, HEAD, branch (normalized from
+    refs/heads/ form), detached, bare, locked (with reason), prunable (with
+    reason). The first stanza is the main worktree and is marked is_main.
+    """
+    if repo is None:
+        repo = _get_repo()
+    try:
+        output = repo.git.worktree("list", "--porcelain")
+    except Exception as e:
+        raise ShardError(f"Failed to list worktrees: {e}")
+
+    stanzas: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    for line in output.splitlines():
+        if not line.strip():
+            if current is not None:
+                stanzas.append(current)
+                current = None
+            continue
+        if line.startswith("worktree "):
+            if current is not None:
+                stanzas.append(current)
+            current = {
+                "path": line[len("worktree ") :],
+                "head": None,
+                "branch": None,
+                "detached": False,
+                "bare": False,
+                "locked": False,
+                "lock_reason": None,
+                "prunable": False,
+                "prunable_reason": None,
+            }
+            continue
+        if current is None:
+            continue
+        if line.startswith("HEAD "):
+            current["head"] = line[len("HEAD ") :]
+        elif line.startswith("branch "):
+            current["branch"] = _normalize_branch_ref(line[len("branch ") :])
+        elif line == "detached":
+            current["detached"] = True
+        elif line == "bare":
+            current["bare"] = True
+        elif line == "locked" or line.startswith("locked "):
+            current["locked"] = True
+            if line.startswith("locked "):
+                current["lock_reason"] = line[len("locked ") :]
+        elif line == "prunable" or line.startswith("prunable "):
+            current["prunable"] = True
+            if line.startswith("prunable "):
+                current["prunable_reason"] = line[len("prunable ") :]
+    if current is not None:
+        stanzas.append(current)
+
+    # git lists the main worktree first
+    for i, stanza in enumerate(stanzas):
+        stanza["is_main"] = i == 0
+    return stanzas
+
+
+def _member_entry(name: str, stanza: Dict[str, Any], source: str, detached: bool) -> Dict[str, Any]:
+    """Build a member dict (list_shards shape) from a name and its stanza."""
+    parsed = parse_shard_name(name) or {}
+    path = stanza["path"]
+    branch_name = f"{SHARD_BRANCH_PREFIX}{name}"
+    return {
+        # Long-standing keys (frozen contract)
+        "worktree_name": name,
+        "worktree_path": path,
+        "branch_name": branch_name,
+        "name": parsed.get("stem", name),
+        "date": parsed.get("date", ""),
+        "seq": parsed.get("seq", ""),
+        # Additive keys
+        "exists": os.path.isdir(path),
+        "source": source,
+        "detached": detached,
+        "branch": branch_name,
+        "locked": stanza["locked"],
+        "prunable": stanza["prunable"],
+    }
+
+
+def _classify_worktrees(repo=None) -> Dict[str, Any]:
+    """
+    Classify every linked worktree of the origin repo. Pure and read-only.
+
+    Membership (Decision A): a linked worktree is a member when its ACTUAL
+    checked-out branch is shard-<name> with <name> passing the pinned
+    grammar — at any location, any basename. A detached worktree is a member
+    only through exactly one DB row whose worktree_path matches it exactly
+    (raw or symlink-resolved). Everything else is classified for triage:
+    foreign shard-branch worktrees, detached-unbound, detached-ambiguous.
+
+    Works with no DB file (detached worktrees degrade to unbound).
+    """
+    stanzas = _list_worktree_stanzas(repo)
+    rows = _load_all_rows()
+
+    members: List[Dict[str, Any]] = []
+    foreign: List[Dict[str, Any]] = []
+    detached_unbound: List[Dict[str, Any]] = []
+    detached_ambiguous: List[Dict[str, Any]] = []
+
+    linked = [s for s in stanzas if not s["is_main"] and not s["bare"]]
+
+    # First pass: attached membership, from the actual branch only.
+    attached_names = set()
+    for stanza in linked:
+        name = shard_name_from_branch(stanza["branch"])
+        if name:
+            attached_names.add(name)
+
+    for stanza in linked:
+        if stanza["detached"]:
+            # Detached binding: exact path equality against recorded rows.
+            # A row whose name is already attached elsewhere cannot bind —
+            # the attached git member wins and that row's path is just stale.
+            candidates = []
+            for row in rows:
+                row_path = row.get("worktree_path")
+                if not row_path:
+                    continue
+                if row["worktree_name"] in attached_names:
+                    continue
+                if parse_shard_name(row["worktree_name"]) is None:
+                    continue
+                if _paths_equal(Path(row_path), Path(stanza["path"])):
+                    candidates.append(row)
+            if len(candidates) == 1:
+                members.append(
+                    _member_entry(
+                        candidates[0]["worktree_name"], stanza, source="db", detached=True
+                    )
+                )
+            elif len(candidates) > 1:
+                detached_ambiguous.append(
+                    {
+                        "path": stanza["path"],
+                        "head": stanza["head"],
+                        "names": sorted(r["worktree_name"] for r in candidates),
+                    }
+                )
+            else:
+                detached_unbound.append(
+                    {"path": stanza["path"], "head": stanza["head"]}
+                )
+            continue
+
+        name = shard_name_from_branch(stanza["branch"])
+        if name:
+            members.append(_member_entry(name, stanza, source="git", detached=False))
+        elif stanza["branch"] and stanza["branch"].startswith(SHARD_BRANCH_PREFIX):
+            # shard-* branch that fails the grammar (e.g. Spindle fallback
+            # shard-<hex8>): visible in triage, never operated on.
+            foreign.append({"path": stanza["path"], "branch": stanza["branch"]})
+
+    return {
+        "members": members,
+        "foreign": foreign,
+        "detached_unbound": detached_unbound,
+        "detached_ambiguous": detached_ambiguous,
+        "stanzas": stanzas,
+    }
 
 
 def list_shards(active_only: bool = True) -> List[Dict[str, str]]:
     """
-    List SHARD worktrees.
+    List SHARD worktrees (members only).
 
-    Args:
-        active_only: If True, only return worktrees that currently exist
+    Membership is decided by each worktree's actual checked-out branch under
+    the pinned grammar (or, for detached worktrees, an exact DB path
+    binding) — never by the worktree's location or directory basename.
 
     Returns:
         List of SHARD info dicts with keys:
-        - worktree_name
+        - worktree_name (the shard name — branch minus the shard- prefix)
         - worktree_path
         - branch_name
-        - name (the shard name)
-        - date (extracted from worktree name)
-        - seq (extracted from worktree name)
+        - name (the shard stem)
+        - date, seq (from the shard name)
+        - exists, source, detached, branch, locked, prunable (additive)
     """
-    # Get all worktrees from git using GitPython
-    try:
-        repo = _get_repo()
-        worktree_output = repo.git.worktree("list", "--porcelain")
-    except Exception as e:
-        raise ShardError(f"Failed to list worktrees: {e}")
-
-    # Parse git worktree list output (format unchanged)
-    shards = []
-    current_worktree = {}
-
-    for line in worktree_output.splitlines():
-        if line.startswith("worktree "):
-            if current_worktree:
-                # Process previous worktree. No pre-filter here: deciding
-                # whether a path is one of ours is _parse_worktree_info's job,
-                # and it does a proper containment check.
-                path = current_worktree.get("worktree")
-                if path:
-                    shard_info = _parse_worktree_info(path)
-                    if shard_info:
-                        shards.append(shard_info)
-            current_worktree = {"worktree": line.split(" ", 1)[1]}
-        elif line.startswith("branch "):
-            current_worktree["branch"] = line.split(" ", 1)[1]
-
-    # Don't forget last worktree
-    if current_worktree:
-        path = current_worktree.get("worktree")
-        if path:
-            shard_info = _parse_worktree_info(path)
-            if shard_info:
-                shards.append(shard_info)
-
-    return shards
-
-
-def _parse_worktree_info(worktree_path: str) -> Optional[Dict[str, str]]:
-    """
-    Parse worktree path into SHARD info.
-
-    Path format: /path/to/worktrees/{name}-{date}-{seq}
-    Branch format: shard-{name}-{date}-{seq}
-
-    Args:
-        worktree_path: Full path to worktree
-
-    Returns:
-        SHARD info dict or None if not a SHARD worktree
-    """
-    path = Path(worktree_path)
-
-    # Check if this is in our worktrees directory. Containment only - a shard
-    # is ours because of where it sits, not because its path spells
-    # "worktrees" (see _is_known_shard_location).
-    if not _is_known_shard_location(path):
-        return None
-
-    worktree_name = path.name
-
-    # Strip any -graft suffixes before parsing the base name
-    base_name = worktree_name
-    graft_suffix = ""
-    while base_name.endswith("-graft"):
-        base_name = base_name[:-6]  # Remove "-graft"
-        graft_suffix += "-graft"
-
-    # Try to parse base name: {name}-{date}-{seq}
-    parts = base_name.rsplit("-", 2)
-    if len(parts) < 3:
-        return None
-
-    try:
-        seq = int(parts[-1])
-        date = parts[-2]
-        name = "-".join(parts[:-2])
-    except (ValueError, IndexError):
-        return None
-
-    branch_name = f"shard-{worktree_name}"
-
-    return {
-        "worktree_name": worktree_name,
-        "worktree_path": str(path),
-        "branch_name": branch_name,
-        "name": name,
-        "date": date,
-        "seq": f"{seq:03d}",
-    }
+    return _classify_worktrees()["members"]
 
 
 def get_shard_status(worktree_name: str) -> Optional[Dict[str, str]]:
@@ -1056,119 +2365,450 @@ def get_shard_status(worktree_name: str) -> Optional[Dict[str, str]]:
     Get status of a specific SHARD.
 
     Args:
-        worktree_name: Worktree directory name (or full path, which will be normalized)
+        worktree_name: Shard name (matched verbatim — a valid canonical name
+            may contain '/'), or the exact absolute path of a member's
+            worktree (raw or symlink-resolved), which keeps full-path
+            invocation working even after a basename-changing move. Basenames
+            are never extracted: the directory name is not the identity, and
+            non-absolute input is never a path — only a canonical name.
 
     Returns:
         SHARD info dict or None if not found
     """
-    # Normalize: extract just the name if a full path was passed
-    worktree_name = Path(worktree_name).name
-
     shards = list_shards()
     for shard in shards:
         if shard["worktree_name"] == worktree_name:
             return shard
+    # Only absolute input may enter the path arm (see resolve_shard).
+    if Path(worktree_name).is_absolute():
+        for shard in shards:
+            if _paths_equal(Path(worktree_name), Path(shard["worktree_path"])):
+                return shard
     return None
 
 
-def get_shard_location(worktree_name: str) -> Dict[str, Any]:
+def resolve_shard(name: str) -> Dict[str, Any]:
     """
-    Report where a SHARD's worktree lives and which repo it came from.
+    The single resolver: turn a shard name into its real location.
 
-    Answers the two questions that arise once worktrees no longer sit inside
-    the project tree: where is it, and what is it a worktree of. The origin
-    repo is read from the worktree's own .git file, so the answer stays
-    correct even if the worktree has been moved by hand.
+    Authority order (Decision B):
+      1. git   — the live porcelain entry whose branch is shard-<name>
+                 (or whose detached path is bound to <name> by the DB row);
+      2. db    — the recorded worktree_path, when git no longer lists it;
+      3. guess — the computed creation-placement default, always labeled
+                 source "guess" and never presented as fact.
 
-    Args:
-        worktree_name: Worktree directory name (or full path, which is
-            normalized to its final component)
+    Pure: never writes, and works against a read-only DB and checkout.
+    Name lookups are exact-match only, on the verbatim input — a valid
+    canonical name may contain '/', so basenames are never extracted. The
+    one non-name input accepted is the exact absolute path of a member's
+    worktree (raw or symlink-resolved), which resolves to that member and
+    keeps full-path invocation working after a basename-changing move.
+    Non-absolute input is always a verbatim canonical name, never a
+    cwd-relative path.
 
     Returns:
-        Dict with keys:
-        - worktree_name
-        - worktree_path: best known location (recorded, live, or expected)
-        - worktrees_dir: the configured worktrees directory
-        - project_root: the repo this shard's worktree belongs to
-        - branch_name: shard branch, or None if unknown
-        - exists: whether worktree_path is present on disk
-        - registered: whether git currently lists it as a worktree
-        - source: where worktree_path came from ("git", "database", or
-          "expected" when the shard is unknown to both)
+        {name, path, source, exists, detached, branch, branch_exists,
+         registered, locked, prunable, ambiguous}
 
     Raises:
-        ShardError: if the name is not a valid shard name
+        ShardError: for unknown names (no worktree, no branch, no recorded
+        path) — with nearest-name suggestions, never a fabricated path.
     """
-    worktree_name = Path(worktree_name).name
-    if not worktree_name:
-        raise ShardError("Worktree name is required")
+    if not name:
+        raise ShardError("Shard name is required")
 
-    worktrees_dir = get_worktrees_dir()
+    repo = _get_repo()
+    classification = _classify_worktrees(repo)
 
-    # Prefer git's live answer, fall back to what we recorded at spawn, and
-    # fall back again to where the shard would go if it were created now.
-    shard_info = get_shard_status(worktree_name)
-    metadata = _get_shard_metadata(worktree_name) or {}
-    recorded_path = metadata.get("worktree_path")
+    matched = None
+    for member in classification["members"]:
+        if member["worktree_name"] == name:
+            matched = member
+            break
+    if matched is None and Path(name).is_absolute():
+        # Only absolute input may enter the path arm. Relative syntax
+        # belongs to canonical names (which may contain '/'); resolving it
+        # against cwd would let a bare name capture a different member
+        # moved to <cwd>/<name>.
+        for member in classification["members"]:
+            if _paths_equal(Path(name), Path(member["worktree_path"])):
+                matched = member
+                break
+    if matched is not None:
+        name = matched["worktree_name"]
+        branch_name = f"{SHARD_BRANCH_PREFIX}{name}"
+        return {
+            "name": name,
+            "path": matched["worktree_path"],
+            "source": matched["source"],
+            "exists": matched["exists"],
+            "detached": matched["detached"],
+            "branch": branch_name,
+            "branch_exists": _branch_exists(repo, branch_name),
+            "registered": True,
+            "locked": matched["locked"],
+            "prunable": matched["prunable"],
+            "ambiguous": False,
+        }
 
-    if shard_info:
-        worktree_path = Path(shard_info["worktree_path"])
-        source = "git"
-    elif recorded_path:
-        worktree_path = Path(recorded_path)
-        source = "database"
+    branch_name = f"{SHARD_BRANCH_PREFIX}{name}"
+
+    # A detached worktree claimed by multiple rows including this name:
+    # report it, flagged ambiguous, so destructive operations refuse.
+    for amb in classification["detached_ambiguous"]:
+        if name in amb["names"]:
+            return {
+                "name": name,
+                "path": amb["path"],
+                "source": "db",
+                "exists": os.path.isdir(amb["path"]),
+                "detached": True,
+                "branch": branch_name,
+                "branch_exists": _branch_exists(repo, branch_name),
+                "registered": True,
+                "locked": False,
+                "prunable": False,
+                "ambiguous": True,
+            }
+
+    branch_exists = _branch_exists(repo, branch_name)
+    row = _get_shard_metadata(name)
+    row_path = row.get("worktree_path") if row else None
+
+    if row_path:
+        # git no longer lists this worktree; the recorded path is the best
+        # honest answer (typically pruned or lost).
+        return {
+            "name": name,
+            "path": row_path,
+            "source": "db",
+            "exists": os.path.isdir(row_path),
+            "detached": False,
+            "branch": branch_name,
+            "branch_exists": branch_exists,
+            "registered": False,
+            "locked": False,
+            "prunable": False,
+            "ambiguous": False,
+        }
+
+    if branch_exists:
+        # Branch-only shard: no worktree, no recorded path. The placement
+        # default is a labeled guess, never fact.
+        guess = _placement_path(name)
+        return {
+            "name": name,
+            "path": str(guess),
+            "source": "guess",
+            "exists": guess.is_dir(),
+            "detached": False,
+            "branch": branch_name,
+            "branch_exists": True,
+            "registered": False,
+            "locked": False,
+            "prunable": False,
+            "ambiguous": False,
+        }
+
+    # Unknown shard (a row with neither a path nor a surviving branch is a
+    # stale row, not a shard). Exact-match only; suggest near misses.
+    known = sorted(
+        {m["worktree_name"] for m in classification["members"]}
+        | {
+            n
+            for n in (
+                shard_name_from_branch(b) for b in _list_shard_branches(repo)
+            )
+            if n
+        }
+    )
+    import difflib
+
+    suggestions = difflib.get_close_matches(name, known, n=3, cutoff=0.6)
+    hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+    stale_note = (
+        f"\n(A metadata row exists for '{name}' but its branch and worktree "
+        f"are gone — a stale row; see `skein shard triage`.)"
+        if row
+        else ""
+    )
+    raise ShardError(f"Unknown shard: {name}.{hint}{stale_note}")
+
+
+def _list_shard_branches(repo=None) -> List[str]:
+    """All local branches starting with the shard- prefix (short names)."""
+    if repo is None:
+        repo = _get_repo()
+    try:
+        output = repo.git.for_each_ref(
+            "--format=%(refname:short)", f"refs/heads/{SHARD_BRANCH_PREFIX}*"
+        )
+    except Exception:
+        return []
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def _refresh_row_path_if_moved(worktree_name: str, actual_path: str) -> bool:
+    """
+    Write-through path refresh for mutating lifecycle operations.
+
+    When a mutating operation resolves a member via git and the row's
+    recorded path disagrees (the worktree moved), refresh it. Updates only
+    existing rows; returns True when a write happened. Read commands must
+    never call this.
+    """
+    row = _get_shard_metadata(worktree_name)
+    if row is None:
+        return False
+    recorded = row.get("worktree_path")
+    if recorded and _paths_equal(Path(recorded), Path(actual_path)):
+        return False
+    _set_worktree_path(worktree_name, str(Path(actual_path).absolute()))
+    return True
+
+
+def _create_minimal_row(worktree_name: str, worktree_path: str) -> None:
+    """Create a metadata row for an already-existing member (reconcile and
+    lifecycle write-through via _bind_member_row).
+
+    Records only what git proves: the name and the current path. base_commit
+    is stored as '' (unknown — every reader treats a falsy base_commit as
+    absent) and base_branch as explicit NULL, deliberately overriding the
+    column's 'master' default, so such a row can never supply a guessed
+    base for cleanup's merge proof. Lineage is never invented.
+    """
+    conn = _get_db_connection()
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO shards
+            (worktree_name, worktree_path, base_commit, base_branch, created_at, status)
+            VALUES (?, ?, '', NULL, ?, 'active')
+            """,
+            (
+                worktree_name,
+                worktree_path,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _bind_member_row(worktree_name: str, actual_path: str) -> None:
+    """Write-through binding for mutating lifecycle operations (tender, graft).
+
+    Ensures the member has a metadata row bound to its actual path: creates
+    a minimal row (name and path only — never invented lineage, per
+    _create_minimal_row) when none exists, otherwise refreshes a stale
+    recorded path. Errors propagate: a lifecycle operation that cannot
+    record its binding must fail loudly, or a later detach silently loses
+    membership.
+    """
+    if _get_shard_metadata(worktree_name) is None:
+        _create_minimal_row(worktree_name, str(Path(actual_path).absolute()))
     else:
-        worktree_path = worktrees_dir / worktree_name
-        source = "expected"
+        _refresh_row_path_if_moved(worktree_name, actual_path)
 
-    branch_name = None
-    if shard_info:
-        branch_name = shard_info.get("branch_name")
-    elif recorded_path or metadata:
-        branch_name = f"shard-{worktree_name}"
 
-    # Resolve the origin repo from the worktree itself when we can - this is
-    # the location-independent answer, and it beats our own configuration.
-    project_root = _origin_repo_of_worktree(worktree_path)
-    if project_root is None:
-        project_root = get_project_root()
+def reconcile_shards() -> Dict[str, int]:
+    """
+    Explicit metadata reconciliation (the only non-lifecycle write path).
+
+    - Binds every current member: creates a minimal row when none exists and
+      backfills/corrects worktree_path where git disagrees (git is the
+      authority for paths).
+    - Clears worktree_path on rows whose recorded worktree git no longer
+      lists (the binding is dead; the row and its lineage survive).
+    - Never deletes rows, never invents lineage. Idempotent.
+
+    Returns:
+        {"bound": rows created, "updated": paths corrected/backfilled,
+         "cleared": paths cleared, "unchanged": members already correct}
+    """
+    classification = _classify_worktrees()
+    members = classification["members"]
+    rows = _load_all_rows()
+    rows_by_name = {r["worktree_name"]: r for r in rows}
+
+    bound = updated = cleared = unchanged = 0
+    for member in members:
+        name = member["worktree_name"]
+        actual = str(Path(member["worktree_path"]).absolute())
+        row = rows_by_name.get(name)
+        if row is None:
+            _create_minimal_row(name, actual)
+            bound += 1
+        elif not row.get("worktree_path"):
+            _set_worktree_path(name, actual)
+            updated += 1
+        elif not _paths_equal(Path(row["worktree_path"]), Path(actual)):
+            _set_worktree_path(name, actual)
+            updated += 1
+        else:
+            unchanged += 1
+
+    member_names = {m["worktree_name"] for m in members}
+    linked_stanzas = [s for s in classification["stanzas"] if not s["is_main"]]
+    for row in rows:
+        row_path = row.get("worktree_path")
+        if not row_path or row["worktree_name"] in member_names:
+            continue
+        stanza = next(
+            (
+                s
+                for s in linked_stanzas
+                if _paths_equal(Path(row_path), Path(s["path"]))
+            ),
+            None,
+        )
+        if stanza is not None:
+            # A worktree still sits at the recorded path but is NOT this
+            # row's member (this loop only sees non-member rows): it was
+            # reassigned to another branch, or it is detached without
+            # validly binding this row. Retaining the binding would let a
+            # later detach at that path adopt unrelated work under this
+            # row's name, so it is cleared like a gone path — with one
+            # exception: a detached tree claimed by multiple rows is corrupt
+            # state that triage flags as ambiguous, and reconcile refuses to
+            # guess which claim is the real one.
+            ambiguous_claim = stanza["detached"] and any(
+                row["worktree_name"] in amb["names"]
+                and _paths_equal(Path(row_path), Path(amb["path"]))
+                for amb in classification["detached_ambiguous"]
+            )
+            if ambiguous_claim:
+                continue
+        _set_worktree_path(row["worktree_name"], None)
+        cleared += 1
 
     return {
-        "worktree_name": worktree_name,
-        "worktree_path": str(worktree_path),
-        "worktrees_dir": str(worktrees_dir),
-        "project_root": str(project_root),
-        "branch_name": branch_name,
-        "exists": worktree_path.exists(),
-        "registered": shard_info is not None,
-        "source": source,
+        "bound": bound,
+        "updated": updated,
+        "cleared": cleared,
+        "unchanged": unchanged,
+    }
+
+
+def get_triage_extras() -> Dict[str, Any]:
+    """
+    Observability beyond live members, for `skein shard triage`. Read-only.
+
+    Returns:
+        - foreign: shard-* branch worktrees failing the grammar
+        - detached_unbound: detached worktrees with no DB binding
+        - detached_ambiguous: detached worktrees claimed by multiple rows
+        - branch_only: grammar-valid shard branches with no worktree
+          (revivable; includes recorded lineage when a row survives)
+        - stale_rows: rows with neither a worktree nor a surviving branch
+        - moved: members whose directory basename differs from their name
+    """
+    classification = _classify_worktrees()
+    repo = _get_repo()
+    members = classification["members"]
+    member_names = {m["worktree_name"] for m in members}
+
+    shard_branches = _list_shard_branches(repo)
+    rows_by_name = {r["worktree_name"]: r for r in _load_all_rows()}
+
+    branch_only = []
+    for branch in shard_branches:
+        name = shard_name_from_branch(branch)
+        if name and name not in member_names:
+            row = rows_by_name.get(name)
+            branch_only.append(
+                {
+                    "name": name,
+                    "branch": branch,
+                    "has_row": row is not None,
+                    "base_branch": row.get("base_branch") if row else None,
+                }
+            )
+
+    # Every name a shard-* branch answers to, grammar-valid or not: a row
+    # whose branch survives is live metadata, not stale.
+    branch_owned_names = {
+        b[len(SHARD_BRANCH_PREFIX) :] for b in shard_branches
+    }
+    stale_rows = sorted(
+        r["worktree_name"]
+        for r in rows_by_name.values()
+        if r["worktree_name"] not in member_names
+        and r["worktree_name"] not in branch_owned_names
+    )
+
+    moved = [
+        {
+            "worktree_name": m["worktree_name"],
+            "worktree_path": m["worktree_path"],
+            "basename": Path(m["worktree_path"]).name,
+        }
+        for m in members
+        if Path(m["worktree_path"]).name != m["worktree_name"]
+    ]
+
+    return {
+        "foreign": classification["foreign"],
+        "detached_unbound": classification["detached_unbound"],
+        "detached_ambiguous": classification["detached_ambiguous"],
+        "branch_only": branch_only,
+        "stale_rows": stale_rows,
+        "moved": moved,
     }
 
 
 def _origin_repo_of_worktree(worktree_path: Path) -> Optional[Path]:
     """
-    Resolve the repo a linked worktree belongs to, by reading its .git file.
+    Resolve the repo a linked worktree belongs to, via git-common-dir.
 
-    A linked worktree's .git is a file containing
-    "gitdir: /path/to/repo/.git/worktrees/<name>", which points home no matter
-    where the worktree itself has been placed.
+    Asks git itself (`rev-parse --git-common-dir`) instead of parsing the
+    .git file by hand. The common dir is requested in absolute form; when a
+    git too old for --path-format returns a relative path, it is resolved
+    against the worktree (the -C cwd it is relative to), never against our
+    own working directory.
 
     Returns:
         The origin repo path, or None if it can't be determined
     """
-    git_path = worktree_path / ".git"
+    # Only linked worktrees trace anywhere: they mark themselves with a .git
+    # FILE. A .git directory means this already is a main repo.
     try:
-        if not git_path.is_file():
+        if not (Path(worktree_path) / ".git").is_file():
             return None
-        gitdir_line = git_path.read_text().strip()
+    except OSError:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(worktree_path),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            result = subprocess.run(
+                ["git", "-C", str(worktree_path), "rev-parse", "--git-common-dir"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return None
+        common = Path(result.stdout.strip())
+        if not common.is_absolute():
+            common = (Path(worktree_path) / common).resolve()
     except OSError:
         return None
 
-    if not gitdir_line.startswith("gitdir: "):
+    if common.name != ".git":
         return None
-
-    # /.../repo/.git/worktrees/<name> -> /.../repo
-    main_repo = Path(gitdir_line[len("gitdir: ") :].strip()).parent.parent.parent
+    main_repo = common.parent
     if (main_repo / ".git").is_dir():
         return main_repo
     return None
@@ -1270,9 +2910,13 @@ def get_review_queue(stale_days: int = 7) -> Dict[str, List[Dict]]:
     return queue
 
 
-def get_shard_git_info(worktree_name: str) -> Dict:
+def get_shard_git_info(worktree_name: str, base_branch: Optional[str] = None) -> Dict:
     """
     Get git information for a SHARD: commits ahead, working tree status, merge status.
+
+    base_branch optionally overrides the base used for the merge-status
+    check (merge_shard passes its strictly-resolved base through so the
+    conflict preview matches the branch actually merged into).
 
     Returns dict with:
         - commits_ahead: int
@@ -1285,6 +2929,8 @@ def get_shard_git_info(worktree_name: str) -> Dict:
     shard_info = get_shard_status(worktree_name)
     if not shard_info:
         return {}
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
 
     result = {
         "commits_ahead": 0,
@@ -1325,7 +2971,8 @@ def get_shard_git_info(worktree_name: str) -> Dict:
 
         # Merge status - check if branch can merge cleanly into base_branch
         try:
-            base_branch = _get_shard_base_branch(worktree_name)
+            if base_branch is None:
+                base_branch = _get_shard_base_branch(worktree_name)
             # Check git version supports three-argument merge-tree (2.38+)
             _check_git_version_for_merge_tree()
             # Find merge base
@@ -1400,6 +3047,8 @@ def get_tender_metadata(worktree_name: str) -> Optional[Dict]:
     shard_info = get_shard_status(worktree_name)
     if not shard_info:
         return None
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
 
     worktree_path = Path(shard_info["worktree_path"])
     if not worktree_path.exists():
@@ -1483,6 +3132,8 @@ def get_shard_drift_info(worktree_name: str) -> Dict[str, Any]:
     shard_info = get_shard_status(worktree_name)
     if not shard_info:
         return {}
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
 
     # Get metadata from SQLite
     metadata = _get_shard_metadata(worktree_name)
@@ -1666,6 +3317,8 @@ def get_shard_work_diff(worktree_name: str, stat_only: bool = False) -> Optional
     shard_info = get_shard_status(worktree_name)
     if not shard_info:
         return None
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
 
     metadata = _get_shard_metadata(worktree_name)
     if not (metadata and metadata.get("base_commit")):
@@ -1709,6 +3362,8 @@ def get_shard_diff(
     shard_info = get_shard_status(worktree_name)
     if not shard_info:
         return None
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
 
     try:
         repo = _get_repo()
@@ -1788,6 +3443,7 @@ def merge_shard(
     worktree_name: str,
     caller_cwd: Optional[str] = None,
     project_root: Optional[str] = None,
+    base_branch: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Merge shard branch into its base branch and cleanup worktree.
@@ -1795,12 +3451,17 @@ def merge_shard(
     Checks for uncommitted changes and merge conflicts before proceeding.
     If clean: checks out base branch, merges with --no-ff, cleans up worktree and branch.
 
+    The base branch comes from the shard's DB row or the explicit
+    base_branch argument — never from default-branch detection. A guessed
+    base could merge the work into the wrong branch.
+
     Args:
-        worktree_name: Worktree directory name (e.g., 'fix-auth-bug-20251109-001')
+        worktree_name: Shard name (e.g., 'fix-auth-bug-20251109-001')
         caller_cwd: Optional path to check for self-deletion. If provided, merge will
             be refused if this path is inside the target worktree. This is used to prevent
             agents from merging their own worktree after cd-ing elsewhere.
         project_root: Optional path to git repo. If not provided, auto-detects.
+        base_branch: Explicit base when no DB row records one (--base).
 
     Returns:
         Dict with:
@@ -1808,16 +3469,55 @@ def merge_shard(
             - message: str
             - uncommitted: list of uncommitted files (if dirty)
             - conflicts: list of conflicting files (if conflicts)
+            - base_branch: the base actually resolved under the authority
+              rule (row or explicit argument), for display by callers
     """
     if project_root:
         set_project_root(project_root)
 
     shard_info = get_shard_status(worktree_name)
     if not shard_info:
+        # Not a member. resolve_shard raises for unknown names (with
+        # suggestions); otherwise explain the specific refusal.
+        resolution = resolve_shard(worktree_name)
+        if resolution.get("ambiguous"):
+            raise ShardError(
+                f"Cannot merge '{worktree_name}': multiple DB rows claim its "
+                f"detached worktree at {resolution['path']}.\n"
+                f"Repair the metadata first (see `skein shard triage`)."
+            )
+        if resolution["branch_exists"]:
+            raise ShardError(
+                f"'{worktree_name}' is a branch-only shard (branch "
+                f"{resolution['branch']} survives with no worktree).\n"
+                f"Merge refuses branch-only shards: revive it first with\n"
+                f"  git worktree add <path> {resolution['branch']}\n"
+                f"then merge."
+            )
         raise ShardError(f"SHARD not found: {worktree_name}")
 
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
     worktree_path = Path(shard_info["worktree_path"])
     branch_name = shard_info["branch_name"]
+
+    if not worktree_path.exists():
+        raise ShardError(
+            f"Cannot merge '{worktree_name}': its worktree directory is "
+            f"missing ({worktree_path}), so uncommitted work cannot be "
+            f"verified.\n"
+            f"Either revive it (git worktree add {worktree_path} "
+            f"{branch_name}) and retry, or prune the stale registration with "
+            f"`skein shard cleanup {worktree_name}` (the unmerged branch is "
+            f"preserved)."
+        )
+
+    if shard_info.get("locked"):
+        raise ShardError(
+            f"Cannot merge '{worktree_name}': its worktree is locked "
+            f"({worktree_path}).\n"
+            f"Unlock it first: git worktree unlock {worktree_path}"
+        )
 
     # Check if caller_cwd is inside the worktree being merged
     # This prevents agents from merging their own worktree after cd-ing elsewhere
@@ -1843,7 +3543,24 @@ def merge_shard(
         pass
 
     repo = _get_repo()
-    base_branch = _get_shard_base_branch(worktree_name)
+
+    # Base authority: the DB row or an explicit --base, never a guess
+    # (degraded-metadata contract; a wrong guess merges into the wrong base).
+    row = _get_shard_metadata(worktree_name)
+    if base_branch is None:
+        base_branch = row.get("base_branch") if row else None
+    if not base_branch:
+        raise ShardError(
+            f"Cannot merge '{worktree_name}': no recorded base branch (the "
+            f"shard has no metadata row) and no --base given.\n"
+            f"No base is ever guessed. Pass it explicitly:\n"
+            f"  skein shard merge {worktree_name} --base <branch>"
+        )
+    if not _branch_exists(repo, base_branch):
+        raise ShardError(
+            f"Cannot merge '{worktree_name}': base branch '{base_branch}' "
+            f"does not exist."
+        )
 
     # Refuse to merge a graft paused mid cherry-pick sequence: queued commits
     # remain unapplied and merging now would silently drop them (finding-20260530-3jnx).
@@ -1860,10 +3577,11 @@ def merge_shard(
             ),
             "uncommitted": [],
             "conflicts": [],
+            "base_branch": base_branch,
         }
 
     # Check for uncommitted changes in the worktree
-    git_info = get_shard_git_info(worktree_name)
+    git_info = get_shard_git_info(worktree_name, base_branch=base_branch)
     if git_info.get("working_tree") == "dirty":
         uncommitted = git_info.get("uncommitted", [])
         return {
@@ -1871,6 +3589,7 @@ def merge_shard(
             "message": "Cannot merge: worktree has uncommitted changes",
             "uncommitted": uncommitted,
             "conflicts": [],
+            "base_branch": base_branch,
         }
 
     # Check for merge conflicts or unknown status (fail safe)
@@ -1927,6 +3646,7 @@ def merge_shard(
             "message": error_msg,
             "uncommitted": [],
             "conflicts": conflict_files,
+            "base_branch": base_branch,
         }
 
     # All checks passed - perform the merge
@@ -1954,15 +3674,25 @@ def merge_shard(
                 pass
             raise ShardError(f"Merge failed: {merge_error}")
 
-        # Cleanup worktree and branch
+        # Cleanup worktree and branch. The merge that just landed IS the
+        # proof: cleanup's ancestry check against the same base passes, so
+        # branch and row are deleted under merge-proof authority. The tree
+        # was verified clean above.
         try:
-            cleanup_shard(worktree_name, keep_branch=False, caller_cwd=caller_cwd)
+            cleanup_shard(
+                worktree_name,
+                keep_branch=False,
+                caller_cwd=caller_cwd,
+                base_branch=base_branch,
+                discard_uncommitted=True,
+            )
         except ShardError as cleanup_error:
             return {
                 "success": True,
                 "message": f"✓ Merged {branch_name} into {base_branch}\n⚠ Warning: cleanup failed: {cleanup_error}",
                 "uncommitted": [],
                 "conflicts": [],
+                "base_branch": base_branch,
             }
 
         return {
@@ -1970,6 +3700,7 @@ def merge_shard(
             "message": f"✓ Merged {branch_name} into {base_branch} and cleaned up worktree",
             "uncommitted": [],
             "conflicts": [],
+            "base_branch": base_branch,
         }
 
     except ShardError:
@@ -1994,95 +3725,75 @@ def merge_shard(
 
 def get_graft_chain_root(worktree_name: str) -> str:
     """
-    Get the root worktree name by following parent_worktree links in SQLite.
+    Get the root worktree name by following parent_worktree links (read-only).
 
-    Falls back to name parsing (stripping -graft suffixes) for legacy shards
-    without SQLite metadata.
+    Falls back to name parsing (stripping -graft suffixes) when no metadata
+    exists. That fallback is display guidance only — the -graft suffix is
+    suggestive for humans and is never treated as proof of parentage for
+    chain operations (cleanup --chain refuses without rows).
     """
-    conn = _get_db_connection()
-    try:
-        current = worktree_name
-        visited = set()  # Prevent infinite loops
-        found_in_db = False
+    rows_by_name = {r["worktree_name"]: r for r in _load_all_rows()}
+    current = worktree_name
+    visited = set()  # Prevent infinite loops
+    found_in_db = False
 
-        while current and current not in visited:
-            visited.add(current)
-            cursor = conn.execute(
-                "SELECT parent_worktree FROM shards WHERE worktree_name = ?", (current,)
-            )
-            row = cursor.fetchone()
-
-            if row:
-                found_in_db = True
-                if row["parent_worktree"]:
-                    current = row["parent_worktree"]
-                else:
-                    # No parent - this is the root
-                    break
+    while current and current not in visited:
+        visited.add(current)
+        row = rows_by_name.get(current)
+        if row:
+            found_in_db = True
+            if row.get("parent_worktree"):
+                current = row["parent_worktree"]
             else:
-                # Not in database - use fallback
+                # No parent - this is the root
                 break
+        else:
+            # Not in database - use fallback
+            break
 
-        # If we found a root via SQLite, return it
-        if found_in_db and current:
-            return current
+    if found_in_db and current:
+        return current
 
-    finally:
-        conn.close()
-
-    # Fallback for legacy shards: strip -graft suffixes
+    # Fallback for shards without metadata: strip -graft suffixes
     name = worktree_name
-    while name.endswith("-graft"):
-        name = name[:-6]  # Remove "-graft"
+    while name.endswith(GRAFT_SUFFIX):
+        name = name[: -len(GRAFT_SUFFIX)]
     return name
 
 
 def get_graft_chain(worktree_name: str) -> List[str]:
     """
-    Get full graft chain for a worktree using SQLite parent relationships.
+    Get full graft chain for a worktree using recorded parent relationships.
 
     Returns list of worktree names from root to current, e.g.:
     ['fix-bug-20260112-001', 'fix-bug-20260112-001-graft', 'fix-bug-20260112-001-graft-graft']
 
-    Uses SQLite parent_worktree column for chain tracking, with fallback to
-    name parsing for legacy shards without metadata.
+    Chain structure comes from recorded parent_worktree links only; each
+    link's presence is decided by membership (so chains legitimately span
+    locations and moved basenames), never by probing the worktrees
+    directory, and the -graft name suffix is never treated as parentage.
     """
-    worktrees_dir = get_worktrees_dir()
-    conn = _get_db_connection()
+    rows = _load_all_rows()
+    children_by_parent: Dict[str, List[str]] = {}
+    for row in rows:
+        parent = row.get("parent_worktree")
+        if parent:
+            children_by_parent.setdefault(parent, []).append(row["worktree_name"])
+    member_names = {m["worktree_name"] for m in list_shards()}
 
-    try:
-        # First, find the root by following parent links up
-        root = get_graft_chain_root(worktree_name)
+    root = get_graft_chain_root(worktree_name)
+    chain = []
+    current: Optional[str] = root
+    visited = set()
 
-        # Now build chain by following children down
-        chain = []
-        current = root
+    while current and current not in visited:
+        visited.add(current)
+        if current in member_names:
+            chain.append(current)
+        kids = sorted(children_by_parent.get(current, []))
+        current = kids[0] if kids else None
 
-        while current:
-            path = worktrees_dir / current
-            if path.exists():
-                chain.append(current)
-
-            # Find child (shard with parent_worktree = current)
-            cursor = conn.execute(
-                "SELECT worktree_name FROM shards WHERE parent_worktree = ?", (current,)
-            )
-            row = cursor.fetchone()
-
-            if row:
-                current = row["worktree_name"]
-            else:
-                # No child in SQLite - try legacy name-based detection
-                next_graft = f"{current}-graft"
-                if (worktrees_dir / next_graft).exists():
-                    current = next_graft
-                else:
-                    break
-
-        return chain
-
-    finally:
-        conn.close()
+    return chain
 
 
 def get_graft_depth(worktree_name: str) -> int:
@@ -2226,17 +3937,26 @@ def graft_shard(
     shard_info = get_shard_status(worktree_name)
     if not shard_info:
         raise ShardError(f"Worktree not found: {worktree_name}")
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
+
+    repo = _get_repo()
+
+    # Graft is a mutating lifecycle op: create or complete the source's row
+    # (minimal, no invented lineage) and refresh its recorded path if the
+    # worktree has moved since it was written.
+    _bind_member_row(worktree_name, shard_info["worktree_path"])
 
     # Get metadata for base commit
     source_metadata = _get_shard_metadata(worktree_name)
 
-    worktrees_dir = get_worktrees_dir()
-    repo = _get_repo()
-
-    # Generate graft name (append -graft)
-    graft_worktree_name = f"{worktree_name}-graft"
-    graft_branch_name = f"shard-{graft_worktree_name}"
-    graft_worktree_path = worktrees_dir / graft_worktree_name
+    # Generate graft name (append -graft). The graft is a NEW worktree, so
+    # it is placed by current creation policy — its source stays wherever it
+    # lives (mixed-location chains are first-class; the resolver ties them).
+    graft_worktree_name = f"{worktree_name}{GRAFT_SUFFIX}"
+    graft_branch_name = f"{SHARD_BRANCH_PREFIX}{graft_worktree_name}"
+    graft_worktree_path = _placement_path(graft_worktree_name)
+    graft_worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Check if graft already exists
     if graft_worktree_path.exists():
@@ -2401,29 +4121,136 @@ def graft_shard(
     return result
 
 
+def get_chain_cleanup_plan(
+    worktree_name: str, base_branch: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Per-link disclosure for cleanup --chain (read-only).
+
+    For each link in the chain, reports what deleting its branch would rest
+    on, whether merge proof holds, whether the override would be the
+    authority, and the link's uncommitted changes (dirty_files). The CLI
+    shows this BEFORE confirmation so one vague yes cannot silently
+    authorize unrelated links or discard undisclosed work.
+
+    base_branch must be the same explicit base the execution will pass to
+    cleanup: both go through _resolve_proof_base per link, so the disclosed
+    authority is exactly the authority applied.
+    """
+    repo = _get_repo()
+    # A member-path input canonicalizes before any row lookup (rows are
+    # keyed by name; the path is never the identity).
+    member = get_shard_status(worktree_name)
+    if member:
+        worktree_name = member["worktree_name"]
+    root = get_graft_chain_root(worktree_name)
+    chain = get_graft_chain(root)
+    plan = []
+    for name in chain:
+        snapshot = _capture_cleanup_snapshot(repo, name, base_branch=base_branch)
+        plan.append(
+            {
+                "worktree_name": name,
+                "branch_name": snapshot["branch_name"],
+                "branch_exists": snapshot["branch_oid"] is not None,
+                "proof_base": snapshot["proof_base"],
+                "merged": snapshot["merged"],
+                "dirty_files": list(snapshot["dirty_files"]),
+                "dirty_fingerprint": snapshot["dirty_fingerprint"],
+                "cleanup_snapshot": snapshot,
+            }
+        )
+    return plan
+
+
 def cleanup_graft_chain(
     worktree_name: str,
     keep_branch: bool = False,
     caller_cwd: Optional[str] = None,
     project_root: Optional[str] = None,
+    delete_unmerged_branch: bool = False,
+    base_branch: Optional[str] = None,
+    discard_uncommitted: bool = False,
+    disclosed_dirty: Optional[Dict[str, List[str]]] = None,
+    disclosed_dirty_fingerprints: Optional[Dict[str, Optional[str]]] = None,
+    disclosed_chain: Optional[List[str]] = None,
+    disclosed_snapshots: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Clean up entire graft chain (original + all grafts).
 
+    Requires recorded parentage: the chain is traversed through
+    parent_worktree rows only, and a target with no metadata row refuses —
+    the -graft name suffix is never proof of parentage. Branch-deletion
+    authority is applied PER LINK: each link's merge proof is checked
+    against its own recorded base, and delete_unmerged_branch authorizes
+    only what per-link disclosure (get_chain_cleanup_plan) surfaced.
+
+    Discard authority is likewise per link. With disclosed_dirty (the CLI
+    passes the exact per-link dirty sets it printed), each link may discard
+    only its own disclosed files — a link absent from the map authorizes
+    nothing, one link's disclosure never covers another, and dirt that
+    appeared after disclosure refuses. Without the map, the blanket
+    discard_uncommitted bool is the caller's own per-link authority.
+
+    Chain membership authority is exact when disclosed_chain is supplied.
+    The current ordered lineage must still match the names shown before
+    confirmation; otherwise cleanup refuses before its first mutation. The
+    execution set is then the frozen disclosed list, never a newly expanded
+    lineage.
+
+    When disclosed_snapshots is supplied, it is the single authority source
+    for every link. The whole chain is re-captured and compared before the
+    first mutation, then each link is checked again as its cleanup begins.
+    Dirty paths/fingerprints are derived from the same object. Git ref
+    transactions separately ensure that merge-proof tips cannot drift before
+    branch deletion.
+
+    The chain stops at the first failed link: continuing past a failure
+    would mutate links beyond it (e.g. delete a parent whose graft still
+    exists) and compound the partial state the caller must report.
+
     Args:
-        worktree_name: Any worktree in the chain
+        worktree_name: Any worktree in the chain (name, or exact absolute
+            member path)
         keep_branch: Keep branches after removing worktrees
         caller_cwd: Caller's cwd to check for self-deletion
         project_root: Optional project root override
+        delete_unmerged_branch: Per-link authority to delete unmerged branches
+        base_branch: Explicit proof base for links without a recorded one
+        discard_uncommitted: Blanket per-link discard confirmation; ignored
+            when disclosed_dirty is given
+        disclosed_dirty: Exact disclosed dirty status lines per link name
+        disclosed_dirty_fingerprints: Exact dirty-state digest per link name
+        disclosed_chain: Exact ordered link names disclosed before confirmation
+        disclosed_snapshots: Complete per-link authority objects captured by
+            get_chain_cleanup_plan
 
     Returns:
         Dict with:
             - success: bool
             - removed: list of removed worktree names
-            - errors: list of error messages
+            - preserved_branches: links whose branch was preserved
+            - errors: list of error messages (first failure only)
+            - not_attempted: links skipped because an earlier link failed
     """
     if project_root:
         set_project_root(project_root)
+
+    # A member-path input canonicalizes before any row lookup (rows are
+    # keyed by name; the path is never the identity).
+    member = get_shard_status(worktree_name)
+    if member:
+        worktree_name = member["worktree_name"]
+
+    if _get_shard_metadata(worktree_name) is None:
+        raise ShardError(
+            f"Cannot cleanup --chain: '{worktree_name}' has no metadata row, "
+            f"so chain parentage cannot be proven (the -graft name suffix is "
+            f"not proof).\n"
+            f"Clean up each shard individually instead: skein shard cleanup "
+            f"<name>"
+        )
 
     root = get_graft_chain_root(worktree_name)
     chain = get_graft_chain(root)
@@ -2431,21 +4258,95 @@ def cleanup_graft_chain(
     if not chain:
         raise ShardError(f"No worktrees found in chain for: {worktree_name}")
 
+    if disclosed_chain is not None:
+        frozen_chain = list(disclosed_chain)
+        if chain != frozen_chain:
+            disclosed = ", ".join(frozen_chain) or "(none)"
+            current = ", ".join(chain) or "(none)"
+            raise ShardError(
+                "Cannot cleanup --chain: chain membership changed after "
+                "disclosure; nothing was removed.\n"
+                f"Disclosed: {disclosed}\n"
+                f"Current: {current}\n"
+                "Re-run cleanup to inspect and confirm the current chain."
+            )
+        chain = frozen_chain
+
+    if disclosed_dirty is not None and disclosed_dirty_fingerprints is None:
+        raise ShardError(
+            "Cannot cleanup --chain: disclosed dirty paths lack their "
+            "content fingerprints; nothing was removed. Re-run cleanup to "
+            "re-disclose the chain."
+        )
+
+    if disclosed_snapshots is not None:
+        disclosed_names = set(disclosed_snapshots)
+        current_names = set(chain)
+        if disclosed_names != current_names:
+            raise ShardError(
+                "Cannot cleanup --chain: disclosed snapshots do not exactly "
+                "cover the current chain; nothing was removed. Re-run cleanup "
+                "to re-disclose the chain."
+            )
+        repo = _get_repo()
+        for wt_name in chain:
+            current_snapshot = _capture_cleanup_snapshot(
+                repo, wt_name, base_branch=base_branch
+            )
+            _require_cleanup_snapshot(
+                wt_name,
+                disclosed_snapshots[wt_name],
+                current_snapshot,
+                whole_chain=True,
+            )
+
     removed = []
+    preserved_branches = []
     errors = []
+    not_attempted: List[str] = []
 
     # Remove in reverse order (grafts first, then original)
-    for wt_name in reversed(chain):
+    reversed_chain = list(reversed(chain))
+    for idx, wt_name in enumerate(reversed_chain):
+        link_authorized: Optional[List[str]] = None
+        link_fingerprint: Optional[str] = None
+        link_snapshot: Optional[Dict[str, Any]] = None
+        link_discard = discard_uncommitted
+        if disclosed_snapshots is not None:
+            link_snapshot = disclosed_snapshots[wt_name]
+            link_authorized = list(link_snapshot["dirty_files"])
+            link_fingerprint = link_snapshot["dirty_fingerprint"]
+            link_discard = False
+        elif disclosed_dirty is not None:
+            link_authorized = list(disclosed_dirty.get(wt_name, []))
+            link_fingerprint = disclosed_dirty_fingerprints.get(wt_name)
+            link_discard = False
         try:
-            cleanup_shard(wt_name, keep_branch=keep_branch, caller_cwd=caller_cwd)
+            link_result = _cleanup_shard_detailed(
+                wt_name,
+                keep_branch=keep_branch,
+                caller_cwd=caller_cwd,
+                delete_unmerged_branch=delete_unmerged_branch,
+                base_branch=base_branch,
+                discard_uncommitted=link_discard,
+                authorized_dirty_files=link_authorized,
+                authorized_dirty_fingerprint=link_fingerprint,
+                authorized_snapshot=link_snapshot,
+            )
             removed.append(wt_name)
+            if link_result.get("branch_preserved"):
+                preserved_branches.append(link_result["branch_name"])
         except ShardError as e:
             errors.append(f"{wt_name}: {e}")
+            not_attempted = reversed_chain[idx + 1 :]
+            break
 
     return {
         "success": len(errors) == 0,
         "removed": removed,
+        "preserved_branches": preserved_branches,
         "errors": errors,
+        "not_attempted": not_attempted,
         "chain_root": root,
     }
 
@@ -2465,9 +4366,9 @@ def detect_shard_environment() -> Optional[Dict[str, str]]:
     # a .git *file* (pointing back at the origin repo); a real repo root has a
     # .git *directory*, which means we've left worktree territory.
     #
-    # Deliberately no check on the shape of cwd: shards live wherever
-    # SKEIN_WORKTREES_DIR says, so an agent's ability to tell it is inside a
-    # shard must not depend on the word "worktrees" appearing in its path.
+    # Deliberately no check on the shape of cwd: a shard can live anywhere,
+    # so an agent's ability to tell it is inside one must not depend on the
+    # word "worktrees" appearing in its path — or on the path at all.
     current = Path.cwd()
     worktree_root = None
 
@@ -2485,16 +4386,17 @@ def detect_shard_environment() -> Optional[Dict[str, str]]:
     if not worktree_root:
         return None
 
-    # Check if this worktree is in our worktrees directory. Containment, not a
-    # string prefix: /tmp/worktrees-backup must not match /tmp/worktrees.
-    if not _is_known_shard_location(worktree_root):
+    # Membership is decided by the worktree's actual checked-out branch (or
+    # its detached DB binding) through the same classification everything
+    # else uses — never by the directory name or its location.
+    try:
+        members = list_shards()
+    except ShardError:
         return None
-
-    # Get worktree name
-    worktree_name = worktree_root.name
-
-    # Get SHARD info for this worktree
-    return get_shard_status(worktree_name)
+    for member in members:
+        if _paths_equal(Path(member["worktree_path"]), worktree_root):
+            return member
+    return None
 
 
 if __name__ == "__main__":

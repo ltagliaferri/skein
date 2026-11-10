@@ -6561,6 +6561,33 @@ def get_shard_worktree_module():
         )
 
 
+def _derive_shard_site(shard_worktree) -> Optional[str]:
+    """
+    Derive the review site for the current shard project (Decision D).
+
+    An explicit `review_site` key in the project's .skein/config.json wins;
+    otherwise the origin repo root's basename + '-development'. Never parses
+    the worktree path string — identity comes from the origin repo, so repos
+    outside ~/projects/ derive correctly too.
+    """
+    try:
+        root = Path(str(shard_worktree.get_project_root()))
+    except Exception:
+        return None
+
+    config_file = root / ".skein" / "config.json"
+    try:
+        if config_file.exists():
+            with open(config_file) as f:
+                data = json.load(f)
+            if isinstance(data, dict) and data.get("review_site"):
+                return str(data["review_site"])
+    except (ValueError, OSError, RecursionError):
+        pass
+
+    return f"{root.name}-development"
+
+
 @cli.group()
 @click.option(
     "--project",
@@ -6592,8 +6619,9 @@ def shard(ctx, project_path):
     default=None,
     help="Branch to fork from (default: auto-detected from repo)",
 )
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
+def shard_spawn(ctx, spawn_agent, brief, description, base_branch, output_json):
     """
     Spawn a new SHARD: create git branch + worktree for isolated agent work.
 
@@ -6650,6 +6678,24 @@ def shard_spawn(ctx, spawn_agent, brief, description, base_branch):
         except Exception as e:
             # Don't fail spawn if thread creation fails
             click.echo(f"Warning: Failed to create SKEIN thread: {e}", err=True)
+
+        if output_json:
+            from skein import shard as shard_module
+
+            click.echo(
+                json.dumps(
+                    {
+                        "worktree_name": shard_info["worktree_name"],
+                        "worktree_path": shard_info["worktree_path"],
+                        "branch_name": shard_info["branch_name"],
+                        "name": shard_info["name"],
+                        "base_branch": shard_info["base_branch"],
+                        "project_root": str(shard_module.get_project_root()),
+                    },
+                    indent=2,
+                )
+            )
+            return
 
         click.echo(f"✓ Spawned SHARD: {shard_info['shard_id']}")
         click.echo(f"  Name: {shard_info['name']}")
@@ -6716,17 +6762,18 @@ def shard_list(ctx, active, filter_agent, output_json):
 
 @shard.command("where")
 @click.argument("worktree_name")
-@click.option("--path-only", is_flag=True, help="Print just the worktree path")
+@click.option("--path-only", is_flag=True, help="Print just the worktree path (no hints)")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
 def shard_where(ctx, worktree_name, output_json, path_only):
     """
-    Show where a SHARD's worktree lives and which repo it came from.
+    Print where a SHARD's worktree lives (bare resolved path on stdout).
 
-    SHARD worktrees live outside the project tree (under SKEIN_HOME, or
-    wherever SKEIN_WORKTREES_DIR points), so this is how you find one. The
-    origin repo is read from the worktree's own .git file, so it stays
-    correct even if the worktree has been moved.
+    Resolution authority: git first (follows `git worktree move`
+    automatically, at any basename), then the recorded DB path, then the
+    computed placement default. That default exists only for a branch-only
+    shard (branch survives, no worktree), is labeled as a GUESS, and exits
+    non-zero with a revive hint.
 
     Examples:
         skein shard where my-feature-20260113-001
@@ -6736,35 +6783,108 @@ def shard_where(ctx, worktree_name, output_json, path_only):
     shard_worktree = get_shard_worktree_module()
 
     try:
-        location = shard_worktree.get_shard_location(worktree_name)
+        resolution = shard_worktree.resolve_shard(worktree_name)
     except shard_worktree.ShardError as e:
         raise click.ClickException(str(e))
     except Exception as e:
         raise click.ClickException(f"Failed to locate SHARD: {e}")
 
-    if path_only:
-        click.echo(location["worktree_path"])
-        return
+    # Branch-only is defined by git state alone — no registration, branch
+    # survives — regardless of which source answered. A row whose recorded
+    # path outlived the registration (hand prune, git worktree remove,
+    # collateral prune) still names a branch-only shard: exiting zero with
+    # the dead path would send `cd "$(... --path-only)"` somewhere gone.
+    branch_only = not resolution["registered"] and resolution["branch_exists"]
+    guessed = resolution["source"] == "guess"
+    refused = branch_only or guessed
 
     if output_json:
         import json
 
-        click.echo(json.dumps(location, indent=2))
+        click.echo(
+            json.dumps(
+                {
+                    "name": resolution["name"],
+                    "path": resolution["path"],
+                    "source": resolution["source"],
+                    "exists": resolution["exists"],
+                    "detached": resolution["detached"],
+                    "branch": resolution["branch"],
+                    "branch_exists": resolution["branch_exists"],
+                },
+                indent=2,
+            )
+        )
+    else:
+        # --path-only is intended for command substitution. The exit status
+        # of a nested substitution does not stop the outer command, so a
+        # refused resolution must emit no path for the caller to consume.
+        # Human and JSON modes retain their labeled diagnostic output.
+        if not path_only or not refused:
+            click.echo(resolution["path"])
+        if not path_only:
+            if branch_only:
+                click.echo(
+                    f"Branch-only shard: {resolution['branch']} survives with "
+                    f"no worktree. Revive with: git worktree add <path> "
+                    f"{resolution['branch']}",
+                    err=True,
+                )
+            elif guessed:
+                click.echo(
+                    "Warning: path is the computed placement default (source: "
+                    "guess), not a resolved location.",
+                    err=True,
+                )
+            elif resolution["source"] == "db" and not resolution["registered"]:
+                click.echo(
+                    "Note: path is the recorded DB path; git no longer lists "
+                    "this worktree.",
+                    err=True,
+                )
+            elif not resolution["exists"]:
+                click.echo(
+                    "Warning: git lists this worktree but the directory is "
+                    "missing.",
+                    err=True,
+                )
+
+    if refused:
+        raise SystemExit(1)
+
+
+@shard.command("reconcile")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.pass_context
+def shard_reconcile(ctx, output_json):
+    """
+    Reconcile shard metadata paths with git (the only non-lifecycle write).
+
+    Binds every current member (creating a minimal row when none exists —
+    path and name only, never invented lineage), corrects recorded paths
+    where git disagrees, and clears the path on rows whose worktree is gone.
+    Never deletes rows. Idempotent. Recommended before risky rebases so
+    detached worktrees stay bound to their shard.
+    """
+    shard_worktree = get_shard_worktree_module()
+
+    try:
+        summary = shard_worktree.reconcile_shards()
+    except shard_worktree.ShardError as e:
+        raise click.ClickException(str(e))
+    except Exception as e:
+        raise click.ClickException(f"Failed to reconcile shards: {e}")
+
+    if output_json:
+        import json
+
+        click.echo(json.dumps(summary, indent=2))
         return
 
-    click.echo(f"SHARD: {location['worktree_name']}")
-    click.echo(f"  Worktree:     {location['worktree_path']}")
-    click.echo(f"  Origin repo:  {location['project_root']}")
-    if location["branch_name"]:
-        click.echo(f"  Branch:       {location['branch_name']}")
-    click.echo(f"  Worktrees in: {location['worktrees_dir']}")
-
-    if not location["exists"]:
-        click.echo()
-        click.echo(f"⚠️  Worktree directory does not exist ({location['source']} path)")
-    elif not location["registered"]:
-        click.echo()
-        click.echo("⚠️  Directory exists but git does not list it as a worktree")
+    click.echo(f"Rows created (new bindings): {summary['bound']}")
+    click.echo(f"Paths corrected or backfilled: {summary['updated']}")
+    click.echo(f"Paths cleared (worktree gone): {summary['cleared']}")
+    click.echo(f"Already correct: {summary['unchanged']}")
 
 
 @shard.command("show")
@@ -6885,6 +7005,8 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
 
         if not shard:
             raise click.ClickException(f"SHARD not found: {worktree_name}")
+        # Canonical name for row lookups (a member-path input resolves above)
+        worktree_name = shard["worktree_name"]
 
         from skein import shard as shard_module
 
@@ -6959,18 +7081,49 @@ def shard_diff(ctx, worktree_name, show_stat, integration):
     "-y",
     "assume_yes",
     is_flag=True,
-    help="Skip confirmation prompt",
+    help="Skip confirmation prompts only — never authorizes branch deletion",
+)
+@click.option(
+    "--delete-unmerged-branch",
+    "delete_unmerged",
+    is_flag=True,
+    help="Explicitly authorize deleting a branch that is not provably merged "
+    "(the ONLY such authority; you assume the loss)",
+)
+@click.option(
+    "--base",
+    "base_branch",
+    default=None,
+    help="Base branch for the merge proof when no metadata records one "
+    "(never guessed)",
 )
 @click.pass_context
-def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd, assume_yes):
+def shard_cleanup(
+    ctx,
+    worktree_name,
+    keep_branch,
+    chain,
+    explicit_caller_cwd,
+    assume_yes,
+    delete_unmerged,
+    base_branch,
+):
     """
-    Remove SHARD worktree and optionally delete branch.
+    Remove SHARD worktree; delete the branch only under explicit authority.
 
-    Use --chain to remove an entire graft chain (original + all grafts).
+    The branch is deleted only when it is provably merged into its recorded
+    base (ancestry check — squash/rebase integration does not count) or when
+    --delete-unmerged-branch is given. --yes skips confirmation prompts only
+    and never authorizes deletion. When the branch survives, its metadata
+    row survives with it (only the recorded path is cleared).
+
+    Use --chain to remove an entire graft chain (original + all grafts);
+    authority is checked per link, disclosed before confirmation.
 
     Example:
         skein shard cleanup my-shard-001
         skein shard cleanup my-shard-001 --keep-branch
+        skein shard cleanup my-shard-001 --delete-unmerged-branch
         skein shard cleanup my-shard-001 --chain   # Remove full graft lineage
 
     For orchestration tools (e.g., Spindle), pass --caller-cwd to prevent
@@ -6986,47 +7139,158 @@ def shard_cleanup(ctx, worktree_name, keep_branch, chain, explicit_caller_cwd, a
     caller_cwd = explicit_caller_cwd if explicit_caller_cwd else os.getcwd()
 
     try:
-        if not assume_yes:
-            click.confirm("Are you sure you want to cleanup this SHARD?", abort=True)
+        # A member-path input canonicalizes once, up front: every metadata
+        # lookup below (chain plan, parentage, graft suggestions) is keyed
+        # by name, never by path.
+        _member = shard_worktree.get_shard_status(worktree_name)
+        if _member:
+            worktree_name = _member["worktree_name"]
 
         if chain:
-            # Clean up entire graft chain
-            result = shard_worktree.cleanup_graft_chain(
-                worktree_name, keep_branch=keep_branch, caller_cwd=caller_cwd
+            # Per-link disclosure BEFORE confirmation: one vague yes must not
+            # silently authorize unrelated links or discard undisclosed
+            # work. The plan is computed with the same explicit --base the
+            # execution passes down, so the disclosed authority is exactly
+            # the authority applied.
+            plan = shard_worktree.get_chain_cleanup_plan(
+                worktree_name, base_branch=base_branch
             )
-
-            click.echo(f"Tracing worktree chain for: {worktree_name}\n")
-
-            if result["removed"]:
-                click.echo(f"Found chain ({len(result['removed'])} worktrees):")
-                for wt in reversed(result["removed"]):  # Show original first
-                    wt == result.get("chain_root", "")
-                    label = "(original)" if not shard_worktree.is_graft(wt) else "(graft)"
-                    click.echo(f"  {wt} {label}")
+            dirty_links = [link for link in plan if link.get("dirty_files")]
+            if plan:
+                click.echo(f"Chain cleanup plan for: {worktree_name}\n")
+                for link in plan:
+                    name = link["worktree_name"]
+                    if keep_branch:
+                        status = "branch kept"
+                    elif not link["branch_exists"]:
+                        status = "no branch"
+                    elif link["merged"] is True:
+                        status = f"merged into {link['proof_base']} - branch will be deleted (merge-proven)"
+                    elif link["proof_base"] is None:
+                        status = (
+                            "no provable base - branch will be DELETED under --delete-unmerged-branch"
+                            if delete_unmerged
+                            else "no provable base - link will refuse without --delete-unmerged-branch"
+                        )
+                    else:
+                        status = (
+                            f"NOT merged into {link['proof_base']} - branch will be DELETED under --delete-unmerged-branch"
+                            if delete_unmerged
+                            else f"NOT merged into {link['proof_base']} - link will refuse without --delete-unmerged-branch"
+                        )
+                    click.echo(f"  {name}: {status}")
+                    if link.get("dirty_files"):
+                        click.echo(
+                            "      uncommitted changes that will be DISCARDED:"
+                        )
+                        for dirty_line in link["dirty_files"]:
+                            click.echo(f"        {dirty_line}")
                 click.echo()
 
+            if not assume_yes:
+                prompt = "Proceed with chain cleanup exactly as disclosed above?"
+                if dirty_links:
+                    prompt = (
+                        "This will DISCARD the uncommitted changes listed "
+                        "above. Proceed with chain cleanup exactly as "
+                        "disclosed?"
+                    )
+                click.confirm(prompt, abort=True)
+
+            # Authority is the disclosure above, exactly. The per-link
+            # snapshot binds location, commit tips, proof base, attachment,
+            # and dirty bytes; --yes skips the prompt but never widens any of
+            # those facts.
+            disclosed_snapshots = {
+                link["worktree_name"]: link["cleanup_snapshot"]
+                for link in plan
+            }
+            disclosed_chain = [link["worktree_name"] for link in plan]
+            result = shard_worktree.cleanup_graft_chain(
+                worktree_name,
+                keep_branch=keep_branch,
+                caller_cwd=caller_cwd,
+                delete_unmerged_branch=delete_unmerged,
+                base_branch=base_branch,
+                disclosed_chain=disclosed_chain,
+                disclosed_snapshots=disclosed_snapshots,
+            )
+
+            if result["removed"]:
                 click.echo(f"Removed {len(result['removed'])} worktrees:")
                 for wt in result["removed"]:
                     click.echo(f"  ✓ {wt}")
 
+            if result.get("preserved_branches"):
+                click.echo("\nBranches preserved (not provably merged):")
+                for br in result["preserved_branches"]:
+                    click.echo(f"  {br}")
+
             if result["errors"]:
-                click.echo("\nWarnings:")
+                # Partial state is reported explicitly and exits nonzero: a
+                # chain that stopped mid-way is a failure, not a warning.
+                total = len(result["removed"]) + len(result["errors"]) + len(
+                    result.get("not_attempted") or []
+                )
+                click.echo(
+                    f"\nChain cleanup INCOMPLETE: removed "
+                    f"{len(result['removed'])} of {total} link(s).",
+                    err=True,
+                )
                 for err in result["errors"]:
-                    click.echo(f"  ⚠ {err}", err=True)
-
-            if not keep_branch:
-                click.echo("\n  (Branches also deleted)")
+                    click.echo(f"  ✗ {err}", err=True)
+                for wt in result.get("not_attempted") or []:
+                    click.echo(f"  - not attempted: {wt}", err=True)
+                raise SystemExit(1)
         else:
-            # Single worktree cleanup
-            shard_worktree.cleanup_shard(
-                worktree_name, keep_branch=keep_branch, caller_cwd=caller_cwd
-            )
+            if not assume_yes:
+                click.confirm("Are you sure you want to cleanup this SHARD?", abort=True)
 
-            click.echo(f"✓ Cleaned up SHARD: {worktree_name}")
-            if not keep_branch:
-                click.echo("  (Branch also deleted)")
+            # Single worktree cleanup. A dirty tree always surfaces its files
+            # first — --yes skips the prompts but never the disclosure — and
+            # its retry carries the same complete authority snapshot as chain
+            # cleanup, so no commit, location, or dirty-state change can hide
+            # between disclosure and execution.
+            try:
+                result = shard_worktree._cleanup_shard_detailed(
+                    worktree_name,
+                    keep_branch=keep_branch,
+                    caller_cwd=caller_cwd,
+                    delete_unmerged_branch=delete_unmerged,
+                    base_branch=base_branch,
+                )
+            except shard_worktree.ShardError as e:
+                disclosed = getattr(e, "dirty_files", None)
+                if disclosed is None:
+                    raise
+                disclosed_snapshot = getattr(e, "cleanup_snapshot", None)
+                click.echo(str(e))
+                if assume_yes:
+                    click.echo(
+                        "--yes given: discarding the files listed above."
+                    )
+                else:
+                    click.confirm("Discard these uncommitted changes?", abort=True)
+                result = shard_worktree._cleanup_shard_detailed(
+                    worktree_name,
+                    keep_branch=keep_branch,
+                    caller_cwd=caller_cwd,
+                    delete_unmerged_branch=delete_unmerged,
+                    base_branch=base_branch,
+                    authorized_snapshot=disclosed_snapshot,
+                )
+
+            if result.get("worktree_pruned"):
+                # Missing-directory path: narrative message covers it
+                click.echo(result["message"])
             else:
-                click.echo("  (Branch kept)")
+                click.echo(f"✓ Cleaned up SHARD: {worktree_name}")
+                if result.get("branch_deleted"):
+                    click.echo("  (Branch also deleted)")
+                elif keep_branch:
+                    click.echo("  (Branch kept)")
+                elif result.get("branch_preserved"):
+                    click.echo(f"  (Branch {result['branch_name']} preserved)")
 
             # If this was a graft, suggest chain cleanup for the original
             if shard_worktree.is_graft(worktree_name):
@@ -7077,6 +7341,12 @@ def shard_graft(ctx, worktree_name):
 
     try:
         from skein import shard as shard_module
+
+        # Canonical name for row lookups (best-effort: graft_shard gives
+        # the authoritative not-found error for anything unresolvable)
+        _member = shard_worktree.get_shard_status(worktree_name)
+        if _member:
+            worktree_name = _member["worktree_name"]
 
         base_branch = shard_module._get_shard_base_branch(worktree_name)
         click.echo(f"Creating graft worktree from current {base_branch}...")
@@ -7170,8 +7440,15 @@ def shard_graft(ctx, worktree_name):
     default=None,
     help="Original working directory of caller (for orchestration tools)",
 )
+@click.option(
+    "--base",
+    "base_branch",
+    default=None,
+    help="Base branch to merge into when no metadata records one "
+    "(never guessed)",
+)
 @click.pass_context
-def shard_merge(ctx, worktree_name, explicit_caller_cwd):
+def shard_merge(ctx, worktree_name, explicit_caller_cwd, base_branch):
     """
     Merge SHARD branch into its base branch and cleanup.
 
@@ -7201,6 +7478,8 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
     shard_info = shard_worktree.get_shard_status(worktree_name)
     if not shard_info:
         raise click.ClickException(f"SHARD not found: {worktree_name}")
+    # Canonical name for row lookups (a member-path input resolves above)
+    worktree_name = shard_info["worktree_name"]
 
     try:
         metadata = shard_worktree.get_tender_metadata(worktree_name)
@@ -7208,32 +7487,33 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
         metadata = None  # Will use minimal metadata if gather fails
 
     try:
-        # First, show drift context
+        # Drift context is display only. The merge base itself is the --base
+        # option or the shard's recorded metadata, resolved inside
+        # merge_shard under the degraded-metadata contract — the
+        # drift-derived value is never passed as authority, because its
+        # rowless fallback is the detected default branch, exactly the
+        # guess that contract forbids.
         drift_info = shard_worktree.get_shard_drift_info(worktree_name)
         master_ahead = drift_info.get("base_commits_ahead", 0)
-        base_branch = drift_info.get("base_branch")
-        if base_branch is None:
-            try:
-                from skein import shard as shard_module
+        display_base = base_branch or drift_info.get("base_branch") or "unknown"
 
-                base_branch = shard_module._detect_default_branch()
-            except Exception:
-                base_branch = "unknown"
+        click.echo(f"Testing integration with current {display_base}...")
 
-        click.echo(f"Testing integration with current {base_branch}...")
-
-        result = shard_worktree.merge_shard(worktree_name, caller_cwd=caller_cwd)
+        result = shard_worktree.merge_shard(
+            worktree_name, caller_cwd=caller_cwd, base_branch=base_branch
+        )
+        merged_base = result.get("base_branch") or display_base
 
         if result["success"]:
             # Show drift context in success message
             if master_ahead > 0:
                 click.echo(
-                    f"✓ Clean integration (applied onto current {base_branch}, {master_ahead} commits ahead)"
+                    f"✓ Clean integration (applied onto current {merged_base}, {master_ahead} commits ahead)"
                 )
             else:
                 click.echo("✓ Clean integration")
             click.echo()
-            click.echo(f"Merging to {base_branch}...")
+            click.echo(f"Merging to {merged_base}...")
             click.echo(result["message"])
 
             # Post tender folio with status=complete and auto-close it
@@ -7251,9 +7531,14 @@ def shard_merge(ctx, worktree_name, explicit_caller_cwd):
                     click.echo("\nCleanup worktree chain:")
                     click.echo(f"  → skein shard cleanup {root} --chain")
                     click.echo("\nThis will remove:")
-                    worktrees_dir = shard_worktree.get_worktrees_dir()
                     for wt in chain:
-                        click.echo(f"  - {worktrees_dir / wt}/")
+                        # Chains span locations; resolve each link's real
+                        # path rather than reconstructing one.
+                        try:
+                            wt_path = shard_worktree.resolve_shard(wt)["path"]
+                        except shard_worktree.ShardError:
+                            wt_path = wt
+                        click.echo(f"  - {wt_path}/")
             else:
                 click.echo("\nCleanup worktree:")
                 click.echo(f"  → skein shard cleanup {worktree_name}")
@@ -7287,13 +7572,16 @@ def _post_merge_tender(ctx, base_url, agent_id, worktree_name, shard_info, metad
 
     Returns tender_id on success, None on failure (non-fatal).
     """
-    # Derive site from project path
-    site = None
-    worktree_path = shard_info.get("worktree_path", "")
-    if "/projects/" in worktree_path:
-        parts = worktree_path.split("/projects/")[1].split("/")
-        if parts:
-            site = f"{parts[0]}-development"
+    # Derive site from the origin repo (never from the worktree path string),
+    # keeping the exists-check-then-shard-review fallback.
+    site = _derive_shard_site(get_shard_worktree_module())
+    if site:
+        try:
+            available_sites = make_request("GET", "/sites", base_url, agent_id)
+            if site not in [s["site_id"] for s in available_sites]:
+                site = None
+        except Exception:
+            site = None
     if not site:
         site = "shard-review"
 
@@ -7560,13 +7848,11 @@ def shard_review(ctx, stale_days, worktree_name, output_json):
             age = shard.get("age_days")
             age_str = f"{age}d" if age is not None else "?"
 
-            # Extract project from worktree path if possible
-            path = shard.get("worktree_path", "")
-            project = "?"
-            if "/projects/" in path:
-                parts = path.split("/projects/")[1].split("/")
-                if parts:
-                    project = parts[0]
+            # Project identity comes from the origin repo, not the path shape
+            try:
+                project = Path(str(shard_worktree.get_project_root())).name
+            except Exception:
+                project = "?"
 
             # Diffstat summary (files changed)
             diffstat = shard.get("diffstat", "")
@@ -7666,6 +7952,23 @@ def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence
     shard_info = shard_worktree.get_shard_status(worktree_name)
     if not shard_info:
         raise click.ClickException(f"SHARD not found: {worktree_name}")
+    # Canonical name for row lookups and folio metadata (a member-path
+    # input resolves above)
+    worktree_name = shard_info["worktree_name"]
+
+    # Tender is a mutating lifecycle op: it creates or completes the row
+    # (minimal, no invented lineage) and refreshes a moved path. Failures
+    # surface — a tender that cannot record its binding must not pretend it
+    # did, or a later detach silently loses membership.
+    try:
+        shard_worktree._bind_member_row(
+            shard_info["worktree_name"], shard_info["worktree_path"]
+        )
+    except Exception as e:
+        raise click.ClickException(
+            f"Failed to record shard metadata while tendering "
+            f"{worktree_name}: {e}"
+        )
 
     # Gather tender metadata
     try:
@@ -7680,12 +7983,7 @@ def shard_tender(ctx, worktree_name, site, reviewer, summary, status, confidence
     available_site_ids = [s["site_id"] for s in available_sites]
 
     if not site:
-        worktree_path = shard_info.get("worktree_path", "")
-        derived = None
-        if "/projects/" in worktree_path:
-            parts = worktree_path.split("/projects/")[1].split("/")
-            if parts:
-                derived = f"{parts[0]}-development"
+        derived = _derive_shard_site(shard_worktree)
 
         if derived and derived in available_site_ids:
             site = derived
@@ -7808,8 +8106,16 @@ def shard_triage(ctx, output_json):
     try:
         shards = shard_worktree.list_shards(active_only=True)
 
-        if not shards:
+        # Non-member observability (foreign / detached / branch-only / stale)
+        # renders even when there are zero live members.
+        try:
+            extras = shard_worktree.get_triage_extras()
+        except Exception:
+            extras = {}
+
+        if not shards and not output_json:
             click.echo("No SHARDs found")
+            _echo_triage_extras(extras)
             return
 
         # Fetch all tender folios to match against shards
@@ -7899,6 +8205,7 @@ def shard_triage(ctx, output_json):
             tender = tender_map.get(wt_name)
             confidence = tender.get("confidence") if tender else None
 
+            basename = Path(shard_item.get("worktree_path", "")).name
             entry = {
                 "worktree_name": wt_name,
                 "commits": commits,
@@ -7915,6 +8222,12 @@ def shard_triage(ctx, output_json):
                 "graft_depth": graft_depth,
                 "conflict_status": conflict_status,
                 "conflict_files": conflict_files,
+                # Additive resolution/observability fields
+                "source": shard_item.get("source", "git"),
+                "detached": shard_item.get("detached", False),
+                "exists": shard_item.get("exists", True),
+                "locked": shard_item.get("locked", False),
+                "moved_basename": basename if basename != wt_name else None,
             }
             triage_data.append(entry)
 
@@ -7962,6 +8275,16 @@ def shard_triage(ctx, output_json):
 
                 # Show drift/graft context on second line
                 context_parts = []
+                if entry.get("detached"):
+                    context_parts.append("source: db (detached)")
+                elif entry.get("source") and entry["source"] != "git":
+                    context_parts.append(f"source: {entry['source']}")
+                if entry.get("moved_basename"):
+                    context_parts.append(f"moved: directory basename '{entry['moved_basename']}'")
+                if not entry.get("exists", True):
+                    context_parts.append("directory missing")
+                if entry.get("locked"):
+                    context_parts.append("locked")
                 if base_commit:
                     context_parts.append(f"base: {base_commit}")
                 if base_ahead > 0:
@@ -8000,6 +8323,8 @@ def shard_triage(ctx, output_json):
 
                 click.echo()  # Blank line between entries
 
+            _echo_triage_extras(extras)
+
             click.echo("Commands:")
             click.echo("  skein shard review <name>    # View details")
             click.echo("  skein shard diff <name>      # View work diff")
@@ -8010,6 +8335,47 @@ def shard_triage(ctx, output_json):
         raise click.ClickException(str(e))
     except Exception as e:
         raise click.ClickException(f"Failed to triage SHARDs: {e}")
+
+
+def _echo_triage_extras(extras):
+    """Render triage's non-member sections. Plain text, one item per line."""
+    if not extras:
+        return
+
+    if extras.get("foreign"):
+        click.echo("Foreign shard-branch worktrees (not SKEIN shards, never operated on):")
+        for item in extras["foreign"]:
+            click.echo(f"  {item['branch']} at {item['path']}")
+        click.echo()
+
+    if extras.get("detached_unbound"):
+        click.echo("Detached worktrees, unbound (not members; destructive operations refuse):")
+        for item in extras["detached_unbound"]:
+            click.echo(f"  {item['path']} at HEAD {(item.get('head') or '')[:12]}")
+        click.echo(
+            "  Remedy: finish or abort the rebase/bisect, or run `skein shard reconcile` before detaching."
+        )
+        click.echo()
+
+    if extras.get("detached_ambiguous"):
+        click.echo("Detached worktrees with AMBIGUOUS bindings (corrupt metadata; destructive operations refuse):")
+        for item in extras["detached_ambiguous"]:
+            click.echo(f"  {item['path']} claimed by: {', '.join(item['names'])}")
+        click.echo()
+
+    if extras.get("branch_only"):
+        click.echo("Branch-only shards (branch survives, no worktree; observational-only):")
+        for item in extras["branch_only"]:
+            lineage = "with metadata" if item.get("has_row") else "no metadata"
+            click.echo(f"  {item['name']} ({lineage})")
+            click.echo(f"    revive: git worktree add <path> {item['branch']}")
+        click.echo()
+
+    if extras.get("stale_rows"):
+        click.echo("Stale metadata rows (recorded but unknown to git; no branch survives):")
+        for name in extras["stale_rows"]:
+            click.echo(f"  {name}")
+        click.echo()
 
 
 def _load_xgun_api():
@@ -8386,6 +8752,9 @@ def shard_inspect(ctx, worktree_name, output_json):
         shard_info = shard_worktree.get_shard_status(worktree_name)
         if not shard_info:
             raise click.ClickException(f"SHARD not found: {worktree_name}")
+        # Canonical name for row lookups and tender-folio matching (a
+        # member-path input resolves above)
+        worktree_name = shard_info["worktree_name"]
 
         git_info = shard_worktree.get_shard_git_info(worktree_name)
         drift_info = shard_worktree.get_shard_drift_info(worktree_name)
@@ -8704,7 +9073,12 @@ def shard_stash(ctx, description, stash_agent, base_branch):
             except Exception:
                 pass
             try:
-                shard_worktree.cleanup_shard(worktree_name, keep_branch=False)
+                # Roll back the seconds-old shard; its only contents are the
+                # failed stash apply (the stash itself was just restored), so
+                # discarding is safe. The empty branch deletes by merge proof.
+                shard_worktree.cleanup_shard(
+                    worktree_name, keep_branch=False, discard_uncommitted=True
+                )
             except Exception:
                 pass
             raise click.ClickException(f"Failed to apply stash to new shard: {e}")
@@ -8737,6 +9111,10 @@ def shard_apply(ctx, worktree_name, no_confirm):
         shard_info = shard_worktree.get_shard_status(worktree_name)
         if not shard_info:
             raise click.ClickException(f"SHARD not found: {worktree_name}")
+        # Canonical name for row lookups (a member-path input resolves
+        # above): the recorded base governs the diff, never a fallback
+        # detected under a raw-path key.
+        worktree_name = shard_info["worktree_name"]
 
         from skein import shard as shard_module
 
@@ -8778,7 +9156,7 @@ def shard_apply(ctx, worktree_name, no_confirm):
                 input=diff,
                 text=True,
                 capture_output=True,
-                cwd=shard_module.PROJECT_ROOT,
+                cwd=shard_module.get_project_root(),
             )
             if result.returncode != 0:
                 raise Exception(result.stderr or "git apply failed")
@@ -8818,6 +9196,8 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
         shard_info = shard_worktree.get_shard_status(worktree_name)
         if not shard_info:
             raise click.ClickException(f"SHARD not found: {worktree_name}")
+        # Canonical name for display (a member-path input resolves above)
+        worktree_name = shard_info["worktree_name"]
 
         worktree_path = Path(shard_info["worktree_path"])
         if not worktree_path.exists():
@@ -8827,7 +9207,7 @@ def shard_test(ctx, worktree_name, rite_name, verbose):
         # Rites are project-level, shards just run them in their context
         from skein import shard as shard_module
 
-        project_root = shard_module.PROJECT_ROOT
+        project_root = shard_module.get_project_root()
 
         config = load_rites_config(project_root)
         rites_dict = config.get("rites", {})

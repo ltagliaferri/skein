@@ -652,7 +652,7 @@ async def get_sites_timestamps(
 
 
 def _raise_site_not_found(site_id: str, store: JSONStore) -> None:
-    """Raise a 404 with active-site suggestions in the detail message."""
+    """Raise a 404 whose detail lists the active sites (or how to create one)."""
     all_sites = store.get_sites()
     active_sites = [s for s in all_sites if s.status == "active"]
     if active_sites:
@@ -736,8 +736,6 @@ GENERIC_TITLES = {
     "task",
 }
 
-_DEFAULT_TITLE_EXAMPLE = 'e.g., "Clear description of what this folio is about"'
-
 TITLE_EXAMPLES = {
     "brief": 'e.g., "Implement OAuth for API endpoints" or "Fix race condition in websocket handler"',
     "issue": 'e.g., "Agents crash when site_id contains spaces" or "Memory leak in long-running sessions"',
@@ -748,6 +746,20 @@ TITLE_EXAMPLES = {
     "moment": 'e.g., "Released the first public build" or "The migration is complete"',
     "summary": 'e.g., "Completed OAuth integration" or "Session retrospective: agent coordination"',
 }
+
+_DEFAULT_TITLE_EXAMPLE = 'e.g., "Clear description of what this folio is about"'
+
+HYPOTHESIS_VERDICTS = {
+    "confirmed",
+    "disconfirmed",
+    "inconclusive",
+    "deferred",
+    "blocked",
+}
+
+HYPOTHESIS_PRIORITIES = {"high", "medium", "low"}
+
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 # Patterns for shard/worktree IDs:
 # - 65af2039-20251205-001 (8-char hex prefix)
@@ -832,19 +844,6 @@ def validate_folio_title(title: str, folio_type: str) -> str:
         title = title[:97] + "..."
 
     return title
-
-
-HYPOTHESIS_VERDICTS = {
-    "confirmed",
-    "disconfirmed",
-    "inconclusive",
-    "deferred",
-    "blocked",
-}
-
-HYPOTHESIS_PRIORITIES = {"high", "medium", "low"}
-
-PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 @router.post("/sites/{site_id}/folios")
@@ -1949,7 +1948,6 @@ async def get_agent_yields(
 # ============================================================================
 # Hypothesis Endpoints
 # ============================================================================
-
 
 class HypothesisVerdict(BaseModel):
     verdict: str
